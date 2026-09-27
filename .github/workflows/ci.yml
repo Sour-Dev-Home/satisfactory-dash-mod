@@ -1,0 +1,42 @@
+name: CI
+
+# This repository has no build (UE builds run on the owner's own PC, ADR-0039); the one check that runs
+# here, on every push and PR, is the PII / hardcoded-local-path scan, matching satisfactory-dash's own
+# (Sour-Dev-Home/satisfactory-dash, .github/workflows/ci.yml). See that repo's ADR-0039 for context.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check for PII or hardcoded local paths
+        # The identifiers to look for live in the org-level PII_PATTERNS secret (one fixed string
+        # per line), not in this public file, and only file:line is printed. It must be a secret,
+        # never a variable: Actions prints a step's `env:` block at the top of its log, and only
+        # secrets are masked there. Fork and Dependabot runs may not get it; see the warning below.
+        env:
+          PII_PATTERNS: ${{ secrets.PII_PATTERNS }}
+        run: |
+          PATTERNS=$(mktemp)
+          printf '%s\n' "$PII_PATTERNS" | sed '/^[[:space:]]*$/d' > "$PATTERNS"
+          printf '%s\n' 'C:\Users' 'C:/Users' '/home/' '/Users/' >> "$PATTERNS"
+          if [ -z "$PII_PATTERNS" ]; then
+            echo "::warning::PII_PATTERNS secret is not available (e.g. a fork PR); only checking for local paths."
+          fi
+          # README.md's Licence section deliberately names the copyright holder (LICENSE itself is the
+          # unmodified GPL text, no name in it, so GitHub's licence detector can match it), matching
+          # satisfactory-dash's own ADR-0018 exception pattern: the name appears in exactly one place.
+          HITS=$(git ls-files | grep -vE '^(\.github/|.*CLAUDE\.md$|README\.md$)' | xargs -r grep -H -n -iF -f "$PATTERNS" | cut -d: -f1,2 || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS"
+            echo "::error::Possible PII or hardcoded-path leak at the file:line locations above."
+            exit 1
+          fi

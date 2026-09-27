@@ -39,6 +39,23 @@ exists.
 
 ## Licence
 
-GPL-3.0-or-later (see [`LICENSE`](./LICENSE)), because this links [SML](https://github.com/satisfactorymodding/SatisfactoryModLoader)
-(GPL-3.0). This is a separate program from satisfactory-dash (AGPL-3.0-only): the two talk over HTTP, and neither
-licence reaches the other.
+satisfactory-dash-mod
+Copyright (C) 2026 Leonardo Nunez
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License along with this program; the unmodified
+license text is in [`LICENSE`](./LICENSE). If not, see <https://www.gnu.org/licenses/>.
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+GPL-3.0-or-later because this links [SML](https://github.com/satisfactorymodding/SatisfactoryModLoader)
+(GPL-3.0). This is a separate program from satisfactory-dash (AGPL-3.0-only): the two talk over HTTP, and
+neither licence reaches the other. Every source file added later carries the same
+`SPDX-License-Identifier: GPL-3.0-or-later` header.
