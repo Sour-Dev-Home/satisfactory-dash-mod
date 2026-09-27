@@ -1,0 +1,19 @@
+# Unreal Engine / SML build output — no binaries are committed to this repository.
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+.vs/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# Alpakit / mod packaging output
+Packaged/
+
+# OS noise
+.DS_Store
+Thumbs.db
