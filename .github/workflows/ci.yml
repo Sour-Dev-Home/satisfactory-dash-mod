@@ -31,11 +31,12 @@ jobs:
           if [ -z "$PII_PATTERNS" ]; then
             echo "::warning::PII_PATTERNS secret is not available (e.g. a fork PR); only checking for local paths."
           fi
-          # No file in this repository names a real person (the copyright line in README.md's Licence
-          # section reads "The satisfactory-dash-mod contributors"), so there is no name-carve-out here,
-          # unlike satisfactory-dash's own LICENSE exception (ADR-0018). Only .github/ itself (this
-          # workflow's own path-pattern literals) and CLAUDE.md-style docs are excluded.
-          HITS=$(git ls-files | grep -vE '^(\.github/|.*CLAUDE\.md$)' | xargs -r grep -H -n -iF -f "$PATTERNS" | cut -d: -f1,2 || true)
+          # The owner's real name appears in exactly one file, NOTICE (mirrors satisfactory-dash's own
+          # LICENSE exception, ADR-0018, adapted here because this repo's LICENSE must stay
+          # byte-identical to canonical GPLv3 text for GitHub's license detector). README.md's Licence
+          # section points to NOTICE and carries no name itself. Only .github/, CLAUDE.md-style docs,
+          # and NOTICE are excluded.
+          HITS=$(git ls-files | grep -vE '^(\.github/|.*CLAUDE\.md$|NOTICE$)' | xargs -r grep -H -n -iF -f "$PATTERNS" | cut -d: -f1,2 || true)
           if [ -n "$HITS" ]; then
             echo "$HITS"
             echo "::error::Possible PII or hardcoded-path leak at the file:line locations above."

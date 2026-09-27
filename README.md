@@ -40,7 +40,6 @@ exists.
 ## Licence
 
 satisfactory-dash-mod
-Copyright (C) 2026 The satisfactory-dash-mod contributors
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General
 Public License as published by the Free Software Foundation, either version 3 of the License, or (at your
@@ -51,7 +50,8 @@ implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 for more details.
 
 You should have received a copy of the GNU General Public License along with this program; the unmodified
-license text is in [`LICENSE`](./LICENSE). If not, see <https://www.gnu.org/licenses/>.
+license text is in [`LICENSE`](./LICENSE), and the copyright holder is named in [`NOTICE`](./NOTICE). If
+not, see <https://www.gnu.org/licenses/>.
 
 SPDX-License-Identifier: GPL-3.0-or-later
 
