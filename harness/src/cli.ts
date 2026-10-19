@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkApi, scanSpikes } from "./check-api";
+import { loadConfig } from "./config";
 import { verifyContract } from "./contract";
+import { RefusalError, realDeps, runSpike } from "./run";
+import { loadToolchain, toolchainMismatches } from "./toolchain";
+import { SPIKE_IDS, type SpikeId } from "./verdict";
 
 export const HARNESS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const REPO_ROOT = resolve(HARNESS_ROOT, "..");
@@ -28,8 +32,47 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
       io.log(`verify-contract: ${problems.length} problems`);
       return problems.length ? 1 : 0;
     }
+    case "selftest": {
+      const path = process.env.SATIS_HARNESS_CONFIG;
+      if (!path) {
+        io.error("SATIS_HARNESS_CONFIG is not set (see docs/runner.md)");
+        return 2;
+      }
+      const config = loadConfig(path);
+      const mismatches = toolchainMismatches(loadToolchain(join(HARNESS_ROOT, "toolchain.json")), config.installed);
+      for (const m of mismatches) io.error(`toolchain: ${m}`);
+      const contract = await main(["verify-contract"], io);
+      const api = runCheckApi(io);
+      return mismatches.length || contract || api ? 1 : 0;
+    }
+    case "run": {
+      const spike = argv[1] as SpikeId;
+      const outAt = argv.indexOf("--out");
+      const outDir = outAt === -1 ? undefined : argv[outAt + 1];
+      if (!SPIKE_IDS.includes(spike) || !outDir) {
+        io.error(`usage: harness run <${SPIKE_IDS.join(", ")}> --out <dir> (S3, S4 and S5 arrive with the spikes plan)`);
+        return 2;
+      }
+      const path = process.env.SATIS_HARNESS_CONFIG;
+      if (!path) {
+        io.error("SATIS_HARNESS_CONFIG is not set (see docs/runner.md)");
+        return 2;
+      }
+      try {
+        const deps = realDeps(loadConfig(path), loadToolchain(join(HARNESS_ROOT, "toolchain.json")), outDir, REPO_ROOT);
+        const { result, dir } = await runSpike(spike, deps);
+        io.log(`${spike} (${result.claim}): ${result.pass ? "PASS" : "FAIL"}\n${result.reasons.join("\n")}\nevidence: ${dir}`);
+        return result.pass ? 0 : 1;
+      } catch (e) {
+        if (e instanceof RefusalError) {
+          io.error(`refused: ${e.message}`);
+          return 3;
+        }
+        throw e;
+      }
+    }
     default:
-      io.error("usage: harness <check-api|verify-contract>");
+      io.error("usage: harness <check-api|verify-contract|selftest|run>");
       return 2;
   }
 }

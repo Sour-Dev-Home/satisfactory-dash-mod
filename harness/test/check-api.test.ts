@@ -94,4 +94,10 @@ describe("cli check-api", () => {
   it("exits 2 on an unknown command", async () => {
     expect(await main(["nope"], { log: () => {}, error: () => {} })).toBe(2);
   });
+
+  it("run refuses a spike this harness version does not have", async () => {
+    const errors: string[] = [];
+    expect(await main(["run", "S3", "--out", "x"], { log: () => {}, error: (s) => void errors.push(s) })).toBe(2);
+    expect(errors.join(" ")).toMatch(/S0, S1, S1b, S2/);
+  });
 });
