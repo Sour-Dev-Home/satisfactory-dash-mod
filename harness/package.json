@@ -1,0 +1,21 @@
+{
+  "name": "satis-mod-harness",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "harness": "tsx src/cli.ts"
+  },
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "~7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

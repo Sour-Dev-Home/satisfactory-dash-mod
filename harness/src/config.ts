@@ -1,0 +1,45 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { z } from "zod";
+
+export const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+const isLoopbackHttps = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && LOOPBACK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The runner's own config, kept outside the repository (the path is in SATIS_HARNESS_CONFIG). It holds every value no
+ * captured source states: the test server's ports (in serverArgs), the Alpakit build command and its output folder.
+ */
+export const RunnerConfigSchema = z.strictObject({
+  serverDir: z.string().min(1),
+  serverExe: z.string().min(1).default("FactoryServer.exe"),
+  apiBaseUrl: z.string().refine(isLoopbackHttps, "apiBaseUrl must be https on loopback (127.0.0.1, localhost or [::1])"),
+  serverArgs: z.array(z.string()).default([]),
+  logPath: z.string().min(1).optional(),
+  buildCommand: z
+    .array(z.string().min(1))
+    .min(1, "buildCommand is empty: fill it from the captured Alpakit page (G2-prep)"),
+  builtPluginDir: z.string().includes("{spike}"),
+  installed: z.strictObject({ engine: z.string().min(1), sml: z.string().min(1) }),
+});
+export type RunnerConfig = z.infer<typeof RunnerConfigSchema>;
+
+export function loadConfig(path: string): RunnerConfig {
+  return RunnerConfigSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+}
+
+/** sml-dedicated-servers-2026-09-27.adoc (FAQ, "Log Files"): a dedicated server's log "could" be here; S0 verifies it. */
+export function logPathOf(cfg: RunnerConfig): string {
+  return cfg.logPath ?? join(cfg.serverDir, "FactoryGame", "Saved", "Logs", "FactoryGame.log");
+}
+
+export function pluginDirFor(cfg: RunnerConfig, spike: string): string {
+  return cfg.builtPluginDir.replaceAll("{spike}", spike);
+}
