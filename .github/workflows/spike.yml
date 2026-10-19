@@ -1,0 +1,71 @@
+name: spike
+
+# Runs ADR-0039 G2 spikes on the owner's self-hosted `ue` runner (docs/runner.md). This is a public repository, so
+# this workflow must never trigger from a pull request: fork code would run on the owner's PC. harness/test/
+# workflows.test.ts fails CI if a trigger is added, an action is unpinned or a job leaves the ue-runner environment.
+on:
+  workflow_dispatch:
+    inputs:
+      spike:
+        description: Spike to run
+        required: true
+        type: choice
+        options: [S0, S1, S1b, S2]
+  push:
+    branches: [main]
+    paths: ["harness/**", "spikes/**", "api-sources.md", ".github/workflows/spike.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ue-runner
+  cancel-in-progress: false
+
+jobs:
+  selftest:
+    if: github.event_name == 'push'
+    runs-on: [self-hosted, windows, ue]
+    environment: ue-runner
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: harness
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: harness/.node-version
+      - run: npm ci
+      - run: npm run harness -- selftest
+
+  run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, windows, ue]
+    environment: ue-runner
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: harness
+    env:
+      SPIKE: ${{ inputs.spike }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: harness/.node-version
+      - run: npm ci
+      - run: npm run harness -- run $env:SPIKE --out "$env:RUNNER_TEMP/evidence"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-${{ inputs.spike }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: warn
+          retention-days: 90
