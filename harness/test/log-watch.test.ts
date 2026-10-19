@@ -80,4 +80,10 @@ describe("log text helpers", () => {
     expect(modLines(text)).toEqual(["LogTemp: satis-mod loaded"]);
     expect(versionLines(text)).toEqual(["LogInit: Engine Version: 5.6.1", "LogInit: Net CL: 502094"]);
   });
+
+  // Seen in S0's bundle (2026-10-19): the game's crash reporter logs its auth header, which says "sentry_version".
+  it("leaves out the crash reporter's auth header, which only looks like a version line", () => {
+    const text = "LogInit: Net CL: 513885\nx-sentry-auth:Sentry sentry_key=abc, sentry_version=7, sentry_client=x\n";
+    expect(versionLines(text)).toEqual(["LogInit: Net CL: 513885"]);
+  });
 });

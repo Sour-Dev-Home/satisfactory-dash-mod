@@ -153,7 +153,9 @@ describe("checkApi", () => {
 });
 
 describe("cli check-api", () => {
-  it("passes on this repository (no spike code yet)", async () => {
+  // Reads the working tree on purpose: in CI's clean checkout it is the guard that every committed spike's API use
+  // has a row. Locally, an untracked spike without rows fails it too.
+  it("passes on this repository's spikes", async () => {
     expect(await main(["check-api"], { log: () => {}, error: () => {} })).toBe(0);
   });
 

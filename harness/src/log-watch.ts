@@ -59,7 +59,13 @@ export function modLines(text: string): string[] {
   return text.split(/\r?\n/).filter((l) => l.includes(MOD_PREFIX));
 }
 
-/** Lines that look like version information, kept verbatim. Their real format is first seen in S0's evidence. */
+/**
+ * Lines that look like version information, kept verbatim. The crash reporter's auth header ("x-sentry-auth: …
+ * sentry_version=7") matches too, and bundles are public, so it is left out (S0's bundle, 2026-10-19).
+ */
 export function versionLines(text: string, max = 20): string[] {
-  return text.split(/\r?\n/).filter((l) => /version|changelist|\bCL\b/i.test(l)).slice(0, max);
+  return text
+    .split(/\r?\n/)
+    .filter((l) => /version|changelist|\bCL\b/i.test(l) && !/sentry-auth|sentry_key/i.test(l))
+    .slice(0, max);
 }
