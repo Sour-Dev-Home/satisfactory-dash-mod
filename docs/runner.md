@@ -15,6 +15,18 @@ test install** of the dedicated server. Spec: `docs/specs/2026-10-19-g2-harness-
    and on the SML project `D:\SatisfactoryModding\SatisfactoryModLoader` (a build writes its `Mods\`, `Saved\` and
    `Intermediate\`), and no other grants. Evidence goes to the runner's own temp folder. It must not be able to read
    your real server's folder, your profile or `~/.lanes`.
+3. **Check the drive's defaults.** On a second drive, Windows usually gives `Authenticated Users` Modify on the
+   whole drive, so every folder on it, your real server included, is writable by `satis-runner` unless you deny
+   it. Check with `(Get-Acl D:\).Access`. If it's there, deny the account on each folder it doesn't need, from an
+   admin PowerShell:
+
+       foreach ($d in 'D:\satisfactoryds', 'D:\SteamLibrary', 'D:\SteamCMD') {
+         icacls $d /deny "satis-runner:(OI)(CI)(F)"
+       }
+
+   List every folder at the drive's root and add your own (backups, other games). Leave out the folders above and
+   the runner's own folder. Folders Windows already locks down (`Program Files`, `WindowsApps`) refuse the change
+   and don't need it. Found on the owner's PC on 2026-10-19: `D:\` grants `Authenticated Users` Modify.
 
 ## 2. The test server
 
