@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.0.1",
+	"SemVersion": "0.0.1",
+	"GameVersion": ">=513885",
+	"FriendlyName": "satis-dash spike S1b",
+	"Description": "ADR-0039 G2 spike S1b (claim C3): HTTPS with verification on; a wrong hostname must fail. Not a product.",
+	"Category": "Modding",
+	"CreatedBy": "Sour-Dev-Home",
+	"CreatedByURL": "https://github.com/Sour-Dev-Home/satisfactory-dash-mod",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{ "Name": "SatisModS1b", "Type": "Runtime", "LoadingPhase": "Default" }
+	],
+	"Plugins": [
+		{ "Name": "SML", "Enabled": true, "SemVersion": "^3.12.0" }
+	]
+}
