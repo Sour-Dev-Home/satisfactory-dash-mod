@@ -4,7 +4,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "harness": "tsx src/cli.ts"
+    "harness": "tsx src/cli.ts",
+    "sync-contract": "tsx scripts/sync-contract.ts"
   },
   "type": "module",
   "private": true,

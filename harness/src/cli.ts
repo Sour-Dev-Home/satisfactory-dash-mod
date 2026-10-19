@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkApi, scanSpikes } from "./check-api";
+import { verifyContract } from "./contract";
 
 export const HARNESS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const REPO_ROOT = resolve(HARNESS_ROOT, "..");
@@ -21,8 +22,14 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
   switch (argv[0]) {
     case "check-api":
       return runCheckApi(io);
+    case "verify-contract": {
+      const problems = verifyContract(join(HARNESS_ROOT, "contract"));
+      for (const p of problems) io.error(`contract: ${p}`);
+      io.log(`verify-contract: ${problems.length} problems`);
+      return problems.length ? 1 : 0;
+    }
     default:
-      io.error("usage: harness <check-api>");
+      io.error("usage: harness <check-api|verify-contract>");
       return 2;
   }
 }
