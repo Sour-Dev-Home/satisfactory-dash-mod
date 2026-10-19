@@ -32,6 +32,14 @@ export function median(values: number[]): number | null {
   return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
+/** Medians of the window's first and second halves: a boot phase inside the window shows as a gap between them. */
+export function halfMedians(samples: TickSample[]): { first: number; second: number } | null {
+  if (samples.length === 0) return null;
+  const values = samples.map((s) => s.value);
+  const mid = Math.ceil(values.length / 2);
+  return { first: median(values.slice(0, mid))!, second: median(values.slice(values.length - mid))! };
+}
+
 export async function sampleTicks(
   read: () => Promise<number>,
   opts: { warmupMs?: number; durationMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; now: () => number },

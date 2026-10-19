@@ -126,11 +126,65 @@ describe("runSpike", () => {
       "probe",
       "build S2",
       "remove SatisMod*",
-      "probe", "start", "healthy", "ticks", "stop",
+      "reset log", "probe", "start", "healthy", "ticks", "stop",
       "install D:/b/S2 as SatisModS2",
       "echo.start", "reset log", "probe", "start", "healthy", "wait satis-mod loaded", "ticks", "wait satis-mod s2 done", "stop",
       "echo.close",
     ]);
+  });
+
+  it("refuses, installing nothing, when the build fails (final review, finding 1)", async () => {
+    const { deps, calls } = fakeDeps({ build: async () => Promise.reject(new Error("build failed: UAT exit 25\nCook failed.")) });
+    const err = await runSpike("S0", deps).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RefusalError);
+    expect((err as Error).message).toMatch(/Cook failed/);
+    expect(calls.some((c) => c.startsWith("install") || c === "start")).toBe(false);
+  });
+
+  it("S2: keeps the baseline boot's server lines, which the with-mod boot's log reset would erase (finding 4)", async () => {
+    const { deps } = fakeDeps({}, "[t]LogServer: Display: Server startup time elapsed\nLogInit: Net CL: 513885\nLogTemp: other\n");
+    const { dir } = await runSpike("S2", deps);
+    const lines = JSON.parse(readFileSync(join(dir, "baseline-log.json"), "utf8")) as string[];
+    expect(lines).toEqual(["[t]LogServer: Display: Server startup time elapsed", "LogInit: Net CL: 513885"]);
+  });
+
+  // A boot phase (~30, then ~22) in the with-mod window raises its median and could hide a real drop: a false PASS.
+  // In the baseline it can only raise the baseline, which makes the check stricter, so it doesn't fail the run.
+  const series = (values: number[]): TickSeries => ({
+    warmup: [],
+    samples: values.map((value) => ({ at: "2026-10-19T16:00:00.000Z", value })),
+    errors: 0,
+    median: [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!,
+  });
+  const shifted = series([30, 30, 30, 30, 22, 22, 22, 22]);
+  const steady = series([22, 22, 22, 22, 22, 22, 22, 22]);
+
+  it("S2: fails when the with-mod window isn't steady, so a boot phase can't hide a drop (finding 3)", async () => {
+    const windows = [steady, shifted];
+    const { deps } = fakeDeps({ sampleTicks: async () => windows.shift()! });
+    const { result } = await runSpike("S2", deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons.join(" ")).toMatch(/with-mod window isn't steady: first half 30, second half 22/);
+  });
+
+  it("S2: an unsteady baseline doesn't fail the run on its own (it only makes the check stricter)", async () => {
+    const windows = [shifted, steady];
+    const { deps } = fakeDeps({ sampleTicks: async () => windows.shift()! });
+    const { result } = await runSpike("S2", deps);
+    expect(result.reasons.join(" ")).not.toMatch(/isn't steady/);
+  });
+
+  it("S1b: keeps the engine's HTTP and TLS lines, which show why the bad host failed (finding 2)", async () => {
+    const log = [
+      "LogInit:  - bVerifyPeer = true  - Libcurl will verify peer certificate",
+      "LogSatisMod: Display: satis-mod s1b good status=200",
+      "LogHttp: Warning: 0x1: request failed, libcurl error: 60 (SSL peer certificate or SSH remote key was not OK)",
+      "LogSatisMod: Display: satis-mod s1b bad error=Other",
+    ].join("\n");
+    const { deps } = fakeDeps({}, log);
+    const { dir } = await runSpike("S1b", deps);
+    const lines = JSON.parse(readFileSync(join(dir, "http.json"), "utf8")) as string[];
+    expect(lines).toEqual([log.split("\n")[0], log.split("\n")[2]]);
   });
 
   it("stops the process it started, for every server start", async () => {
