@@ -19,7 +19,8 @@ test install** of the dedicated server. Spec: `docs/specs/2026-10-19-g2-harness-
 
 Install a separate dedicated server into `D:\satis-test\server` with SteamCMD, app 1690800, the same way ADR-0040's
 server manager does [NEEDS VERIFICATION: copy the exact SteamCMD command from ADR-0040 once it merges]. Don't point it
-at your real server's folder.
+at your real server's folder. Boot it once (any spike will do) before running S2: a freshly created world runs at
+~30 ticks for its first 10 minutes, longer than the harness's 3-minute warm-up (`harness/src/ticks.ts`).
 
 **Ports:** the G0 addendum lane task captures which ports the server uses and the arguments that move them. Put those
 arguments in `serverArgs` and the API port in `apiBaseUrl`. Until then, `serverArgs` stays `[]` and your real server

@@ -22,7 +22,7 @@ import {
   waitHealthy,
   whileRunning,
 } from "./server-control";
-import { readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
+import { halfMedians, readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WARMUP_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Evidence, SpikeId, Verdict } from "./verdict";
 
@@ -78,6 +78,16 @@ export interface RunDeps {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Above this gap between a tick window's half medians, the window measured two server states. */
+const STEADY_TOLERANCE = 0.1;
+
+/** At most 50 matching log lines: enough to show a cause, small enough for a public bundle. */
+const pickLines = (text: string, pattern: RegExp) =>
+  text.split(/\r?\n/).filter((l) => pattern.test(l)).slice(0, 50);
+
+/** The last lines of a build's output: UAT and Build.bat write their errors to stdout. */
+export const lastLines = (text: string, n: number) => text.trimEnd().split(/\r?\n/).slice(-n).join("\n");
+
 export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result: Result; dir: string }> {
   const spec = SPIKES[spike];
   const mismatches = toolchainMismatches(deps.toolchain, deps.config.installed);
@@ -101,16 +111,23 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   await refuseIfAnswering();
 
   const startedAt = deps.now().toISOString();
-  await deps.build(spike);
+  try {
+    await deps.build(spike);
+  } catch (e) {
+    throw new RefusalError(message(e));
+  }
   deps.removeSpikeMods();
 
   const runReasons: string[] = [];
   let baseline: TickSeries | undefined;
   let withMod: TickSeries | undefined;
+  let baselineLog = "";
   let logText = "";
   let echo: Echo | undefined;
 
   if (spec.ticks) {
+    // The with-mod boot resets the log, so the baseline boot's lines are read before that.
+    const baseOffset = deps.resetLog();
     const proc = await startFresh();
     try {
       await whileRunning(proc, deps.waitHealthy(), "waiting for health");
@@ -119,6 +136,7 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       runReasons.push(`baseline: ${message(e)}`);
     } finally {
       await deps.stop(proc);
+      baselineLog = deps.readLogSince(baseOffset);
     }
   }
 
@@ -149,6 +167,16 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     await echo?.close();
   }
 
+  // A level shift between the with-mod window's halves means it measured two server states (the boot phase runs at
+  // ~30, then ~22), and its median could then hide a real drop: a false PASS (final review, finding 3). The same
+  // shift in the baseline only raises the baseline, which makes the check stricter, so it isn't a reason here;
+  // ticks.json keeps both windows for a reader.
+  const halves = withMod && halfMedians(withMod.samples);
+  if (halves && Math.abs(halves.first - halves.second) > STEADY_TOLERANCE * Math.max(halves.first, halves.second)) {
+    const r = (n: number) => Number(n.toFixed(2));
+    runReasons.push(`with-mod window isn't steady: first half ${r(halves.first)}, second half ${r(halves.second)}`);
+  }
+
   const evidence: Evidence = {
     modLines: modLines(logText),
     echo: echo?.requests ?? [],
@@ -173,7 +201,12 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   };
   const captures: Record<string, unknown> = {};
   if (spec.echo) captures["echo.json"] = evidence.echo;
-  if (spec.ticks) captures["ticks.json"] = { baseline: baseline ?? null, withMod: withMod ?? null };
+  if (spec.ticks) {
+    captures["ticks.json"] = { baseline: baseline ?? null, withMod: withMod ?? null };
+    captures["baseline-log.json"] = pickLines(baselineLog, /LogServer|LogInit: Net CL/);
+  }
+  // S1b's mod only sees EHttpFailureReason ("Other" for a TLS failure); the engine's lines show the cause.
+  if (spike === "S1b") captures["http.json"] = pickLines(logText, /LogHttp|bVerifyPeer/);
   // The full server log stays on the runner: it can name the machine, and bundles are public artifacts.
   return { result, dir: writeEvidence(deps.outDir, result, captures) };
 }
@@ -192,7 +225,9 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
     build: (spike) =>
       new Promise((resolve, reject) => {
         const [exe, ...args] = config.buildCommand.map((a) => a.replaceAll("{spike}", spike));
-        execFile(exe!, args, { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 }, (err) => (err ? reject(new Error(`build failed: ${err.message}`)) : resolve()));
+        execFile(exe!, args, { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) =>
+          err ? reject(new Error(`build failed: ${err.message}\n${lastLines(`${stdout}\n${stderr}`, 40)}`)) : resolve(),
+        );
       }),
     removeSpikeMods: () => removeSpikeMods(config.serverDir),
     install: (pluginDir, expected) => void installMod(pluginDir, config.serverDir, expected),
@@ -203,7 +238,10 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
     waitForLine: async (pattern, fromOffset, timeoutMs) => void (await waitForLine(logPath, pattern, { fromOffset, timeoutMs })),
     readLogSince: (offset) => readLogSince(logPath, offset),
     startEcho: () => startEcho(),
-    sampleTicks: () => sampleTicks(() => readTickRate(api), { durationMs: TICK_WINDOW_MS, intervalMs: TICK_INTERVAL_MS, sleep, now: Date.now }),
+    sampleTicks: () =>
+      sampleTicks(() => readTickRate(api), {
+        warmupMs: TICK_WARMUP_MS, durationMs: TICK_WINDOW_MS, intervalMs: TICK_INTERVAL_MS, sleep, now: Date.now,
+      }),
     now: () => new Date(),
     env: {
       commit: process.env.GITHUB_SHA ?? "local",
