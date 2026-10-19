@@ -31,10 +31,17 @@ must be off during runs.
    (they carry the current version and a one-time token), installing under `D:\actions-runner`.
 2. When `config.cmd` asks: labels `windows,ue` (it adds `self-hosted` itself); run as a service; log on as
    `satis-runner`.
-3. Settings → Environments → New environment `ue-runner` → Required reviewers: you. Every spike run then waits for
-   your approval.
+3. Settings → Environments → New environment `ue-runner`:
+   - Required reviewers: you. Every spike run then waits for your approval.
+   - Deployment branches and tags: "Selected branches and tags", with only `main`. A job on any other branch,
+     including a PR's own edited copy of `spike.yml`, can't use the environment, so it never starts.
 4. Settings → Actions → General → "Fork pull request workflows from outside collaborators": "Require approval for all
    outside collaborators". `spike.yml` never runs on PRs anyway; this is a second lock.
+5. If your GitHub plan offers runner groups for this repo, put the runner in a group restricted to the workflow
+   `.github/workflows/spike.yml@refs/heads/main`. Without that, any workflow pushed to a branch of this repo could
+   name `runs-on: self-hosted`. The guard test fails CI on such a workflow, but only after the push, and the
+   environment gate only stops jobs that use it. So treat push access to this repo, including agent sessions, as
+   access to the runner, and keep it to yourself.
 
 ## 4. The harness config
 
