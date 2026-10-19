@@ -6,14 +6,15 @@ test install** of the dedicated server. Spec: `docs/specs/2026-10-19-g2-harness-
 ## Before you start
 
 - G2-prep is done: the toolchain is installed exactly as `sml-getting-started` says, and the SML starter project builds.
-- Your real server is stopped whenever a spike runs, until the test server's ports are moved (below). Both servers
-  would otherwise want the same ports.
+- Your real server can keep running: the test server uses its own ports (below).
 
 ## 1. A low-privilege account and folders
 
 1. Create a local standard (non-admin) Windows user, `satis-runner`.
-2. Create `D:\satis-test` (the test server) and `D:\satis-build` (build output). Give `satis-runner` Modify on both and
-   no other grants. It must not be able to read your real server's folder, your profile or `~/.lanes`.
+2. Create `D:\satis-test` (the test server) and `D:\satis-build` (build output). Give `satis-runner` Modify on both,
+   and on the SML project `D:\SatisfactoryModding\SatisfactoryModLoader` (a build writes its `Mods\`, `Saved\` and
+   `Intermediate\`), and no other grants. Evidence goes to the runner's own temp folder. It must not be able to read
+   your real server's folder, your profile or `~/.lanes`.
 
 ## 2. The test server
 
@@ -22,9 +23,11 @@ server manager does [NEEDS VERIFICATION: copy the exact SteamCMD command from AD
 at your real server's folder. Boot it once (any spike will do) before running S2: a freshly created world runs at
 ~30 ticks for its first 10 minutes, longer than the harness's 3-minute warm-up (`harness/src/ticks.ts`).
 
-**Ports:** the G0 addendum lane task captures which ports the server uses and the arguments that move them. Put those
-arguments in `serverArgs` and the API port in `apiBaseUrl`. Until then, `serverArgs` stays `[]` and your real server
-must be off during runs.
+**Ports:** the server uses the standard port (default 7777: TCP for the HTTPS API, UDP for game traffic) and the
+reliable-messaging port (default 8888, TCP). `-Port=` and `-ReliablePort=` move them (satisfactory-dash
+`raw-sources/dedicated-server-ports-2026-10-19.md`, #452). The config below puts the test server on 17777 and 18888.
+A busy standard port isn't an error: the server quietly takes the next free one, which is why the harness refuses to
+start when anything already answers on `apiBaseUrl`. S0 passed this way on 2026-10-19 with the real server up on 7777.
 
 ## 3. Lock down, then register the runner
 
@@ -55,8 +58,8 @@ Create `D:\satis-runner-config\harness.json` (readable by `satis-runner`; it hol
 
     {
       "serverDir": "D:/satis-test/server",
-      "apiBaseUrl": "https://127.0.0.1:7777",
-      "serverArgs": [],
+      "apiBaseUrl": "https://127.0.0.1:17777",
+      "serverArgs": ["-Port=17777", "-ReliablePort=18888"],
       "buildCommand": ["pwsh", "-NoProfile", "-File", "scripts/build-spike.ps1", "-Spike", "{spike}",
         "-Project", "D:/SatisfactoryModding/SatisfactoryModLoader", "-Engine", "C:/Program Files/Unreal Engine - CSS",
         "-Out", "D:/satis-build/{spike}"],
@@ -66,8 +69,7 @@ Create `D:\satis-runner-config\harness.json` (readable by `satis-runner`; it hol
 
 Build output comes from `scripts/build-spike.ps1` (Alpakit `PackagePlugin`, Windows Server, Shipping). It builds
 `FactoryEditor` first, because the cook loads the spike's editor module. The first build compiles the whole game
-target (about 20 minutes); later ones are incremental. `apiBaseUrl` uses the default port until the G0 addendum
-moves it. `installed` is what you actually installed, and the harness refuses any difference from
+target (about 20 minutes); later ones are incremental. `installed` is what you actually installed, and the harness refuses any difference from
 `harness/toolchain.json`.
 
 ## 5. Check it

@@ -8,6 +8,8 @@ export const TICK_INTERVAL_MS = 10_000;
  * Readings before this point are kept but left out of the median. The test server runs at ~30 after boot, then
  * settles at ~22 with or without the mod: within a minute on later boots, 10 minutes on the first (world-creating)
  * boot (S2 runs of 2026-10-19). So a fresh test server must boot once before S2.
+ * S2's posts run from module load + 30 s to about + 20.5 min, so the with-mod window's last few minutes have no
+ * posts. Its median still covers mostly the posting period; write-ups should say so.
  */
 export const TICK_WARMUP_MS = 3 * 60_000;
 

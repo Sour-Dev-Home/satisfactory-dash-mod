@@ -15,6 +15,11 @@ $uproject = Join-Path $Project 'FactoryGame.uproject'
 if (-not (Test-Path "$source\$plugin.uplugin")) { throw "no spike plugin at $source" }
 if (-not (Test-Path $uproject)) { throw "no SML project at $uproject" }
 
+# FactoryEditor builds every plugin in Mods, so another spike left there (stale, or since deleted from the repo)
+# could break this build. Only the spike being built stays.
+Get-ChildItem (Join-Path $Project 'Mods') -Directory -Filter 'SatisMod*' |
+	Where-Object Name -ne $plugin | Remove-Item -Recurse -Force
+
 # Mirror the spike into the project's Mods folder; /MIR also deletes files removed from the source.
 $target = Join-Path $Project "Mods\$plugin"
 robocopy $source $target /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
