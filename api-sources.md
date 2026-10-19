@@ -21,3 +21,12 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 
 | Symbol | Header | Source |
 | --- | --- | --- |
+| CoreMinimal.h | Engine/Source/Runtime/Core/Public/CoreMinimal.h:1 | header only |
+| Modules/ModuleManager.h | Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h:1 | header only |
+| IModuleInterface | Engine/Source/Runtime/Core/Public/Modules/ModuleInterface.h:13 | sml-cpp-modding-2026-09-27.adoc ("Mod Modules") |
+| IMPLEMENT_MODULE | Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h:916 | header only |
+| UE_LOG | Engine/Source/Runtime/Core/Public/Logging/LogMacros.h:240 | header only |
+| LogTemp | Engine/Source/Runtime/Core/Public/CoreGlobals.h:55 | header only |
+| TEXT | Engine/Source/Runtime/Core/Public/HAL/Platform.h:1222 | header only |
+| module:Core | Engine/Source/Runtime/Core/Core.Build.cs:1 | header only |
+| plugin:SML | Mods/SML/SML.uplugin:1 | header only |
