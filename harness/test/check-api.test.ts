@@ -56,6 +56,72 @@ describe("extractUses", () => {
   });
 });
 
+describe("extractUses: evasions the final review found", () => {
+  const names = (text: string, path?: string) => [...new Set(extractUses([cpp(text, path)]).map((u) => u.name))].sort();
+
+  it("requires rows for unqualified calls, including templated ones", () => {
+    expect(names("UWorld* W = GetWorld();\nAActor* A = Cast<AActor>(Obj);\nUObject* O = NewObject<UObject>();")).toEqual(
+      ["AActor", "Cast", "GetWorld", "NewObject", "UObject", "UWorld"],
+    );
+  });
+
+  it("catches templated method calls", () => {
+    expect(names("X->GetSubsystem<UMine>();")).toEqual(["GetSubsystem", "UMine"]);
+  });
+
+  it("catches G* engine globals", () => {
+    expect(names("GEngine->AddOnScreenDebugMessage(1);")).toEqual(["AddOnScreenDebugMessage", "GEngine"]);
+  });
+
+  it("joins a qualifier split across lines and keeps the first line", () => {
+    const uses = extractUses([cpp("auto M = FHttpModule::\n  Get();")]);
+    expect(uses.map((u) => `${u.name}@${u.line}`)).toEqual(["FHttpModule::Get@1"]);
+  });
+
+  it("does not treat a digit separator as a char literal", () => {
+    expect(names("int N = 1'000; FHttpModule::Get();")).toEqual(["FHttpModule::Get"]);
+  });
+
+  it("keeps the whole nested qualifier", () => {
+    expect(names("UE::Tasks::Launch(X);")).toEqual(["UE::Tasks::Launch"]);
+  });
+
+  it("excuses a local method only when called on this", () => {
+    const local = "class FLocalThing {};\nvoid FLocalThing::ProcessRequest() {}\n";
+    expect(names(`${local}this->ProcessRequest();`)).toEqual([]);
+    expect(names(`${local}Req->ProcessRequest();`)).toEqual(["ProcessRequest"]);
+  });
+
+  it("excuses a function the spike defines or declares itself, but not a call in a return", () => {
+    expect(names("static void Helper() {}\nvoid Run() { Helper(); }")).toEqual([]);
+    expect(names("virtual void StartupModule() override;\n", "spikes/S1/Source/SatisModS1/Public/SatisModS1.h")).toEqual([]);
+    expect(names("bool F() { return IsRunningDedicatedServer(); }")).toEqual(["IsRunningDedicatedServer"]);
+  });
+
+  it("scans API use inside a #define body", () => {
+    expect(names("#define SATIS_LOG(x) UE_LOG(LogTemp, Display, x)")).toEqual(["UE_LOG"]);
+  });
+
+  it("scans .inl, .cc and .cxx files", () => {
+    expect(names("FHttpModule::Get();", "spikes/S1/Source/X.inl")).toEqual(["FHttpModule::Get"]);
+    expect(names("FHttpModule::Get();", "spikes/S1/Source/X.cxx")).toEqual(["FHttpModule::Get"]);
+  });
+
+  it("reads new[] module lists and every *ModuleNames list", () => {
+    const uses = extractUses([
+      { path: "spikes/S1/Source/X.Build.cs", text: 'PublicDependencyModuleNames.AddRange(new[] { "HTTP" });\nDynamicallyLoadedModuleNames.Add("Json");' },
+    ]);
+    expect(uses.map((u) => u.name)).toEqual(["module:HTTP", "module:Json"]);
+  });
+
+  it("reads plugin dependencies from the .uplugin", () => {
+    const uses = extractUses([
+      { path: "spikes/S1/SatisModS1.uplugin", text: '{\n  "Plugins": [\n    { "Name": "SML", "Enabled": true }\n  ]\n}' },
+    ]);
+    expect(uses.map((u) => `${u.name}@${u.line}`)).toEqual(["plugin:SML@3"]);
+  });
+});
+
 describe("parseSourceMap", () => {
   it("reads rows and strips backticks", () => {
     const { rows, badRows } = parseSourceMap(`${HEADER}| \`FHttpModule::Get\` | \`Engine/Source/Runtime/Online/HTTP/Public/HttpModule.h:30\` | ue-http-timer-json-2026-09-27.md |\n`);
