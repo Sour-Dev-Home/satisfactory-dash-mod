@@ -29,9 +29,10 @@ function fakeDeps(over: Partial<RunDeps> = {}, log = "LogTemp: satis-mod loaded\
     toolchain: { engine: "5.6.1", sml: "3.12.0", source: "x" },
     outDir: out,
     checkApi: () => ({ missing: [], badRows: [] }),
+    serverAnswering: async () => (calls.push("probe"), false),
     build: async (s) => void calls.push(`build ${s}`),
-    remove: (name) => void calls.push(`remove ${name}`),
-    install: (dir) => (calls.push(`install ${dir}`), `SatisMod${dir.split("/").pop()}`),
+    removeSpikeMods: () => void calls.push("remove SatisMod*"),
+    install: (dir, expected) => void calls.push(`install ${dir} as ${expected}`),
     start: () => {
       const p: ServerProcess = { pid: 100 + procs.length, exited: new Promise(() => {}) };
       procs.push(p);
@@ -40,7 +41,7 @@ function fakeDeps(over: Partial<RunDeps> = {}, log = "LogTemp: satis-mod loaded\
     },
     stop: async (p) => void (stopped.push(p), calls.push("stop")),
     waitHealthy: async () => void calls.push("healthy"),
-    logOffset: () => (calls.push("offset"), 0),
+    resetLog: () => (calls.push("reset log"), 0),
     waitForLine: async (re) => void calls.push(`wait ${re.source}`),
     readLogSince: () => log,
     startEcho: async () => (calls.push("echo.start"), echo),
@@ -57,10 +58,11 @@ describe("runSpike", () => {
     const { deps, calls } = fakeDeps();
     const { result, dir } = await runSpike("S0", deps);
     expect(calls).toEqual([
+      "probe",
       "build S0",
-      "remove SatisModS0", "remove SatisModS1", "remove SatisModS1b", "remove SatisModS2",
-      "install D:/b/S0",
-      "offset", "start", "healthy", "wait satis-mod loaded", "stop",
+      "remove SatisMod*",
+      "install D:/b/S0 as SatisModS0",
+      "reset log", "probe", "start", "healthy", "wait satis-mod loaded", "stop",
     ]);
     expect(result).toMatchObject({ spike: "S0", claim: "C1", pass: true, modLines: ["LogTemp: satis-mod loaded"] });
     expect(JSON.parse(readFileSync(join(dir, "result.json"), "utf8")).pass).toBe(true);
@@ -89,20 +91,44 @@ describe("runSpike", () => {
   });
 
   it("refuses when the built plugin has the wrong name, without starting a server", async () => {
-    const { deps, calls } = fakeDeps({ install: () => "SomethingElse" });
-    await expect(runSpike("S0", deps)).rejects.toThrow(/SomethingElse/);
+    const { deps, calls } = fakeDeps({
+      install: () => {
+        throw new Error("the built plugin is SomethingElse, expected SatisModS0");
+      },
+    });
+    const err = await runSpike("S0", deps).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RefusalError);
+    expect((err as Error).message).toMatch(/SomethingElse/);
     expect(calls).not.toContain("start");
+  });
+
+  it("refuses before building when something already answers on the API port (the owner's real server)", async () => {
+    const { deps, calls } = fakeDeps({ serverAnswering: async () => (calls.push("probe"), true) });
+    await expect(runSpike("S0", deps)).rejects.toThrow(/already answers/);
+    expect(calls).toEqual(["probe"]);
+  });
+
+  it("records a failed run when the test server exits while waiting for health, and still stops it", async () => {
+    const { deps, stopped } = fakeDeps({
+      start: () => ({ pid: 9, exited: Promise.resolve(1) }),
+      waitHealthy: () => new Promise(() => {}),
+    });
+    const { result } = await runSpike("S0", deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons.join(" ")).toMatch(/exited \(code 1\)/);
+    expect(stopped).toHaveLength(1);
   });
 
   it("S2: removes every spike mod before the baseline, then samples without and with the mod", async () => {
     const { deps, calls } = fakeDeps();
     await runSpike("S2", deps);
     expect(calls).toEqual([
+      "probe",
       "build S2",
-      "remove SatisModS0", "remove SatisModS1", "remove SatisModS1b", "remove SatisModS2",
-      "start", "healthy", "ticks", "stop",
-      "install D:/b/S2",
-      "echo.start", "offset", "start", "healthy", "wait satis-mod loaded", "ticks", "wait satis-mod s2 done", "stop",
+      "remove SatisMod*",
+      "probe", "start", "healthy", "ticks", "stop",
+      "install D:/b/S2 as SatisModS2",
+      "echo.start", "reset log", "probe", "start", "healthy", "wait satis-mod loaded", "ticks", "wait satis-mod s2 done", "stop",
       "echo.close",
     ]);
   });

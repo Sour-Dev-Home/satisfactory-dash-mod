@@ -1,8 +1,8 @@
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { logOffset, modLines, readLogSince, versionLines, waitForLine } from "../src/log-watch";
+import { logOffset, modLines, readLogSince, resetLog, versionLines, waitForLine } from "../src/log-watch";
 
 let dir = "";
 let log = "";
@@ -49,6 +49,21 @@ describe("waitForLine", () => {
 
   it("refuses a global regex (its lastIndex makes test() unreliable)", async () => {
     await expect(waitForLine(log, /x/g, { fromOffset: 0, timeoutMs: 1, ...fakeTime() })).rejects.toThrow(/global/);
+  });
+});
+
+describe("resetLog", () => {
+  it("deletes the previous run's log so this run reads its own from byte 0", () => {
+    writeFileSync(log, "x".repeat(5000) + "\n[old] satis-mod loaded\n");
+    expect(resetLog(log)).toBe(0);
+    expect(existsSync(log)).toBe(false);
+    // A rotated, regrown log larger than the old one is still read whole.
+    writeFileSync(log, "y".repeat(9000) + "\nsatis-mod loaded\n");
+    expect(modLines(readLogSince(log, 0))).toEqual(["satis-mod loaded"]);
+  });
+
+  it("is fine when there is no log yet", () => {
+    expect(resetLog(log)).toBe(0);
   });
 });
 

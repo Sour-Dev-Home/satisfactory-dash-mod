@@ -9,12 +9,22 @@ import { checkApi, scanSpikes, type Use } from "./check-api";
 import { logPathOf, pluginDirFor, type RunnerConfig } from "./config";
 import { type Echo, startEcho } from "./echo";
 import { type Result, writeEvidence } from "./evidence";
-import { logOffset, modLines, readLogSince, versionLines, waitForLine } from "./log-watch";
+import { modLines, readLogSince, resetLog, versionLines, waitForLine } from "./log-watch";
 import { createServerApi } from "./server-api";
-import { installMod, killTree, removeMod, type ServerProcess, startServer, stopServer, waitHealthy } from "./server-control";
+import {
+  installMod,
+  killTree,
+  removeSpikeMods,
+  serverAnswering,
+  type ServerProcess,
+  startServer,
+  stopServer,
+  waitHealthy,
+  whileRunning,
+} from "./server-control";
 import { readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
-import { type Evidence, SPIKE_IDS, type SpikeId, type Verdict } from "./verdict";
+import type { Evidence, SpikeId, Verdict } from "./verdict";
 
 /** A precondition failed: nothing ran, and no evidence is written. */
 export class RefusalError extends Error {}
@@ -47,13 +57,17 @@ export interface RunDeps {
   toolchain: Toolchain;
   outDir: string;
   checkApi(): { missing: Use[]; badRows: string[] };
+  /** Whether anything already answers the configured API port. */
+  serverAnswering(): Promise<boolean>;
   build(spike: SpikeId): Promise<void>;
-  remove(name: string): void;
-  install(pluginDir: string): string;
+  removeSpikeMods(): void;
+  /** Installs the built plugin, refusing (before copying) one not named `expected`. */
+  install(pluginDir: string, expected: string): void;
   start(): ServerProcess;
   stop(proc: ServerProcess): Promise<void>;
   waitHealthy(): Promise<void>;
-  logOffset(): number;
+  /** Clears the previous run's log and returns the offset to read from (0). */
+  resetLog(): number;
   waitForLine(pattern: RegExp, fromOffset: number, timeoutMs: number): Promise<void>;
   readLogSince(offset: number): string;
   startEcho(): Promise<Echo>;
@@ -74,9 +88,21 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     throw new RefusalError(`check-api failed: ${list.join(", ")}`);
   }
 
+  // HealthCheck needs no auth, so the owner's real server would pass for ours and could receive our Shutdown.
+  const refuseIfAnswering = async () => {
+    if (await deps.serverAnswering()) {
+      throw new RefusalError(`something already answers at ${deps.config.apiBaseUrl}: stop the other server first`);
+    }
+  };
+  const startFresh = async () => {
+    await refuseIfAnswering();
+    return deps.start();
+  };
+  await refuseIfAnswering();
+
   const startedAt = deps.now().toISOString();
   await deps.build(spike);
-  for (const id of SPIKE_IDS) deps.remove(modName(id));
+  deps.removeSpikeMods();
 
   const runReasons: string[] = [];
   let baseline: TickSeries | undefined;
@@ -85,10 +111,10 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   let echo: Echo | undefined;
 
   if (spec.ticks) {
-    const proc = deps.start();
+    const proc = await startFresh();
     try {
-      await deps.waitHealthy();
-      baseline = await deps.sampleTicks();
+      await whileRunning(proc, deps.waitHealthy(), "waiting for health");
+      baseline = await whileRunning(proc, deps.sampleTicks(), "sampling the baseline");
     } catch (e) {
       runReasons.push(`baseline: ${message(e)}`);
     } finally {
@@ -96,18 +122,23 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     }
   }
 
-  const installed = deps.install(pluginDirFor(deps.config, spike));
-  if (installed !== modName(spike)) throw new RefusalError(`the built plugin is ${installed}, expected ${modName(spike)}`);
+  try {
+    deps.install(pluginDirFor(deps.config, spike), modName(spike));
+  } catch (e) {
+    throw new RefusalError(message(e));
+  }
 
   try {
     if (spec.echo) echo = await deps.startEcho();
-    const offset = deps.logOffset();
-    const proc = deps.start();
+    const offset = deps.resetLog();
+    const proc = await startFresh();
     try {
-      await deps.waitHealthy();
-      await deps.waitForLine(spec.doneLine, offset, DONE_TIMEOUT_MS);
-      if (spec.ticks) withMod = await deps.sampleTicks();
-      if (spec.finalLine) await deps.waitForLine(spec.finalLine, offset, FINAL_TIMEOUT_MS);
+      await whileRunning(proc, deps.waitHealthy(), "waiting for health");
+      await whileRunning(proc, deps.waitForLine(spec.doneLine, offset, DONE_TIMEOUT_MS), `waiting for ${spec.doneLine}`);
+      if (spec.ticks) withMod = await whileRunning(proc, deps.sampleTicks(), "sampling with the mod");
+      if (spec.finalLine) {
+        await whileRunning(proc, deps.waitForLine(spec.finalLine, offset, FINAL_TIMEOUT_MS), `waiting for ${spec.finalLine}`);
+      }
     } catch (e) {
       runReasons.push(message(e));
     } finally {
@@ -157,17 +188,18 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
     toolchain,
     outDir,
     checkApi: () => checkApi(scanSpikes(repoRoot), readFileSync(join(repoRoot, "api-sources.md"), "utf8")),
+    serverAnswering: () => serverAnswering(api),
     build: (spike) =>
       new Promise((resolve, reject) => {
         const [exe, ...args] = config.buildCommand.map((a) => a.replaceAll("{spike}", spike));
         execFile(exe!, args, { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 }, (err) => (err ? reject(new Error(`build failed: ${err.message}`)) : resolve()));
       }),
-    remove: (name) => removeMod(name, config.serverDir),
-    install: (pluginDir) => installMod(pluginDir, config.serverDir),
+    removeSpikeMods: () => removeSpikeMods(config.serverDir),
+    install: (pluginDir, expected) => void installMod(pluginDir, config.serverDir, expected),
     start: () => startServer(config),
     stop: async (proc) => void (await stopServer(proc, api, { graceMs: 60_000, kill: killTree })),
     waitHealthy: async () => void (await waitHealthy(api, { timeoutMs: 10 * MIN })),
-    logOffset: () => logOffset(logPath),
+    resetLog: () => resetLog(logPath),
     waitForLine: async (pattern, fromOffset, timeoutMs) => void (await waitForLine(logPath, pattern, { fromOffset, timeoutMs })),
     readLogSince: (offset) => readLogSince(logPath, offset),
     startEcho: () => startEcho(),

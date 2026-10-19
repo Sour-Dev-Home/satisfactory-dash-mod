@@ -1,10 +1,19 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, rmSync, statSync } from "node:fs";
 
 /** Every line a spike mod writes starts with this (the spike contract). */
 export const MOD_PREFIX = "satis-mod";
 
 export function logOffset(path: string): number {
   return existsSync(path) ? statSync(path).size : 0;
+}
+
+/**
+ * Deletes the previous run's log, so this run reads its own from byte 0. The harness owns the test server, and a size
+ * offset into a log the game rotates at startup can skip this run's first lines once the new file outgrows the old.
+ */
+export function resetLog(path: string): number {
+  rmSync(path, { force: true });
+  return 0;
 }
 
 /** The text written after offset. A file smaller than offset was rotated, so it is read from the start. */

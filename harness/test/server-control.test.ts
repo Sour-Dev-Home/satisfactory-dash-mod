@@ -3,7 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ServerApi } from "../src/server-api";
-import { INSECURE_LOCAL_ARG, installMod, removeMod, startServer, stopServer, waitHealthy } from "../src/server-control";
+import {
+  INSECURE_LOCAL_ARG,
+  installMod,
+  removeMod,
+  removeSpikeMods,
+  serverAnswering,
+  startServer,
+  stopServer,
+  waitHealthy,
+  whileRunning,
+} from "../src/server-control";
 
 let root = "";
 let server = "";
@@ -51,6 +61,25 @@ describe("installMod", () => {
     expect(() => installMod(dir, server)).toThrow(/exactly one .uplugin.*found 2/);
   });
 
+  it("refuses a plugin with an unexpected name before copying anything", () => {
+    expect(() => installMod(plugin("SatisModS3", {}), server, "SatisModS0")).toThrow(/SatisModS3.*SatisModS0/);
+    expect(existsSync(join(server, "FactoryGame", "Mods"))).toBe(false);
+  });
+
+  it("removeSpikeMods clears every SatisMod* folder in both locations and leaves other mods", () => {
+    installMod(plugin("SatisModS3", {}), server);
+    installMod(plugin("SatisModS1", { GameFeature: true }), server);
+    installMod(plugin("OtherMod", {}), server);
+    removeSpikeMods(server);
+    expect(existsSync(join(server, "FactoryGame", "Mods", "SatisModS3"))).toBe(false);
+    expect(existsSync(join(server, "FactoryGame", "Mods", "GameFeatures", "SatisModS1"))).toBe(false);
+    expect(existsSync(join(server, "FactoryGame", "Mods", "OtherMod"))).toBe(true);
+  });
+
+  it("removeSpikeMods is a no-op on a server with no Mods folder", () => {
+    expect(() => removeSpikeMods(server)).not.toThrow();
+  });
+
   it("removeMod clears both possible locations", () => {
     installMod(plugin("SatisModS1", { GameFeature: true }), server);
     removeMod("SatisModS1", server);
@@ -88,8 +117,34 @@ describe("waitHealthy", () => {
   });
 });
 
+describe("serverAnswering", () => {
+  it("is true for any HTTP answer and false when nothing listens", async () => {
+    expect(await serverAnswering({ call: async () => ({ status: 503, body: null }) })).toBe(true);
+    expect(await serverAnswering({ call: async () => Promise.reject(new Error("ECONNREFUSED")) })).toBe(false);
+  });
+});
+
+describe("whileRunning", () => {
+  it("rejects as soon as the spawned process exits", async () => {
+    const proc = { pid: 7, exited: Promise.resolve(1) };
+    await expect(whileRunning(proc, new Promise(() => {}), "waiting for health")).rejects.toThrow(/exited \(code 1\) while waiting for health/);
+  });
+
+  it("passes the value through while the process runs", async () => {
+    expect(await whileRunning({ pid: 7, exited: new Promise(() => {}) }, Promise.resolve(42), "x")).toBe(42);
+  });
+});
+
 describe("stopServer", () => {
   const api: ServerApi = { call: async () => ({ status: 204, body: null }) };
+
+  it("never sends Shutdown when the spawned process has already exited (the port may be someone else's)", async () => {
+    const calls: string[] = [];
+    const spy: ServerApi = { call: async (fn) => (calls.push(fn), { status: 204, body: null }) };
+    const r = await stopServer({ pid: 42, exited: Promise.resolve(1) }, spy, { graceMs: 1000, kill: async () => {} });
+    expect(r).toBe("exited");
+    expect(calls).toEqual([]);
+  });
 
   it("returns 'exited' when Shutdown ends the process within the grace period", async () => {
     const killed: number[] = [];
