@@ -54,16 +54,19 @@ Create `D:\satis-runner-config\harness.json` (readable by `satis-runner`; it hol
 
     {
       "serverDir": "D:/satis-test/server",
-      "apiBaseUrl": "https://127.0.0.1:<API port from the G0 addendum>",
+      "apiBaseUrl": "https://127.0.0.1:7777",
       "serverArgs": [],
-      "buildCommand": [],
-      "builtPluginDir": "D:/satis-build/{spike}/<target folder from the Alpakit page>",
+      "buildCommand": ["pwsh", "-NoProfile", "-File", "scripts/build-spike.ps1", "-Spike", "{spike}",
+        "-Project", "D:/SatisfactoryModding/SatisfactoryModLoader", "-Engine", "C:/Program Files/Unreal Engine - CSS",
+        "-Out", "D:/satis-build/{spike}"],
+      "builtPluginDir": "D:/satis-build/{spike}",
       "installed": { "engine": "5.6.1", "sml": "3.12.0" }
     }
 
-`buildCommand` (the Alpakit command line as an argv list, with `{spike}` where the spike's name goes) comes from SML's
-project-setup docs page. Capture that page into satisfactory-dash raw-sources first; the harness refuses to run while
-it's empty. `installed` is what you actually installed, and the harness refuses any difference from
+Build output comes from `scripts/build-spike.ps1` (Alpakit `PackagePlugin`, Windows Server, Shipping). It builds
+`FactoryEditor` first, because the cook loads the spike's editor module. The first build compiles the whole game
+target (about 20 minutes); later ones are incremental. `apiBaseUrl` uses the default port until the G0 addendum
+moves it. `installed` is what you actually installed, and the harness refuses any difference from
 `harness/toolchain.json`.
 
 ## 5. Check it
