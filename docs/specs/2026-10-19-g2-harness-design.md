@@ -1,6 +1,6 @@
 # G2 harness: automated, evidence-first mod spikes
 
-Status: draft for the owner's review (2026-10-19).
+Status: approved (owner, 2026-10-19). Plan: `docs/plans/2026-10-19-g2-harness.md`.
 Implements: [ADR-0039](https://github.com/Sour-Dev-Home/satisfactory-dash/blob/main/docs-vault/wiki/decisions/0039-mod-as-end-state-research.md)
 gate G2, against the claims in
 [`mod-claims.md`](https://github.com/Sour-Dev-Home/satisfactory-dash/blob/main/docs-vault/wiki/mod-claims.md).
