@@ -16,7 +16,7 @@ const req = (path: string, body: string, contentType = "application/json"): Capt
   body,
   tooLarge: false,
 });
-const series = (median: number): TickSeries => ({ samples: [{ at: "x", value: median }], errors: 0, median });
+const series = (median: number): TickSeries => ({ warmup: [], samples: [{ at: "x", value: median }], errors: 0, median });
 const s2Posts = (ns: number[]) => ns.map((n) => req(S2.S2_PATH, JSON.stringify({ spike: "S2", n })));
 const oneTo = (k: number) => Array.from({ length: k }, (_, i) => i + 1);
 

@@ -4,6 +4,12 @@ import type { ServerApi } from "./server-api";
 /** 20 minutes per window: the owner's decision of 2026-10-19 (the claims table said 30). */
 export const TICK_WINDOW_MS = 20 * 60_000;
 export const TICK_INTERVAL_MS = 10_000;
+/**
+ * Readings before this point are kept but left out of the median. The test server runs at ~30 after boot, then
+ * settles at ~22 with or without the mod: within a minute on later boots, 10 minutes on the first (world-creating)
+ * boot (S2 runs of 2026-10-19). So a fresh test server must boot once before S2.
+ */
+export const TICK_WARMUP_MS = 3 * 60_000;
 
 // The field the satisfactory-dash tick-rate card reads (game-adapter rawSchemas.ts, captured QueryServerState).
 const QueryServerStateSchema = z.object({
@@ -16,7 +22,8 @@ export async function readTickRate(api: ServerApi): Promise<number> {
   return QueryServerStateSchema.parse(body).data.serverGameState.averageTickRate;
 }
 
-export interface TickSeries { samples: { at: string; value: number }[]; errors: number; median: number | null }
+export interface TickSample { at: string; value: number }
+export interface TickSeries { warmup: TickSample[]; samples: TickSample[]; errors: number; median: number | null }
 
 export function median(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -27,19 +34,22 @@ export function median(values: number[]): number | null {
 
 export async function sampleTicks(
   read: () => Promise<number>,
-  opts: { durationMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; now: () => number },
+  opts: { warmupMs?: number; durationMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; now: () => number },
 ): Promise<TickSeries> {
-  const samples: { at: string; value: number }[] = [];
+  const warmup: TickSample[] = [];
+  const samples: TickSample[] = [];
   let errors = 0;
-  const end = opts.now() + opts.durationMs;
+  const settled = opts.now() + (opts.warmupMs ?? 0);
+  const end = settled + opts.durationMs;
   while (opts.now() < end) {
-    const at = new Date(opts.now()).toISOString();
+    const now = opts.now();
+    const at = new Date(now).toISOString();
     try {
-      samples.push({ at, value: await read() });
+      (now < settled ? warmup : samples).push({ at, value: await read() });
     } catch {
-      errors++;
+      if (now >= settled) errors++;
     }
     await opts.sleep(opts.intervalMs);
   }
-  return { samples, errors, median: median(samples.map((s) => s.value)) };
+  return { warmup, samples, errors, median: median(samples.map((s) => s.value)) };
 }

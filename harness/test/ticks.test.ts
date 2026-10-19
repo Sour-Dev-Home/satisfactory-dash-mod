@@ -40,4 +40,18 @@ describe("sampleTicks", () => {
     expect(series.median).toBe(30);
     expect(series.samples[0]!.at).toBe("1970-01-01T00:00:00.000Z");
   });
+
+  // The test server runs at ~30 after boot, then settles at ~22 (S2 run of 2026-10-19): the warm-up keeps
+  // that boot phase out of the median, and keeps its readings as evidence.
+  it("records warm-up readings separately and leaves them out of the median", async () => {
+    let t = 0;
+    const read = async () => (t < 30_000 ? 30 : 22);
+    const series = await sampleTicks(read, {
+      warmupMs: 30_000, durationMs: 60_000, intervalMs: 10_000, now: () => t, sleep: async (ms) => void (t += ms),
+    });
+    expect(series.warmup.map((s) => s.value)).toEqual([30, 30, 30]);
+    expect(series.samples.map((s) => s.value)).toEqual([22, 22, 22, 22, 22, 22]);
+    expect(series.samples[0]!.at).toBe("1970-01-01T00:00:30.000Z");
+    expect(series.median).toBe(22);
+  });
 });

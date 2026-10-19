@@ -17,7 +17,7 @@ function fakeDeps(over: Partial<RunDeps> = {}, log = "LogTemp: satis-mod loaded\
   const procs: ServerProcess[] = [];
   const stopped: ServerProcess[] = [];
   const echo: Echo = { url: "http://127.0.0.1:18080", port: 18080, requests: [], close: async () => void calls.push("echo.close") };
-  const ticks: TickSeries = { samples: [{ at: "x", value: 30 }], errors: 0, median: 30 };
+  const ticks: TickSeries = { warmup: [], samples: [{ at: "x", value: 30 }], errors: 0, median: 30 };
   const deps: RunDeps = {
     config: RunnerConfigSchema.parse({
       serverDir: "D:/t",

@@ -22,7 +22,7 @@ import {
   waitHealthy,
   whileRunning,
 } from "./server-control";
-import { readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
+import { readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WARMUP_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Evidence, SpikeId, Verdict } from "./verdict";
 
@@ -203,7 +203,10 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
     waitForLine: async (pattern, fromOffset, timeoutMs) => void (await waitForLine(logPath, pattern, { fromOffset, timeoutMs })),
     readLogSince: (offset) => readLogSince(logPath, offset),
     startEcho: () => startEcho(),
-    sampleTicks: () => sampleTicks(() => readTickRate(api), { durationMs: TICK_WINDOW_MS, intervalMs: TICK_INTERVAL_MS, sleep, now: Date.now }),
+    sampleTicks: () =>
+      sampleTicks(() => readTickRate(api), {
+        warmupMs: TICK_WARMUP_MS, durationMs: TICK_WINDOW_MS, intervalMs: TICK_INTERVAL_MS, sleep, now: Date.now,
+      }),
     now: () => new Date(),
     env: {
       commit: process.env.GITHUB_SHA ?? "local",
