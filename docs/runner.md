@@ -25,18 +25,22 @@ at your real server's folder.
 arguments in `serverArgs` and the API port in `apiBaseUrl`. Until then, `serverArgs` stays `[]` and your real server
 must be off during runs.
 
-## 3. Register the runner
+## 3. Lock down, then register the runner
 
-1. GitHub → this repo → Settings → Actions → Runners → New self-hosted runner → Windows. Follow the commands shown there
-   (they carry the current version and a one-time token), installing under `D:\actions-runner`.
-2. When `config.cmd` asks: labels `windows,ue` (it adds `self-hosted` itself); run as a service; log on as
-   `satis-runner`.
-3. Settings → Environments → New environment `ue-runner`:
+Do steps 1 and 2 **before** registering the runner. GitHub created the `ue-runner` environment, with no protection,
+the first time `spike.yml` ran on `main`. Any job still queued for the `ue` label would run unapproved the moment a
+runner appears. Also cancel any queued `spike` runs under Actions first.
+
+1. Settings → Environments → `ue-runner` (create it if it isn't there):
    - Required reviewers: you. Every spike run then waits for your approval.
    - Deployment branches and tags: "Selected branches and tags", with only `main`. A job on any other branch,
      including a PR's own edited copy of `spike.yml`, can't use the environment, so it never starts.
-4. Settings → Actions → General → "Fork pull request workflows from outside collaborators": "Require approval for all
+2. Settings → Actions → General → "Fork pull request workflows from outside collaborators": "Require approval for all
    outside collaborators". `spike.yml` never runs on PRs anyway; this is a second lock.
+3. GitHub → this repo → Settings → Actions → Runners → New self-hosted runner → Windows. Follow the commands shown there
+   (they carry the current version and a one-time token), installing under `D:\actions-runner`.
+4. When `config.cmd` asks: labels `windows,ue` (it adds `self-hosted` itself); run as a service; log on as
+   `satis-runner`.
 5. If your GitHub plan offers runner groups for this repo, put the runner in a group restricted to the workflow
    `.github/workflows/spike.yml@refs/heads/main`. Without that, any workflow pushed to a branch of this repo could
    name `runs-on: self-hosted`. The guard test fails CI on such a workflow, but only after the push, and the
