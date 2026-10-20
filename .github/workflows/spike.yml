@@ -10,7 +10,7 @@ on:
         description: Spike to run
         required: true
         type: choice
-        options: [S0, S1, S1b, S2, S4]
+        options: [S0, S1, S1b, S2, S3, S4]
   push:
     branches: [main]
     paths: ["harness/**", "spikes/**", "api-sources.md", ".github/workflows/spike.yml"]

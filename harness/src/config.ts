@@ -28,6 +28,20 @@ export const RunnerConfigSchema = z.strictObject({
     .min(1, "buildCommand is empty: fill it from the captured Alpakit page (G2-prep)"),
   builtPluginDir: z.string().includes("{spike}"),
   installed: z.strictObject({ engine: z.string().min(1), sml: z.string().min(1) }),
+  /** S3: Ficsit Remote Monitoring's web server on the test server (satisfactory-dash ADR-0039 G0 addendum 2). */
+  frmBaseUrl: z
+    .string()
+    .refine((v) => {
+      try {
+        const u = new URL(v);
+        return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
+      } catch {
+        return false;
+      }
+    }, "frmBaseUrl must be http on loopback")
+    .optional(),
+  /** S3: the staged copy of the owner's save, uploaded and loaded each run (docs/runner.md, "S3's world"). */
+  s3World: z.string().min(1).optional(),
   /** S5 only, local runs: a satisfactory-dash checkout at the pinned commit, and the relay's loopback port. */
   s5: z.strictObject({ checkout: z.string().min(1), port: z.number().int().min(1024).max(65535) }).optional(),
 });

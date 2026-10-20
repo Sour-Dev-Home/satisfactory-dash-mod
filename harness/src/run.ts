@@ -1,16 +1,19 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import * as S0 from "../../spikes/S0/pass";
 import * as S1 from "../../spikes/S1/pass";
 import * as S1b from "../../spikes/S1b/pass";
 import * as S2 from "../../spikes/S2/pass";
+import * as S3 from "../../spikes/S3/pass";
 import * as S4 from "../../spikes/S4/pass";
 import * as S5 from "../../spikes/S5/pass";
 import { type Backend, randomCode, startBackend } from "./backend";
 import { checkApi, scanSpikes, type Use } from "./check-api";
 import { logPathOf, pluginDirFor, type RunnerConfig } from "./config";
 import { type Echo, startEcho } from "./echo";
+import { collectPowerPairs, parseGetPower, readAutoPause, setAutoPause } from "./frm";
 import { type Result, writeEvidence } from "./evidence";
 import { modLines, readLogSince, resetLog, versionLines, waitForLine } from "./log-watch";
 import { randomCredential, removeModConfig, sha1Prefix, writeModConfig } from "./mod-config";
@@ -28,6 +31,7 @@ import {
 } from "./server-control";
 import { halfMedians, readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WARMUP_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
+import { loadWorld, otherServerSettings } from "./world";
 import { type Evidence, SPIKE_IDS, type SpikeId, type Verdict } from "./verdict";
 
 /** A precondition failed: nothing ran, and no evidence is written. */
@@ -46,6 +50,8 @@ export interface SpikeSpec {
   credential?: boolean;
   /** S5: the harness runs a throwaway satisfactory-dash stack and writes a one-time code to the mod's config. */
   backend?: boolean;
+  /** S3: auto-pause off, then each batch of the mod's power lines is paired with FRM's getPower. */
+  power?: boolean;
 }
 
 const MIN = 60_000;
@@ -55,6 +61,7 @@ export const SPIKES: Partial<Record<SpikeId, SpikeSpec>> = {
   S1: { claim: S1.claim, evaluate: S1.evaluate, echo: true, ticks: false, doneLine: /satis-mod s1 done/ },
   S1b: { claim: S1b.claim, evaluate: S1b.evaluate, echo: false, ticks: false, doneLine: /satis-mod s1b bad / },
   S2: { claim: S2.claim, evaluate: S2.evaluate, echo: true, ticks: true, doneLine: /satis-mod loaded/, finalLine: /satis-mod s2 done/ },
+  S3: { claim: S3.claim, evaluate: S3.evaluate, echo: false, ticks: false, power: true, doneLine: /satis-mod s3 circuit=/ },
   S4: { claim: S4.claim, evaluate: S4.evaluate, echo: false, ticks: false, credential: true, doneLine: /satis-mod s4 (read|error)/ },
   S5: { claim: S5.claim, evaluate: S5.evaluate, echo: false, ticks: false, backend: true, doneLine: /satis-mod s5 (enroll=|error)/ },
 };
@@ -94,6 +101,13 @@ export interface RunDeps {
   /** S5 only: present when the runner config has `s5` (local runs). */
   startBackend?(): Promise<Backend>;
   randomCode?(): string;
+  /** S3 only. */
+  /** S3: uploads and loads the staged save; and lists other servers' settings in the saves folder it would use. */
+  loadWorld?(): Promise<void>;
+  savesConflict?(): string[];
+  readAutoPause?(): Promise<boolean>;
+  setAutoPause?(enabled: boolean): Promise<void>;
+  collectPower?(offset: number): Promise<NonNullable<Evidence["power"]>>;
   now(): Date;
   env: { commit: string; runUrl: string | null };
 }
@@ -119,6 +133,15 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   if (api.missing.length || api.badRows.length) {
     const list = [...api.badRows, ...api.missing.map((u) => `${u.path}:${u.line} ${u.name}`)];
     throw new RefusalError(`check-api failed: ${list.join(", ")}`);
+  }
+  if (spec.power) {
+    if (!deps.loadWorld || !deps.collectPower || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict) {
+      throw new RefusalError("S3 needs frmBaseUrl and s3World in the runner config");
+    }
+    const shared = deps.savesConflict();
+    if (shared.length) {
+      throw new RefusalError(`another server keeps its settings in this account's saves folder (${shared.join(", ")}): the loaded save's autosaves would join its rotation, so S3 runs only as satis-runner`);
+    }
   }
 
   // HealthCheck needs no auth, so the owner's real server would pass for ours and could receive our Shutdown.
@@ -168,6 +191,7 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   let baselineLog = "";
   let logText = "";
   let echo: Echo | undefined;
+  let power: Evidence["power"];
 
   if (spec.ticks) {
     // The with-mod boot resets the log, so the baseline boot's lines are read before that.
@@ -197,9 +221,18 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       if (spec.echo) echo = await deps.startEcho();
       const offset = deps.resetLog();
       const proc = await startFresh();
+      let autoPauseBefore: boolean | undefined;
       try {
         await whileRunning(proc, deps.waitHealthy(), "waiting for health");
+        if (spec.power) {
+          // The server boots into its empty entry map; the save is uploaded and loaded, and the API is down meanwhile.
+          await whileRunning(proc, deps.loadWorld!(), "loading the S3 world");
+          await whileRunning(proc, deps.waitHealthy(), "waiting for health after the load");
+          autoPauseBefore = await whileRunning(proc, deps.readAutoPause!(), "reading auto-pause");
+          await whileRunning(proc, deps.setAutoPause!(false), "turning auto-pause off");
+        }
         await whileRunning(proc, deps.waitForLine(spec.doneLine, offset, DONE_TIMEOUT_MS), `waiting for ${spec.doneLine}`);
+        if (spec.power) power = await whileRunning(proc, deps.collectPower!(offset), "collecting s3 readings");
         if (spec.ticks) withMod = await whileRunning(proc, deps.sampleTicks(), "sampling with the mod");
         if (spec.finalLine) {
           await whileRunning(proc, deps.waitForLine(spec.finalLine, offset, FINAL_TIMEOUT_MS), `waiting for ${spec.finalLine}`);
@@ -207,6 +240,14 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       } catch (e) {
         runReasons.push(message(e));
       } finally {
+        // The option persists on the test server, so later runs (S2's baselines) must find it as it was (final review, finding 4).
+        if (autoPauseBefore !== undefined) {
+          try {
+            await deps.setAutoPause!(autoPauseBefore);
+          } catch (e) {
+            runReasons.push(`restoring auto-pause: ${message(e)}`);
+          }
+        }
         await deps.stop(proc);
         logText = deps.readLogSince(offset);
       }
@@ -242,6 +283,7 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     ...(baseline && withMod ? { ticks: { baseline, withMod } } : {}),
     ...(credential ? { credential: { length: credential.length, sha1Prefix: sha1Prefix(credential), inLog: logText.includes(credential) } } : {}),
     ...(backendState && code ? { backend: { ...backendState, codeInLog: logText.includes(code), bearerInLog: /Bearer/.test(logText) } } : {}),
+    ...(power ? { power } : {}),
   };
   const verdict = spec.evaluate(evidence);
   const result: Result = {
@@ -316,6 +358,35 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
             (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr }))),
       }),
       randomCode,
+    } : {}),
+    readAutoPause: () => readAutoPause(api),
+    setAutoPause: (on) => setAutoPause(api, on),
+    savesConflict: () =>
+      // A service account may not have LOCALAPPDATA set; its profile's AppData\Local is the same folder.
+      otherServerSettings(
+        join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "FactoryGame", "Saved", "SaveGames"),
+        Number(new URL(config.apiBaseUrl).port),
+      ),
+    ...(config.frmBaseUrl && config.s3World ? {
+      loadWorld: () => loadWorld(api, `s3-${Date.now()}`, readFileSync(config.s3World!)),
+      collectPower: (offset: number) => {
+        let seen = offset;
+        return collectPowerPairs({
+          // Only the lines added since the last poll: one batch is one round of the mod's readings.
+          readNew: () => {
+            // readLogSince's offset is in bytes (log-watch.ts:20-33). Consume only whole lines: a poll can land mid-write.
+            const text = readLogSince(logPath, seen);
+            const whole = text.slice(0, text.lastIndexOf("\n") + 1);
+            seen += Buffer.byteLength(whole, "utf8");
+            return whole.split(/\r?\n/).filter((l) => l.includes("satis-mod s3 circuit="));
+          },
+          frm: async () => parseGetPower(await (await fetch(new URL("/getPower", config.frmBaseUrl), { signal: AbortSignal.timeout(2000) })).json()),
+          sleep,
+          now: Date.now,
+          durationMs: 150_000, // the mod's 12 readings: 60 s, then every 10 s, plus margin
+          intervalMs: 500,
+        });
+      },
     } : {}),
     now: () => new Date(),
     env: {

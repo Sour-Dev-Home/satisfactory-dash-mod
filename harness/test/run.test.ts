@@ -217,6 +217,60 @@ describe("runSpike", () => {
     expect(removed).toBe(1);
   });
 
+  it("S3: turns auto-pause off after health, pairs each batch of s3 lines with FRM, and judges them", async () => {
+    const seen: string[] = [];
+    const lines = Array.from({ length: 10 }, (_, i) => `[${i}]LogSatisMod: Display: satis-mod s3 circuit=0 production=1000 consumption=700 capacity=1200`);
+    const pairs = lines.map((_, i) => ({
+      at: `t${i}`, circuitId: 0,
+      mod: { production: 1000, consumption: 700, capacity: 1200 },
+      frm: { production: 1000, consumption: 690, capacity: 1200 },
+    }));
+    const { deps, calls } = fakeDeps({
+      savesConflict: () => [],
+      loadWorld: async () => void seen.push("load world"),
+      waitHealthy: async () => void seen.push("healthy"),
+      readAutoPause: async () => (seen.push("read autopause"), true),
+      setAutoPause: async (on) => void seen.push(`autopause ${on}`),
+      collectPower: async () => (seen.push("collect"), { pairs, frmCircuits: [0], modCircuits: [0] }),
+      stop: async () => void (seen.push("stop"), calls.push("stop")),
+    }, `LogSatisMod: Display: satis-mod loaded\n${lines.join("\n")}\n`);
+    const { result } = await runSpike("S3", deps);
+    expect(seen).toEqual(["healthy", "load world", "healthy", "read autopause", "autopause false", "collect", "autopause true", "stop"]);
+    expect(result.pass).toBe(true);
+  });
+
+  it("S3: refuses before building when another server keeps its settings in this account's saves folder", async () => {
+    const { deps, calls } = fakeDeps({
+      savesConflict: () => ["ServerSettings.7777.sav"],
+      loadWorld: async () => undefined,
+      readAutoPause: async () => true,
+      setAutoPause: async () => undefined,
+      collectPower: async () => ({ pairs: [], frmCircuits: [], modCircuits: [] }),
+    });
+    await expect(runSpike("S3", deps)).rejects.toThrow(/ServerSettings\.7777\.sav.*satis-runner/);
+    expect(calls.some((c) => c.startsWith("build"))).toBe(false);
+  });
+
+  it("S3: refuses before building without FRM's URL or the world (final review, minor 7)", async () => {
+    const { deps, calls } = fakeDeps({ savesConflict: () => [] });
+    await expect(runSpike("S3", deps)).rejects.toThrow(/S3 needs frmBaseUrl and s3World/);
+    expect(calls.some((c) => c.startsWith("build"))).toBe(false);
+  });
+
+  it("S3: restores auto-pause even when collecting fails (final review, finding 4)", async () => {
+    const seen: string[] = [];
+    const { deps } = fakeDeps({
+      savesConflict: () => [],
+      loadWorld: async () => undefined,
+      readAutoPause: async () => false,
+      setAutoPause: async (on) => void seen.push(`autopause ${on}`),
+      collectPower: async () => { throw new Error("FRM gone"); },
+    });
+    const { result } = await runSpike("S3", deps);
+    expect(seen).toEqual(["autopause false", "autopause false"]);
+    expect(result.pass).toBe(false);
+  });
+
   const fakeBackend = (order: string[]) => async () => (order.push("up"), {
     url: "http://127.0.0.1:13101",
     seedCode: async () => void order.push("seed"),
