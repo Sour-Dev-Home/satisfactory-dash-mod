@@ -12,7 +12,7 @@ import { type Backend, randomCode, startBackend } from "./backend";
 import { checkApi, scanSpikes, type Use } from "./check-api";
 import { logPathOf, pluginDirFor, type RunnerConfig } from "./config";
 import { type Echo, startEcho } from "./echo";
-import { collectPowerPairs, parseGetPower, setAutoPause } from "./frm";
+import { collectPowerPairs, parseGetPower, readAutoPause, setAutoPause } from "./frm";
 import { type Result, writeEvidence } from "./evidence";
 import { modLines, readLogSince, resetLog, versionLines, waitForLine } from "./log-watch";
 import { randomCredential, removeModConfig, sha1Prefix, writeModConfig } from "./mod-config";
@@ -100,6 +100,7 @@ export interface RunDeps {
   startBackend?(): Promise<Backend>;
   randomCode?(): string;
   /** S3 only. */
+  readAutoPause?(): Promise<boolean>;
   setAutoPause?(enabled: boolean): Promise<void>;
   collectPower?(offset: number): Promise<NonNullable<Evidence["power"]>>;
   now(): Date;
@@ -206,9 +207,13 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       if (spec.echo) echo = await deps.startEcho();
       const offset = deps.resetLog();
       const proc = await startFresh();
+      let autoPauseBefore: boolean | undefined;
       try {
         await whileRunning(proc, deps.waitHealthy(), "waiting for health");
-        if (spec.power) await whileRunning(proc, deps.setAutoPause!(false), "turning auto-pause off");
+        if (spec.power) {
+          autoPauseBefore = await whileRunning(proc, deps.readAutoPause!(), "reading auto-pause");
+          await whileRunning(proc, deps.setAutoPause!(false), "turning auto-pause off");
+        }
         await whileRunning(proc, deps.waitForLine(spec.doneLine, offset, DONE_TIMEOUT_MS), `waiting for ${spec.doneLine}`);
         if (spec.power) power = await whileRunning(proc, deps.collectPower!(offset), "collecting s3 readings");
         if (spec.ticks) withMod = await whileRunning(proc, deps.sampleTicks(), "sampling with the mod");
@@ -218,6 +223,14 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       } catch (e) {
         runReasons.push(message(e));
       } finally {
+        // The option persists on the test server, so later runs (S2's baselines) must find it as it was (final review, finding 4).
+        if (autoPauseBefore !== undefined) {
+          try {
+            await deps.setAutoPause!(autoPauseBefore);
+          } catch (e) {
+            runReasons.push(`restoring auto-pause: ${message(e)}`);
+          }
+        }
         await deps.stop(proc);
         logText = deps.readLogSince(offset);
       }
@@ -329,6 +342,7 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
       }),
       randomCode,
     } : {}),
+    readAutoPause: () => readAutoPause(api),
     setAutoPause: (on) => setAutoPause(api, on),
     ...(config.frmBaseUrl ? {
       collectPower: (offset: number) => {

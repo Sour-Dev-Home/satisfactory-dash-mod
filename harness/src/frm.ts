@@ -51,12 +51,24 @@ export async function collectPowerPairs(opts: {
     if (mod.length) {
       let frm: FrmGroup[] | null = null;
       try { frm = await opts.frm(); } catch { frm = null; }
-      for (const g of frm ?? []) if (g.circuits.length === 1) frmCircuits.add(g.circuits[0]!);
+      // Every circuit FRM knows, joined groups included, so a circuit the mod never logged fails by name (final review,
+      // finding 3); only single-circuit groups pair with values (ruling 6).
+      for (const g of frm ?? []) for (const c of g.circuits) frmCircuits.add(c);
       pairs.push(...pairReadings(new Date(opts.now()).toISOString(), mod, frm));
     }
     await opts.sleep(opts.intervalMs);
   }
   return { pairs, frmCircuits: [...frmCircuits], modCircuits: [...new Set(pairs.map((p) => p.circuitId))] };
+}
+
+/** GetServerOptions (satisfactory-dash raw-sources/dedicated-server-api.md E9) also returns FRM's
+ *  uWS.AuthenticationToken in plain text: only FG.DSAutoPause is kept, and the response is never stored. */
+export async function readAutoPause(api: { call(fn: string): Promise<{ status: number; body: unknown }> }): Promise<boolean> {
+  const r = await api.call("GetServerOptions");
+  if (r.status < 200 || r.status > 299) throw new Error(`GetServerOptions returned ${r.status}`);
+  const value = (r.body as { data?: { serverOptions?: Record<string, unknown> } } | null)?.data?.serverOptions?.["FG.DSAutoPause"];
+  if (value !== "True" && value !== "False") throw new Error("GetServerOptions has no FG.DSAutoPause");
+  return value === "True";
 }
 
 /** satisfactory-dash serverOptionsAdapter.ts:12, :133-137: ApplyServerOptions with PascalCase keys and "True"/"False". */

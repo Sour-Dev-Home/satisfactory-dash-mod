@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectPowerPairs, pairReadings, parseGetPower, parseS3Lines } from "../src/frm";
+import { collectPowerPairs, pairReadings, parseGetPower, parseS3Lines, readAutoPause } from "../src/frm";
 
 // Shape from satisfactory-dash raw-sources/captured-responses/frm-getPower-2026-09-22-F-panel.json (FRM 1.5.3).
 const frmBody = [
@@ -56,5 +56,28 @@ describe("FRM pairing", () => {
     expect(out.pairs.map((p) => p.frm === null)).toEqual([false, true]);
     expect(out.frmCircuits).toEqual([0]);
     expect(out.modCircuits).toEqual([0]);
+  });
+
+  it("reads only FG.DSAutoPause from GetServerOptions, which also carries FRM's token (final review, finding 4)", async () => {
+    const options = (v: string) => ({ call: async () => ({ status: 200, body: { data: { serverOptions: { "FG.DSAutoPause": v, "uWS.AuthenticationToken": "secret" }, pendingServerOptions: {} } } }) });
+    expect(await readAutoPause(options("True"))).toBe(true);
+    expect(await readAutoPause(options("False"))).toBe(false);
+    await expect(readAutoPause({ call: async () => ({ status: 403, body: null }) })).rejects.toThrow(/GetServerOptions returned 403/);
+    await expect(readAutoPause({ call: async () => ({ status: 200, body: { data: {} } }) })).rejects.toThrow(/no FG.DSAutoPause/);
+  });
+
+  it("lists every FRM circuit, including those in multi-circuit groups, so the circuit check sees them (final review, finding 3)", async () => {
+    let t = 0;
+    const batches = [["satis-mod s3 circuit=3 production=60 consumption=30 capacity=70"]];
+    const out = await collectPowerPairs({
+      readNew: () => batches.shift() ?? [],
+      frm: async () => parseGetPower(frmBody),
+      sleep: async (ms) => void (t += ms),
+      now: () => t,
+      durationMs: 1000,
+      intervalMs: 1000,
+    });
+    expect(out.frmCircuits.sort()).toEqual([0, 3, 4]);
+    expect(out.pairs).toEqual([expect.objectContaining({ circuitId: 3, frm: null })]); // a joined group's values aren't judged (ruling 6)
   });
 });

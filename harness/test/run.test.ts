@@ -225,13 +225,27 @@ describe("runSpike", () => {
       mod: { production: 1000, consumption: 700, capacity: 1200 },
       frm: { production: 1000, consumption: 690, capacity: 1200 },
     }));
-    const { deps } = fakeDeps({
+    const { deps, calls } = fakeDeps({
+      readAutoPause: async () => (seen.push("read autopause"), true),
       setAutoPause: async (on) => void seen.push(`autopause ${on}`),
       collectPower: async () => (seen.push("collect"), { pairs, frmCircuits: [0], modCircuits: [0] }),
+      stop: async () => void (seen.push("stop"), calls.push("stop")),
     }, `LogSatisMod: Display: satis-mod loaded\n${lines.join("\n")}\n`);
     const { result } = await runSpike("S3", deps);
-    expect(seen).toEqual(["autopause false", "collect"]);
+    expect(seen).toEqual(["read autopause", "autopause false", "collect", "autopause true", "stop"]);
     expect(result.pass).toBe(true);
+  });
+
+  it("S3: restores auto-pause even when collecting fails (final review, finding 4)", async () => {
+    const seen: string[] = [];
+    const { deps } = fakeDeps({
+      readAutoPause: async () => false,
+      setAutoPause: async (on) => void seen.push(`autopause ${on}`),
+      collectPower: async () => { throw new Error("FRM gone"); },
+    });
+    const { result } = await runSpike("S3", deps);
+    expect(seen).toEqual(["autopause false", "autopause false"]);
+    expect(result.pass).toBe(false);
   });
 
   const fakeBackend = (order: string[]) => async () => (order.push("up"), {
