@@ -85,6 +85,30 @@ Build output comes from `scripts/build-spike.ps1` (Alpakit `PackagePlugin`, Wind
 target (about 20 minutes); later ones are incremental. `installed` is what you actually installed, and the harness refuses any difference from
 `harness/toolchain.json`.
 
+## S3's world and FRM (owner's go-ahead, 2026-10-20)
+
+S3 compares the mod's power readings with Ficsit Remote Monitoring (FRM) on a copy of the owner's save. Facts from
+satisfactory-dash's G0 addendum 2 (#462): `docs-vault/raw-sources/dedicated-server-api-saves-2026-10-20.md`,
+`dedicated-server-save-files-2026-10-20.md` and `frm-config-port-1.5.4-2026-10-20.md`.
+
+- **The world.** A copy of the owner's newest save is staged at `D:\satis-test\saves\s3-world.sav`, and the config
+  names it as `"s3World"`. Each run uploads it with `UploadSaveGame` and `LoadSaveGame: true` (saves capture E4).
+  The test server runs with insecure local access, so no token is needed.
+- **Only as `satis-runner`.** The server writes the uploaded save, and its autosaves named after the save's session,
+  into the running account's `%LocalAppData%\FactoryGame\Saved\SaveGames\server` (save-files capture E4). The
+  owner's real server keeps its saves in the owner's folder, so a run as the owner would add autosaves to its
+  rotation. The harness refuses S3 when that folder holds another server's `ServerSettings.<port>.sav`.
+- **FRM.** FRM 1.5.4 is installed on the test server: the folder is copied from the real server's
+  `FactoryGame\Mods\GameFeatures\FicsitRemoteMonitoring`. S0–S2 now boot with it too.
+- **FRM's port.** The key is `FicsitRemoteMonitoring.Server.uWS.Port` (FRM capture E3), in the test server's
+  `FactoryGame\Saved\Config\WindowsServer\GameUserSettings.ini` (FRM capture E2). The line syntax is the one FRM
+  wrote into the real server's file, `mIntValues=(("Key", value),…)` under `[/Script/FactoryGame.FGGameUserSettings]`:
+
+      mIntValues=(("FicsitRemoteMonitoring.Server.uWS.Port", 18081),("FicsitRemoteMonitoring.Server.uWS.Autostart", 1))
+
+  The config names `"frmBaseUrl": "http://127.0.0.1:18081"`. FRM's web server didn't start on the empty entry map
+  (one boot, 2026-10-20), so the S3 run itself is the first check of the port.
+
 ## 5. Check it
 
 Actions → spike → the latest `main` push: `selftest` waits for your approval, then passes. Then run S0 with
