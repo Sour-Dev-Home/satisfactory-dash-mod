@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "scripts", "contract", "../spikes/**/pass.ts"]
+  "include": ["src", "test", "scripts", "contract", "../spikes/**/pass.ts", "../runs/**/pass.ts"]
 }

@@ -18,7 +18,8 @@
 	"Installed": false,
 	"Modules": [
 		{ "Name": "SatisDashCore", "Type": "Runtime", "LoadingPhase": "Default" },
-		{ "Name": "SatisDashCoreTests", "Type": "Editor", "LoadingPhase": "Default" }
+		{ "Name": "SatisDashCoreTests", "Type": "Editor", "LoadingPhase": "Default" },
+		{ "Name": "SatisDashGame", "Type": "Runtime", "LoadingPhase": "Default", "TargetAllowList": [ "Server", "Editor" ] }
 	],
 	"Plugins": [
 		{ "Name": "SML", "Enabled": true, "SemVersion": "^3.12.0" }

@@ -301,3 +301,32 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FCriticalSection | Engine/Source/Runtime/Core/Public/HAL/CriticalSection.h:53 | header only (alias of UE::FPlatformRecursiveMutex) |
 | HAL/PlatformTime.h | Engine/Source/Runtime/Core/Public/HAL/PlatformTime.h:1 | header only |
 | FPlatformTime::Seconds | Engine/Source/Runtime/Core/Public/Windows/WindowsPlatformTime.h:23 | header only (FPlatformTime is a typedef of FWindowsPlatformTime, :64; the Linux build uses UnixPlatformTime.h) |
+| Serialization/Archive.h | Engine/Source/Runtime/Core/Public/Serialization/Archive.h:1 | header only |
+| HAL/CriticalSection.h | Engine/Source/Runtime/Core/Public/HAL/CriticalSection.h:1 | header only |
+| FArchive | Engine/Source/Runtime/Core/Public/Serialization/Archive.h:1180 | header only |
+| FArchive::Serialize | Engine/Source/Runtime/Core/Public/Serialization/Archive.h:1662 | header only |
+| SetError | Engine/Source/Runtime/Core/Public/Serialization/Archive.h:1714 | header only (FArchive's using FArchiveState::SetError, declared at :110; called unqualified inside FCappedBody) |
+| FArchive::IsError | Engine/Source/Runtime/Core/Public/Serialization/Archive.h:1972 | header only (using FArchiveState::IsError, :362) |
+| SetIsSaving | Engine/Source/Runtime/Core/Public/Serialization/Archive.h:2195 | header only (FArchive's using FArchiveState::SetIsSaving, virtual at :947; called unqualified in FCappedBody's constructor) |
+| TArray::SetNumZeroed | Engine/Source/Runtime/Core/Public/Containers/Array.h:2351 | header only |
+| IHttpRequest | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpRequest.h:142 | header only |
+| IHttpRequest::SetContent | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpRequest.h:195 | header only (the const TArray<uint8>& overload; the rvalue one is :205) |
+| IHttpRequest::SetTimeout | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpRequest.h:317 | header only |
+| IHttpRequest::SetResponseBodyReceiveStream | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpRequest.h:256 | header only (takes TSharedRef<FArchive>) |
+| IHttpRequest::CancelRequest | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpRequest.h:385 | header only |
+| IHttpBase::GetEffectiveURL | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpBase.h:104 | header only |
+| IHttpBase::GetHeader | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpBase.h:135 | header only |
+| IHttpBase::GetContentType | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpBase.h:149 | header only |
+| ESPMode::ThreadSafe | Engine/Source/Runtime/Core/Public/Templates/SharedPointerFwd.h:17 | header only (enum class ESPMode, :11) |
+| TWeakPtr | Engine/Source/Runtime/Core/Public/Templates/SharedPointer.h:1241 | header only |
+| TSharedPtr::ToSharedRef | Engine/Source/Runtime/Core/Public/Templates/SharedPointer.h:998 | header only (the const& overload; && at :1012) |
+| TDelegateBase::Unbind | Engine/Source/Runtime/Core/Public/Delegates/DelegateBase.h:202 | header only (FHttpRequestCompleteDelegate is a TTSDelegate, IHttpRequest.h:42) |
+| Misc/CoreMisc.h | Engine/Source/Runtime/Core/Public/Misc/CoreMisc.h:1 | header only |
+| IsRunningDedicatedServer | Engine/Source/Runtime/Core/Public/Misc/CoreMisc.h:152 | header only |
+| FPaths::ProjectDir | Engine/Source/Runtime/Core/Public/Misc/Paths.h:251 | header only |
+| FMath::FRand | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:635 | header only (inherited through FPlatformMath) |
+| FReplyHandler | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:10 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |
+| ReadStatus | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:30 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |
+| ReadAutoPause | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:32 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |
+| ReadPower | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:34 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |
+| ApplyAutoPause | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:36 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |

@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkApi, scanSources } from "./check-api";
 import { loadConfig } from "./config";
+import { type CoreRunId, realCoreDeps, runCore } from "./core-run";
+import { CORE_RUNS } from "./core-runs";
 import { verifyContract } from "./contract";
 import { judgeAutomationReport, readAutomationReport } from "./mod-test";
 import { rejudge } from "./rejudge";
@@ -74,6 +76,33 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
         throw e;
       }
     }
+    case "core-run": {
+      const id = argv[1] as CoreRunId;
+      const outAt = argv.indexOf("--out");
+      const outDir = outAt === -1 ? undefined : argv[outAt + 1];
+      const spec = CORE_RUNS[id];
+      if (!spec || !outDir) {
+        io.error(`usage: harness core-run <${Object.keys(CORE_RUNS).join(", ")}> --out <dir>`);
+        return 2;
+      }
+      const path = process.env.SATIS_HARNESS_CONFIG;
+      if (!path) {
+        io.error("SATIS_HARNESS_CONFIG is not set (see docs/runner.md)");
+        return 2;
+      }
+      try {
+        const deps = realCoreDeps(loadConfig(path), loadToolchain(join(HARNESS_ROOT, "toolchain.json")), outDir, REPO_ROOT);
+        const { result, dir } = await runCore(id, spec, deps);
+        io.log(`${id}: ${result.pass ? "PASS" : "FAIL"}\n${result.reasons.join("\n")}\nevidence: ${dir}`);
+        return result.pass ? 0 : 1;
+      } catch (e) {
+        if (e instanceof RefusalError) {
+          io.error(`refused: ${e.message}`);
+          return 3;
+        }
+        throw e;
+      }
+    }
     case "rejudge": {
       const dir = argv[1];
       if (!dir) {
@@ -120,7 +149,7 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
       return verdict.pass ? 0 : 1;
     }
     default:
-      io.error("usage: harness <check-api|verify-contract|selftest|run|rejudge|test-mod|judge-mod-test>");
+      io.error("usage: harness <check-api|verify-contract|selftest|run|core-run|rejudge|test-mod|judge-mod-test>");
       return 2;
   }
 }
