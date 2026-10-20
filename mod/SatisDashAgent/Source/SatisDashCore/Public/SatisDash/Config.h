@@ -33,6 +33,8 @@ namespace SatisDash
 
 	/** S1: https:// with a host, or http:// only to 127.0.0.1 or localhost (the harness). No user info, query or fragment. */
 	SATISDASHCORE_API bool IsAllowedBackendUrl(const FString& Url);
+	/** The form ParseConfig stores: surrounding whitespace trimmed, trailing slashes removed. The credential uses it too. */
+	SATISDASHCORE_API FString NormalizeBackendUrl(const FString& Url);
 	/** The contract's code: four base32 characters, a dash, four more (EnrollmentCodeSchema). */
 	SATISDASHCORE_API bool IsEnrollmentCode(const FString& Code);
 	/** Trims both values, upper-cases the code and drops trailing slashes from the URL, then checks them. */

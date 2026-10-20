@@ -13,17 +13,20 @@ namespace
 		FString ConfigPath = Dir.Path / TEXT("Configs/SatisDashAgent.cfg");
 		FString CredentialPath = Dir.Path / TEXT("SatisDash/credential.json");
 
-		void writeConfig(const TCHAR* Code) const
+		void writeConfigAt(const TCHAR* Url, const TCHAR* Code) const
 		{
 			IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
-			SatisDash::Test::WriteText(ConfigPath, FString::Printf(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"%s\"}"), Code));
+			SatisDash::Test::WriteText(ConfigPath, FString::Printf(TEXT("{\"backendUrl\":\"%s\",\"enrollmentCode\":\"%s\"}"), Url, Code));
 		}
+
+		void writeConfig(const TCHAR* Code) const { writeConfigAt(TEXT("https://example.com"), Code); }
 
 		void writeCredential() const
 		{
 			FCredential Saved;
 			Saved.AgentSecret = SatisDash::Test::FakeSecret();
 			Saved.ServerId = TEXT("srv-1");
+			Saved.BackendUrl = TEXT("https://example.com");
 			FCredentialStore Store{CredentialPath};
 			Store.Save(Saved);
 		}
@@ -207,7 +210,8 @@ bool FAgentEditDuringEnrolTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("and nothing is handed out"), Agent.GetCredential() == nullptr);
 	}
 	{
-		// A valid edit (a new URL, the same code) keeps its URL; only the code is blanked.
+		// A valid edit (a new URL, the same code) keeps its URL; only the code is blanked. The credential was issued by
+		// the URL the request went to, so it is not this config's: idle, nothing handed out.
 		const FFixture F;
 		F.writeConfig(TEXT("AB3D-7XQ2"));
 		FAgent Agent = F.makeAgent();
@@ -218,7 +222,70 @@ bool FAgentEditDuringEnrolTest::RunTest(const FString& Parameters)
 		const FConfigResult Written = ParseConfig(SatisDash::Test::ReadText(F.ConfigPath));
 		SatisDash::Test::SameText(*this, TEXT("the new URL is kept"), Written.Config.BackendUrl, TEXT("https://other.example.com"));
 		TestTrue(TEXT("the code is blanked"), Written.Config.EnrollmentCode.IsEmpty());
+		TestTrue(TEXT("idle: the credential belongs to the old URL"), Agent.GetState() == EAgentState::Idle);
+		TestTrue(TEXT("nothing is handed out"), Agent.GetCredential() == nullptr);
+		const FCredentialStore Store{F.CredentialPath};
+		const TOptional<FCredential> Saved = Store.Load();
+		TestTrue(TEXT("the credential is saved for the URL that issued it"), Saved.IsSet() && Saved->BackendUrl == TEXT("https://example.com"));
+		F.writeConfig(TEXT(""));
+		Agent.CheckConfig();
+		TestTrue(TEXT("back at the issuing URL: running"), Agent.GetState() == EAgentState::Running);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentBackendBindingTest, "SatisDash.Core.Agent.BackendBinding", SatisDash::Test::Flags)
+
+bool FAgentBackendBindingTest::RunTest(const FString& Parameters)
+{
+	{
+		// A new URL with a fresh code enrols there, and the new credential carries the new URL.
+		const FFixture F;
+		F.writeCredential();
+		F.writeConfigAt(TEXT("https://other.example.com"), TEXT("AB3D-7XQ2"));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		TestTrue(TEXT("a credential for another backend: enrolling"), Agent.GetState() == EAgentState::Enrolling);
+		TestTrue(TEXT("the old secret is not handed out"), Agent.GetCredential() == nullptr);
+		const TOptional<FRequestSpec> Request = Agent.StartEnroll(0);
+		TestTrue(TEXT("enrols at the new URL"), Request.IsSet() && Request->Url.StartsWith(TEXT("https://other.example.com/")));
+		Agent.FinishEnroll(SatisDash::Test::Reply(404, TEXT("{}")), 0);
+		const FCredentialStore Store{F.CredentialPath};
+		TestTrue(TEXT("a failed enrol leaves the old file"), Store.Load().IsSet() && Store.Load()->BackendUrl == TEXT("https://example.com"));
+		F.writeConfigAt(TEXT("https://other.example.com"), TEXT("QQQQ-2222"));
+		Agent.CheckConfig();
+		Agent.StartEnroll(0);
+		Agent.FinishEnroll(SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()), 0);
 		TestTrue(TEXT("running"), Agent.GetState() == EAgentState::Running);
+		const FCredential* Handed = Agent.GetCredential();
+		TestTrue(TEXT("the new credential carries the new URL"), Handed != nullptr && Handed->BackendUrl == TEXT("https://other.example.com"));
+		TestTrue(TEXT("and so does the file"), Store.Load().IsSet() && Store.Load()->BackendUrl == TEXT("https://other.example.com"));
+	}
+	{
+		// A new URL without a code: idle with one line, never a Bearer; the original URL resumes.
+		const FFixture F;
+		F.writeCredential();
+		F.writeConfigAt(TEXT("https://other.example.com"), TEXT(""));
+		SatisDash::Test::FLogCapture Capture;
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		Agent.CheckConfig();
+		TestTrue(TEXT("idle"), Agent.GetState() == EAgentState::Idle);
+		TestTrue(TEXT("no credential handed out"), Agent.GetCredential() == nullptr);
+		TestFalse(TEXT("no enrol request"), Agent.StartEnroll(0).IsSet());
+		int32 Lines = 0;
+		for (const FString& Line : Capture.Take())
+		{
+			Lines += Line.Contains(TEXT("different backend")) ? 1 : 0;
+		}
+		TestEqual(TEXT("one line about the different backend"), Lines, 1);
+		const FCredentialStore Store{F.CredentialPath};
+		TestTrue(TEXT("the old credential file is untouched"), Store.Load().IsSet());
+
+		F.writeConfig(TEXT(""));
+		Agent.CheckConfig();
+		TestTrue(TEXT("switching back resumes running"), Agent.GetState() == EAgentState::Running);
+		TestTrue(TEXT("with the old credential"), Agent.GetCredential() != nullptr);
 	}
 	return true;
 }

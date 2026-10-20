@@ -14,6 +14,7 @@ namespace
 		FCredential Credential;
 		Credential.AgentSecret = FakeSecret;
 		Credential.ServerId = TEXT("srv-1");
+		Credential.BackendUrl = TEXT("https://example.com");
 		return Credential;
 	}
 }
@@ -39,9 +40,18 @@ bool FCredentialFieldsTest::RunTest(const FString& Parameters)
 	{
 		SatisDash::Test::SameText(*this, TEXT("secret"), Parsed->AgentSecret, FakeSecret);
 		SatisDash::Test::SameText(*this, TEXT("server id"), Parsed->ServerId, TEXT("srv-1"));
+		SatisDash::Test::SameText(*this, TEXT("backend URL"), Parsed->BackendUrl, TEXT("https://example.com"));
 	}
+	const TOptional<FCredential> Normalised = ParseCredential(FString::Printf(
+		TEXT("{\"agentSecret\":\"%s\",\"serverId\":\"srv-1\",\"backendUrl\":\" https://example.com// \"}"), *FakeSecret));
+	TestTrue(TEXT("a stored URL is normalised like the config's"), Normalised.IsSet() && Normalised->BackendUrl == TEXT("https://example.com"));
 	TestFalse(TEXT("wrong type"), ParseCredential(TEXT("{\"agentSecret\":5,\"serverId\":\"srv-1\"}")).IsSet());
 	TestFalse(TEXT("missing id"), ParseCredential(FString::Printf(TEXT("{\"agentSecret\":\"%s\"}"), *FakeSecret)).IsSet());
+	const FString Head = FString::Printf(TEXT("{\"agentSecret\":\"%s\",\"serverId\":\"srv-1\""), *FakeSecret);
+	TestFalse(TEXT("missing backendUrl: fail closed"), ParseCredential(Head + TEXT("}")).IsSet());
+	TestFalse(TEXT("backendUrl of the wrong type"), ParseCredential(Head + TEXT(",\"backendUrl\":5}")).IsSet());
+	TestFalse(TEXT("backendUrl empty"), ParseCredential(Head + TEXT(",\"backendUrl\":\"\"}")).IsSet());
+	TestFalse(TEXT("backendUrl not allowed (plain http, not local)"), ParseCredential(Head + TEXT(",\"backendUrl\":\"http://example.com\"}")).IsSet());
 	return true;
 }
 

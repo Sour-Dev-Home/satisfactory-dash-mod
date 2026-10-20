@@ -2,6 +2,7 @@
 
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
+#include "SatisDash/Config.h"
 #include "SatisDash/Files.h"
 #include "SatisDash/JsonUtil.h"
 
@@ -44,13 +45,20 @@ TOptional<SatisDash::FCredential> SatisDash::ParseCredential(const FString& Text
 	const TSharedPtr<FJsonObject> Object = SatisDash::Json::ParseObject(Text);
 	const TSharedPtr<FJsonValue> Secret = SatisDash::Json::Field(Object, TEXT("agentSecret"), EJson::String);
 	const TSharedPtr<FJsonValue> ServerId = SatisDash::Json::Field(Object, TEXT("serverId"), EJson::String);
-	if (!Secret.IsValid() || !ServerId.IsValid() || !IsAgentSecret(Secret->AsString()) || !IsServerId(ServerId->AsString()))
+	const TSharedPtr<FJsonValue> Url = SatisDash::Json::Field(Object, TEXT("backendUrl"), EJson::String);
+	if (!Secret.IsValid() || !ServerId.IsValid() || !Url.IsValid() || !IsAgentSecret(Secret->AsString()) || !IsServerId(ServerId->AsString()))
 	{
 		return {};
+	}
+	const FString BackendUrl = NormalizeBackendUrl(Url->AsString());
+	if (!IsAllowedBackendUrl(BackendUrl))
+	{
+		return {}; // no known issuer: fail closed, like any other malformed credential file
 	}
 	FCredential Credential;
 	Credential.AgentSecret = Secret->AsString();
 	Credential.ServerId = ServerId->AsString();
+	Credential.BackendUrl = BackendUrl;
 	return Credential;
 }
 
@@ -59,6 +67,7 @@ FString SatisDash::CredentialToJson(const FCredential& Credential)
 	const TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
 	Object->SetStringField(TEXT("agentSecret"), Credential.AgentSecret);
 	Object->SetStringField(TEXT("serverId"), Credential.ServerId);
+	Object->SetStringField(TEXT("backendUrl"), Credential.BackendUrl);
 	return SatisDash::Json::WritePretty(Object);
 }
 

@@ -13,7 +13,13 @@ SatisDash::FAgent::FAgent(FString InConfigPath, FString InCredentialPath, TFunct
 
 const SatisDash::FCredential* SatisDash::FAgent::GetCredential() const
 {
-	return State == EAgentState::Running && Credential.IsSet() ? &Credential.GetValue() : nullptr;
+	return State == EAgentState::Running && IsBoundHere() ? &Credential.GetValue() : nullptr;
+}
+
+bool SatisDash::FAgent::IsBoundHere() const
+{
+	// Exact and case-sensitive on the normalised strings: the secret goes only to the backend that issued it.
+	return Credential.IsSet() && Credential->BackendUrl.Equals(Config.BackendUrl, ESearchCase::CaseSensitive);
 }
 
 void SatisDash::FAgent::Boot()
@@ -113,7 +119,7 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 	}
 	const FString PreviousCode = Config.EnrollmentCode;
 	Config = Loaded.Config;
-	if (Credential.IsSet())
+	if (IsBoundHere())
 	{
 		if (!Config.EnrollmentCode.IsEmpty())
 		{
@@ -132,6 +138,12 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 			NextEnrollAt = 0;
 		}
 		Enter(EAgentState::Enrolling, TEXT("Enrolling with the code from SatisDashAgent.cfg"), false);
+		return;
+	}
+	if (Credential.IsSet())
+	{
+		// Kept in memory and on disk: switching the config back to its backend resumes it.
+		Enter(EAgentState::Idle, TEXT("The saved credential belongs to a different backend than SatisDashAgent.cfg names; add a new enrolment code from that backend's dashboard (nothing is sent until then)"), true);
 		return;
 	}
 	Enter(EAgentState::Idle, TEXT("Not enrolled: add an enrolment code from the dashboard to SatisDashAgent.cfg"), false);
@@ -176,14 +188,23 @@ void SatisDash::FAgent::FinishEnroll(const FHttpReply& Reply, double Now)
 	{
 		if (const TOptional<FEnrollResponse> Enrolled = ParseEnrollResponse(Reply))
 		{
-			if (!Credentials.Save(Enrolled->Credential))
+			// Issued by the backend the request went to (Config is unchanged since StartEnroll; CheckConfig waits for
+			// the answer), whatever the file says by now.
+			FCredential Issued = Enrolled->Credential;
+			Issued.BackendUrl = Config.BackendUrl;
+			if (!Credentials.Save(Issued))
 			{
 				UE_LOG(LogSatisDash, Warning, TEXT("Enrolled, but the credential file couldn't be written; enrolment will be lost when the server restarts"));
 			}
-			Credential = Enrolled->Credential;
+			Credential = Issued;
 			Cadence = Enrolled->Cadence;
-			BlankCodeInFile();
+			BlankCodeInFile(); // may adopt a URL edited while the request was in flight
 			EnrollFailures = 0;
+			if (!IsBoundHere())
+			{
+				Enter(EAgentState::Idle, TEXT("The enrolment succeeded at the backend the request went to, but SatisDashAgent.cfg now names a different one; the credential is kept for the original backend and nothing is sent to the new one"), true);
+				return;
+			}
 			Enter(EAgentState::Running, TEXT("Enrolled; reporting to the backend"), false);
 			return;
 		}

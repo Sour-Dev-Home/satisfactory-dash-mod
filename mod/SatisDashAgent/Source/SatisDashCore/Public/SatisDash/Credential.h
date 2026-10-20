@@ -8,6 +8,8 @@ namespace SatisDash
 	{
 		FString AgentSecret;
 		FString ServerId;
+		/** The backend that issued it (normalised like the config's). The secret is only ever sent there. */
+		FString BackendUrl;
 	};
 
 	/**

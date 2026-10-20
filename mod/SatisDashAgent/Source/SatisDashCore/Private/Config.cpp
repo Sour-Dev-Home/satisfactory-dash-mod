@@ -73,6 +73,16 @@ bool SatisDash::IsAllowedBackendUrl(const FString& Url)
 	return bHttps || Host.Equals(TEXT("127.0.0.1"), ESearchCase::CaseSensitive) || Host.Equals(TEXT("localhost"), ESearchCase::IgnoreCase);
 }
 
+FString SatisDash::NormalizeBackendUrl(const FString& Url)
+{
+	FString Out = Url.TrimStartAndEnd();
+	while (Out.EndsWith(TEXT("/")))
+	{
+		Out.LeftChopInline(1);
+	}
+	return Out;
+}
+
 bool SatisDash::IsEnrollmentCode(const FString& Code)
 {
 	if (Code.Len() != 9 || Code[4] != TEXT('-'))
@@ -99,11 +109,7 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 		return Result;
 	}
 	const TSharedPtr<FJsonValue> UrlValue = SatisDash::Json::Field(Object, TEXT("backendUrl"), EJson::String);
-	FString Url = UrlValue.IsValid() ? UrlValue->AsString().TrimStartAndEnd() : FString();
-	while (Url.EndsWith(TEXT("/")))
-	{
-		Url.LeftChopInline(1);
-	}
+	const FString Url = UrlValue.IsValid() ? NormalizeBackendUrl(UrlValue->AsString()) : FString();
 	if (!IsAllowedBackendUrl(Url))
 	{
 		Result.BadField = TEXT("backendUrl");
