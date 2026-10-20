@@ -11,6 +11,10 @@ export interface BackendEvidence { codeConsumed: boolean; agentVersion: string |
 /** S3: one mod reading paired with FRM's reading of the same circuit, taken right after it. */
 export interface PowerReading { production: number; consumption: number; capacity: number }
 export interface PowerPair { at: string; circuitId: number; mod: PowerReading; frm: PowerReading | null; group?: number[] }
+/** S6: one round of status, as the mod read it natively and as QueryServerState plus HealthCheck reported it. The
+ *  session is the first 12 hex characters of the name's SHA-1 over UTF-8: bundles are public. */
+export interface StatusReading { running: boolean; paused: boolean; players: number; limit: number; duration: number; tickRate: number; health: string; session: string }
+export interface StatusPair { at: string; mod: StatusReading; api: StatusReading | null }
 
 export interface Evidence {
   modLines: string[];
@@ -19,5 +23,6 @@ export interface Evidence {
   credential?: CredentialEvidence;
   backend?: BackendEvidence;
   power?: { pairs: PowerPair[]; frmCircuits: number[]; modCircuits: number[] };
+  status?: { pairs: StatusPair[] };
 }
 export interface Verdict { pass: boolean; reasons: string[] }
