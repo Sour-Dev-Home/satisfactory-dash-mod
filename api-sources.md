@@ -132,3 +132,24 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | module:FactoryGame | Source/FactoryGame/FactoryGame.Build.cs:1 | header only |
 | UWorld::IsGameWorld | Engine/Source/Runtime/Engine/Classes/Engine/World.h:4006 | header only |
 | TWeakObjectPtr | Engine/Source/Runtime/Core/Public/UObject/WeakObjectPtrTemplates.h:23 | header only |
+| FGServerSubsystem.h | Source/FactoryDedicatedServer/Public/FGServerSubsystem.h:1 | header only |
+| UFGServerSubsystem | Source/FactoryDedicatedServer/Public/FGServerSubsystem.h:34 | header only |
+| UFGServerSubsystem::Get | Source/FactoryDedicatedServer/Public/FGServerSubsystem.h:62 | header only |
+| UFGServerSubsystem::GetServerAPIManager | Source/FactoryDedicatedServer/Public/FGServerSubsystem.h:65 | header only ("Useful for Mods") |
+| UFGServerSubsystem::GetServerGameState | Source/FactoryDedicatedServer/Public/FGServerSubsystem.h:140 | header only |
+| FServerGameState | Source/FactoryGame/Public/Server/FGDSGameplayTypes.h:34 | header only (the struct Handler_QueryServerState fills, FGServerStateController.h:32) |
+| UFGServerAPIManager | Source/FactoryDedicatedServer/Public/Networking/FGServerAPIManager.h:153 | header only |
+| Controller/FGServerStateController.h | Source/FactoryDedicatedServer/Public/Controller/FGServerStateController.h:1 | header only |
+| UFGServerStateController | Source/FactoryDedicatedServer/Public/Controller/FGServerStateController.h:23 | header only |
+| UFGServerStateController::Handler_HealthCheck | Source/FactoryDedicatedServer/Public/Controller/FGServerStateController.h:49 | header only |
+| module:FactoryDedicatedServer | Source/FactoryDedicatedServer/FactoryDedicatedServer.Build.cs:1 | header only (Server and Editor targets only, FactoryGame.uproject:47-53) |
+| NewObject | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectGlobals.h:1889 | header only (the outer-only overload) |
+| FSHAHash | Engine/Source/Runtime/Core/Public/Misc/SecureHash.h:225 | header only |
+| UFGServerStateController::Handler_GetServerOptions | Source/FactoryDedicatedServer/Public/Controller/FGServerStateController.h:40 | header only |
+| Controller/FGServerManagementController.h | Source/FactoryDedicatedServer/Public/Controller/FGServerManagementController.h:1 | header only |
+| UFGServerManagementController | Source/FactoryDedicatedServer/Public/Controller/FGServerManagementController.h:22 | header only |
+| UFGServerManagementController::Handler_ApplyServerOptions | Source/FactoryDedicatedServer/Public/Controller/FGServerManagementController.h:60 | header only |
+| TMap | Engine/Source/Runtime/Core/Public/Containers/Map.h:1290 | header only |
+| TMap::Find | Engine/Source/Runtime/Core/Public/Containers/Map.h:567 | header only (declared in TMapBase, which TMap inherits) |
+| TMap::Contains | Engine/Source/Runtime/Core/Public/Containers/Map.h:788 | header only (declared in TMapBase, which TMap inherits) |
+| FString::Reset | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:345 | header only |
