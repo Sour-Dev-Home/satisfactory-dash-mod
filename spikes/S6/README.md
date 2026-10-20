@@ -8,7 +8,8 @@ Part of the core mod's spec (`docs/specs/2026-10-20-core-mod-v1-design.md`, "Spi
 controller the mod creates under the server's API manager. The session is the first 12 hex characters of the name's
 SHA-1 over UTF-8; the name itself is never logged.
 
-**What the harness does.** It pairs each line with `QueryServerState` and `HealthCheck` called right after, first in
+**What the harness does.** The test server auto-loads its last save, so a first boot clears that setting (run 1
+found every reading already had a game); the setting is put back at the end. Then it pairs each line with `QueryServerState` and `HealthCheck` called right after, first in
 the entry map (no world), then after loading the staged save. It discards the first batch of each phase, which was
 logged before it started reading.
 

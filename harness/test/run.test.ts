@@ -277,21 +277,54 @@ describe("runSpike", () => {
   const reading = (running: boolean): StatusReading => ({ running, paused: false, players: 0, limit: 4, duration: running ? 100 : 0, tickRate: 30, health: "healthy", session: "da39a3ee5e6b" });
   const statusPairs = (running: boolean): StatusPair[] => Array.from({ length: 10 }, (_, i) => ({ at: `t${i}`, mod: reading(running), api: reading(running) }));
 
-  it("S6: pairs status before the world loads and again after, from where the first phase stopped, without touching auto-pause", async () => {
+  const autoLoadDeps = (seen: string[], set: (name: string) => Promise<void> = async () => undefined) => ({
+    readAutoLoad: async () => (seen.push("read autoload"), "w-1"),
+    setAutoLoad: async (name: string) => (seen.push(`autoload "${name}"`), set(name)),
+  });
+
+  it("S6: boots once to clear the auto-load save, then pairs status before the world loads and after, and restores both settings", async () => {
     const seen: string[] = [];
     const { deps } = fakeDeps({
       savesConflict: () => [],
+      start: () => (seen.push("start"), { pid: 1, exited: new Promise(() => {}) }),
       loadWorld: async () => void seen.push("load world"),
       waitHealthy: async () => void seen.push("healthy"),
       readAutoPause: async () => (seen.push("read autopause"), true),
       setAutoPause: async (on) => void seen.push(`autopause ${on}`),
+      ...autoLoadDeps(seen),
       collectStatus: async (from) => (seen.push(`collect status ${from}`), from === 0 ? { pairs: statusPairs(false), next: 7 } : { pairs: statusPairs(true), next: 9 }),
       stop: async () => void seen.push("stop"),
     });
     const { result, dir } = await runSpike("S6", deps);
-    expect(seen).toEqual(["healthy", "collect status 0", "load world", "healthy", "read autopause", "collect status 7", "autopause true", "stop"]);
+    expect(seen).toEqual([
+      "start", "healthy", "read autoload", 'autoload ""', "stop",
+      "start", "healthy", "collect status 0", "load world", "healthy", "read autopause", "collect status 7", "autopause true", 'autoload "w-1"', "stop",
+    ]);
     expect(result.pass).toBe(true);
     expect(JSON.parse(readFileSync(join(dir, "status.json"), "utf8"))).toHaveLength(20);
+  });
+
+  it("S6: records a failure to clear the auto-load save, still stops that boot, and puts the setting back", async () => {
+    const seen: string[] = [];
+    const { deps } = fakeDeps({
+      savesConflict: () => [],
+      loadWorld: async () => undefined,
+      readAutoPause: async () => true,
+      setAutoPause: async () => undefined,
+      ...autoLoadDeps(seen, async (name) => { if (name === "") throw new Error("SetAutoLoadSessionName returned 400"); }),
+      collectStatus: async (from) => ({ pairs: statusPairs(from !== 0), next: 1 }),
+      stop: async () => void seen.push("stop"),
+    });
+    const { result } = await runSpike("S6", deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons[0]).toMatch(/SetAutoLoadSessionName returned 400/);
+    expect(seen).toEqual(["read autoload", 'autoload ""', "stop", 'autoload "w-1"', "stop"]);
+  });
+
+  it("S6: refuses before building without the auto-load deps", async () => {
+    const { deps, calls } = fakeDeps({ savesConflict: () => [], loadWorld: async () => undefined, readAutoPause: async () => true, setAutoPause: async () => undefined, collectStatus: async () => ({ pairs: [], next: 0 }) });
+    await expect(runSpike("S6", deps)).rejects.toThrow(/S6 needs the auto-load save deps/);
+    expect(calls.some((c) => c.startsWith("build"))).toBe(false);
   });
 
   it("S6: refuses before building without the staged world", async () => {
@@ -306,6 +339,7 @@ describe("runSpike", () => {
       loadWorld: async () => undefined,
       readAutoPause: async () => true,
       setAutoPause: async () => undefined,
+      ...autoLoadDeps([]),
       collectStatus: async (from) => ({ pairs: statusPairs(from !== 0), next: 1 }),
     });
     expect((await runSpike("S6", deps)).result.pass).toBe(true);

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadWorld, otherServerSettings } from "../src/world";
+import { loadWorld, otherServerSettings, readAutoLoad, setAutoLoad } from "../src/world";
 
 let dir = "";
 afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
@@ -27,5 +27,30 @@ describe("the S3 world", () => {
     writeFileSync(join(dir, "ServerSettings.7777.sav"), "");
     expect(otherServerSettings(dir, 17777)).toEqual(["ServerSettings.7777.sav"]);
     expect(otherServerSettings(join(dir, "missing"), 17777)).toEqual([]);
+  });
+});
+
+describe("the auto-load save (S6's empty boot)", () => {
+  it("reads it from QueryServerState", async () => {
+    const api = { call: async () => ({ status: 200, body: { data: { serverGameState: { autoLoadSessionName: "w-1" } } } }) };
+    expect(await readAutoLoad(api)).toBe("w-1");
+  });
+  it("reads an unset one as an empty name", async () => {
+    const api = { call: async () => ({ status: 200, body: { data: { serverGameState: { autoLoadSessionName: "" } } } }) };
+    expect(await readAutoLoad(api)).toBe("");
+  });
+  it("throws when QueryServerState has no auto-load field", async () => {
+    const api = { call: async () => ({ status: 200, body: { data: { serverGameState: {} } } }) };
+    await expect(readAutoLoad(api)).rejects.toThrow(/no autoLoadSessionName/);
+  });
+  it("sets it with SetAutoLoadSessionName (saves capture E1)", async () => {
+    const sent: unknown[] = [];
+    const api = { call: async (fn: string, data?: Record<string, unknown>) => (sent.push([fn, data]), { status: 204, body: null }) };
+    await setAutoLoad(api, "");
+    expect(sent).toEqual([["SetAutoLoadSessionName", { SessionName: "" }]]);
+  });
+  it("names the status when the server refuses", async () => {
+    const api = { call: async () => ({ status: 400, body: { errorCode: "invalid_parameter" } }) };
+    await expect(setAutoLoad(api, "")).rejects.toThrow(/SetAutoLoadSessionName returned 400: invalid_parameter/);
   });
 });

@@ -35,7 +35,7 @@ import {
 } from "./server-control";
 import { halfMedians, readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WARMUP_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
-import { loadWorld, otherServerSettings } from "./world";
+import { loadWorld, otherServerSettings, readAutoLoad, setAutoLoad } from "./world";
 import { type AutoPauseStep, type Evidence, SPIKE_IDS, type SpikeId, type StatusPair, type Verdict } from "./verdict";
 
 /** A precondition failed: nothing ran, and no evidence is written. */
@@ -62,6 +62,8 @@ export interface SpikeSpec {
   power?: boolean;
   /** S6: status lines are paired with QueryServerState and HealthCheck, before the world loads and after. */
   status?: boolean;
+  /** S6: a first boot clears the server's auto-load save, so the measured boot starts with no game; it is put back. */
+  emptyBoot?: boolean;
   /** S7: each auto-pause step the mod logs is paired with GetServerOptions. */
   autoPauseSteps?: boolean;
 }
@@ -76,7 +78,7 @@ export const SPIKES: Partial<Record<SpikeId, SpikeSpec>> = {
   S3: { claim: S3.claim, evaluate: S3.evaluate, echo: false, ticks: false, world: true, pauseOff: true, power: true, doneLine: /satis-mod s3 circuit=/ },
   S4: { claim: S4.claim, evaluate: S4.evaluate, echo: false, ticks: false, credential: true, doneLine: /satis-mod s4 (read|error)/ },
   S5: { claim: S5.claim, evaluate: S5.evaluate, echo: false, ticks: false, backend: true, doneLine: /satis-mod s5 (enroll=|error)/ },
-  S6: { claim: S6.claim, evaluate: S6.evaluate, echo: false, ticks: false, world: true, status: true, doneLine: /satis-mod s6 / },
+  S6: { claim: S6.claim, evaluate: S6.evaluate, echo: false, ticks: false, world: true, status: true, emptyBoot: true, doneLine: /satis-mod s6 / },
   S7: { claim: S7.claim, evaluate: S7.evaluate, echo: false, ticks: false, world: true, autoPauseSteps: true, doneLine: /satis-mod s7 (step=read|error)/ },
 };
 /** The spikes with a spec, which `run` accepts. */
@@ -125,6 +127,9 @@ export interface RunDeps {
   collectStatus?(from: number): Promise<{ pairs: StatusPair[]; next: number }>;
   /** S7: pairs each s7 step line from `from` on with GetServerOptions, until the mod logs done. */
   collectAutoPause?(from: number): Promise<AutoPauseStep[]>;
+  /** S6: the session the server loads on startup ("" for none), and setting it. */
+  readAutoLoad?(): Promise<string>;
+  setAutoLoad?(name: string): Promise<void>;
   now(): Date;
   env: { commit: string; runUrl: string | null };
 }
@@ -157,6 +162,7 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       throw new RefusalError(`${spike} needs s3World in the runner config`);
     }
     if (spec.status && !deps.collectStatus) throw new RefusalError("S6 needs the status collector");
+    if (spec.emptyBoot && (!deps.readAutoLoad || !deps.setAutoLoad)) throw new RefusalError("S6 needs the auto-load save deps");
     if (spec.autoPauseSteps && !deps.collectAutoPause) throw new RefusalError("S7 needs the auto-pause collector");
     const shared = deps.savesConflict();
     if (shared.length) {
@@ -216,6 +222,8 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   let autoPause: AutoPauseStep[] | undefined;
   // World spikes: GetServerOptions' value before the mod acted, restored at the end and given to S7's verdict.
   let autoPauseBefore: boolean | undefined;
+  // S6: the session the server auto-loaded before the run, put back at the end.
+  let autoLoadBefore: string | undefined;
 
   if (spec.ticks) {
     // The with-mod boot resets the log, so the baseline boot's lines are read before that.
@@ -242,6 +250,20 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     }
 
     try {
+      if (spec.emptyBoot) {
+        // The test server auto-loads its last save, so without this every boot already has a game (S6 run 1). The mod is
+        // installed for this boot too; its lines go with the log, which the measured boot resets.
+        const pre = await startFresh();
+        try {
+          await whileRunning(pre, deps.waitHealthy(), "waiting for health before clearing the auto-load save");
+          autoLoadBefore = await whileRunning(pre, deps.readAutoLoad!(), "reading the auto-load save");
+          await whileRunning(pre, deps.setAutoLoad!(""), "clearing the auto-load save");
+        } catch (e) {
+          runReasons.push(message(e));
+        } finally {
+          await deps.stop(pre);
+        }
+      }
       if (spec.echo) echo = await deps.startEcho();
       const offset = deps.resetLog();
       const proc = await startFresh();
@@ -280,6 +302,13 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
             await deps.setAutoPause!(autoPauseBefore);
           } catch (e) {
             runReasons.push(`restoring auto-pause: ${message(e)}`);
+          }
+        }
+        if (autoLoadBefore !== undefined) {
+          try {
+            await deps.setAutoLoad!(autoLoadBefore);
+          } catch (e) {
+            runReasons.push(`restoring the auto-load save: ${message(e)}`);
           }
         }
         await deps.stop(proc);
@@ -410,6 +439,8 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
       ),
     ...(config.s3World ? {
       loadWorld: () => loadWorld(api, `w-${Date.now()}`, readFileSync(config.s3World!)),
+      readAutoLoad: () => readAutoLoad(api),
+      setAutoLoad: (name: string) => setAutoLoad(api, name),
       collectStatus: async (from: number) => {
         const reader = lineReader(logPath, from, "satis-mod s6 ");
         const pairs = await collectStatusPairs({
