@@ -2,6 +2,26 @@
 
 #include "Misc/ScopeLock.h"
 
+namespace
+{
+	/** Where the path starts: after scheme://authority, or the end when there is no path. */
+	int32 pathStart(const FString& Url)
+	{
+		const int32 HostAt = Url.Find(TEXT("://"), ESearchCase::CaseSensitive);
+		const int32 PathAt = Url.Find(TEXT("/"), ESearchCase::CaseSensitive, ESearchDir::FromStart, HostAt == INDEX_NONE ? 0 : HostAt + 3);
+		return PathAt == INDEX_NONE ? Url.Len() : PathAt;
+	}
+
+	/** The same place: scheme and authority compare without case (libcurl reports them normalised), the rest exactly. */
+	bool samePlace(const FString& Effective, const FString& Requested)
+	{
+		const int32 EffectivePath = pathStart(Effective);
+		const int32 RequestedPath = pathStart(Requested);
+		return Effective.Left(EffectivePath).Equals(Requested.Left(RequestedPath), ESearchCase::IgnoreCase)
+			&& Effective.RightChop(EffectivePath).Equals(Requested.RightChop(RequestedPath), ESearchCase::CaseSensitive);
+	}
+}
+
 SatisDash::FCappedBody::FCappedBody()
 {
 	SetIsSaving(true);
@@ -46,7 +66,7 @@ SatisDash::FHttpReply SatisDash::MakeReply(const FRawReply& Raw, const FString& 
 	}
 	// S3: the transport never follows a redirect, so a 3xx answer is the redirect itself; an effective URL other than the
 	// one asked would mean one was followed anyway. Either way the answer is refused.
-	if ((Raw.Code >= 300 && Raw.Code < 400) || !Raw.EffectiveUrl.Equals(RequestUrl, ESearchCase::CaseSensitive))
+	if ((Raw.Code >= 300 && Raw.Code < 400) || !samePlace(Raw.EffectiveUrl, RequestUrl))
 	{
 		OutRefusal = EReplyRefusal::Redirected;
 		return Reply;

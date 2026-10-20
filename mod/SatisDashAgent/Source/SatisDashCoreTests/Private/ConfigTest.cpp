@@ -24,6 +24,22 @@ bool FConfigUrlTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("backslash"), IsAllowedBackendUrl(TEXT("https://example.com\\x")));
 	TestFalse(TEXT("port out of range"), IsAllowedBackendUrl(TEXT("https://example.com:99999")));
 	TestFalse(TEXT("empty port"), IsAllowedBackendUrl(TEXT("https://example.com:")));
+
+	// The transport's check on every request URL (Task 1e): the backend part as above, then the mod's own path and query.
+	bool bPlainHttp = true;
+	TestTrue(TEXT("request: https"), IsAllowedRequestUrl(TEXT("https://example.com/agent/v1/snapshots"), bPlainHttp));
+	TestFalse(TEXT("request: https is not plain http"), bPlainHttp);
+	TestTrue(TEXT("request: the poll's query"), IsAllowedRequestUrl(TEXT("https://example.com/agent/v1/commands?waitSeconds=25"), bPlainHttp));
+	TestTrue(TEXT("request: http on 127.0.0.1"), IsAllowedRequestUrl(TEXT("http://127.0.0.1:3000/agent/v1/enroll"), bPlainHttp));
+	TestTrue(TEXT("request: http on loopback is plain http"), bPlainHttp);
+	TestTrue(TEXT("request: HTTP on localhost"), IsAllowedRequestUrl(TEXT("HTTP://localhost:3000/agent/v1/enroll"), bPlainHttp));
+	TestTrue(TEXT("request: the scheme compares without case"), bPlainHttp);
+	TestFalse(TEXT("request: http elsewhere"), IsAllowedRequestUrl(TEXT("http://example.com/agent/v1/enroll"), bPlainHttp));
+	TestFalse(TEXT("request: http look-alike"), IsAllowedRequestUrl(TEXT("http://127.0.0.1.evil.example/agent/v1/enroll"), bPlainHttp));
+	TestFalse(TEXT("request: a query can't hide a host"), IsAllowedRequestUrl(TEXT("http://example.com?@127.0.0.1"), bPlainHttp));
+	TestFalse(TEXT("request: fragment in the query"), IsAllowedRequestUrl(TEXT("https://example.com/a?x=1#y"), bPlainHttp));
+	TestFalse(TEXT("request: whitespace in the query"), IsAllowedRequestUrl(TEXT("https://example.com/a?x=1 2"), bPlainHttp));
+	TestFalse(TEXT("request: another scheme"), IsAllowedRequestUrl(TEXT("ftp://example.com/a"), bPlainHttp));
 	return true;
 }
 

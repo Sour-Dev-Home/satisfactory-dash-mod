@@ -2,6 +2,7 @@
 
 #include "HAL/PlatformTime.h"
 #include "Interfaces/ISslCertificateManager.h"
+#include "SatisDash/Config.h"
 #include "SatisDash/Log.h"
 #include "SatisDashCurl.h"
 #include "SslModule.h"
@@ -176,6 +177,12 @@ void SatisDash::FCurlTransport::Send(const FRequestSpec& Spec, FReplyHandler OnR
 
 bool SatisDash::FCurlTransport::Start(FPending& Pending, const FRequestSpec& Spec)
 {
+	// S1: https, or plain http only to 127.0.0.1/localhost (the harness's backends), checked again here before any curl call.
+	bool bPlainHttp = false;
+	if (!IsAllowedRequestUrl(Spec.Url, bPlainHttp))
+	{
+		return false;
+	}
 	if (Multi == nullptr)
 	{
 		Multi = curl_multi_init();
@@ -213,10 +220,11 @@ bool SatisDash::FCurlTransport::Start(FPending& Pending, const FRequestSpec& Spe
 	// Every option must take; any refusal fails the request closed. Never CURLOPT_VERBOSE or CURLOPT_DEBUGFUNCTION: they
 	// would print the Authorization header. No proxy options of the mod's own.
 	bool bSet = setOption(Easy, CURLOPT_URL, TCHAR_TO_UTF8(*Spec.Url));
-	// S3: a redirect is never followed, and only https is ever spoken, redirect or not.
+	// S3: a redirect is never followed. The protocol is https, or http only for a loopback URL (S1 allows it for the
+	// harness; IsAllowedRequestUrl checked the host above); a redirect could only ever be to https, and none is followed.
 	bSet = bSet && setOption(Easy, CURLOPT_FOLLOWLOCATION, 0L);
 	bSet = bSet && setOption(Easy, CURLOPT_MAXREDIRS, 0L);
-	bSet = bSet && setOption(Easy, CURLOPT_PROTOCOLS_STR, "https");
+	bSet = bSet && setOption(Easy, CURLOPT_PROTOCOLS_STR, bPlainHttp ? "http" : "https");
 	bSet = bSet && setOption(Easy, CURLOPT_REDIR_PROTOCOLS_STR, "https");
 	// S1, S2: the peer's chain and name are verified; TLS 1.2 is the minimum, with no maximum.
 	bSet = bSet && setOption(Easy, CURLOPT_SSL_VERIFYPEER, 1L);
@@ -265,26 +273,45 @@ bool SatisDash::FCurlTransport::Start(FPending& Pending, const FRequestSpec& Spe
 
 bool SatisDash::FCurlTransport::Tick()
 {
-	if (Multi == nullptr)
+	// Without a multi handle (curl_multi_init failed) there is nothing to pump, but a queued NotStarted reply is still
+	// delivered below: every Send gets exactly one reply.
+	if (Multi != nullptr)
 	{
-		bTicking = false;
-		return false;
-	}
-	int Running = 0;
-	curl_multi_perform(Multi, &Running);
-	int Left = 0;
-	while (CURLMsg* Message = curl_multi_info_read(Multi, &Left))
-	{
-		if (Message->msg != CURLMSG_DONE)
+		int Running = 0;
+		if (curl_multi_perform(Multi, &Running) != CURLM_OK)
 		{
-			continue;
-		}
-		for (const TUniquePtr<FPending>& Each : InFlight)
-		{
-			if (Each->Easy == Message->easy_handle)
+			// The multi handle is broken: every request still out fails now (Code 0), rather than waiting on timeouts that
+			// only perform drives. The next Send starts a fresh multi handle.
+			for (const TUniquePtr<FPending>& Each : InFlight)
 			{
-				Complete(*Each, int32(Message->data.result));
-				break;
+				if (!Each->bDone)
+				{
+					Release(*Each);
+					Each->Raw = FRawReply();
+					Each->Raw.Failure = TEXT("Other");
+					Each->bDone = true;
+				}
+			}
+			curl_multi_cleanup(Multi);
+			Multi = nullptr;
+		}
+		else
+		{
+			int Left = 0;
+			while (CURLMsg* Message = curl_multi_info_read(Multi, &Left))
+			{
+				if (Message->msg != CURLMSG_DONE)
+				{
+					continue;
+				}
+				for (const TUniquePtr<FPending>& Each : InFlight)
+				{
+					if (Each->Easy == Message->easy_handle)
+					{
+						Complete(*Each, int32(Message->data.result));
+						break;
+					}
+				}
 			}
 		}
 	}
@@ -308,6 +335,11 @@ bool SatisDash::FCurlTransport::Tick()
 	}
 	if (Generation != Started)
 	{
+		return false;
+	}
+	if (Multi == nullptr && InFlight.Num() == 0)
+	{
+		bTicking = false;
 		return false;
 	}
 	return true;

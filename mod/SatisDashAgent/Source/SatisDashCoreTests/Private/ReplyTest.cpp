@@ -99,6 +99,17 @@ bool FReplyMakeTest::RunTest(const FString& Parameters)
 		}
 	}
 	{
+		// libcurl reports the scheme and host as it normalised them; their case is not a different place (Task 1e review).
+		FCappedBody CappedBody;
+		EReplyRefusal Refusal = EReplyRefusal::Redirected;
+		MakeReply(answered(TEXT("https://example.com/agent/v1/snapshots")), TEXT("HTTPS://Example.COM/agent/v1/snapshots"), CappedBody, Refusal);
+		TestTrue(TEXT("scheme and host compare without case"), Refusal == EReplyRefusal::None);
+		MakeReply(answered(TEXT("https://example.com:4443/agent/v1/snapshots")), TEXT("HTTPS://Example.COM/agent/v1/snapshots"), CappedBody, Refusal);
+		TestTrue(TEXT("but another port is still another place"), Refusal == EReplyRefusal::Redirected);
+		MakeReply(answered(TEXT("https://example.com/agent/v1/Snapshots")), TEXT("HTTPS://Example.COM/agent/v1/snapshots"), CappedBody, Refusal);
+		TestTrue(TEXT("and the path still compares exactly"), Refusal == EReplyRefusal::Redirected);
+	}
+	{
 		// The URL compares exactly: a case change in the path is another resource.
 		FCappedBody CappedBody;
 		EReplyRefusal Refusal = EReplyRefusal::None;
