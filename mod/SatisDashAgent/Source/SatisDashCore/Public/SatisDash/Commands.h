@@ -59,7 +59,11 @@ namespace SatisDash
 		FCommandResult Result;
 	};
 
-	/** commandRunner.ts's handle(): only set_auto_pause with exactly {"enabled": <bool>} runs (S6). */
+	/**
+	 * commandRunner.ts's handle(): only set_auto_pause with exactly {"enabled": <bool>} runs (S6).
+	 * Now (here and in Begin and ShouldRetryResult) must be UTC (FDateTime::UtcNow()): ExpiresAt is parsed to UTC, so a
+	 * local-time Now makes commands look expired or too far out.
+	 */
 	SATISDASHCORE_API FCommandPlan PlanCommand(const FAgentCommand& Command, FCommandLedger& Ledger, const FDateTime& Now);
 	/** commandRunner.ts's report(): up to 5 attempts, only on a transient failure, and never past the command's expiry. */
 	SATISDASHCORE_API bool ShouldRetryResult(int32 AttemptsMade, EReplyKind Kind, const FDateTime& ExpiresAt, const FDateTime& Now);

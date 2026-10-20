@@ -39,6 +39,7 @@ namespace SatisDash
 	struct FSnapshot
 	{
 		FString AgentVersion;
+		/** Must be UTC (FDateTime::UtcNow()), not local time: the wire format and expiresAt are both UTC. */
 		FDateTime ObservedAt;
 		TOptional<bool> AutoPause;
 		TOptional<FStatusReading> Status;

@@ -28,10 +28,17 @@ namespace SatisDash
 		explicit FPusher(TFunction<double()> InRandom01);
 		/** Adds a snapshot, dropping the oldest past 120. Logs once when dropping starts. */
 		void Enqueue(FString SnapshotJson);
-		/** The snapshot to send now: none while one is in flight, while a retry waits, or when the queue is empty. */
+		/**
+		 * The snapshot to send now: none while one is in flight, while a retry waits, or when the queue is empty.
+		 * Now (here and in FinishSend) must be monotonic seconds (FPlatformTime::Seconds()); a clock that goes backwards
+		 * stalls pushing. Every StartSend that returns a snapshot must be followed by exactly one FinishSend, including
+		 * on timeout or cancel (pass a Code 0 reply), or the pusher waits for the answer forever. Call GetCredential()
+		 * again before each authenticated request, and send any 401 to FAgent::OnAuthRejected.
+		 */
 		TOptional<FString> StartSend(double Now);
 		/** The reply to the send StartSend began. */
 		FOutcome FinishSend(const FHttpReply& Reply, double Now);
+		/** Empties the queue. Not while a send is in flight: call it after that send's FinishSend. */
 		void Clear();
 		int32 Num() const { return Queue.Num(); }
 		int32 Failures() const { return FailureCount; }
