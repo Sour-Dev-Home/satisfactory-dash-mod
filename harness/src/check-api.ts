@@ -82,7 +82,7 @@ function localsOf(files: SourceFile[]): Locals {
     }
     // Functions the spike defines with a body, or (in its own headers) declares: "<type> Name(...) {" / ";".
     const ending = HEADER_EXT.test(f.path) ? "[{;]" : "\\{";
-    const defined = new RegExp(String.raw`\b(\w+)[*&]?\s+[*&]?([A-Z]\w*)\s*\([^;{}()]*\)${QUALIFIERS}${ending}`, "g");
+    const defined = new RegExp(String.raw`\b(\w+)[>*&]?\s+[*&]?([A-Z]\w*)\s*\([^;{}()]*\)${QUALIFIERS}${ending}`, "g");
     for (const m of code.matchAll(defined)) {
       if (!NOT_A_TYPE.has(m[1]!)) locals.functions.add(m[2]!);
     }
