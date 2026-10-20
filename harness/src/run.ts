@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import * as S0 from "../../spikes/S0/pass";
 import * as S1 from "../../spikes/S1/pass";
@@ -30,6 +31,7 @@ import {
 } from "./server-control";
 import { halfMedians, readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WARMUP_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
+import { loadWorld, otherServerSettings } from "./world";
 import { type Evidence, SPIKE_IDS, type SpikeId, type Verdict } from "./verdict";
 
 /** A precondition failed: nothing ran, and no evidence is written. */
@@ -100,6 +102,9 @@ export interface RunDeps {
   startBackend?(): Promise<Backend>;
   randomCode?(): string;
   /** S3 only. */
+  /** S3: uploads and loads the staged save; and lists other servers' settings in the saves folder it would use. */
+  loadWorld?(): Promise<void>;
+  savesConflict?(): string[];
   readAutoPause?(): Promise<boolean>;
   setAutoPause?(enabled: boolean): Promise<void>;
   collectPower?(offset: number): Promise<NonNullable<Evidence["power"]>>;
@@ -128,6 +133,15 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   if (api.missing.length || api.badRows.length) {
     const list = [...api.badRows, ...api.missing.map((u) => `${u.path}:${u.line} ${u.name}`)];
     throw new RefusalError(`check-api failed: ${list.join(", ")}`);
+  }
+  if (spec.power) {
+    if (!deps.loadWorld || !deps.collectPower || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict) {
+      throw new RefusalError("S3 needs frmBaseUrl and s3World in the runner config");
+    }
+    const shared = deps.savesConflict();
+    if (shared.length) {
+      throw new RefusalError(`another server keeps its settings in this account's saves folder (${shared.join(", ")}): the loaded save's autosaves would join its rotation, so S3 runs only as satis-runner`);
+    }
   }
 
   // HealthCheck needs no auth, so the owner's real server would pass for ours and could receive our Shutdown.
@@ -211,6 +225,9 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       try {
         await whileRunning(proc, deps.waitHealthy(), "waiting for health");
         if (spec.power) {
+          // The server boots into its empty entry map; the save is uploaded and loaded, and the API is down meanwhile.
+          await whileRunning(proc, deps.loadWorld!(), "loading the S3 world");
+          await whileRunning(proc, deps.waitHealthy(), "waiting for health after the load");
           autoPauseBefore = await whileRunning(proc, deps.readAutoPause!(), "reading auto-pause");
           await whileRunning(proc, deps.setAutoPause!(false), "turning auto-pause off");
         }
@@ -344,7 +361,14 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
     } : {}),
     readAutoPause: () => readAutoPause(api),
     setAutoPause: (on) => setAutoPause(api, on),
-    ...(config.frmBaseUrl ? {
+    savesConflict: () =>
+      // A service account may not have LOCALAPPDATA set; its profile's AppData\Local is the same folder.
+      otherServerSettings(
+        join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "FactoryGame", "Saved", "SaveGames"),
+        Number(new URL(config.apiBaseUrl).port),
+      ),
+    ...(config.frmBaseUrl && config.s3World ? {
+      loadWorld: () => loadWorld(api, `s3-${Date.now()}`, readFileSync(config.s3World!)),
       collectPower: (offset: number) => {
         let seen = offset;
         return collectPowerPairs({

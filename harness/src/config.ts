@@ -40,6 +40,8 @@ export const RunnerConfigSchema = z.strictObject({
       }
     }, "frmBaseUrl must be http on loopback")
     .optional(),
+  /** S3: the staged copy of the owner's save, uploaded and loaded each run (docs/runner.md, "S3's world"). */
+  s3World: z.string().min(1).optional(),
   /** S5 only, local runs: a satisfactory-dash checkout at the pinned commit, and the relay's loopback port. */
   s5: z.strictObject({ checkout: z.string().min(1), port: z.number().int().min(1024).max(65535) }).optional(),
 });
