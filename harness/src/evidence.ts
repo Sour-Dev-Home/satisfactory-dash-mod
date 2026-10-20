@@ -30,12 +30,17 @@ export function redact(text: string): string {
 
 export function writeEvidence(dir: string, result: Result, captures: Record<string, unknown>): string {
   const parsed = ResultSchema.parse(JSON.parse(redact(JSON.stringify(result))));
-  const out = join(dir, `${parsed.spike}-${parsed.startedAt.replace(/[:.]/g, "-")}`);
+  return writeBundle(dir, parsed.spike, parsed.startedAt, parsed, captures);
+}
+
+/** Writes result.json and the captures under <dir>/<name>-<startedAt>, redacted (shared by spikes and core runs). */
+export function writeBundle(dir: string, name: string, startedAt: string, result: unknown, captures: Record<string, unknown>): string {
+  const out = join(dir, `${name}-${startedAt.replace(/[:.]/g, "-")}`);
   mkdirSync(out, { recursive: true });
   for (const name of Object.keys(captures)) {
     if (!/^[\w.-]+$/.test(name) || name.startsWith(".")) throw new Error(`bad capture name: ${name}`);
   }
-  writeFileSync(join(out, "result.json"), `${JSON.stringify(parsed, null, 2)}\n`);
+  writeFileSync(join(out, "result.json"), redact(`${JSON.stringify(result, null, 2)}\n`));
   for (const [name, value] of Object.entries(captures)) {
     const text = typeof value === "string" ? value : `${JSON.stringify(value, null, 2)}\n`;
     writeFileSync(join(out, name), redact(text));

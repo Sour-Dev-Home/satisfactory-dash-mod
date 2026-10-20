@@ -1,0 +1,49 @@
+name: core-run
+
+# Runs the core mod's runs (Plan 2B) on the owner's self-hosted `ue` runner (docs/runner.md, "Core runs"). This is a
+# public repository, so this workflow must never trigger from a pull request or a push: it is dispatched by hand
+# only. harness/test/workflows.test.ts fails CI if a trigger is added, an action is unpinned or a job leaves the
+# ue-runner environment. The options are the runs that need no backend host.
+on:
+  workflow_dispatch:
+    inputs:
+      run:
+        description: Core run
+        required: true
+        type: choice
+        options: [http-probe]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ue-runner
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: [self-hosted, windows, ue]
+    environment: ue-runner
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: harness
+    env:
+      RUN: ${{ inputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: harness/.node-version
+      - run: npm ci
+      - run: npm run harness -- core-run $env:RUN --out "$env:RUNNER_TEMP/core-run"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: core-run-${{ inputs.run }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/core-run
+          if-no-files-found: warn
+          retention-days: 90

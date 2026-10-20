@@ -8,7 +8,7 @@ This repo holds ADR-0039's G2 spikes and the harness that judges them. Its spec 
    `check-api` fails the build otherwise.
 2. **The header wins.** If the docs and the header disagree, follow the header and record both in the row's Source.
 3. **A failed spike stops the work.** Report it with the evidence bundle. Never weaken a pass condition
-   (`spikes/S#/pass.ts`) or work around a failure to make a spike pass.
+   (`spikes/S#/pass.ts`, `runs/*/pass.ts`) or work around a failure to make a spike pass.
 4. **Evidence is machine-written.** Never hand-edit a `result.json` or a capture.
 5. **Loopback and the test server only.** Spikes talk to `127.0.0.1` (the S1b health check is the one exception the
    claims table allows). They never touch the owner's real server or production.
