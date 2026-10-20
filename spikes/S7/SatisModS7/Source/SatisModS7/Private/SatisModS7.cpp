@@ -18,7 +18,7 @@ void FSatisModS7Module::StartupModule()
 	WorldInitHandle = FWorldDelegates::OnPostWorldInitialization.AddLambda([this](UWorld* InWorld, const UWorld::InitializationValues)
 	{
 		if (InWorld == nullptr || !InWorld->IsGameWorld()) { return; }
-		// Only the loaded save matters here; the entry map's world is replaced before the first step runs.
+		// Only the loaded save matters here; RunStep skips a world with no game running (the entry map).
 		World = InWorld;
 		Step = 0;
 		Original.Reset();
@@ -56,6 +56,13 @@ bool FSatisModS7Module::RunStep()
 	switch (Step++)
 	{
 	case 0:
+		// The entry map is a game world too: steps there could change the value before the harness records it, if the
+		// save takes long to load (final review, finding 1). Only a world with a game running gets them.
+		if (!Server->GetServerGameState().IsGameRunning)
+		{
+			UE_LOG(LogSatisMod, Display, TEXT("satis-mod s7 skip=no-game"));
+			return false;
+		}
 		Original = Read(Manager, TEXT("read"));
 		if (Original.IsEmpty())
 		{

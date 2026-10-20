@@ -214,6 +214,8 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   let power: Evidence["power"];
   const statusPairs: StatusPair[] = [];
   let autoPause: AutoPauseStep[] | undefined;
+  // World spikes: GetServerOptions' value before the mod acted, restored at the end and given to S7's verdict.
+  let autoPauseBefore: boolean | undefined;
 
   if (spec.ticks) {
     // The with-mod boot resets the log, so the baseline boot's lines are read before that.
@@ -243,7 +245,6 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       if (spec.echo) echo = await deps.startEcho();
       const offset = deps.resetLog();
       const proc = await startFresh();
-      let autoPauseBefore: boolean | undefined;
       try {
         await whileRunning(proc, deps.waitHealthy(), "waiting for health");
         let statusFrom = offset;
@@ -318,7 +319,7 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     ...(backendState && code ? { backend: { ...backendState, codeInLog: logText.includes(code), bearerInLog: /Bearer/.test(logText) } } : {}),
     ...(power ? { power } : {}),
     ...(spec.status ? { status: { pairs: statusPairs } } : {}),
-    ...(autoPause ? { autoPause: { steps: autoPause } } : {}),
+    ...(autoPause ? { autoPause: { before: autoPauseBefore ?? null, steps: autoPause } } : {}),
   };
   const verdict = spec.evaluate(evidence);
   const result: Result = {

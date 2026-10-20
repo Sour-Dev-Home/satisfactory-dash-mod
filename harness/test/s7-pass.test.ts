@@ -4,7 +4,7 @@ import type { AutoPauseStep, Evidence } from "../src/verdict";
 
 const run = (orig: boolean, over: Partial<Record<AutoPauseStep["step"], Partial<AutoPauseStep>>> = {}): Evidence => {
   const s = (step: AutoPauseStep["step"], mod: boolean, pending: boolean | null): AutoPauseStep => ({ at: step, step, mod, pending, api: mod, ...over[step] });
-  return { modLines: [], echo: [], autoPause: { steps: [s("read", orig, false), s("set", !orig, null), s("check", !orig, false), s("restore", orig, null), s("final", orig, false)] } };
+  return { modLines: [], echo: [], autoPause: { before: orig, steps: [s("read", orig, false), s("set", !orig, null), s("check", !orig, false), s("restore", orig, null), s("final", orig, false)] } };
 };
 
 describe("S7 evaluate", () => {
@@ -27,6 +27,16 @@ describe("S7 evaluate", () => {
     const e = run(true);
     e.autoPause!.steps = e.autoPause!.steps.filter((s) => s.step !== "restore");
     expect(evaluate(e).reasons).toContain("the mod never logged step=restore");
+  });
+  it("fails on a repeated step, e.g. a second run of the steps from another world (final review, finding 1)", () => {
+    const e = run(true);
+    e.autoPause!.steps.push({ ...e.autoPause!.steps[1]! });
+    expect(evaluate(e).reasons).toContain("the mod logged step=set 2 times");
+  });
+  it("fails when the mod's first read differs from what the harness recorded before it acted (final review, finding 1)", () => {
+    const e = run(true);
+    e.autoPause!.before = false;
+    expect(evaluate(e).reasons).toContain("read: the mod read True, but the harness recorded False before the mod acted");
   });
   it("names a step whose API read failed", () => {
     expect(evaluate(run(true, { set: { api: null } })).reasons).toContain("set: GetServerOptions failed");

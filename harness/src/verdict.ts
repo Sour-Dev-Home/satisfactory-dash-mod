@@ -27,6 +27,7 @@ export interface Evidence {
   backend?: BackendEvidence;
   power?: { pairs: PowerPair[]; frmCircuits: number[]; modCircuits: number[] };
   status?: { pairs: StatusPair[] };
-  autoPause?: { steps: AutoPauseStep[] };
+  /** `before`: what GetServerOptions said before the mod acted (null if that read failed). */
+  autoPause?: { before: boolean | null; steps: AutoPauseStep[] };
 }
 export interface Verdict { pass: boolean; reasons: string[] }

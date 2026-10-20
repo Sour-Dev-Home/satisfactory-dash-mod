@@ -332,6 +332,19 @@ describe("runSpike", () => {
     expect(JSON.parse(readFileSync(join(dir, "autopause.json"), "utf8"))).toEqual(steps(true));
   });
 
+  it("S7: fails when the mod's first read isn't what the harness recorded before it acted (final review, finding 1)", async () => {
+    const { deps } = fakeDeps({
+      savesConflict: () => [],
+      loadWorld: async () => undefined,
+      readAutoPause: async () => false,
+      setAutoPause: async () => undefined,
+      collectAutoPause: async () => steps(true),
+    });
+    const { result } = await runSpike("S7", deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons).toContain("read: the mod read True, but the harness recorded False before the mod acted");
+  });
+
   it("S7: restores auto-pause even when collecting fails", async () => {
     const seen: string[] = [];
     const { deps } = fakeDeps({
