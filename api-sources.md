@@ -285,3 +285,15 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FMath::Pow | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:555 | header only (the double overload; FMath derives FPlatformMath) |
 | FCString::Atod | Engine/Source/Runtime/Core/Public/Misc/CString.h:506 | header only |
 | FString::IsNumeric | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1583 | header only (digits with one dot and an optional sign, no exponent, so "1e309" and HTTP dates are refused) |
+| Misc/OutputDevice.h | Engine/Source/Runtime/Core/Public/Misc/OutputDevice.h:1 | header only |
+| Misc/ScopeLock.h | Engine/Source/Runtime/Core/Public/Misc/ScopeLock.h:1 | header only |
+| FOutputDevice | Engine/Source/Runtime/Core/Public/Misc/OutputDevice.h:132 | header only |
+| ELogVerbosity::Type | Engine/Source/Runtime/Core/Public/Logging/LogVerbosity.h:16 | header only |
+| FName | Engine/Source/Runtime/Core/Public/UObject/NameTypes.h:575 | header only |
+| GLog | Engine/Source/Runtime/Core/Public/CoreGlobals.h:95 | header only (macro for GetGlobalLogSingleton(), an FOutputDeviceRedirector*, declared at CoreGlobals.h:68) |
+| FOutputDeviceRedirector::AddOutputDevice | Engine/Source/Runtime/Core/Public/Misc/OutputDeviceRedirector.h:68 | header only |
+| FOutputDeviceRedirector::RemoveOutputDevice | Engine/Source/Runtime/Core/Public/Misc/OutputDeviceRedirector.h:75 | header only |
+| FOutputDeviceRedirector::Flush | Engine/Source/Runtime/Core/Public/Misc/OutputDeviceRedirector.h:147 | header only |
+| FLogCategoryBase::GetCategoryName | Engine/Source/Runtime/Core/Public/Logging/LogCategory.h:41 | header only |
+| FScopeLock | Engine/Source/Runtime/Core/Public/Misc/ScopeLock.h:140 | header only |
+| FCriticalSection | Engine/Source/Runtime/Core/Public/HAL/CriticalSection.h:53 | header only (alias of UE::FPlatformRecursiveMutex) |

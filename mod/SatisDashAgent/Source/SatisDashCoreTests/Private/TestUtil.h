@@ -5,7 +5,10 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
+#include "Misc/OutputDevice.h"
 #include "Misc/Paths.h"
+#include "Misc/ScopeLock.h"
+#include "SatisDash/Log.h"
 #include "SatisDash/Responses.h"
 
 namespace SatisDash::Test
@@ -72,4 +75,31 @@ namespace SatisDash::Test
 	{
 		FFileHelper::SaveStringToFile(Text, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 	}
+
+	/** Collects every LogSatisDash line written while it lives. */
+	class FLogCapture : public FOutputDevice
+	{
+	public:
+		FLogCapture() { GLog->AddOutputDevice(this); }
+		virtual ~FLogCapture() override { GLog->RemoveOutputDevice(this); }
+		virtual bool CanBeUsedOnAnyThread() const override { return true; }
+		virtual void Serialize(const TCHAR* Text, ELogVerbosity::Type Verbosity, const FName& Category) override
+		{
+			if (Category == LogSatisDash.GetCategoryName())
+			{
+				FScopeLock Lock(&Guard);
+				Lines.Add(Text);
+			}
+		}
+		TArray<FString> Take()
+		{
+			GLog->Flush();
+			FScopeLock Lock(&Guard);
+			return Lines;
+		}
+
+	private:
+		FCriticalSection Guard;
+		TArray<FString> Lines;
+	};
 }
