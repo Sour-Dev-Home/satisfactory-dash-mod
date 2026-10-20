@@ -6,6 +6,8 @@ import * as S1 from "../../spikes/S1/pass";
 import * as S1b from "../../spikes/S1b/pass";
 import * as S2 from "../../spikes/S2/pass";
 import * as S4 from "../../spikes/S4/pass";
+import * as S5 from "../../spikes/S5/pass";
+import { type Backend, randomCode, startBackend } from "./backend";
 import { checkApi, scanSpikes, type Use } from "./check-api";
 import { logPathOf, pluginDirFor, type RunnerConfig } from "./config";
 import { type Echo, startEcho } from "./echo";
@@ -42,6 +44,8 @@ export interface SpikeSpec {
   finalLine?: RegExp;
   /** S4: the harness writes a fresh credential to the mod's SML config before the boot. */
   credential?: boolean;
+  /** S5: the harness runs a throwaway satisfactory-dash stack and writes a one-time code to the mod's config. */
+  backend?: boolean;
 }
 
 const MIN = 60_000;
@@ -52,6 +56,7 @@ export const SPIKES: Partial<Record<SpikeId, SpikeSpec>> = {
   S1b: { claim: S1b.claim, evaluate: S1b.evaluate, echo: false, ticks: false, doneLine: /satis-mod s1b bad / },
   S2: { claim: S2.claim, evaluate: S2.evaluate, echo: true, ticks: true, doneLine: /satis-mod loaded/, finalLine: /satis-mod s2 done/ },
   S4: { claim: S4.claim, evaluate: S4.evaluate, echo: false, ticks: false, credential: true, doneLine: /satis-mod s4 (read|error)/ },
+  S5: { claim: S5.claim, evaluate: S5.evaluate, echo: false, ticks: false, backend: true, doneLine: /satis-mod s5 (enroll=|error)/ },
 };
 /** The spikes with a spec, which `run` accepts. */
 export const RUNNABLE: SpikeId[] = SPIKE_IDS.filter((id) => SPIKES[id] !== undefined);
@@ -86,6 +91,9 @@ export interface RunDeps {
   writeModConfig?(mod: string, values: Record<string, string>): void;
   removeModConfig?(mod: string): void;
   randomCredential?(): string;
+  /** S5 only: present when the runner config has `s5` (local runs). */
+  startBackend?(): Promise<Backend>;
+  randomCode?(): string;
   now(): Date;
   env: { commit: string; runUrl: string | null };
 }
@@ -138,6 +146,21 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     credential = deps.randomCredential();
     deps.writeModConfig(modName(spike), { credential });
   }
+  let backend: Backend | undefined;
+  let code: string | undefined;
+  if (spec.backend) {
+    if (!deps.startBackend || !deps.randomCode || !deps.writeModConfig || !deps.removeModConfig) throw new RefusalError("S5 needs the backend deps (local runs only)");
+    backend = await deps.startBackend();
+    code = deps.randomCode();
+    try {
+      await backend.seedCode(code);
+    } catch (e) {
+      await backend.down();
+      throw new RefusalError(`seeding the throwaway database failed: ${message(e)}`);
+    }
+    deps.writeModConfig(modName(spike), { code, backendUrl: backend.url });
+  }
+  let backendState: Awaited<ReturnType<Backend["state"]>> | undefined;
 
   const runReasons: string[] = [];
   let baseline: TickSeries | undefined;
@@ -161,7 +184,8 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     }
   }
 
-  // The credential file is removed whatever happens after it was written (Review Focus 1).
+  // The config file is removed, and the S5 stack read and torn down, whatever happens after they were set up
+  // (Review Focus 1 and 2).
   try {
     try {
       deps.install(pluginDirFor(deps.config, spike), modName(spike));
@@ -190,7 +214,16 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
       await echo?.close();
     }
   } finally {
-    if (spec.credential) deps.removeModConfig!(modName(spike));
+    if (spec.credential || spec.backend) deps.removeModConfig!(modName(spike));
+    if (backend) {
+      try {
+        backendState = await backend.state();
+      } catch (e) {
+        runReasons.push(`reading the throwaway database: ${message(e)}`);
+      } finally {
+        await backend.down();
+      }
+    }
   }
 
   // A level shift between the with-mod window's halves means it measured two server states (the boot phase runs at
@@ -208,6 +241,7 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     echo: echo?.requests ?? [],
     ...(baseline && withMod ? { ticks: { baseline, withMod } } : {}),
     ...(credential ? { credential: { length: credential.length, sha1Prefix: sha1Prefix(credential), inLog: logText.includes(credential) } } : {}),
+    ...(backendState && code ? { backend: { ...backendState, codeInLog: logText.includes(code), bearerInLog: /Bearer/.test(logText) } } : {}),
   };
   const verdict = spec.evaluate(evidence);
   const result: Result = {
@@ -272,6 +306,17 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
     writeModConfig: (mod, values) => void writeModConfig(config.serverDir, mod, values),
     removeModConfig: (mod) => removeModConfig(config.serverDir, mod),
     randomCredential,
+    ...(config.s5 ? {
+      startBackend: () => startBackend({
+        checkout: config.s5!.checkout,
+        relayFile: join(repoRoot, "harness", "compose", "s5-relay.yaml"),
+        port: config.s5!.port,
+        exec: (cmd, args, o) => new Promise((resolve) =>
+          execFile(cmd, args, { cwd: o.cwd, env: { ...process.env, ...o.env }, maxBuffer: 16 * 1024 * 1024 },
+            (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr }))),
+      }),
+      randomCode,
+    } : {}),
     now: () => new Date(),
     env: {
       commit: process.env.GITHUB_SHA ?? "local",
