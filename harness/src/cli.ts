@@ -4,9 +4,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkApi, scanSpikes } from "./check-api";
 import { loadConfig } from "./config";
 import { verifyContract } from "./contract";
-import { RefusalError, realDeps, runSpike } from "./run";
+import { RefusalError, RUNNABLE, realDeps, runSpike } from "./run";
 import { loadToolchain, toolchainMismatches } from "./toolchain";
-import { SPIKE_IDS, type SpikeId } from "./verdict";
+import type { SpikeId } from "./verdict";
 
 export const HARNESS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const REPO_ROOT = resolve(HARNESS_ROOT, "..");
@@ -49,8 +49,8 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
       const spike = argv[1] as SpikeId;
       const outAt = argv.indexOf("--out");
       const outDir = outAt === -1 ? undefined : argv[outAt + 1];
-      if (!SPIKE_IDS.includes(spike) || !outDir) {
-        io.error(`usage: harness run <${SPIKE_IDS.join(", ")}> --out <dir> (S3, S4 and S5 arrive with the spikes plan)`);
+      if (!RUNNABLE.includes(spike) || !outDir) {
+        io.error(`usage: harness run <${RUNNABLE.join(", ")}> --out <dir>`);
         return 2;
       }
       const path = process.env.SATIS_HARNESS_CONFIG;

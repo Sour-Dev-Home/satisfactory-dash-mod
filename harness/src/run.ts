@@ -5,11 +5,13 @@ import * as S0 from "../../spikes/S0/pass";
 import * as S1 from "../../spikes/S1/pass";
 import * as S1b from "../../spikes/S1b/pass";
 import * as S2 from "../../spikes/S2/pass";
+import * as S4 from "../../spikes/S4/pass";
 import { checkApi, scanSpikes, type Use } from "./check-api";
 import { logPathOf, pluginDirFor, type RunnerConfig } from "./config";
 import { type Echo, startEcho } from "./echo";
 import { type Result, writeEvidence } from "./evidence";
 import { modLines, readLogSince, resetLog, versionLines, waitForLine } from "./log-watch";
+import { randomCredential, removeModConfig, sha1Prefix, writeModConfig } from "./mod-config";
 import { createServerApi } from "./server-api";
 import {
   installMod,
@@ -24,7 +26,7 @@ import {
 } from "./server-control";
 import { halfMedians, readTickRate, sampleTicks, TICK_INTERVAL_MS, TICK_WARMUP_MS, TICK_WINDOW_MS, type TickSeries } from "./ticks";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
-import type { Evidence, SpikeId, Verdict } from "./verdict";
+import { type Evidence, SPIKE_IDS, type SpikeId, type Verdict } from "./verdict";
 
 /** A precondition failed: nothing ran, and no evidence is written. */
 export class RefusalError extends Error {}
@@ -38,15 +40,23 @@ export interface SpikeSpec {
   doneLine: RegExp;
   /** S2 only: the line after the 40th post. */
   finalLine?: RegExp;
+  /** S4: the harness writes a fresh credential to the mod's SML config before the boot. */
+  credential?: boolean;
 }
 
 const MIN = 60_000;
-export const SPIKES: Record<SpikeId, SpikeSpec> = {
+/** Partial while a spike's probes are still being built (S3, S5). */
+export const SPIKES: Partial<Record<SpikeId, SpikeSpec>> = {
   S0: { claim: S0.claim, evaluate: S0.evaluate, echo: false, ticks: false, doneLine: /satis-mod loaded/ },
   S1: { claim: S1.claim, evaluate: S1.evaluate, echo: true, ticks: false, doneLine: /satis-mod s1 done/ },
   S1b: { claim: S1b.claim, evaluate: S1b.evaluate, echo: false, ticks: false, doneLine: /satis-mod s1b bad / },
   S2: { claim: S2.claim, evaluate: S2.evaluate, echo: true, ticks: true, doneLine: /satis-mod loaded/, finalLine: /satis-mod s2 done/ },
+  S4: { claim: S4.claim, evaluate: S4.evaluate, echo: false, ticks: false, credential: true, doneLine: /satis-mod s4 (read|error)/ },
 };
+/** The spikes with a spec, which `run` accepts. */
+export const RUNNABLE: SpikeId[] = SPIKE_IDS.filter((id) => SPIKES[id] !== undefined);
+/** Run only from a local session, never offered on the self-hosted runner (owner, 2026-10-20). */
+export const LOCAL_ONLY: SpikeId[] = ["S5"];
 const DONE_TIMEOUT_MS = 5 * MIN;
 const FINAL_TIMEOUT_MS = 3 * MIN;
 
@@ -72,6 +82,10 @@ export interface RunDeps {
   readLogSince(offset: number): string;
   startEcho(): Promise<Echo>;
   sampleTicks(): Promise<TickSeries>;
+  /** Writes the spike's SML config file (S4, S5). */
+  writeModConfig?(mod: string, values: Record<string, string>): void;
+  removeModConfig?(mod: string): void;
+  randomCredential?(): string;
   now(): Date;
   env: { commit: string; runUrl: string | null };
 }
@@ -90,6 +104,7 @@ export const lastLines = (text: string, n: number) => text.trimEnd().split(/\r?\
 
 export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result: Result; dir: string }> {
   const spec = SPIKES[spike];
+  if (!spec) throw new RefusalError(`no spec for ${spike} yet`);
   const mismatches = toolchainMismatches(deps.toolchain, deps.config.installed);
   if (mismatches.length) throw new RefusalError(`toolchain mismatch: ${mismatches.join("; ")}`);
   const api = deps.checkApi();
@@ -117,6 +132,12 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     throw new RefusalError(message(e));
   }
   deps.removeSpikeMods();
+  let credential: string | undefined;
+  if (spec.credential) {
+    if (!deps.writeModConfig || !deps.removeModConfig || !deps.randomCredential) throw new RefusalError("S4 needs the mod-config deps");
+    credential = deps.randomCredential();
+    deps.writeModConfig(modName(spike), { credential });
+  }
 
   const runReasons: string[] = [];
   let baseline: TickSeries | undefined;
@@ -140,31 +161,36 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     }
   }
 
+  // The credential file is removed whatever happens after it was written (Review Focus 1).
   try {
-    deps.install(pluginDirFor(deps.config, spike), modName(spike));
-  } catch (e) {
-    throw new RefusalError(message(e));
-  }
-
-  try {
-    if (spec.echo) echo = await deps.startEcho();
-    const offset = deps.resetLog();
-    const proc = await startFresh();
     try {
-      await whileRunning(proc, deps.waitHealthy(), "waiting for health");
-      await whileRunning(proc, deps.waitForLine(spec.doneLine, offset, DONE_TIMEOUT_MS), `waiting for ${spec.doneLine}`);
-      if (spec.ticks) withMod = await whileRunning(proc, deps.sampleTicks(), "sampling with the mod");
-      if (spec.finalLine) {
-        await whileRunning(proc, deps.waitForLine(spec.finalLine, offset, FINAL_TIMEOUT_MS), `waiting for ${spec.finalLine}`);
-      }
+      deps.install(pluginDirFor(deps.config, spike), modName(spike));
     } catch (e) {
-      runReasons.push(message(e));
+      throw new RefusalError(message(e));
+    }
+
+    try {
+      if (spec.echo) echo = await deps.startEcho();
+      const offset = deps.resetLog();
+      const proc = await startFresh();
+      try {
+        await whileRunning(proc, deps.waitHealthy(), "waiting for health");
+        await whileRunning(proc, deps.waitForLine(spec.doneLine, offset, DONE_TIMEOUT_MS), `waiting for ${spec.doneLine}`);
+        if (spec.ticks) withMod = await whileRunning(proc, deps.sampleTicks(), "sampling with the mod");
+        if (spec.finalLine) {
+          await whileRunning(proc, deps.waitForLine(spec.finalLine, offset, FINAL_TIMEOUT_MS), `waiting for ${spec.finalLine}`);
+        }
+      } catch (e) {
+        runReasons.push(message(e));
+      } finally {
+        await deps.stop(proc);
+        logText = deps.readLogSince(offset);
+      }
     } finally {
-      await deps.stop(proc);
-      logText = deps.readLogSince(offset);
+      await echo?.close();
     }
   } finally {
-    await echo?.close();
+    if (spec.credential) deps.removeModConfig!(modName(spike));
   }
 
   // A level shift between the with-mod window's halves means it measured two server states (the boot phase runs at
@@ -181,6 +207,7 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     modLines: modLines(logText),
     echo: echo?.requests ?? [],
     ...(baseline && withMod ? { ticks: { baseline, withMod } } : {}),
+    ...(credential ? { credential: { length: credential.length, sha1Prefix: sha1Prefix(credential), inLog: logText.includes(credential) } } : {}),
   };
   const verdict = spec.evaluate(evidence);
   const result: Result = {
@@ -242,6 +269,9 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
       sampleTicks(() => readTickRate(api), {
         warmupMs: TICK_WARMUP_MS, durationMs: TICK_WINDOW_MS, intervalMs: TICK_INTERVAL_MS, sleep, now: Date.now,
       }),
+    writeModConfig: (mod, values) => void writeModConfig(config.serverDir, mod, values),
+    removeModConfig: (mod) => removeModConfig(config.serverDir, mod),
+    randomCredential,
     now: () => new Date(),
     env: {
       commit: process.env.GITHUB_SHA ?? "local",

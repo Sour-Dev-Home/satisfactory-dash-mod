@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RunnerConfigSchema } from "../src/config";
 import type { Echo } from "../src/echo";
+import { sha1Prefix } from "../src/mod-config";
 import { RefusalError, type RunDeps, runSpike } from "../src/run";
 import type { ServerProcess } from "../src/server-control";
 import type { TickSeries } from "../src/ticks";
@@ -185,6 +186,35 @@ describe("runSpike", () => {
     const { dir } = await runSpike("S1b", deps);
     const lines = JSON.parse(readFileSync(join(dir, "http.json"), "utf8")) as string[];
     expect(lines).toEqual([log.split("\n")[0], log.split("\n")[2]]);
+  });
+
+  it("S4: writes a fresh credential before the boot, removes it after, and judges what the mod logged", async () => {
+    const written: Record<string, string>[] = [];
+    let removed = 0;
+    const { deps, calls } = fakeDeps({
+      writeModConfig: (mod, values) => void (calls.push(`cfg ${mod}`), written.push(values)),
+      removeModConfig: () => void removed++,
+      randomCredential: () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
+    }, "LogSatisMod: Display: satis-mod s4 read length=32 sha1=" + sha1Prefix("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") + "\n");
+    const { result } = await runSpike("S4", deps);
+    expect(written).toEqual([{ credential: "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" }]);
+    expect(calls.indexOf("cfg SatisModS4")).toBeLessThan(calls.indexOf("start"));
+    expect(removed).toBe(1);
+    expect(result.pass).toBe(true);
+  });
+
+  it("S4: removes the credential even when the server never becomes healthy (Review Focus 1)", async () => {
+    let removed = 0;
+    const { deps } = fakeDeps({
+      writeModConfig: () => undefined,
+      removeModConfig: () => void removed++,
+      randomCredential: () => "X".repeat(32),
+      start: () => ({ pid: 9, exited: Promise.resolve(1) }),
+      waitHealthy: () => new Promise(() => {}),
+    });
+    const { result } = await runSpike("S4", deps);
+    expect(result.pass).toBe(false);
+    expect(removed).toBe(1);
   });
 
   it("stops the process it started, for every server start", async () => {
