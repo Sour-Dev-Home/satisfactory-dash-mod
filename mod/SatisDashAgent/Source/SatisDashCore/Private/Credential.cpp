@@ -74,7 +74,8 @@ TOptional<SatisDash::FCredential> SatisDash::FCredentialStore::Load() const
 	FString Text;
 	if (!Files.FileExists(*Path) && Files.FileExists(*Temp) && FFileHelper::LoadFileToString(Text, *Temp) && ParseCredential(Text).IsSet())
 	{
-		Files.Move(*Path, *Temp, true);
+		// One attempt, no retry sleeps (see WriteFileAtomic). A failed recovery leaves the valid temp file for the next Load.
+		Files.Move(*Path, *Temp, true, false, false, true);
 	}
 	if (!FFileHelper::LoadFileToString(Text, *Path))
 	{

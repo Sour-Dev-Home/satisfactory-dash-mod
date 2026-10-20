@@ -27,5 +27,12 @@ bool SatisDash::WriteFileAtomic(const FString& Path, const FString& Text)
 		return false;
 	}
 #endif
-	return Files.Move(*Path, *Temp, true);
+	// bDoNotRetryOrError: the default Move sleeps 0.5 s after a failed delete and up to 10 x 0.5 s after a failed move,
+	// on the game thread, and logs an Error. One attempt; the next save tries again.
+	if (!Files.Move(*Path, *Temp, true, false, false, true))
+	{
+		Files.Delete(*Temp, false, false, true);
+		return false;
+	}
+	return true;
 }
