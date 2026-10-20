@@ -78,6 +78,27 @@ bool FReplyMakeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("is no answer"), Reply.Code, 0);
 	}
 	{
+		// S3: the transport never follows a redirect (Task 1e), so a 3xx arrives from the URL asked; it is refused too.
+		for (const int32 Code : { 300, 301, 302, 303, 307, 308, 399 })
+		{
+			FCappedBody CappedBody;
+			FRawReply Raw = answered(*Url);
+			Raw.Code = Code;
+			EReplyRefusal Refusal = EReplyRefusal::None;
+			TestEqual(FString::Printf(TEXT("%d: no answer"), Code), MakeReply(Raw, Url, CappedBody, Refusal).Code, 0);
+			TestTrue(FString::Printf(TEXT("%d: as Redirected"), Code), Refusal == EReplyRefusal::Redirected);
+		}
+		for (const int32 Code : { 204, 299, 400, 401 })
+		{
+			FCappedBody CappedBody;
+			FRawReply Raw = answered(*Url);
+			Raw.Code = Code;
+			EReplyRefusal Refusal = EReplyRefusal::Redirected;
+			TestEqual(FString::Printf(TEXT("%d: passed on"), Code), MakeReply(Raw, Url, CappedBody, Refusal).Code, Code);
+			TestTrue(FString::Printf(TEXT("%d: not refused"), Code), Refusal == EReplyRefusal::None);
+		}
+	}
+	{
 		// The URL compares exactly: a case change in the path is another resource.
 		FCappedBody CappedBody;
 		EReplyRefusal Refusal = EReplyRefusal::None;

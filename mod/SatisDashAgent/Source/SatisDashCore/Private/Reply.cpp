@@ -44,7 +44,9 @@ SatisDash::FHttpReply SatisDash::MakeReply(const FRawReply& Raw, const FString& 
 		OutRefusal = EReplyRefusal::NoAnswer;
 		return Reply;
 	}
-	if (!Raw.EffectiveUrl.Equals(RequestUrl, ESearchCase::CaseSensitive))
+	// S3: the transport never follows a redirect, so a 3xx answer is the redirect itself; an effective URL other than the
+	// one asked would mean one was followed anyway. Either way the answer is refused.
+	if ((Raw.Code >= 300 && Raw.Code < 400) || !Raw.EffectiveUrl.Equals(RequestUrl, ESearchCase::CaseSensitive))
 	{
 		OutRefusal = EReplyRefusal::Redirected;
 		return Reply;

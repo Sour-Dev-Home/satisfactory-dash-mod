@@ -46,25 +46,25 @@ const evidence = (p: unknown, lines = [REDIRECTED, HELLO_UNREACHABLE, UNREACHABL
 });
 
 describe("http-probe pass conditions", () => {
-  it("passes a clean probe", () => {
+  it("passes a clean probe: nothing at the redirect target, only TLS 1.3 and 1.2 offered", () => {
     expect(evaluate(evidence(probe()))).toEqual({
       pass: true,
-      reasons: ["User-Agent kept; 0 request(s) reached the redirect target without Authorization or a body; TLS 1.3 and 1.2 offered; an untrusted certificate refused"],
+      reasons: ["User-Agent kept; the redirect target received nothing; TLS 1.3 and 1.2 offered, nothing older; an untrusted certificate refused"],
     });
   });
 
-  it("passes a probe like run 3 whose redirect target answers body-less GETs, and records the older TLS versions", () => {
-    const p = probe({ hellos: [{ supportedVersions: [0x0304, 0x0303, 0x0302, 0x0301] }] });
-    p.requests.push(
-      req({ port: "elsewhere", method: "GET", authorization: false, bodyBytes: 0, at: "2026-10-20T16:01:01.500Z" }),
-      req({ port: "elsewhere", method: "GET", authorization: false, bodyBytes: 0, at: "2026-10-20T16:01:02.500Z" }),
-    );
-    expect(evaluate(evidence(p))).toEqual({
-      pass: true,
-      reasons: [
-        "User-Agent kept; 2 request(s) reached the redirect target without Authorization or a body; TLS 1.3 and 1.2 offered, also offers TLS 1.1, 1.0 (the backend refuses them); an untrusted certificate refused",
-      ],
-    });
+  it("fails one body-less GET at the redirect target: the mod never follows a redirect", () => {
+    const p = probe();
+    p.requests.push(req({ port: "elsewhere", method: "GET", authorization: false, bodyBytes: 0, at: "2026-10-20T16:01:01.500Z" }));
+    const v = evaluate(evidence(p));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toEqual(["S3: the redirect target received 1 request(s)"]);
+  });
+
+  it("fails an offer that includes TLS 1.1, naming every older version", () => {
+    const v = evaluate(evidence(probe({ hellos: [{ supportedVersions: [0x0304, 0x0303, 0x0302] }, { supportedVersions: [0x0304, 0x0303, 0x0301] }] })));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toEqual(["S2: the mod offers TLS older than 1.2: 1.1, 1.0"]);
   });
 
   it("fails no snapshot re-sent after the redirects began", () => {
@@ -76,7 +76,7 @@ describe("http-probe pass conditions", () => {
   });
 
   it("fails an offer without TLS 1.3", () => {
-    const v = evaluate(evidence(probe({ hellos: [{ supportedVersions: [0x0303, 0x0302, 0x0301] }] })));
+    const v = evaluate(evidence(probe({ hellos: [{ supportedVersions: [0x0303] }] })));
     expect(v.pass).toBe(false);
     expect(v.reasons).toEqual(["S2: the mod doesn't offer TLS 1.3 and 1.2"]);
   });
@@ -113,7 +113,10 @@ describe("http-probe pass conditions", () => {
     );
     const v = evaluate(evidence(p));
     expect(v.pass).toBe(false);
-    expect(v.reasons).toEqual(["S3: 1 request(s) at the redirect target carried an Authorization header"]);
+    expect(v.reasons).toEqual([
+      "S3: the redirect target received 2 request(s)",
+      "S3: 1 request(s) at the redirect target carried an Authorization header",
+    ]);
   });
 
   it("fails a body at the redirect target, counting them", () => {
@@ -121,7 +124,7 @@ describe("http-probe pass conditions", () => {
     p.requests.push(req({ port: "elsewhere", authorization: false, bodyBytes: 120 }), req({ port: "elsewhere", authorization: false, bodyBytes: 0 }));
     const v = evaluate(evidence(p));
     expect(v.pass).toBe(false);
-    expect(v.reasons).toEqual(["S3: 1 request(s) at the redirect target carried a body"]);
+    expect(v.reasons).toEqual(["S3: the redirect target received 2 request(s)", "S3: 1 request(s) at the redirect target carried a body"]);
   });
 
   it("fails a snapshot sent again in the normal phase", () => {

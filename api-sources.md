@@ -332,3 +332,77 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | ApplyAutoPause | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:36 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |
 | ESearchDir::FromStart | Engine/Source/Runtime/Core/Public/Misc/CString.h:36 | header only (namespace ESearchDir, :31) |
 | FString::Find | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1314 | header only (the const TCHAR* overload with search case, direction and start position) |
+| module:SSL | Engine/Source/Runtime/Online/SSL/SSL.Build.cs:1 | header only (WITH_SSL=1 on Win64 and Unix, :42; HTTP.Build.cs:135 depends on it the same way) |
+| module:libcurl | Engine/Source/ThirdParty/libcurl/libcurl.Build.cs:1 | header only (an External module with a static libcurl.lib, :10 and :47, so the mod's DLL links its own copy; added with AddEngineThirdPartyPrivateStaticDependencies as HTTP.Build.cs:101 does; Plan 2B Task 1e) |
+| module:OpenSSL | Engine/Source/ThirdParty/OpenSSL/OpenSSL.Build.cs:1 | header only (1.1.1t, static libssl.lib and libcrypto.lib, :51-52; added as HTTP.Build.cs:136 does) |
+| HAL/Platform.h | Engine/Source/Runtime/Core/Public/HAL/Platform.h:1 | header only |
+| PLATFORM_MICROSOFT | Engine/Source/Runtime/Core/Public/HAL/Platform.h:67 | header only (the default 0; platform headers set it) |
+| Microsoft/AllowMicrosoftPlatformTypes.h | Engine/Source/Runtime/Core/Public/Microsoft/AllowMicrosoftPlatformTypes.h:1 | header only (used around curl.h as CurlHttp.h:16-18 does) |
+| Microsoft/HideMicrosoftPlatformTypes.h | Engine/Source/Runtime/Core/Public/Microsoft/HideMicrosoftPlatformTypes.h:1 | header only (CurlHttp.h:26-28) |
+| SslModule.h | Engine/Source/Runtime/Online/SSL/Public/SslModule.h:1 | header only |
+| Interfaces/ISslCertificateManager.h | Engine/Source/Runtime/Online/SSL/Public/Interfaces/ISslCertificateManager.h:1 | header only |
+| FSslModule::Get | Engine/Source/Runtime/Online/SSL/Public/SslModule.h:35 | header only (SSL_API; loads the module on demand on the game thread, SslModule.cpp:69-78) |
+| FSslModule::GetCertificateManager | Engine/Source/Runtime/Online/SSL/Public/SslModule.h:42 | header only (inline) |
+| ISslCertificateManager::AddCertificatesToSslContext | Engine/Source/Runtime/Online/SSL/Public/Interfaces/ISslCertificateManager.h:28 | header only (what the engine's sslctx_function calls, CurlHttp.cpp:55-60; its pinning callback, :31-53 and :61-66, is not mirrored, Task 1e) |
+| SSL_CTX | Engine/Source/Runtime/Online/SSL/Public/Interfaces/ISslCertificateManager.h:11 | header only (forward typedef of ssl_ctx_st, so no OpenSSL include is needed) |
+| WITH_SSL | Engine/Source/Runtime/Online/SSL/SSL.Build.cs:42 | header only (a public definition of the SSL module; CurlHttp.cpp:181-186 wires certificates under it) |
+| TUniquePtr | Engine/Source/Runtime/Core/Public/Templates/UniquePtr.h:106 | header only |
+| MakeUnique | Engine/Source/Runtime/Core/Public/Templates/UniquePtr.h:796 | header only (the TArgs&&... overload) |
+| curl/curl.h | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1 | header only (libcurl 8.12.1, ThirdParty; libcurl.Build.cs:15-16 adds the include path) |
+| CURLcode | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:641 | header only (the enum from :511; CURLE_OK :512) |
+| CURLoption | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2232 | header only |
+| CURLINFO | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2965 | header only |
+| CURL | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:117 | header only (typedef void CURL) |
+| curl_global_init | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2716 | header only (the mod's own copy, once, in StartupModule) |
+| curl_global_cleanup | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2746 | header only (in ShutdownModule after CancelAll, only if init succeeded) |
+| CURL_GLOBAL_ALL | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2985 | header only |
+| curl_easy_init | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/easy.h:41 | header only |
+| curl_easy_setopt | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/easy.h:42 | header only |
+| curl_easy_cleanup | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/easy.h:44 | header only |
+| curl_easy_getinfo | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/easy.h:59 | header only |
+| curl_slist | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2763 | header only |
+| curl_slist_append | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2818 | header only (copies the string) |
+| curl_slist_free_all | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2828 | header only |
+| CURLM | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:57 | header only (typedef void CURLM) |
+| CURLM_OK | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:62 | header only (CURLMcode, :78) |
+| CURLMsg | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:97 | header only (easy_handle and data.result, :97-104) |
+| CURLMSG_DONE | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:92 | header only |
+| curl_multi_init | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:127 | header only |
+| curl_multi_add_handle | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:136 | header only |
+| curl_multi_remove_handle | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:146 | header only |
+| curl_multi_perform | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:217 | header only |
+| curl_multi_cleanup | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:230 | header only |
+| curl_multi_info_read | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:260 | header only |
+| CURLOPT_URL | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1121 | header only |
+| CURLOPT_FOLLOWLOCATION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1294 | header only (set to 0: UE's request sets 1, CurlHttp.cpp:127) |
+| CURLOPT_MAXREDIRS | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1349 | header only (0, a second line) |
+| CURLOPT_PROTOCOLS_STR | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2205 | header only ("https") |
+| CURLOPT_REDIR_PROTOCOLS_STR | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2208 | header only ("https") |
+| CURLOPT_SSL_VERIFYPEER | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1339 | header only (1) |
+| CURLOPT_SSL_VERIFYHOST | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1399 | header only (2) |
+| CURLOPT_SSLVERSION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1235 | header only (a minimum; no CURL_SSLVERSION_MAX_* is or'd in) |
+| CURL_SSLVERSION_TLSv1_2 | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2342 | header only |
+| CURLOPT_CAINFO | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1343 | header only (nullptr, as CurlHttp.cpp:183) |
+| CURLOPT_SSL_CTX_FUNCTION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1503 | header only (curl_ssl_ctx_callback, :776; as CurlHttp.cpp:184) |
+| CURLOPT_NOSIGNAL | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1464 | header only |
+| CURLOPT_HTTP_VERSION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1410 | header only (CURL_HTTP_VERSION_1_1, :2285, UE's default, CurlHttp.cpp:107-114) |
+| CURL_HTTP_VERSION_1_1 | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2285 | header only |
+| CURLOPT_TIMEOUT_MS | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1678 | header only |
+| CURLOPT_CONNECTTIMEOUT_MS | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1679 | header only |
+| CURLOPT_WRITEFUNCTION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1149 | header only (curl_write_callback, :276; a short count aborts with CURLE_WRITE_ERROR) |
+| CURLOPT_WRITEDATA | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1118 | header only |
+| CURLOPT_HEADERFUNCTION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1389 | header only |
+| CURLOPT_HEADERDATA | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1227 | header only |
+| CURLOPT_HTTPHEADER | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1207 | header only |
+| CURLOPT_HTTPGET | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1394 | header only |
+| CURLOPT_POST | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1281 | header only |
+| CURLOPT_POSTFIELDS | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1170 | header only (read in place, not copied: the body lives in FPending) |
+| CURLOPT_POSTFIELDSIZE | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1325 | header only (a long) |
+| CURLOPT_CUSTOMREQUEST | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1250 | header only |
+| CURLINFO_RESPONSE_CODE | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2872 | header only (a long) |
+| CURLINFO_CONTENT_TYPE | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2908 | header only |
+| CURLINFO_EFFECTIVE_URL | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2871 | header only (UE read the same, CurlHttp.cpp:519) |
+| CURLE_OPERATION_TIMEDOUT | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:548 | header only (the other CURLcode values in failureWord are on :513-636) |
+| CURLE_PEER_FAILED_VERIFICATION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:581 | header only (an untrusted certificate: logged as TlsError) |
+| module:nghttp2 | Engine/Source/ThirdParty/nghttp2/nghttp2.Build.cs:1 | header only (libcurl needs it, libcurl.Build.cs:51-56; its dependency is private, so the mod names it) |
+| module:zlib | Engine/Source/ThirdParty/zlib/zlib.Build.cs:1 | header only (libcurl needs it, libcurl.Build.cs:51-56; its dependency is private, so the mod names it) |

@@ -8,7 +8,7 @@
 namespace SatisDash
 {
 	/**
-	 * The response body as UE's HTTP thread streams it in (IHttpRequest::SetResponseBodyReceiveStream). Past
+	 * The response body as the transport streams it in (libcurl's write callback, on the game thread). Past
 	 * MaxResponseBytes it keeps nothing more and sets an error, which ends the request while it downloads (S4).
 	 */
 	class SATISDASHCORE_API FCappedBody final : public FArchive
@@ -25,17 +25,17 @@ namespace SatisDash
 		bool bOverflowed = false;
 	};
 
-	/** What UE reported for one request, before the mod's rules (filled by SatisDashGame's transport). */
+	/** What libcurl reported for one request, before the mod's rules (filled by SatisDashGame's transport). */
 	struct FRawReply
 	{
-		/** The completion delegate's bProcessedSuccessfully, with a response present. */
+		/** The transfer completed (CURLE_OK) with a status line. */
 		bool bProcessed = false;
 		int32 Code = 0;
 		FString ContentType;
 		FString RetryAfter;
-		/** IHttpBase::GetEffectiveURL(): where the answer came from after any redirect curl followed. */
+		/** CURLINFO_EFFECTIVE_URL: where the answer came from. Redirects are never followed, so it is the URL asked. */
 		FString EffectiveUrl;
-		/** LexToString of the failure reason, for the log line only. */
+		/** A short fixed word for the failure (TimedOut, ConnectionError, TlsError, ...), for the log line only. */
 		FString Failure;
 	};
 

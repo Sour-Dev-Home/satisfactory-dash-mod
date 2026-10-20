@@ -1,13 +1,15 @@
 #include "Containers/Ticker.h"
+#include "CurlTransport.h"
 #include "HAL/PlatformTime.h"
-#include "HttpTransport.h"
 #include "Misc/CoreMisc.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "SatisDash/Agent.h"
+#include "SatisDash/Log.h"
 #include "SatisDash/Pusher.h"
 #include "SatisDash/Snapshot.h"
 #include "SatisDash/Version.h"
+#include "SatisDashCurl.h"
 
 namespace
 {
@@ -25,6 +27,16 @@ public:
 		{
 			return;
 		}
+		// libcurl is a static library (libcurl.Build.cs:47, an External module), so this DLL links its own copy; the
+		// engine's curl_global_init_mem (CurlHttpManager.cpp:143) initialises only the HTTP module's copy, and HTTP's DLL
+		// exports no curl symbol. This copy is the mod's to initialise, once, here on the game thread before any request,
+		// and to clean up at shutdown. If it can't start, the agent stays idle (fail closed).
+		if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK)
+		{
+			UE_LOG(LogSatisDash, Warning, TEXT("Couldn't initialise libcurl; the agent stays idle"));
+			return;
+		}
+		bCurlReady = true;
 		Agent.Boot();
 		TickHandle = FTSTicker::GetCoreTicker().AddTicker(TEXT("SatisDashProbe"), 0.5f, [this](float) { Tick(); return true; });
 	}
@@ -32,7 +44,13 @@ public:
 	virtual void ShutdownModule() override
 	{
 		FTSTicker::RemoveTicker(TickHandle);
+		// Every easy handle and the multi handle are released here, before the mod's libcurl copy is cleaned up.
 		Transport.CancelAll();
+		if (bCurlReady)
+		{
+			bCurlReady = false;
+			curl_global_cleanup();
+		}
 	}
 
 private:
@@ -79,7 +97,7 @@ private:
 		}
 	}
 
-	SatisDash::FHttpTransport Transport;
+	SatisDash::FCurlTransport Transport;
 	// Held by value (check-api excuses calls only on receivers declared with the plugin's own type, not a TUniquePtr).
 	// Their constructors only store their arguments; nothing reads or writes a file before Boot, which only a dedicated
 	// server reaches.
@@ -90,6 +108,7 @@ private:
 	double NextConfigAt = 0;
 	double NextSnapshotAt = 0;
 	bool bSending = false;
+	bool bCurlReady = false;
 };
 
 IMPLEMENT_MODULE(FSatisDashGameModule, SatisDashGame)
