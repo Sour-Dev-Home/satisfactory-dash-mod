@@ -168,4 +168,10 @@ describe("cli check-api", () => {
     expect(await main(["run", "S9", "--out", "x"], { log: () => {}, error: (s) => void errors.push(s) })).toBe(2);
     expect(errors.join(" ")).toMatch(/S0, S1, S1b, S2, S3, S4, S5, S6, S7>/);
   });
+
+  it("rejudge needs a bundle directory", async () => {
+    const errors: string[] = [];
+    expect(await main(["rejudge"], { log: () => {}, error: (s) => void errors.push(s) })).toBe(2);
+    expect(errors.join(" ")).toMatch(/usage: harness rejudge <bundle dir>/);
+  });
 });

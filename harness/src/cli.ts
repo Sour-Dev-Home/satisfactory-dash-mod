@@ -1,9 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkApi, scanSpikes } from "./check-api";
 import { loadConfig } from "./config";
 import { verifyContract } from "./contract";
+import { rejudge } from "./rejudge";
 import { RefusalError, RUNNABLE, realDeps, runSpike } from "./run";
 import { loadToolchain, toolchainMismatches } from "./toolchain";
 import type { SpikeId } from "./verdict";
@@ -71,8 +73,20 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
         throw e;
       }
     }
+    case "rejudge": {
+      const dir = argv[1];
+      if (!dir) {
+        io.error("usage: harness rejudge <bundle dir>");
+        return 2;
+      }
+      // The rule's commit: the CI's, else this checkout's.
+      const commit = process.env.GITHUB_SHA ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
+      const out = rejudge(dir, { now: new Date(), commit });
+      io.log(`${out.spike} (${out.claim}) re-judged at ${commit.slice(0, 7)}: ${out.verdict.pass ? "PASS" : "FAIL"} (the run said ${out.original.pass ? "PASS" : "FAIL"})\n${out.verdict.reasons.join("\n")}`);
+      return out.verdict.pass ? 0 : 1;
+    }
     default:
-      io.error("usage: harness <check-api|verify-contract|selftest|run>");
+      io.error("usage: harness <check-api|verify-contract|selftest|run|rejudge>");
       return 2;
   }
 }

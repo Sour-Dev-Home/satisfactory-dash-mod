@@ -24,11 +24,15 @@ export function evaluate(e: Evidence): Verdict {
   const withWorld = judged.length - without;
   if (without < NEED) reasons.push(`${without} readings without a world, need ${NEED}`);
   if (withWorld < NEED) reasons.push(`${withWorld} readings with a world, need ${NEED}`);
+  // The first reading with a world comes right after the save loads, while the averaged tick rate is still recovering
+  // from the load: it moved by 4 in the 0.4 s between the mod's read and the API's in run 39428218556. Its tick rate
+  // isn't judged; its other fields are (owner, 2026-10-20).
+  const settling = judged.find((p) => p.api!.running);
   for (const p of judged) {
     const api = p.api!;
     for (const { key, name } of EXACT) if (p.mod[key] !== api[key]) reasons.push(`${p.at}: ${name} ${p.mod[key]} vs API ${api[key]}`);
     if (Math.abs(p.mod.duration - api.duration) > DURATION_DRIFT) reasons.push(`${p.at}: duration ${p.mod.duration} vs API ${api.duration}`);
-    if (!tickClose(p.mod.tickRate, api.tickRate)) reasons.push(`${p.at}: tick rate ${p.mod.tickRate} vs API ${api.tickRate}`);
+    if (p !== settling && !tickClose(p.mod.tickRate, api.tickRate)) reasons.push(`${p.at}: tick rate ${p.mod.tickRate} vs API ${api.tickRate}`);
   }
   return reasons.length
     ? { pass: false, reasons }
