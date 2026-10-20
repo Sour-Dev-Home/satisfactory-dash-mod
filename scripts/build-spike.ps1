@@ -8,6 +8,11 @@ param(
 	[Parameter(Mandatory)] [string] $Out
 )
 $ErrorActionPreference = 'Stop'
+# The SML project's pre-build step runs Mods\WwisePatches\applyPatches.ps1 in Windows PowerShell. Windows 11's
+# default policy (Restricted) refuses it for an account nobody configured, such as satis-runner (spike run #10,
+# 2026-10-20). RemoteSigned, the Windows Server default, holds for this build's child processes only (the Process
+# scope reads this variable); the machine's and the account's own policies are unchanged.
+$env:PSExecutionPolicyPreference = 'RemoteSigned'
 $plugin = "SatisMod$Spike"
 $repo = Split-Path $PSScriptRoot -Parent
 $source = Join-Path $repo "spikes\$Spike\$plugin"
