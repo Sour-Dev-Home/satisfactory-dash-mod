@@ -270,6 +270,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TArray::Append | Engine/Source/Runtime/Core/Public/Containers/Array.h:2505 | header only (the pointer and count overload) |
 | FCString::Strcmp | Engine/Source/Runtime/Core/Public/Misc/CString.h:328 | header only (FCString is TCString<TCHAR>) |
 | FTimespan | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:75 | header only |
+| FTimespan::FromMilliseconds | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:649 | header only |
 | FTimespan::FromMinutes | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:661 | header only |
 | FTimespan::FromSeconds | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:673 | header only |
 | FTimespan::Zero | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:747 | header only |

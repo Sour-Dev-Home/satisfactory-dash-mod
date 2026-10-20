@@ -124,3 +124,30 @@ bool FPusherInFlightTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("s1 is next"), Pusher.StartSend(0).Get(FString()), TEXT("s1"));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPusherFullAgainTest, "SatisDash.Core.Pusher.FullAgain", SatisDash::Test::Flags)
+
+bool FPusherFullAgainTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FPusher Pusher{ [] { return 1.0; } };
+	auto fullLines = [&Log]
+	{
+		int32 N = 0;
+		for (const FString& Line : Log.Take()) { N += Line.Contains(TEXT("queue is full")) ? 1 : 0; }
+		return N;
+	};
+	// A slow backend that answers every send: the queue overflows with no failure in between (2A final review).
+	for (int32 I = 0; I < 130; ++I) { Pusher.Enqueue(TEXT("{}")); }
+	TestEqual(TEXT("logged once"), fullLines(), 1);
+	for (int32 I = 0; I < 10; ++I) { Pusher.Enqueue(TEXT("{}")); }
+	TestEqual(TEXT("still once while it stays full"), fullLines(), 1);
+	while (Pusher.Num() > MaxQueuedSnapshots / 2)
+	{
+		Pusher.StartSend(0);
+		Pusher.FinishSend(SatisDash::Test::Reply(200, SatisDash::Test::SnapshotAnswerJson), 0);
+	}
+	for (int32 I = 0; I < 100; ++I) { Pusher.Enqueue(TEXT("{}")); }
+	TestEqual(TEXT("a second episode is logged again"), fullLines(), 2);
+	return true;
+}

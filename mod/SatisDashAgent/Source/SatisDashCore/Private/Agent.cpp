@@ -127,8 +127,12 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 			UE_LOG(LogSatisDash, Display, TEXT("An enrolment code is in SatisDashAgent.cfg, but this server is already enrolled; blanking it (revoke the server in the dashboard to enrol again)"));
 			BlankCodeInFile();
 		}
-		Enter(EAgentState::Running, TEXT("Enrolled; reporting to the backend"), false);
-		return;
+		// BlankCodeInFile adopts what the file says now, which may name another backend (2A final review, N2).
+		if (IsBoundHere())
+		{
+			Enter(EAgentState::Running, TEXT("Enrolled; reporting to the backend"), false);
+			return;
+		}
 	}
 	if (!Config.EnrollmentCode.IsEmpty())
 	{

@@ -96,6 +96,12 @@ SatisDash::FPusher::FOutcome SatisDash::FPusher::FinishSend(const FHttpReply& Re
 				FailureCount = 0;
 				DroppedInStreak = 0;
 			}
+			else if (DroppedInStreak > 0 && Queue.Num() <= MaxQueuedSnapshots / 2)
+			{
+				// A slow backend that never fails: the episode ends once the queue has drained to half (2A final review).
+				UE_LOG(LogSatisDash, Display, TEXT("The snapshot queue has room again (%d dropped while the backend was slow)"), DroppedInStreak);
+				DroppedInStreak = 0;
+			}
 			return Out;
 		}
 	}
