@@ -10,7 +10,7 @@ export interface CredentialEvidence { length: number; sha1Prefix: string; inLog:
 export interface BackendEvidence { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean; codeInLog: boolean; bearerInLog: boolean }
 /** S3: one mod reading paired with FRM's reading of the same circuit, taken right after it. */
 export interface PowerReading { production: number; consumption: number; capacity: number }
-export interface PowerPair { at: string; circuitId: number; mod: PowerReading; frm: PowerReading | null }
+export interface PowerPair { at: string; circuitId: number; mod: PowerReading; frm: PowerReading | null; group?: number[] }
 
 export interface Evidence {
   modLines: string[];

@@ -304,6 +304,8 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
   };
   const captures: Record<string, unknown> = {};
   if (spec.echo) captures["echo.json"] = evidence.echo;
+  // S3: every mod reading with the FRM figures it was compared against (circuit IDs and MW only).
+  if (spec.power) captures["power.json"] = power ?? null;
   if (spec.ticks) {
     captures["ticks.json"] = { baseline: baseline ?? null, withMod: withMod ?? null };
     captures["baseline-log.json"] = pickLines(baselineLog, /LogServer|LogInit: Net CL/);

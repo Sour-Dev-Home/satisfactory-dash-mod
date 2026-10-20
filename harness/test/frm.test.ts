@@ -21,14 +21,15 @@ describe("FRM pairing", () => {
       .toEqual([{ circuitId: 0, reading: { production: 3633.33, consumption: 2690, capacity: 4083.33 } }]);
   });
 
-  it("pairs a mod circuit with the FRM group holding only that circuit; multi-circuit groups pair with null", () => {
+  it("pairs a mod circuit with the FRM group holding it, and records the group's circuits (ruling 6, amended by the owner 2026-10-20)", () => {
     const mod = [
       { circuitId: 0, reading: { production: 3633.33, consumption: 2690, capacity: 4083.33 } },
       { circuitId: 3, reading: { production: 60, consumption: 30, capacity: 70 } },
     ];
     const pairs = pairReadings("t1", mod, parseGetPower(frmBody));
     expect(pairs[0]).toMatchObject({ circuitId: 0, frm: { production: 3633.3, capacity: 4083.3 } });
-    expect(pairs[1]).toMatchObject({ circuitId: 3, frm: null });
+    expect(pairs[0]).toMatchObject({ group: [0] });
+    expect(pairs[1]).toMatchObject({ circuitId: 3, group: [3, 4], frm: { production: 100, consumption: 50, capacity: 120 } });
   });
 
   it("pairs with null when FRM couldn't be read (Review Focus 4)", () => {
@@ -78,6 +79,6 @@ describe("FRM pairing", () => {
       intervalMs: 1000,
     });
     expect(out.frmCircuits.sort()).toEqual([0, 3, 4]);
-    expect(out.pairs).toEqual([expect.objectContaining({ circuitId: 3, frm: null })]); // a joined group's values aren't judged (ruling 6)
+    expect(out.pairs).toEqual([expect.objectContaining({ circuitId: 3, group: [3, 4], frm: expect.objectContaining({ production: 100 }) })]);
   });
 });
