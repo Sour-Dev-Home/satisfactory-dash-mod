@@ -3392,7 +3392,11 @@ The "no game" rounds need a boot with no game: the test server auto-loads its la
 
 Register `enrol` in `core-runs/index.ts`.
 
-- [ ] **Step 8: Run the harness tests, then the enrol run**
+- [ ] **Step 8: Redirected poll (S3, Gate A)**
+
+Extend `http-probe` so that, after the driver is in the game, the stub also answers `GET /agent/v1/commands` with a 302 to the redirect target during the redirect phase. The amended S3 rules apply to those requests too (no Authorization, no body).
+
+- [ ] **Step 9: Run the harness tests, then the enrol run**
 
 `npm test`, `npm run typecheck`, check-api: green. Commit:
 

@@ -82,6 +82,30 @@ describe("startProbeStub", () => {
     expect(stub.requests[1]!.bodyBytes).toBe('{"observedAt":"2026-10-20T00:00:00.000Z"}'.length);
   });
 
+  it("answers a body-less GET at the redirect target with 200, and the entry completes", async () => {
+    stub = await startProbeStub();
+    const res = await fetch(`${stub.elsewhereUrl}/agent/v1/snapshots`, { signal: AbortSignal.timeout(2000) });
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(stub.requests).toHaveLength(1);
+    expect(stub.requests[0]).toMatchObject({ port: "elsewhere", method: "GET", authorization: false, bodyBytes: 0, complete: true });
+  });
+
+  it("answers a redirected GET that still carries the POST's Content-Length but no body (what libcurl sends after a 302)", async () => {
+    stub = await startProbeStub();
+    const socket = connect(Number(new URL(stub.elsewhereUrl).port), "127.0.0.1");
+    socket.on("error", () => undefined);
+    await new Promise<void>((r) => socket.on("connect", () => r()));
+    let got = "";
+    socket.on("data", (c) => void (got += c.toString("utf8")));
+    socket.write("GET /agent/v1/snapshots HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\n");
+    const deadline = Date.now() + 1000;
+    while (!got.includes("\r\n\r\n") && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    expect(got.startsWith("HTTP/1.1 200")).toBe(true);
+    expect(stub.requests[0]).toMatchObject({ port: "elsewhere", method: "GET", bodyBytes: 0, complete: true });
+    socket.destroy();
+  });
+
   it("records a request when its headers arrive, even if its body never does, and still closes", async () => {
     stub = await startProbeStub();
     const socket = connect(Number(new URL(stub.elsewhereUrl).port), "127.0.0.1");
