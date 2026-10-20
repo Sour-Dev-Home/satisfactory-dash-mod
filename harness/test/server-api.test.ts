@@ -22,6 +22,12 @@ describe("createServerApi", () => {
     expect(calls).toEqual([{ url: "https://127.0.0.1:17777/api/v1", body: '{"function":"HealthCheck"}' }]);
   });
 
+  it("adds {data} when given, as ApplyServerOptions needs (satisfactory-dash serverOptionsAdapter.ts:133-137)", async () => {
+    const { calls, transport } = recording();
+    await createServerApi("https://127.0.0.1:17777", transport).call("ApplyServerOptions", { UpdatedServerOptions: { "FG.DSAutoPause": "False" } });
+    expect(calls[0]!.body).toBe('{"function":"ApplyServerOptions","data":{"UpdatedServerOptions":{"FG.DSAutoPause":"False"}}}');
+  });
+
   it("returns parsed JSON, raw text when not JSON, and null when empty", async () => {
     expect((await createServerApi("https://localhost:1", recording(200, '{"a":1}').transport).call("X")).body).toEqual({ a: 1 });
     expect((await createServerApi("https://localhost:1", recording(500, "oops").transport).call("X")).body).toBe("oops");

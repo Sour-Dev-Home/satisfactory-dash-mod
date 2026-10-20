@@ -29,17 +29,18 @@ export const httpsLoopback: Transport = (url, body) =>
     req.end(body);
   });
 
-export interface ServerApi { call(fn: string): Promise<{ status: number; body: unknown }> }
+export interface ServerApi { call(fn: string, data?: Record<string, unknown>): Promise<{ status: number; body: unknown }> }
 
-/** The dedicated server HTTPS API: POST /api/v1 with {"function": name} (captured QueryServerState requests). */
+/** The dedicated server HTTPS API: POST /api/v1 with {"function": name} (captured QueryServerState requests), plus
+ *  {"data": …} for the functions that take it (ApplyServerOptions). */
 export function createServerApi(baseUrl: string, transport: Transport = httpsLoopback): ServerApi {
   const url = new URL("/api/v1", baseUrl);
   if (url.protocol !== "https:" || !LOOPBACK_HOSTS.has(url.hostname)) {
     throw new Error(`refusing a non-loopback server API: ${baseUrl}`);
   }
   return {
-    async call(fn) {
-      const { status, text } = await transport(url, JSON.stringify({ function: fn }));
+    async call(fn, data) {
+      const { status, text } = await transport(url, JSON.stringify(data ? { function: fn, data } : { function: fn }));
       if (!text) return { status, body: null };
       try {
         return { status, body: JSON.parse(text) as unknown };

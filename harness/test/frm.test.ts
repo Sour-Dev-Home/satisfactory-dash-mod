@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import { collectPowerPairs, pairReadings, parseGetPower, parseS3Lines } from "../src/frm";
+
+// Shape from satisfactory-dash raw-sources/captured-responses/frm-getPower-2026-09-22-F-panel.json (FRM 1.5.3).
+const frmBody = [
+  { CircuitGroupID: 0, PowerProduction: 3633.3, PowerConsumed: 2692.1, PowerCapacity: 4083.3, AssociatedCircuits: [0], FuseTriggered: false },
+  { CircuitGroupID: 1, PowerProduction: 100, PowerConsumed: 50, PowerCapacity: 120, AssociatedCircuits: [3, 4], FuseTriggered: false },
+];
+
+describe("FRM pairing", () => {
+  it("parses getPower groups and their circuits", () => {
+    expect(parseGetPower(frmBody)).toEqual([
+      { groupId: 0, circuits: [0], production: 3633.3, consumption: 2692.1, capacity: 4083.3 },
+      { groupId: 1, circuits: [3, 4], production: 100, consumption: 50, capacity: 120 },
+    ]);
+    expect(() => parseGetPower({ nope: 1 })).toThrow();
+  });
+
+  it("parses the mod's s3 lines", () => {
+    expect(parseS3Lines(["[t]LogSatisMod: Display: satis-mod s3 circuit=0 production=3633.33 consumption=2690.00 capacity=4083.33"]))
+      .toEqual([{ circuitId: 0, reading: { production: 3633.33, consumption: 2690, capacity: 4083.33 } }]);
+  });
+
+  it("pairs a mod circuit with the FRM group holding only that circuit; multi-circuit groups pair with null", () => {
+    const mod = [
+      { circuitId: 0, reading: { production: 3633.33, consumption: 2690, capacity: 4083.33 } },
+      { circuitId: 3, reading: { production: 60, consumption: 30, capacity: 70 } },
+    ];
+    const pairs = pairReadings("t1", mod, parseGetPower(frmBody));
+    expect(pairs[0]).toMatchObject({ circuitId: 0, frm: { production: 3633.3, capacity: 4083.3 } });
+    expect(pairs[1]).toMatchObject({ circuitId: 3, frm: null });
+  });
+
+  it("pairs with null when FRM couldn't be read (Review Focus 4)", () => {
+    const mod = [{ circuitId: 0, reading: { production: 1, consumption: 1, capacity: 1 } }];
+    expect(pairReadings("t1", mod, null)).toEqual([{ at: "t1", circuitId: 0, mod: mod[0]!.reading, frm: null }]);
+  });
+
+  it("reads FRM right after each new batch of s3 lines, and pairs a failed FRM read with null", async () => {
+    let t = 0;
+    const batches = [["satis-mod s3 circuit=0 production=10 consumption=5 capacity=12"], [], ["satis-mod s3 circuit=0 production=11 consumption=5 capacity=12"]];
+    let frmCalls = 0;
+    const out = await collectPowerPairs({
+      readNew: () => batches.shift() ?? [],
+      frm: async () => {
+        frmCalls++;
+        if (frmCalls === 2) throw new Error("timeout");
+        return [{ groupId: 0, circuits: [0], production: 10, consumption: 5, capacity: 12 }];
+      },
+      sleep: async (ms) => void (t += ms),
+      now: () => t,
+      durationMs: 3000,
+      intervalMs: 1000,
+    });
+    expect(frmCalls).toBe(2); // only for the two batches that had lines
+    expect(out.pairs.map((p) => p.frm === null)).toEqual([false, true]);
+    expect(out.frmCircuits).toEqual([0]);
+    expect(out.modCircuits).toEqual([0]);
+  });
+});
