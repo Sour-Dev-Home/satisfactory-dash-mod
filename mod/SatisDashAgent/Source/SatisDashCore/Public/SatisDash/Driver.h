@@ -94,7 +94,7 @@ namespace SatisDash
 		void SendReport();
 		void FinishReport(const FHttpReply& Reply, uint32 SentIn);
 
-		/** Bounded: at most FCommandLedger::MaxEntries (1000) IDs, each purged at its command's expiry (<= 600 s). */
+		/** Bounded: at most FCommandLedger::MaxEntries (1000) IDs, expired ones purged on the next command after expiry (<= 600 s). */
 		FCommandLedger Ledger;
 		/** Bounded: one poll's commands, at most MaxCommandsPerPoll (20), from a body of at most 64 KB. */
 		TArray<FAgentCommand> Waiting;

@@ -116,6 +116,8 @@ bool FDriverHaltTest::RunTest(const FString& Parameters)
 	const int32 Polled = F.Net.sent(DriverPoll);
 	// Task 5: polls were going out before the halt, so "nothing more polled" below can fail.
 	TestTrue(TEXT("a poll went out before the halt"), Polled > 0);
+	// Its answer comes back after the halt, so no poll is in flight to hold the next one back (task 5 review).
+	TestTrue(TEXT("the open poll is answered"), F.Net.answer(DriverPoll, SatisDash::Test::Reply(200, TEXT("{\"commands\":[]}"))));
 	F.run(Driver, 120);
 	TestEqual(TEXT("queue cleared"), Driver.Queued(), 0);
 	TestEqual(TEXT("nothing more pushed"), F.Net.sent(DriverSnapshots), Pushed);

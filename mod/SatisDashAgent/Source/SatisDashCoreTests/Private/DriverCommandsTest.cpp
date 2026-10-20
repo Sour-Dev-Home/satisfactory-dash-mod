@@ -309,3 +309,43 @@ bool FCommandsStaleResultTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("with B's secret"), F.Net.lastAuth(CommandsPoll), TEXT("Bearer ") + Second);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsStalePollTransientTest, "SatisDash.Core.Commands.StalePollTransient", SatisDash::Test::Flags)
+
+bool FCommandsStalePollTransientTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	commandsReady(F, Driver);
+	TestTrue(TEXT("enrolled at B"), commandsMoveToSecondBackend(F, Driver, FString::ChrN(42, TEXT('b')) + TEXT("_")));
+	// B's run starts while A's poll is still out, so the run's own reset of the poll timer is already behind us.
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("A's poll still holds B's back"), F.Net.pending(CommandsPoll), 1);
+	F.Net.answer(CommandsPoll, SatisDash::Test::Reply(503, FString()));
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("A's 503 sets no backoff on B: polled at once"), F.Net.pending(CommandsPoll), 1);
+	int32 Failed = 0;
+	for (const FString& Line : Log.Take()) { Failed += Line.Contains(TEXT("Polling for commands failed")) ? 1 : 0; }
+	TestEqual(TEXT("and logs no failure for B"), Failed, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsStaleResultTransientTest, "SatisDash.Core.Commands.StaleResultTransient", SatisDash::Test::Flags)
+
+bool FCommandsStaleResultTransientTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	commandsReady(F, Driver);
+	F.Net.answer(CommandsPoll, commandsReply(commandsItem(TEXT("c-10"), TEXT("set_auto_pause"), TEXT("{\"enabled\":true}"), F.Utc + FTimespan::FromMinutes(5))));
+	F.run(Driver, 1);
+	TestEqual(TEXT("A's result is out"), F.Net.pending(*commandsResultPath(TEXT("c-10"))), 1);
+	TestTrue(TEXT("enrolled at B"), commandsMoveToSecondBackend(F, Driver, FString::ChrN(42, TEXT('b')) + TEXT("_")));
+	// The commonest answer on a backend switch: A is unreachable or failing. Its result is never retried at B.
+	F.Net.answer(*commandsResultPath(TEXT("c-10")), SatisDash::Test::Reply(503, FString()));
+	F.run(Driver, 30);
+	TestEqual(TEXT("A's result is never re-sent to B"), F.Net.sent(*commandsResultPath(TEXT("c-10"))), 1);
+	TestEqual(TEXT("B is polled"), F.Net.pending(CommandsPoll), 1);
+	return true;
+}

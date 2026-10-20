@@ -15,7 +15,9 @@ void SatisDash::FDriver::StopCommands()
 void SatisDash::FDriver::TickCommands(double Now)
 {
 	// One thing at a time, as commandRunner.ts does: a poll, then each command and its report in turn. Nothing here
-	// allocates until something is due.
+	// allocates until something is due. A poll or result still out from an older generation holds back the next one
+	// until it answers or times out (25 s + 10 s for a poll, 15 s for a result): accepted (task 5 review). Never allow two
+	// in flight to shorten it.
 	if (bPollInFlight || bReportInFlight)
 	{
 		return;
