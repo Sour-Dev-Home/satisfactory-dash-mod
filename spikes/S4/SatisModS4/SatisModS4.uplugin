@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.0.1",
+	"SemVersion": "0.0.1",
+	"GameVersion": ">=513885",
+	"FriendlyName": "satis-dash spike S4",
+	"Description": "ADR-0039 G2 spike S4 (claim C6): reads a credential from its SML config on the dedicated server and never logs it. Not a product.",
+	"Category": "Modding",
+	"CreatedBy": "Sour-Dev-Home",
+	"CreatedByURL": "https://github.com/Sour-Dev-Home/satisfactory-dash-mod",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{ "Name": "SatisModS4", "Type": "Runtime", "LoadingPhase": "Default" }
+	],
+	"Plugins": [
+		{ "Name": "SML", "Enabled": true, "SemVersion": "^3.12.0" }
+	]
+}

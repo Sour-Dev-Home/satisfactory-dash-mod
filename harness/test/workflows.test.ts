@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { SPIKE_IDS } from "../src/verdict";
+import { LOCAL_ONLY, RUNNABLE } from "../src/run";
 
 const WORKFLOWS = join(import.meta.dirname, "..", "..", ".github", "workflows");
 type Job = { "runs-on"?: string | string[]; environment?: string | { name: string }; steps?: Array<{ uses?: string; run?: string }> };
@@ -18,9 +18,9 @@ describe("spike.yml (the self-hosted runner's only door)", () => {
     expect((wf.on.push as { branches: string[] }).branches).toEqual(["main"]);
   });
 
-  it("offers exactly the spikes this harness runs", () => {
+  it("offers exactly the spikes this harness runs, except the local-only ones (S5)", () => {
     const input = (wf.on.workflow_dispatch as { inputs: { spike: { options: string[] } } }).inputs.spike;
-    expect(input.options).toEqual([...SPIKE_IDS]);
+    expect(input.options).toEqual(RUNNABLE.filter((s) => !LOCAL_ONLY.includes(s)));
   });
 
   it("reads contents only", () => {
