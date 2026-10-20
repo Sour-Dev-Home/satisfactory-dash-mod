@@ -12,6 +12,7 @@ namespace SatisDash
 	inline constexpr double ConfigCheckSeconds = 60.0;
 	/** sampler.ts DUE_SLACK_MS: a pass is due this much early, so the ticker's half-second steps don't stretch it. */
 	inline constexpr double DueSlackSeconds = 0.25;
+	inline constexpr double MinPollSpacingSeconds = 1.0; // commandRunner.ts MIN_POLL_SPACING_MS
 
 	struct FDriverClock
 	{
@@ -32,7 +33,8 @@ namespace SatisDash
 	 *
 	 * Memory (it lives for the server's whole uptime): the snapshot queue holds at most MaxQueuedSnapshots (120) bodies
 	 * and MaxQueuedBytes (2 MiB) of them, the part log at most three keys (status, auto-pause, power), at most one
-	 * enrolment and one push in flight. A tick with nothing due allocates nothing.
+	 * enrolment and one push in flight. Commands: the ledger at most 1000 IDs, at most 20 commands waiting, one poll or
+	 * one result in flight, never both. A tick with nothing due allocates nothing.
 	 */
 	class SATISDASHCORE_API FDriver
 	{
@@ -52,7 +54,7 @@ namespace SatisDash
 		void TickSample(double Now);
 		void TickPush(double Now);
 		void NoteFailedPart(const TCHAR* Part, double Now);
-		/** Task 5. */
+		/** commandRunner.ts: poll, run each command, report its result, one thing at a time (DriverCommands.cpp). */
 		void TickCommands(double Now);
 		void StopCommands();
 
@@ -76,6 +78,34 @@ namespace SatisDash
 		 * halt, a Clear). A reply sent under an older generation still finishes its Start, and changes nothing else.
 		 */
 		uint32 Generation = 0;
-		// Task 5 adds the command members here.
+
+		/** A result waiting to be posted (commandRunner.ts report()). */
+		struct FReport
+		{
+			FString Id;
+			FCommandResult Result;
+			FDateTime ExpiresAt;
+			int32 Attempts = 0;
+			double NextAt = 0;
+		};
+		void SendPoll(double Now);
+		void FinishPoll(const FHttpReply& Reply, uint32 SentIn);
+		void RunNext(double Now);
+		void SendReport();
+		void FinishReport(const FHttpReply& Reply, uint32 SentIn);
+
+		/** Bounded: at most FCommandLedger::MaxEntries (1000) IDs, each purged at its command's expiry (<= 600 s). */
+		FCommandLedger Ledger;
+		/** Bounded: one poll's commands, at most MaxCommandsPerPoll (20), from a body of at most 64 KB. */
+		TArray<FAgentCommand> Waiting;
+		/** At most one result waiting or in flight. */
+		TOptional<FReport> Report;
+		bool bPollInFlight = false;
+		bool bReportInFlight = false;
+		double NextPollAt = 0;
+		double PollStartedAt = 0;
+		int32 PollFailures = 0;
+		/** Bounded: one key ("skipped"). */
+		FRateLimitedLog SkipLog{60.0};
 	};
 }

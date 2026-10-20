@@ -114,6 +114,8 @@ bool FDriverHaltTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("credential deleted"), IFileManager::Get().FileExists(*F.CredentialPath));
 	const int32 Pushed = F.Net.sent(DriverSnapshots);
 	const int32 Polled = F.Net.sent(DriverPoll);
+	// Task 5: polls were going out before the halt, so "nothing more polled" below can fail.
+	TestTrue(TEXT("a poll went out before the halt"), Polled > 0);
 	F.run(Driver, 120);
 	TestEqual(TEXT("queue cleared"), Driver.Queued(), 0);
 	TestEqual(TEXT("nothing more pushed"), F.Net.sent(DriverSnapshots), Pushed);

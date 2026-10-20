@@ -47,6 +47,8 @@ void SatisDash::FDriver::Tick()
 		++Generation;
 		NextStatusAt = Now;
 		LastPowerAt.Reset();
+		NextPollAt = Now;
+		PollFailures = 0;
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -149,16 +151,10 @@ void SatisDash::FDriver::TickPush(double Now)
 		if (Outcome.Response.IsSet())
 		{
 			Agent.SetCadence(Outcome.Response->Cadence);
+			if (Outcome.Response->bCommandsPending)
+			{
+				NextPollAt = 0; // commandRunner.ts notifyPending: end the wait before the next poll
+			}
 		}
 	});
-}
-
-void SatisDash::FDriver::TickCommands(double Now)
-{
-	// Task 5.
-}
-
-void SatisDash::FDriver::StopCommands()
-{
-	// Task 5.
 }
