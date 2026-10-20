@@ -10,6 +10,23 @@ type Workflow = { on: Record<string, unknown>; permissions?: unknown; jobs: Reco
 const load = (file: string) => parse(readFileSync(join(WORKFLOWS, file), "utf8")) as Workflow;
 const runsOn = (job: Job) => [job["runs-on"] ?? []].flat();
 
+describe("mod-test.yml (the self-hosted runner's second door)", () => {
+  const wf = load("mod-test.yml");
+
+  it("triggers only on workflow_dispatch and pushes to main, never on a pull request", () => {
+    expect(Object.keys(wf.on).sort()).toEqual(["push", "workflow_dispatch"]);
+    expect((wf.on.push as { branches: string[] }).branches).toEqual(["main"]);
+  });
+
+  it("reads contents only, on the ue runner behind the ue-runner environment", () => {
+    expect(wf.permissions).toEqual({ contents: "read" });
+    for (const job of Object.values(wf.jobs)) {
+      expect(runsOn(job)).toEqual(expect.arrayContaining(["self-hosted", "windows", "ue"]));
+      expect(typeof job.environment === "string" ? job.environment : job.environment?.name).toBe("ue-runner");
+    }
+  });
+});
+
 describe("spike.yml (the self-hosted runner's only door)", () => {
   const wf = load("spike.yml");
 
@@ -54,8 +71,8 @@ describe("every workflow", () => {
     }
   });
 
-  it("keeps self-hosted runners out of every workflow but spike.yml", () => {
-    for (const f of files.filter((x) => x !== "spike.yml")) {
+  it("keeps self-hosted runners out of every workflow but spike.yml and mod-test.yml", () => {
+    for (const f of files.filter((x) => x !== "spike.yml" && x !== "mod-test.yml")) {
       for (const job of Object.values(load(f).jobs)) expect(runsOn(job), f).not.toContain("self-hosted");
     }
   });

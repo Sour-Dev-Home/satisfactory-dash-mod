@@ -1,0 +1,26 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"SemVersion": "0.1.0",
+	"GameVersion": ">=513885",
+	"FriendlyName": "satis-dash agent",
+	"Description": "Reports a dedicated server's status, power and auto-pause to a satis-dash backend, and applies its auto-pause commands.",
+	"Category": "Modding",
+	"CreatedBy": "Sour-Dev-Home",
+	"CreatedByURL": "https://github.com/Sour-Dev-Home/satisfactory-dash-mod",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{ "Name": "SatisDashCore", "Type": "Runtime", "LoadingPhase": "Default" },
+		{ "Name": "SatisDashCoreTests", "Type": "Editor", "LoadingPhase": "Default" }
+	],
+	"Plugins": [
+		{ "Name": "SML", "Enabled": true, "SemVersion": "^3.12.0" }
+	]
+}

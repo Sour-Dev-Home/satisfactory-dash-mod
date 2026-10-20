@@ -13,7 +13,7 @@ import * as S6 from "../../spikes/S6/pass";
 import * as S7 from "../../spikes/S7/pass";
 import { collectAutoPauseSteps } from "./autopause";
 import { type Backend, randomCode, startBackend } from "./backend";
-import { checkApi, scanSpikes, type Use } from "./check-api";
+import { checkApi, scanSources, type Use } from "./check-api";
 import { logPathOf, pluginDirFor, type RunnerConfig } from "./config";
 import { type Echo, startEcho } from "./echo";
 import { collectPowerPairs, parseGetPower, readAutoPause, setAutoPause } from "./frm";
@@ -393,7 +393,7 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
     config,
     toolchain,
     outDir,
-    checkApi: () => checkApi(scanSpikes(repoRoot), readFileSync(join(repoRoot, "api-sources.md"), "utf8")),
+    checkApi: () => checkApi(scanSources(repoRoot), readFileSync(join(repoRoot, "api-sources.md"), "utf8")),
     serverAnswering: () => serverAnswering(api),
     build: (spike) =>
       new Promise((resolve, reject) => {

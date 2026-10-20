@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 export type UseKind = "include" | "symbol" | "method" | "module";
@@ -51,6 +51,9 @@ interface Locals { types: Set<string>; functions: Set<string>; defines: Set<stri
 const NOT_A_TYPE = new Set(["return", "else", "throw", "new", "delete", "case", "co_return", "co_await", "co_yield", "goto"]);
 const QUALIFIERS = String.raw`\s*(?:const\s*)?(?:noexcept\s*)?(?:override\s*)?(?:final\s*)?`;
 
+/** Namespaces the engine owns: a code's own "namespace UE::Mine" never excuses them. */
+const ENGINE_ROOTS = new Set(["UE", "UE4", "UE5", "std", "Chaos"]);
+
 function localsOf(files: SourceFile[]): Locals {
   const locals: Locals = { types: new Set(), functions: new Set(), defines: new Set(), headers: new Set() };
   for (const f of files) {
@@ -62,6 +65,13 @@ function localsOf(files: SourceFile[]): Locals {
       locals.types.add(m[1]!);
     }
     for (const m of code.matchAll(/^\s*#\s*define\s+([A-Za-z_]\w*)/gm)) locals.defines.add(m[1]!);
+    // The code's own namespaces, and the test classes that IMPLEMENT_*_AUTOMATION_TEST declares by macro.
+    // Only definitions ("namespace A {", "namespace A::B {"), and only the first component: never "using namespace X;"
+    // or "namespace x = y;", and never an engine root, which stays checked.
+    for (const m of code.matchAll(/\bnamespace\s+([A-Za-z_]\w*)(?:\s*::\s*[A-Za-z_]\w*)*\s*\{/g)) {
+      if (!ENGINE_ROOTS.has(m[1]!)) locals.types.add(m[1]!);
+    }
+    for (const m of code.matchAll(/\bIMPLEMENT_(?:SIMPLE|COMPLEX)_AUTOMATION_TEST\s*\(\s*([A-Za-z_]\w*)/g)) locals.types.add(m[1]!);
   }
   for (const f of files) {
     if (!CODE_EXT.test(f.path)) continue;
@@ -186,8 +196,9 @@ export function extractUses(files: SourceFile[]): Use[] {
   const uses: Use[] = [];
   for (const group of bySpike.values()) {
     const locals = localsOf(group);
+    const ownModules = new Set(group.filter((f) => f.path.endsWith(".Build.cs")).map((f) => basename(f.path, ".Build.cs")));
     for (const f of group) {
-      if (f.path.endsWith(".Build.cs")) uses.push(...modulesInBuildCs(f));
+      if (f.path.endsWith(".Build.cs")) uses.push(...modulesInBuildCs(f).filter((u) => !ownModules.has(u.name.slice("module:".length))));
       else if (f.path.endsWith(".uplugin")) uses.push(...pluginsInUplugin(f));
       else if (CODE_EXT.test(f.path)) uses.push(...usesInCode(f, locals));
     }
@@ -224,11 +235,15 @@ export function checkApi(files: SourceFile[], md: string): { missing: Use[]; bad
   return { missing: extractUses(files).filter((u) => !covered(u)), badRows };
 }
 
-export function scanSpikes(repoRoot: string): SourceFile[] {
-  const dir = join(repoRoot, "spikes");
-  return readdirSync(dir, { recursive: true, encoding: "utf8" })
-    .map((p) => p.replaceAll("\\", "/"))
-    .filter((p) => CODE_EXT.test(p) || p.endsWith(".Build.cs") || p.endsWith(".uplugin"))
-    .sort()
-    .map((p) => ({ path: `spikes/${p}`, text: readFileSync(join(dir, p), "utf8") }));
+/** Every source under spikes/ and mod/ (the core mod), each group checked on its own (spikeOf: the first two path parts). */
+export function scanSources(repoRoot: string, roots: string[] = ["spikes", "mod"]): SourceFile[] {
+  return roots
+    .filter((root) => existsSync(join(repoRoot, root)))
+    .flatMap((root) =>
+      readdirSync(join(repoRoot, root), { recursive: true, encoding: "utf8" })
+        .map((p) => p.replaceAll("\\", "/"))
+        .filter((p) => CODE_EXT.test(p) || p.endsWith(".Build.cs") || p.endsWith(".uplugin"))
+        .sort()
+        .map((p) => ({ path: `${root}/${p}`, text: readFileSync(join(repoRoot, root, p), "utf8") })),
+    );
 }
