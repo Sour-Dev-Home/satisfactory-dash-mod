@@ -50,6 +50,21 @@ export function assertLoopbackOnly(env: Record<string, string>): void {
   }
 }
 
+interface ComposeConfig {
+  services?: Record<string, { ports?: Array<{ host_ip?: string; published?: string | number }>; environment?: Record<string, string | null> }>;
+}
+
+/** Every published port binds to loopback (no host_ip means 0.0.0.0), and no resolved env value is a non-loopback URL. */
+function assertComposeLoopbackOnly(config: ComposeConfig): void {
+  for (const [name, service] of Object.entries(config.services ?? {})) {
+    for (const p of service.ports ?? []) {
+      if (!p.host_ip || !LOOPBACK_HOSTS.has(p.host_ip)) throw new Error(`${name} publishes port ${p.published} on ${p.host_ip ?? "0.0.0.0"}, not loopback: S5's backend is local only`);
+    }
+    const env = Object.fromEntries(Object.entries(service.environment ?? {}).map(([k, v]) => [k, v ?? ""]));
+    assertLoopbackOnly(env);
+  }
+}
+
 const hex = (code: string) => createHash("sha256").update(code, "utf8").digest("hex"); // agentRepository.ts:14
 
 export async function startBackend(opts: { checkout: string; relayFile: string; port: number; exec: Exec }): Promise<Backend> {
@@ -63,6 +78,13 @@ export async function startBackend(opts: { checkout: string; relayFile: string; 
     return r.stdout;
   };
   const down = async () => void (await compose("down", "-v"));
+
+  // A run killed before its finally leaves its volumes: start from nothing every time (final review, finding 2).
+  await down();
+  // Review Focus 3 on what compose will actually run: the checkout's .env and the host env feed interpolation too.
+  const resolved = await compose("config", "--format", "json");
+  if (resolved.code !== 0) throw new Error(`compose config failed: ${resolved.stderr.trim()}`);
+  assertComposeLoopbackOnly(JSON.parse(resolved.stdout) as ComposeConfig);
 
   const up = await compose("up", "-d", "--wait");
   if (up.code !== 0) {
