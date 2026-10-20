@@ -1,6 +1,7 @@
 import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { FAKE_SECRET, parseClientHello, startHelloCapture, startProbeStub, type ProbeStub } from "../src/probe-stub";
+import { delimiter, join } from "node:path";
+import { FAKE_SECRET, findOpenssl, parseClientHello, startHelloCapture, startProbeStub, type ProbeStub } from "../src/probe-stub";
 
 /** A minimal ClientHello record: legacy version, empty session id, one suite, null compression, optional supported_versions. */
 function hello(legacy: number, versions?: number[]): Buffer {
@@ -13,6 +14,32 @@ function hello(legacy: number, versions?: number[]): Buffer {
 }
 const u16 = (n: number) => Buffer.from([(n >> 8) & 0xff, n & 0xff]);
 const u24 = (n: number) => Buffer.from([(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]);
+
+describe("findOpenssl", () => {
+  const win = process.platform === "win32";
+  const bin = win ? "openssl.exe" : "openssl";
+  const GIT_USR = "C:\\Program Files\\Git\\usr\\bin\\openssl.exe";
+  const GIT_MINGW = "C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe";
+  const only = (...present: string[]) => (p: string) => present.includes(p);
+
+  it("prefers SATIS_OPENSSL when the file exists, and skips it when it doesn't", () => {
+    const env = { SATIS_OPENSSL: "/opt/o/openssl", PATH: "/usr/bin" };
+    expect(findOpenssl(env, only("/opt/o/openssl", join("/usr/bin", bin)))).toBe("/opt/o/openssl");
+    expect(findOpenssl(env, only(join("/usr/bin", bin)))).toBe(join("/usr/bin", bin));
+  });
+  it("takes the first match on PATH", () => {
+    const env = { PATH: ["/a", "/b", "/c"].join(delimiter) };
+    expect(findOpenssl(env, only(join("/b", bin), join("/c", bin)))).toBe(join("/b", bin));
+  });
+  it.runIf(win)("falls back to Git for Windows' folders, usr/bin first", () => {
+    expect(findOpenssl({ PATH: "" }, only(GIT_USR, GIT_MINGW))).toBe(GIT_USR);
+    expect(findOpenssl({ PATH: "" }, only(GIT_MINGW))).toBe(GIT_MINGW);
+  });
+  it("is null when nothing exists", () => {
+    expect(findOpenssl({ PATH: "/a" }, () => false)).toBeNull();
+    expect(findOpenssl({}, () => false)).toBeNull();
+  });
+});
 
 describe("parseClientHello", () => {
   it("reads supported_versions and drops GREASE values", () => {

@@ -49,6 +49,8 @@ export interface CoreRunSpec {
   backend: boolean;
   /** Loads the staged save (satis-runner only, savesConflict). */
   world: boolean;
+  /** Checks what the run needs before the (long) build; a throw refuses the run. */
+  preflight?(): void;
   drive(ctx: CoreContext): Promise<void>;
   evaluate(e: CoreEvidence): Verdict;
 }
@@ -110,6 +112,11 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict) throw new RefusalError(`${id} needs s3World in the runner config`);
     const shared = deps.savesConflict();
     if (shared.length) throw new RefusalError(`another server keeps its settings in this account's saves folder (${shared.join(", ")}): ${id} runs only as satis-runner`);
+  }
+  try {
+    spec.preflight?.();
+  } catch (e) {
+    throw new RefusalError(message(e));
   }
   if (await deps.serverAnswering()) throw new RefusalError(`something already answers at ${deps.config.apiBaseUrl}: stop the other server first`);
 

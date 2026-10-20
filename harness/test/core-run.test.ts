@@ -189,4 +189,12 @@ describe("runCore", () => {
     await expect(runCore("http-probe", spec(), build.deps)).rejects.toThrow(RefusalError);
     expect(build.calls).toEqual(["probe"]);
   });
+
+  it("refuses before building when the spec's preflight throws", async () => {
+    const f = fakeDeps();
+    const s = spec({ preflight: () => { throw new Error("needs a thing"); } });
+    await expect(runCore("http-probe", s, f.deps)).rejects.toThrow(RefusalError);
+    await expect(runCore("http-probe", s, f.deps)).rejects.toThrow(/needs a thing/);
+    expect(f.calls).not.toContain("build");
+  });
 });
