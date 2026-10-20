@@ -15,6 +15,7 @@
 	"CanContainContent": false,
 	"IsBetaVersion": false,
 	"IsExperimentalVersion": true,
+	"RequiredOnRemote": false,
 	"Installed": false,
 	"Modules": [
 		{ "Name": "SatisDashCore", "Type": "Runtime", "LoadingPhase": "Default" },
