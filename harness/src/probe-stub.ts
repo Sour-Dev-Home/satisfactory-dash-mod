@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer as createHttp, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { type AddressInfo, createServer as createTcp, type Server as TcpServer } from "node:net";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { createServer as createTls } from "node:tls";
 
 /** The contract's secret shape (43 base64url characters). A fixed fake: never a real credential. */
@@ -165,21 +165,38 @@ export async function startHelloCapture(now: () => Date = () => new Date()): Pro
   return { url: `https://127.0.0.1:${port}`, hellos, close: () => closeServer(server) };
 }
 
+/** Git for Windows' standard install locations (not a home folder), in the order tried. */
+const GIT_OPENSSL = ["C:\\Program Files\\Git\\usr\\bin\\openssl.exe", "C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe"];
+
+/** Where openssl is: SATIS_OPENSSL, then PATH, then Git for Windows' folders. A service account may lack Git on PATH. */
+export function findOpenssl(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string | null {
+  const override = env.SATIS_OPENSSL;
+  if (override && exists(override)) return override;
+  const name = process.platform === "win32" ? "openssl.exe" : "openssl";
+  for (const dir of (env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    if (exists(candidate)) return candidate;
+  }
+  if (process.platform === "win32") for (const candidate of GIT_OPENSSL) if (exists(candidate)) return candidate;
+  return null;
+}
+
 export interface UntrustedTls { url: string; handshakeFailures: number; requests: number; close(): Promise<void> }
 
 /**
  * S1 and S9: TLS with a certificate for another name, issued by nobody the mod trusts. The handshake must fail and no
  * request may arrive. The certificate is made per run with openssl (Git for Windows ships it) into a temp dir.
  */
-export async function startUntrustedTls(dir: string): Promise<UntrustedTls> {
+export async function startUntrustedTls(dir: string, openssl: string): Promise<UntrustedTls> {
   const key = join(dir, "untrusted-key.pem");
   const cert = join(dir, "untrusted-cert.pem");
   await new Promise<void>((resolve, reject) =>
     execFile(
-      "openssl",
+      openssl,
       ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=wrong.invalid"],
       { env: { ...process.env, MSYS2_ARG_CONV_EXCL: "*" } },
-      (err) => (err ? reject(new Error(`openssl failed (is it on PATH?): ${err.message}`)) : resolve()),
+      (err) => (err ? reject(new Error(`openssl failed (${openssl}): ${err.message}`)) : resolve()),
     ),
   );
   const state = { handshakeFailures: 0, requests: 0 };

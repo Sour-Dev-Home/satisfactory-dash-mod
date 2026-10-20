@@ -147,8 +147,10 @@ config, starts the server, drives the run and stops the server. Afterwards it al
 credential and uninstalls the mod, failed runs included. Every run also fails if the mod logs at
 Error, or if the server log carries the run's enrolment code, the agent secret or the string `Bearer`.
 
-- `http-probe` talks only to stubs it starts on `127.0.0.1`, and needs `openssl` on the runner account's `PATH` (Git
-  for Windows ships it) to make a throwaway certificate.
+- `http-probe` talks only to stubs it starts on `127.0.0.1`, and needs `openssl` to make a throwaway certificate. It looks
+  for it on the runner account's `PATH`, in the file named by `SATIS_OPENSSL` (checked first), then in Git for
+  Windows' usual folders (`C:\Program Files\Git\usr\bin`, `...\mingw64\bin`). With none of them it refuses before
+  building the mod.
 - `core-run.yml` offers only the runs that need no backend host. It needs the `ue-runner` deployment approved, like
   `spike.yml`.
 

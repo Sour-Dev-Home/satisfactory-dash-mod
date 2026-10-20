@@ -4,7 +4,7 @@ import { join } from "node:path";
 import * as Pass from "../../../runs/http-probe/pass";
 import { randomCode } from "../backend";
 import type { CoreRunSpec } from "../core-run";
-import { startHelloCapture, startProbeStub, startUntrustedTls } from "../probe-stub";
+import { findOpenssl, startHelloCapture, startProbeStub, startUntrustedTls } from "../probe-stub";
 
 const MIN = 60_000;
 
@@ -13,12 +13,17 @@ export const httpProbe: CoreRunSpec = {
   backend: false,
   world: false,
   evaluate: Pass.evaluate,
+  preflight() {
+    if (!findOpenssl()) throw new Error("http-probe needs openssl: none on PATH, in SATIS_OPENSSL or in Git for Windows' usual folders");
+  },
   async drive(ctx) {
+    const openssl = findOpenssl();
+    if (!openssl) throw new Error("http-probe needs openssl: none on PATH, in SATIS_OPENSSL or in Git for Windows' usual folders");
     const certDir = mkdtempSync(join(tmpdir(), "satis-probe-"));
     const stub = await startProbeStub();
     const hello = await startHelloCapture();
     try {
-      const untrusted = await startUntrustedTls(certDir);
+      const untrusted = await startUntrustedTls(certDir, openssl);
       try {
         // 1. Normal: enrol, then three snapshots answered 200 by the URL asked.
         ctx.writeConfig({ backendUrl: stub.backendUrl, enrollmentCode: randomCode() });
