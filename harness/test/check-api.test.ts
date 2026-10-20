@@ -92,19 +92,21 @@ describe("extractUses: evasions the final review found", () => {
   it("excuses a local method only when called on this", () => {
     const local = "class FLocalThing {};\nvoid FLocalThing::ProcessRequest() {}\n";
     expect(names(`${local}this->ProcessRequest();`)).toEqual([]);
-    expect(names(`${local}Req->Other();`)).toEqual(["Other"]);
+    expect(names(`${local}Req->ProcessRequest();`)).toEqual(["ProcessRequest"]);
   });
 
-  it("excuses a method called through . or -> when the group defines it out of line on its own class", () => {
+  it("excuses a method called on a receiver declared with one of the group's own types", () => {
     const own = "struct FOwn { bool Load() const; };\nbool FOwn::Load() const { return true; }\n";
-    expect(names(`${own}void F() { Store.Load(); }`)).toEqual([]);
-    expect(names(`${own}void F() { Store->Load(); }`)).toEqual([]);
+    expect(names(`${own}void F() { FOwn Store; Store.Load(); }`)).toEqual([]);
+    expect(names(`${own}void F() { const FOwn Store{P}; Store->Load(); }`)).toEqual([]);
+    expect(names(`struct FOwn {};
+void F(const FOwn& Ledger) { Ledger.Begin(); }`)).toEqual([]);
   });
 
-  it("still reports a method with no own out-of-line definition, or only a declaration", () => {
-    expect(names("void F() { Thing.Fetch(); }")).toEqual(["Fetch"]);
-    expect(names("struct FOwn { bool Fetch(); };\nvoid F() { x.Fetch(); }")).toEqual(["Fetch"]);
-    expect(names("bool UEngineThing::Fetch() { return true; }\nvoid F() { x.Fetch(); }")).toContain("Fetch");
+  it("does not excuse an engine receiver whose method name the group also defines", () => {
+    const own = "struct FOwn { bool Delete() const; };\nbool FOwn::Delete() const { return true; }\n";
+    expect(names(`${own}void F() { IFileManager& Files = IFileManager::Get(); Files.Delete(x); }`)).toContain("Delete");
+    expect(names(`${own}void F() { Thing.Delete(); }`)).toEqual(["Delete"]);
   });
 
   it("excuses a function the spike defines or declares itself, but not a call in a return", () => {

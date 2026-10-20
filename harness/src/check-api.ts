@@ -45,7 +45,7 @@ function blank(text: string, strings: boolean): string {
 
 const spikeOf = (path: string) => path.split("/").slice(0, 2).join("/");
 
-interface Locals { types: Set<string>; functions: Set<string>; methods: Set<string>; defines: Set<string>; headers: Set<string> }
+interface Locals { types: Set<string>; functions: Set<string>; receivers: Set<string>; defines: Set<string>; headers: Set<string> }
 
 /** Words that can precede a call but are not a return type, so "return Foo();" never declares Foo. */
 const NOT_A_TYPE = new Set(["return", "else", "throw", "new", "delete", "case", "co_return", "co_await", "co_yield", "goto"]);
@@ -55,7 +55,7 @@ const QUALIFIERS = String.raw`\s*(?:const\s*)?(?:noexcept\s*)?(?:override\s*)?(?
 const ENGINE_ROOTS = new Set(["UE", "UE4", "UE5", "std", "Chaos"]);
 
 function localsOf(files: SourceFile[]): Locals {
-  const locals: Locals = { types: new Set(), functions: new Set(), methods: new Set(), defines: new Set(), headers: new Set() };
+  const locals: Locals = { types: new Set(), functions: new Set(), receivers: new Set(), defines: new Set(), headers: new Set() };
   for (const f of files) {
     if (HEADER_EXT.test(f.path)) locals.headers.add(basename(f.path));
     if (!CODE_EXT.test(f.path)) continue;
@@ -80,9 +80,10 @@ function localsOf(files: SourceFile[]): Locals {
     for (const m of code.matchAll(/\b([A-Z]\w*)\s*::\s*(~?[A-Za-z_]\w*)\s*\(/g)) {
       if (locals.types.has(m[1]!)) locals.functions.add(m[2]!);
     }
-    // Methods defined out of line on the group's own classes ("bool FOwn::Load() const {"), which a "." or "->" call may use.
-    for (const m of code.matchAll(new RegExp(String.raw`\b(?:\w+(?:::\w+)*::)?([A-Z]\w*)\s*::\s*([A-Za-z_]\w*)\s*\([^;{}()]*\)${QUALIFIERS}\{`, "g"))) {
-      if (locals.types.has(m[1]!)) locals.methods.add(m[2]!);
+    // Variables, members and parameters declared with one of the group's own types ("const FOwn& Name;"): their
+    // methods are the group's own, so a "." or "->" call on them is excused. Engine-typed receivers stay checked.
+    for (const m of code.matchAll(/\b(?:const\s+)?(?:\w+\s*::\s*)*([A-Z]\w*)\s*[&*]*\s*(?:const\s+)?\b([A-Za-z_]\w*)\s*(?=[;={(,)])/g)) {
+      if (locals.types.has(m[1]!)) locals.receivers.add(m[2]!);
     }
     // Functions the spike defines with a body, or (in its own headers) declares: "<type> Name(...) {" / ";".
     const ending = HEADER_EXT.test(f.path) ? "[{;]" : "\\{";
@@ -137,9 +138,10 @@ function usesInCode(f: SourceFile, locals: Locals): Use[] {
   for (const m of code.matchAll(/(?<![\w:])\b([A-Z]\w*)((?:\s*::\s*~?[A-Za-z_]\w*)+)/g)) {
     if (!locals.types.has(m[1]!)) add("symbol", (m[1]! + m[2]!).replace(/\s+/g, ""), lineOf(m.index!));
   }
-  // Method calls; a local method is excused only when called on this.
-  for (const m of code.matchAll(new RegExp(String.raw`(\bthis\s*)?(?:->|\.)\s*([A-Z]\w*)\s*${TEMPLATE_ARGS}\s*\(`, "g"))) {
-    if (!(m[1] && locals.functions.has(m[2]!)) && !locals.methods.has(m[2]!)) add("method", m[2]!, lineOf(m.index! + m[0].indexOf(m[2]!)));
+  // Method calls; a local method is excused when called on this, and any method on a receiver of the group's own type.
+  for (const m of code.matchAll(new RegExp(String.raw`(?:\b(\w+)\s*)?(?:->|\.)\s*([A-Z]\w*)\s*${TEMPLATE_ARGS}\s*\(`, "g"))) {
+    const receiver = m[1];
+    if (!(receiver === "this" && locals.functions.has(m[2]!)) && !(receiver && locals.receivers.has(receiver))) add("method", m[2]!, lineOf(m.index! + m[0].indexOf(m[2]!)));
   }
   // Macros.
   for (const m of code.matchAll(/\b([A-Z][A-Z0-9_]{2,})\s*\(/g)) {
