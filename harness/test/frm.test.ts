@@ -1,11 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { collectPowerPairs, pairReadings, parseGetPower, parseS3Lines, readAutoPause } from "../src/frm";
+import { collectPowerPairs, pairReadings, parseGetPower, parseGetPowerFull, parseS3Lines, readAutoPause } from "../src/frm";
 
 // Shape from satisfactory-dash raw-sources/captured-responses/frm-getPower-2026-09-22-F-panel.json (FRM 1.5.3).
 const frmBody = [
   { CircuitGroupID: 0, PowerProduction: 3633.3, PowerConsumed: 2692.1, PowerCapacity: 4083.3, AssociatedCircuits: [0], FuseTriggered: false },
   { CircuitGroupID: 1, PowerProduction: 100, PowerConsumed: 50, PowerCapacity: 120, AssociatedCircuits: [3, 4], FuseTriggered: false },
 ];
+
+describe("parseGetPowerFull (rawSchemas.ts:125-136)", () => {
+  const extra = { PowerMaxConsumed: 5000, BatteryCapacity: 100, BatteryPercent: 42.5, BatteryDifferential: -3.25 };
+  const full = frmBody.map((g) => ({ ...g, ...extra }));
+
+  it("reads every figure the enrol run compares", () => {
+    expect(parseGetPowerFull(full)).toEqual([
+      { groupId: 0, production: 3633.3, consumption: 2692.1, capacity: 4083.3, maxConsumption: 5000, batteryCapacity: 100, batteryPercent: 42.5, batteryDifferential: -3.25, fuseTriggered: false },
+      { groupId: 1, production: 100, consumption: 50, capacity: 120, maxConsumption: 5000, batteryCapacity: 100, batteryPercent: 42.5, batteryDifferential: -3.25, fuseTriggered: false },
+    ]);
+  });
+
+  it("refuses a body missing a figure", () => {
+    expect(() => parseGetPowerFull(frmBody)).toThrow();
+  });
+
+  it("gives a joined group (two FRM circuits, one group id) one row, and refuses one whose rows disagree", () => {
+    const row = { ...full[1]!, AssociatedCircuits: [3] };
+    expect(parseGetPowerFull([row, { ...row, AssociatedCircuits: [4] }])).toHaveLength(1);
+    expect(() => parseGetPowerFull([row, { ...row, PowerConsumed: 51 }])).toThrow(/group 1/);
+  });
+});
 
 describe("FRM pairing", () => {
   it("parses getPower groups and their circuits", () => {

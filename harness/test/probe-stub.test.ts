@@ -82,6 +82,30 @@ describe("startProbeStub", () => {
     expect(stub.requests[1]!.bodyBytes).toBe('{"observedAt":"2026-10-20T00:00:00.000Z"}'.length);
   });
 
+  it("answers the commands poll with no commands, then redirects it too once the redirects begin (Step 8)", async () => {
+    stub = await startProbeStub(undefined, { pollHoldMs: 0 });
+    const auth = { authorization: `Bearer ${FAKE_SECRET}` };
+    const before = await fetch(`${stub.backendUrl}/agent/v1/commands?waitSeconds=25`, { headers: auth });
+    expect(before.status).toBe(200);
+    expect(await before.json()).toEqual({ commands: [] });
+    stub.startRedirecting();
+    const moved = await fetch(`${stub.backendUrl}/agent/v1/commands?waitSeconds=25`, { headers: auth, redirect: "manual" });
+    expect(moved.status).toBe(302);
+    expect(moved.headers.get("location")).toBe(`${stub.elsewhereUrl}/agent/v1/commands`);
+    expect(stub.requests.map((r) => [r.port, r.method, r.path])).toEqual([
+      ["backend", "GET", "/agent/v1/commands?waitSeconds=25"],
+      ["backend", "GET", "/agent/v1/commands?waitSeconds=25"],
+    ]);
+  });
+
+  it("holds a commands poll before answering it, as a long poll does", async () => {
+    stub = await startProbeStub(undefined, { pollHoldMs: 300 });
+    const t0 = Date.now();
+    const res = await fetch(`${stub.backendUrl}/agent/v1/commands?waitSeconds=25`);
+    expect(res.status).toBe(200);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
+  });
+
   it("answers a body-less GET at the redirect target with 200, and the entry completes", async () => {
     stub = await startProbeStub();
     const res = await fetch(`${stub.elsewhereUrl}/agent/v1/snapshots`, { signal: AbortSignal.timeout(2000) });

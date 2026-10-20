@@ -31,6 +31,7 @@ function probe(over: Record<string, unknown> = {}) {
       req({ observedAt: "2026-10-20T16:00:11.000Z", at: "2026-10-20T16:00:11.000Z" }),
       req({ observedAt: "2026-10-20T16:00:16.000Z", at: "2026-10-20T16:01:01.000Z" }),
       req({ observedAt: "2026-10-20T16:00:16.000Z", at: "2026-10-20T16:01:02.000Z" }),
+      req({ method: "GET", path: "/agent/v1/commands?waitSeconds=25", bodyBytes: 0, at: "2026-10-20T16:01:03.000Z" }),
     ],
     hellos: [{ supportedVersions: [0x0304, 0x0303] }],
     untrusted: { url: UNTRUSTED_URL, handshakeFailures: 1, requests: 0 },
@@ -59,6 +60,28 @@ describe("http-probe pass conditions", () => {
     const v = evaluate(evidence(p));
     expect(v.pass).toBe(false);
     expect(v.reasons).toEqual(["S3: the redirect target received 1 request(s)"]);
+  });
+
+  it("fails when no commands poll was redirected (Task 6 Step 8)", () => {
+    const p = probe();
+    p.requests = p.requests.filter((r) => !r.path.startsWith("/agent/v1/commands"));
+    const v = evaluate(evidence(p));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toEqual(["S3: no commands poll reached the stub after the redirects began, so a redirected poll was not tested"]);
+  });
+
+  it("a commands poll before the redirects began doesn't count as redirected", () => {
+    const p = probe();
+    p.requests[6] = { ...p.requests[6]!, at: "2026-10-20T16:00:30.000Z" };
+    expect(evaluate(evidence(p)).reasons).toEqual(["S3: no commands poll reached the stub after the redirects began, so a redirected poll was not tested"]);
+  });
+
+  it("fails a redirected poll that the target received with its Authorization header", () => {
+    const p = probe();
+    p.requests.push(req({ port: "elsewhere", method: "GET", path: "/agent/v1/commands", bodyBytes: 0, at: "2026-10-20T16:01:03.500Z" }));
+    const v = evaluate(evidence(p));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toEqual(["S3: the redirect target received 1 request(s)", "S3: 1 request(s) at the redirect target carried an Authorization header"]);
   });
 
   it("fails an offer that includes TLS 1.1, naming every older version", () => {

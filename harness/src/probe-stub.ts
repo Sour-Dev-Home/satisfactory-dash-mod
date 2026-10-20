@@ -66,8 +66,13 @@ const json = (res: ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body));
 };
 
-/** Task 1's stub backend: answers enrol and snapshots, then on cue redirects snapshots to a second port. */
-export async function startProbeStub(now: () => Date = () => new Date()): Promise<ProbeStub> {
+/**
+ * Task 1's stub backend: answers enrol, snapshots and the commands poll, then on cue redirects snapshots and polls to a
+ * second port (Task 6 Step 8: the driver polls for commands once enrolled). A poll is held pollHoldMs before its empty
+ * answer, as a long poll is, so the mod doesn't poll every second.
+ */
+export async function startProbeStub(now: () => Date = () => new Date(), opts: { pollHoldMs?: number } = {}): Promise<ProbeStub> {
+  const pollHoldMs = opts.pollHoldMs ?? 5000;
   const requests: ProbeRequest[] = [];
   let redirecting: string | null = null;
   /** Records the request now (headers are in), then fills in the body as it arrives. Resolves with the body when it ends. */
@@ -116,6 +121,15 @@ export async function startProbeStub(now: () => Date = () => new Date()): Promis
         return res.end();
       }
       return json(res, 200, { cadence: CADENCE, commandsPending: false });
+    }
+    if (req.method === "GET" && new URL(req.url ?? "/", "http://127.0.0.1").pathname === "/agent/v1/commands") {
+      if (redirecting) {
+        res.writeHead(302, { location: `${elsewhereUrl}/agent/v1/commands` });
+        return res.end();
+      }
+      const held = setTimeout(() => json(res, 200, { commands: [] }), pollHoldMs);
+      res.on("close", () => clearTimeout(held));
+      return;
     }
     json(res, 404, { error: "not_found" });
   });

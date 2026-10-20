@@ -12,7 +12,7 @@ import * as S5 from "../../spikes/S5/pass";
 import * as S6 from "../../spikes/S6/pass";
 import * as S7 from "../../spikes/S7/pass";
 import { collectAutoPauseSteps } from "./autopause";
-import { type Backend, randomCode, startBackend } from "./backend";
+import { type Backend, randomCode, realExec, startBackend } from "./backend";
 import { checkApi, scanSources, type Use } from "./check-api";
 import { logPathOf, pluginDirFor, type RunnerConfig } from "./config";
 import { type Echo, startEcho } from "./echo";
@@ -202,14 +202,15 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     backend = await deps.startBackend();
     code = deps.randomCode();
     try {
-      await backend.seedCode(code);
+      await backend.seedCode("s5", code);
     } catch (e) {
       await backend.down();
       throw new RefusalError(`seeding the throwaway database failed: ${message(e)}`);
     }
     deps.writeModConfig(modName(spike), { code, backendUrl: backend.url });
   }
-  let backendState: Awaited<ReturnType<Backend["state"]>> | undefined;
+  // S5's evidence keeps its shape: the revoked flag is for the core runs only.
+  let backendState: Omit<Awaited<ReturnType<Backend["state"]>>, "revoked"> | undefined;
 
   const runReasons: string[] = [];
   let baseline: TickSeries | undefined;
@@ -321,7 +322,8 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     if (spec.credential || spec.backend) deps.removeModConfig!(modName(spike));
     if (backend) {
       try {
-        backendState = await backend.state();
+        const { revoked: _revoked, ...s5State } = await backend.state("s5");
+        backendState = s5State;
       } catch (e) {
         runReasons.push(`reading the throwaway database: ${message(e)}`);
       } finally {
@@ -423,9 +425,7 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
         checkout: config.s5!.checkout,
         relayFile: join(repoRoot, "harness", "compose", "s5-relay.yaml"),
         port: config.s5!.port,
-        exec: (cmd, args, o) => new Promise((resolve) =>
-          execFile(cmd, args, { cwd: o.cwd, env: { ...process.env, ...o.env }, maxBuffer: 16 * 1024 * 1024 },
-            (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr }))),
+        exec: realExec,
       }),
       randomCode,
     } : {}),

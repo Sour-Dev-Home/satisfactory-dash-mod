@@ -174,6 +174,65 @@ describe("runCore", () => {
     expect(calls.at(-1)).toBe("uninstall SatisDashAgent");
   });
 
+  const autoLoad = (calls: string[]) => ({
+    readAutoLoad: async () => (calls.push("read auto-load"), "Owner Session"),
+    setAutoLoad: async (name: string) => void calls.push(`auto-load "${name}"`),
+  });
+
+  it("emptyBoot: clears the auto-load session in a boot without the mod, and puts it back while the run's server is up", async () => {
+    const { deps, calls } = fakeDeps();
+    Object.assign(deps, autoLoad(calls));
+    const { result } = await runCore("enrol", spec({ emptyBoot: true }), deps);
+    expect(result.pass).toBe(true);
+    expect(calls).toEqual([
+      "probe", "build", "remove SatisMod*",
+      "start", "healthy", "read auto-load", 'auto-load ""', "stop", "probe",
+      "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy",
+      'auto-load "Owner Session"', "stop", "uninstall SatisDashAgent",
+    ]);
+  });
+
+  it("emptyBoot: the auto-load session is restored when drive throws", async () => {
+    const { deps, calls } = fakeDeps();
+    Object.assign(deps, autoLoad(calls));
+    const { result } = await runCore("enrol", spec({ emptyBoot: true, drive: async () => { throw new Error("boom"); } }), deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons[0]).toBe("boom");
+    expect(calls.filter((c) => c.startsWith("auto-load"))).toEqual(['auto-load ""', 'auto-load "Owner Session"']);
+    expect(calls.lastIndexOf('auto-load "Owner Session"')).toBeLessThan(calls.lastIndexOf("stop"));
+  });
+
+  it("emptyBoot: when the run's server never comes up, a boot without the mod puts the session back", async () => {
+    let healthChecks = 0;
+    const { deps, calls } = fakeDeps({
+      waitHealthy: async () => {
+        healthChecks++;
+        calls.push("healthy");
+        if (healthChecks === 2) throw new Error("never healthy");
+      },
+    });
+    Object.assign(deps, autoLoad(calls));
+    const { result } = await runCore("enrol", spec({ emptyBoot: true }), deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons).toContain("never healthy");
+    const after = calls.slice(calls.indexOf("uninstall SatisDashAgent"));
+    expect(after).toEqual(["uninstall SatisDashAgent", "probe", "start", "healthy", 'auto-load "Owner Session"', "stop"]);
+  });
+
+  it("emptyBoot is refused without the auto-load deps", async () => {
+    const { deps, calls } = fakeDeps();
+    await expect(runCore("enrol", spec({ emptyBoot: true }), deps)).rejects.toThrow(/auto-load/);
+    expect(calls).toEqual([]);
+  });
+
+  it("records the server's memory: without the mod in the empty boot, with it at the end, and what drive samples", async () => {
+    const sample = { totalWorkingSetBytes: 1, processes: [{ name: "FactoryServer-Win64-Shipping-Cmd.exe", workingSetBytes: 1, peakWorkingSetBytes: 2 }] };
+    const { deps, calls } = fakeDeps({ processMemory: async () => sample });
+    Object.assign(deps, autoLoad(calls));
+    const { dir } = await runCore("enrol", spec({ emptyBoot: true, drive: async (ctx) => ctx.sampleMemory("emptyPhase") }), deps);
+    expect(JSON.parse(readFileSync(join(dir, "memory.json"), "utf8"))).toEqual({ noModNoGame: sample, emptyPhase: sample, end: sample });
+  });
+
   it("builds outside the out dir, so nothing of the build is ever uploaded with the evidence", () => {
     for (const out of [join(tmpdir(), "core-run"), join(tmpdir(), "core-run") + "/", "relative/out"]) {
       const rel = relative(out, coreBuildDir(out));

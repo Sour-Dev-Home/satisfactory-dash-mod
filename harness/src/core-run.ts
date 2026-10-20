@@ -7,7 +7,8 @@ import { redact, writeBundle } from "./evidence";
 import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
 import { lastLines, RefusalError, type RunDeps, realDeps } from "./run";
-import { removeMod, type ServerProcess } from "./server-control";
+import { connectBackendHost, type HostClient } from "./backend-host";
+import { type ProcessMemory, readProcessMemory, removeMod, type ServerProcess, whileRunning } from "./server-control";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
@@ -41,6 +42,8 @@ export interface CoreContext {
   captures: Record<string, unknown>;
   /** Auto-pause as GetServerOptions said before the run touched it; put back at the end. */
   rememberAutoPause(value: boolean): void;
+  /** Records the server's memory now under label in memory.json (the owner's goal; evidence, not a pass condition). */
+  sampleMemory(label: string): Promise<void>;
 }
 
 export interface CoreRunSpec {
@@ -49,6 +52,11 @@ export interface CoreRunSpec {
   backend: boolean;
   /** Loads the staged save (satis-runner only, savesConflict). */
   world: boolean;
+  /**
+   * Boots once without the mod first to clear the auto-load session, so the run's boot has no game (S6 run 1: the test
+   * server auto-loads its last save). The session is put back at the end, whatever happens.
+   */
+  emptyBoot?: boolean;
   /** Checks what the run needs before the (long) build; a throw refuses the run. */
   preflight?(): void;
   drive(ctx: CoreContext): Promise<void>;
@@ -57,14 +65,17 @@ export interface CoreRunSpec {
 
 export type CoreDeps = Pick<RunDeps,
   "config" | "toolchain" | "outDir" | "checkApi" | "serverAnswering" | "install" | "removeSpikeMods" | "start" | "stop" |
-  "waitHealthy" | "resetLog" | "readLogSince" | "loadWorld" | "savesConflict" | "readAutoPause" | "setAutoPause" | "sampleTicks" | "now" | "env"> & {
+  "waitHealthy" | "resetLog" | "readLogSince" | "loadWorld" | "savesConflict" | "readAutoPause" | "setAutoPause" | "sampleTicks" | "now" | "env" |
+  "readAutoLoad" | "setAutoLoad"> & {
   /** Runs scripts/build-mod.ps1 and returns the unpacked plugin's folder. */
   buildMod(): Promise<string>;
   /** Uninstalls a mod from the test server's Mods folder. */
   removeMod(name: string): void;
   sleep(ms: number): Promise<void>;
-  /** Present when the runner config names the backend host's file. Task 6 adds the host and gives this its type. */
-  backendHost?: () => Promise<unknown>;
+  /** Present when the runner config names the backend host's file (ruling 10). */
+  backendHost?: () => Promise<HostClient>;
+  /** The spawned server's process tree's memory; null when it can't be read. */
+  processMemory?: (pid: number) => Promise<ProcessMemory | null>;
 };
 
 const ResultSchema = z.strictObject({
@@ -108,6 +119,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   const api = deps.checkApi();
   if (api.missing.length || api.badRows.length) throw new RefusalError(`check-api failed: ${[...api.badRows, ...api.missing.map((u) => `${u.path}:${u.line} ${u.name}`)].join(", ")}`);
   if (spec.backend && !deps.backendHost) throw new RefusalError(`${id} needs the backend host (backendHost in the runner config; docs/runner.md)`);
+  if (spec.emptyBoot && (!deps.readAutoLoad || !deps.setAutoLoad)) throw new RefusalError(`${id} needs the auto-load save deps`);
   if (spec.world) {
     if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict) throw new RefusalError(`${id} needs s3World in the runner config`);
     const shared = deps.savesConflict();
@@ -152,12 +164,45 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
       // no file, or not yet valid: nothing to note
     }
   };
+  const memory: Record<string, ProcessMemory | null> = {};
+  const sampleMemory = async (proc: ServerProcess, label: string) => {
+    if (deps.processMemory) memory[label] = await deps.processMemory(proc.pid).catch(() => null);
+  };
+  // The auto-load session the server had before the run (emptyBoot), and whether it is back.
+  let autoLoadBefore: string | undefined;
+  let autoLoadRestored = false;
+  const restoreAutoLoad = async () => {
+    if (autoLoadBefore === undefined || autoLoadRestored) return;
+    try {
+      await deps.setAutoLoad!(autoLoadBefore);
+      autoLoadRestored = true;
+    } catch (e) {
+      reasons.push(`restoring the auto-load save: ${message(e)}`);
+    }
+  };
   try {
+    if (spec.emptyBoot) {
+      // Before the mod is installed, so this boot also measures the server without it (the owner's memory goal).
+      const pre = deps.start();
+      try {
+        await whileRunning(pre, deps.waitHealthy(), "waiting for health before clearing the auto-load save");
+        autoLoadBefore = await whileRunning(pre, deps.readAutoLoad!(), "reading the auto-load save");
+        await whileRunning(pre, deps.setAutoLoad!(""), "clearing the auto-load save");
+        await sampleMemory(pre, "noModNoGame");
+      } catch (e) {
+        reasons.push(message(e));
+      } finally {
+        await deps.stop(pre);
+      }
+      if (await deps.serverAnswering()) throw new Error(`something still answers at ${deps.config.apiBaseUrl} after the empty boot`);
+    }
     deps.install(pluginDir, MOD);
     const offset = deps.resetLog();
     const proc = deps.start();
+    let healthy = false;
     try {
       await deps.waitHealthy();
+      healthy = true;
       const ctx: CoreContext = {
         deps, proc, offset, captures,
         writeConfig: (v) => {
@@ -176,6 +221,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
           }
         },
         rememberAutoPause: (v) => void (autoPauseBefore ??= v),
+        sampleMemory: (label) => sampleMemory(proc, label),
       };
       await spec.drive(ctx);
     } catch (e) {
@@ -188,6 +234,9 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
           reasons.push(`restoring auto-pause: ${message(e)}`);
         }
       }
+      // While this server is up, as S6 does; a server that never came up gets a restoring boot below.
+      if (healthy) await restoreAutoLoad();
+      await sampleMemory(proc, "end");
       await deps.stop(proc);
       log = deps.readLogSince(offset);
     }
@@ -197,7 +246,23 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     scrub();
     // The core mod never stays on the test server: a later spike run would boot with it loaded.
     deps.removeMod(MOD);
+    if (autoLoadBefore !== undefined && !autoLoadRestored) {
+      // A boot without the mod whose only job is to put the session back (the option needs a running server).
+      try {
+        if (await deps.serverAnswering()) throw new Error(`something answers at ${deps.config.apiBaseUrl}`);
+        const restore = deps.start();
+        try {
+          await whileRunning(restore, deps.waitHealthy(), "waiting for health to restore the auto-load save");
+          await restoreAutoLoad();
+        } finally {
+          await deps.stop(restore);
+        }
+      } catch (e) {
+        reasons.push(`restoring the auto-load save: ${message(e)}`);
+      }
+    }
   }
+  if (Object.keys(memory).length) captures["memory.json"] = memory;
 
   const leaks = { code: codes.some((c) => log.includes(c)), secret: secrets.length ? secrets.some((s) => log.includes(s)) : null, bearer: /Bearer/.test(log) };
   // A leaked value is reported as a boolean, never copied into the bundle through the lines that carry it.
@@ -263,6 +328,9 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
     now: d.now,
     env: d.env,
     ...(d.loadWorld ? { loadWorld: d.loadWorld } : {}),
+    ...(d.readAutoLoad && d.setAutoLoad ? { readAutoLoad: d.readAutoLoad, setAutoLoad: d.setAutoLoad } : {}),
+    ...(config.backendHost ? { backendHost: () => connectBackendHost(config.backendHost!.file) } : {}),
+    processMemory: readProcessMemory,
     sleep,
     buildMod: () =>
       new Promise((resolve, reject) => {

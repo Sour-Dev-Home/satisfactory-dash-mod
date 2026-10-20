@@ -17,6 +17,39 @@ export function parseGetPower(body: unknown): FrmGroup[] {
   }));
 }
 
+// The full figures, with the field names satisfactory-dash parses (packages/game-adapter/src/rawSchemas.ts:125-136).
+const FullGroupSchema = z.object({
+  CircuitGroupID: z.number().int(),
+  PowerProduction: z.number(),
+  PowerConsumed: z.number(),
+  PowerCapacity: z.number(),
+  PowerMaxConsumed: z.number(),
+  BatteryCapacity: z.number(),
+  BatteryPercent: z.number(),
+  BatteryDifferential: z.number(),
+  FuseTriggered: z.boolean(),
+});
+export interface FrmCircuitGroup {
+  groupId: number; production: number; consumption: number; capacity: number; maxConsumption: number;
+  batteryCapacity: number; batteryPercent: number; batteryDifferential: number; fuseTriggered: boolean;
+}
+
+/** One row per circuit group: rows FRM gives for circuits of one group must carry the same figures, or the body is refused. */
+export function parseGetPowerFull(body: unknown): FrmCircuitGroup[] {
+  const out: FrmCircuitGroup[] = [];
+  for (const g of z.array(FullGroupSchema).parse(body)) {
+    const row: FrmCircuitGroup = {
+      groupId: g.CircuitGroupID, production: g.PowerProduction, consumption: g.PowerConsumed, capacity: g.PowerCapacity,
+      maxConsumption: g.PowerMaxConsumed, batteryCapacity: g.BatteryCapacity, batteryPercent: g.BatteryPercent,
+      batteryDifferential: g.BatteryDifferential, fuseTriggered: g.FuseTriggered,
+    };
+    const seen = out.find((x) => x.groupId === row.groupId);
+    if (!seen) out.push(row);
+    else if (JSON.stringify(seen) !== JSON.stringify(row)) throw new Error(`FRM's rows for group ${row.groupId} disagree`);
+  }
+  return out;
+}
+
 const LINE = /satis-mod s3 circuit=(\d+) production=([\d.]+) consumption=([\d.]+) capacity=([\d.]+)/;
 export function parseS3Lines(lines: string[]): { circuitId: number; reading: PowerReading }[] {
   return lines.flatMap((l) => {
