@@ -9,7 +9,7 @@ namespace SatisDash
 {
 	using FReplyHandler = TFunction<void(const FHttpReply&)>;
 
-	/** How a request reaches the backend: UE's HTTP module in the game (SatisDashGame), a fake in the tests. */
+	/** How a request reaches the backend: the mod's own libcurl in the game (SatisDashGame), a fake in the tests. */
 	class ITransport
 	{
 	public:

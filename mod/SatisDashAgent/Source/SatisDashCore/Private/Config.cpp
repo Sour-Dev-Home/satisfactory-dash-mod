@@ -73,6 +73,26 @@ bool SatisDash::IsAllowedBackendUrl(const FString& Url)
 	return bHttps || Host.Equals(TEXT("127.0.0.1"), ESearchCase::CaseSensitive) || Host.Equals(TEXT("localhost"), ESearchCase::IgnoreCase);
 }
 
+bool SatisDash::IsAllowedRequestUrl(const FString& Url, bool& OutPlainHttp)
+{
+	OutPlainHttp = false;
+	int32 QueryAt = INDEX_NONE;
+	const FString Base = Url.FindChar(TEXT('?'), QueryAt) ? Url.Left(QueryAt) : Url;
+	for (const TCHAR C : Url.RightChop(Base.Len()))
+	{
+		if (C <= TEXT(' ') || C == 127 || C == TEXT('\\') || C == TEXT('#'))
+		{
+			return false;
+		}
+	}
+	if (!IsAllowedBackendUrl(Base))
+	{
+		return false;
+	}
+	OutPlainHttp = !Base.StartsWith(TEXT("https://"), ESearchCase::IgnoreCase);
+	return true;
+}
+
 FString SatisDash::NormalizeBackendUrl(const FString& Url)
 {
 	FString Out = Url.TrimStartAndEnd();

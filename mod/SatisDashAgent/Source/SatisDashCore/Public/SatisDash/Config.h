@@ -33,6 +33,11 @@ namespace SatisDash
 
 	/** S1: https:// with a host, or http:// only to 127.0.0.1 or localhost (the harness). No user info, query or fragment. */
 	SATISDASHCORE_API bool IsAllowedBackendUrl(const FString& Url);
+	/**
+	 * The transport's check on a request URL (Task 1e): the part before its query passes IsAllowedBackendUrl, and the query
+	 * has no fragment, whitespace or control character. OutPlainHttp says the scheme is http (so the host is loopback).
+	 */
+	SATISDASHCORE_API bool IsAllowedRequestUrl(const FString& Url, bool& OutPlainHttp);
 	/** The form ParseConfig stores: surrounding whitespace trimmed, trailing slashes removed. The credential uses it too. */
 	SATISDASHCORE_API FString NormalizeBackendUrl(const FString& Url);
 	/** The contract's code: four base32 characters, a dash, four more (EnrollmentCodeSchema). */
