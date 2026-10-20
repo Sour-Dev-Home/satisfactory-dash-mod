@@ -1,0 +1,15 @@
+# S5 only, never production. satisfactory-dash's compose.yaml publishes no port: the backend listens on 127.0.0.1:3001
+# inside its own network namespace (compose.yaml:8-11). This relay joins that namespace the way cloudflared does, so
+# the backend still sees every request from 127.0.0.1, and only the relay's port is published, on the host's loopback.
+services:
+  backend:
+    ports:
+      - "127.0.0.1:${SPIKE_BACKEND_PORT:?}:3101"
+  spike-relay:
+    # socat 1.8.1.1, pinned by its multi-arch index digest: a re-pushed tag can't change it.
+    image: alpine/socat:1.8.1.1@sha256:7f9a06753033f2b7de18edc2353f2c15153413d95a039163c6db270fc7a6c3b0
+    network_mode: "service:backend"
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: ["TCP-LISTEN:3101,fork,reuseaddr", "TCP:127.0.0.1:3001"]

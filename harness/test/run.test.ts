@@ -217,6 +217,41 @@ describe("runSpike", () => {
     expect(removed).toBe(1);
   });
 
+  const fakeBackend = (order: string[]) => async () => (order.push("up"), {
+    url: "http://127.0.0.1:13101",
+    seedCode: async () => void order.push("seed"),
+    state: async () => ({ codeConsumed: true, agentVersion: "spike-s5", lastSeen: true }),
+    down: async () => void order.push("down"),
+  });
+
+  it("S5: starts the backend, writes the code and URL into the mod's config, judges the database, and always tears down", async () => {
+    const order: string[] = [];
+    const written: Record<string, string>[] = [];
+    const { deps } = fakeDeps({
+      writeModConfig: (_m, v) => void (order.push("cfg"), written.push(v)),
+      removeModConfig: () => void order.push("rm cfg"),
+      startBackend: fakeBackend(order),
+      randomCode: () => "AB3D-7XQ2",
+    }, "LogSatisMod: Display: satis-mod s5 enroll=201 snapshot=200\n");
+    const { result } = await runSpike("S5", deps);
+    expect(order).toEqual(["up", "seed", "cfg", "rm cfg", "down"]);
+    expect(written).toEqual([{ code: "AB3D-7XQ2", backendUrl: "http://127.0.0.1:13101" }]);
+    expect(result.pass).toBe(true);
+  });
+
+  it("S5: tears the stack down even when the install refuses (Review Focus 2)", async () => {
+    const order: string[] = [];
+    const { deps } = fakeDeps({
+      writeModConfig: () => void order.push("cfg"),
+      removeModConfig: () => void order.push("rm cfg"),
+      startBackend: fakeBackend(order),
+      randomCode: () => "AB3D-7XQ2",
+      install: () => { throw new Error("wrong plugin name"); },
+    });
+    await expect(runSpike("S5", deps)).rejects.toThrow(/wrong plugin name/);
+    expect(order).toEqual(["up", "seed", "cfg", "rm cfg", "down"]);
+  });
+
   it("stops the process it started, for every server start", async () => {
     const { deps, procs, stopped } = fakeDeps();
     await runSpike("S2", deps);

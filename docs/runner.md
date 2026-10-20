@@ -7,6 +7,7 @@ test install** of the dedicated server. Spec: `docs/specs/2026-10-19-g2-harness-
 
 - G2-prep is done: the toolchain is installed exactly as `sml-getting-started` says, and the SML starter project builds.
 - Your real server can keep running: the test server uses its own ports (below).
+- S5 runs only from a local session with Docker Desktop (owner, 2026-10-20). `satis-runner` is not in `docker-users`, so `spike.yml` doesn't offer S5.
 
 ## 1. A low-privilege account and folders
 
