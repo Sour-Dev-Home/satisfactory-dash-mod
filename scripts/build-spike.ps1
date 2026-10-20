@@ -21,9 +21,10 @@ if (-not (Test-Path "$source\$plugin.uplugin")) { throw "no spike plugin at $sou
 if (-not (Test-Path $uproject)) { throw "no SML project at $uproject" }
 
 # FactoryEditor builds every plugin in Mods, so another spike left there (stale, or since deleted from the repo)
-# could break this build. Only the spike being built stays.
-Get-ChildItem (Join-Path $Project 'Mods') -Directory -Filter 'SatisMod*' |
-	Where-Object Name -ne $plugin | Remove-Item -Recurse -Force
+# could break this build. Only the spike being built stays; the core mod goes too, so a half-built one never breaks it.
+Get-ChildItem (Join-Path $Project 'Mods') -Directory |
+	Where-Object { ($_.Name -like 'SatisMod*' -and $_.Name -ne $plugin) -or $_.Name -eq 'SatisDashAgent' } |
+	Remove-Item -Recurse -Force
 
 # Mirror the spike into the project's Mods folder; /MIR also deletes files removed from the source.
 $target = Join-Path $Project "Mods\$plugin"

@@ -128,6 +128,16 @@ boots to the empty entry map until a save is loaded, which the world spikes do t
 Actions → spike → the latest `main` push: `selftest` waits for your approval, then passes. Then run S0 with
 "Run workflow".
 
+## Core mod tests
+
+The core mod's unit tests (`mod/SatisDashAgent`, UE automation tests) run through `mod-test.yml`, which calls
+`harness test-mod`.
+
+- The runner config gains `"modTest": { "project": "<SML project folder>", "engine": "<engine root>" }`: the same two
+  folders `buildCommand` already passes to `build-spike.ps1`. The owner adds it once.
+- `mod-test.yml` needs the `ue-runner` deployment approved, like `spike.yml`. It runs on pushes to `main` that touch
+  `mod/` and on "Run workflow", never on pull requests.
+
 ## Removing the runner
 
 Stop the service, run `config.cmd remove` with the token GitHub shows, delete `D:\actions-runner`, then delete the

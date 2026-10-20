@@ -1,5 +1,8 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkApi, extractUses, parseSourceMap } from "../src/check-api";
+import { checkApi, extractUses, parseSourceMap, scanSources } from "../src/check-api";
 import { main } from "../src/cli";
 
 const HEADER = "| Symbol | Header | Source |\n| --- | --- | --- |\n";
@@ -173,5 +176,45 @@ describe("cli check-api", () => {
     const errors: string[] = [];
     expect(await main(["rejudge"], { log: () => {}, error: (s) => void errors.push(s) })).toBe(2);
     expect(errors.join(" ")).toMatch(/usage: harness rejudge <bundle dir>/);
+  });
+});
+
+describe("extractUses locals", () => {
+  it("treats the code's own namespaces and macro-declared test classes as local", () => {
+    const uses = extractUses([
+      cpp("namespace SatisDash::Test { inline int Twice(int x) { return x * 2; } }\n" +
+        "IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMyTest, \"A.B\", 0)\n" +
+        "bool FMyTest::RunTest(const FString& P) { return SatisDash::Test::Twice(1) > 0; }\n"),
+    ]);
+    const names = uses.map((u) => u.name);
+    expect(names).not.toContain("SatisDash::Test::Twice");
+    expect(names).not.toContain("FMyTest::RunTest");
+    expect(names).toContain("IMPLEMENT_SIMPLE_AUTOMATION_TEST");
+  });
+});
+
+describe("scanSources", () => {
+  it("scans mod/ as well as spikes/, and excuses the plugin's own modules", () => {
+    const root = mkdtempSync(join(tmpdir(), "scan-"));
+    try {
+      mkdirSync(join(root, "spikes", "S9"), { recursive: true });
+      mkdirSync(join(root, "mod", "P", "Source", "A"), { recursive: true });
+      mkdirSync(join(root, "mod", "P", "Source", "B"), { recursive: true });
+      writeFileSync(join(root, "spikes", "S9", "x.cpp"), "void f() { FSpikeThing::Go(); }\n");
+      writeFileSync(join(root, "mod", "P", "Source", "A", "A.Build.cs"),
+        'PublicDependencyModuleNames.AddRange(new string[] { "Core" });\n');
+      writeFileSync(join(root, "mod", "P", "Source", "B", "B.Build.cs"),
+        'PublicDependencyModuleNames.AddRange(new string[] { "Core", "A" });\n');
+      const files = scanSources(root);
+      expect(files.map((f) => f.path)).toEqual([
+        "spikes/S9/x.cpp", "mod/P/Source/A/A.Build.cs", "mod/P/Source/B/B.Build.cs",
+      ]);
+      const md = "| Symbol | Header | Source |\n| --- | --- | --- |\n| module:Core | Engine/Source/Runtime/Core/Core.Build.cs:1 | header only |\n";
+      const names = checkApi(files, md).missing.map((u) => u.name);
+      expect(names.some((n) => n.startsWith("FSpikeThing"))).toBe(true); // spikes/ is still checked
+      expect(names).not.toContain("module:A"); // the plugin's own module needs no row
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

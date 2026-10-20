@@ -2,9 +2,10 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { checkApi, scanSpikes } from "./check-api";
+import { checkApi, scanSources } from "./check-api";
 import { loadConfig } from "./config";
 import { verifyContract } from "./contract";
+import { judgeAutomationReport, readAutomationReport } from "./mod-test";
 import { rejudge } from "./rejudge";
 import { RefusalError, RUNNABLE, realDeps, runSpike } from "./run";
 import { loadToolchain, toolchainMismatches } from "./toolchain";
@@ -17,7 +18,7 @@ type Io = { log(s: string): void; error(s: string): void };
 const consoleIo: Io = { log: (s) => console.log(s), error: (s) => console.error(s) };
 
 export function runCheckApi(io: Io): number {
-  const { missing, badRows } = checkApi(scanSpikes(REPO_ROOT), readFileSync(join(REPO_ROOT, "api-sources.md"), "utf8"));
+  const { missing, badRows } = checkApi(scanSources(REPO_ROOT), readFileSync(join(REPO_ROOT, "api-sources.md"), "utf8"));
   for (const b of badRows) io.error(b);
   for (const u of missing) io.error(`${u.path}:${u.line} ${u.kind} ${u.name} has no row in api-sources.md`);
   io.log(`check-api: ${missing.length} missing, ${badRows.length} bad rows`);
@@ -85,8 +86,41 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
       io.log(`${out.spike} (${out.claim}) re-judged at ${commit.slice(0, 7)}: ${out.verdict.pass ? "PASS" : "FAIL"} (the run said ${out.original.pass ? "PASS" : "FAIL"})\n${out.verdict.reasons.join("\n")}`);
       return out.verdict.pass ? 0 : 1;
     }
+    case "judge-mod-test":
+    case "test-mod": {
+      const minAt = argv.indexOf("--min");
+      const minTests = minAt === -1 ? 1 : Number(argv[minAt + 1]);
+      const outAt = argv.indexOf("--out");
+      const outDir = argv[0] === "test-mod" ? (outAt === -1 ? undefined : argv[outAt + 1]) : argv[1];
+      if (!outDir || !Number.isInteger(minTests) || minTests < 1) {
+        io.error("usage: harness test-mod --out <dir> [--min <n>] | harness judge-mod-test <dir> [--min <n>]");
+        return 2;
+      }
+      if (argv[0] === "test-mod") {
+        const path = process.env.SATIS_HARNESS_CONFIG;
+        if (!path) {
+          io.error("SATIS_HARNESS_CONFIG is not set (see docs/runner.md)");
+          return 2;
+        }
+        const modTest = loadConfig(path).modTest;
+        if (!modTest) {
+          io.error("modTest is not set in the runner config (see docs/runner.md)");
+          return 2;
+        }
+        try {
+          execFileSync("pwsh", ["-NoProfile", "-File", join(REPO_ROOT, "scripts", "test-mod.ps1"),
+            "-Project", modTest.project, "-Engine", modTest.engine, "-Out", resolve(outDir)], { stdio: "inherit" });
+        } catch {
+          io.error("test-mod.ps1 failed (its output is above)");
+          return 1;
+        }
+      }
+      const verdict = judgeAutomationReport(readAutomationReport(resolve(outDir)), minTests);
+      io.log(`mod tests: ${verdict.pass ? "PASS" : "FAIL"} (${verdict.reason})`);
+      return verdict.pass ? 0 : 1;
+    }
     default:
-      io.error("usage: harness <check-api|verify-contract|selftest|run|rejudge>");
+      io.error("usage: harness <check-api|verify-contract|selftest|run|rejudge|test-mod|judge-mod-test>");
       return 2;
   }
 }

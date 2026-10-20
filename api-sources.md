@@ -1,6 +1,6 @@
 # API sources (G2 anti-invention check)
 
-Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency used under `spikes/` has a row here.
+Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency used under `spikes/` and `mod/` has a row here.
 `npm run harness -- check-api` (in CI, and before every spike run) fails on any use without a row.
 
 - **Symbol:** as the code writes it. That's one of:
@@ -153,3 +153,19 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TMap::Find | Engine/Source/Runtime/Core/Public/Containers/Map.h:567 | header only (declared in TMapBase, which TMap inherits) |
 | TMap::Contains | Engine/Source/Runtime/Core/Public/Containers/Map.h:788 | header only (declared in TMapBase, which TMap inherits) |
 | FString::Reset | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:345 | header only |
+| Misc/AutomationTest.h | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:1 | header only |
+| IMPLEMENT_SIMPLE_AUTOMATION_TEST | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:4161 | header only (inside #if WITH_AUTOMATION_WORKER, :4160) |
+| EAutomationTestFlags | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:85 | header only |
+| EAutomationTestFlags::EditorContext | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:90 | header only |
+| EAutomationTestFlags::EngineFilter | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:124 | header only |
+| TestTrue | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:2534 | header only |
+| TestFalse | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:2298 | header only |
+| TestEqual | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:1949 | header only (the int32 overload; there are many) |
+| FAutomationTestBase | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:1538 | header only |
+| FAutomationTestBase::AddError | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:1602 | header only |
+| DECLARE_LOG_CATEGORY_EXTERN | Engine/Source/Runtime/Core/Public/Logging/LogMacros.h:332 | header only (the logging-enabled definition; :195 is the no-logging one) |
+| DEFINE_LOG_CATEGORY | Engine/Source/Runtime/Core/Public/Logging/LogMacros.h:342 | header only (the logging-enabled definition; :196 is the no-logging one) |
+| FDefaultModuleImpl | Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h:854 | header only |
+| ESearchCase::CaseSensitive | Engine/Source/Runtime/Core/Public/Misc/CString.h:23 | header only |
+| FString::Equals | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1492 | header only |
+| module:Projects | Engine/Source/Runtime/Projects/Projects.Build.cs:1 | header only |

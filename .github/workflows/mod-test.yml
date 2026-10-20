@@ -1,0 +1,43 @@
+name: mod-test
+
+# The core mod's unit tests (UE automation tests) on the owner's self-hosted `ue` runner (docs/runner.md). This is a
+# public repository, so this workflow must never trigger from a pull request: fork code would run on the owner's PC.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["mod/**", "scripts/test-mod.ps1", "harness/src/mod-test.ts", ".github/workflows/mod-test.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ue-runner
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: [self-hosted, windows, ue]
+    environment: ue-runner
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: harness
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: harness/.node-version
+      - run: npm ci
+      - run: npm run harness -- check-api
+      - run: npm run harness -- test-mod --out "$env:RUNNER_TEMP/mod-test"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mod-test-${{ github.run_id }}
+          path: ${{ runner.temp }}/mod-test
+          if-no-files-found: warn
+          retention-days: 30
