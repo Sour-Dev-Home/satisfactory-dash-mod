@@ -84,6 +84,14 @@ export async function startProbeStub(now: () => Date = () => new Date()): Promis
       complete: false,
     };
     requests.push(entry);
+    if (entry.method === "GET" || entry.method === "HEAD") {
+      // libcurl follows a 302 as a GET but keeps the POST's Content-Length, so the body the header promises never comes
+      // and waiting for its end stalls the answer. A GET has no body: answer now, and count whatever does arrive.
+      req.on("data", (c: Buffer) => void (entry.bodyBytes += c.length));
+      req.on("error", () => undefined);
+      entry.complete = true;
+      return Buffer.alloc(0);
+    }
     const body = await readBody(req, (total) => void (entry.bodyBytes = total));
     entry.bodyBytes = body.length;
     entry.observedAt = req.url === "/agent/v1/snapshots" ? observedAtOf(body) : null;
