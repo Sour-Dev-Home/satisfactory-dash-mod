@@ -15,6 +15,9 @@ export interface PowerPair { at: string; circuitId: number; mod: PowerReading; f
  *  session is the first 12 hex characters of the name's SHA-1 over UTF-8: bundles are public. */
 export interface StatusReading { running: boolean; paused: boolean; players: number; limit: number; duration: number; tickRate: number; health: string; session: string }
 export interface StatusPair { at: string; mod: StatusReading; api: StatusReading | null }
+/** S7: one step the mod logged (read, set, check, restore, final) and GetServerOptions' value read right after. */
+export type AutoPauseStepName = "read" | "set" | "check" | "restore" | "final";
+export interface AutoPauseStep { at: string; step: AutoPauseStepName; mod: boolean; pending: boolean | null; api: boolean | null }
 
 export interface Evidence {
   modLines: string[];
@@ -24,5 +27,6 @@ export interface Evidence {
   backend?: BackendEvidence;
   power?: { pairs: PowerPair[]; frmCircuits: number[]; modCircuits: number[] };
   status?: { pairs: StatusPair[] };
+  autoPause?: { steps: AutoPauseStep[] };
 }
 export interface Verdict { pass: boolean; reasons: string[] }
