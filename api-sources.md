@@ -273,3 +273,11 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FTimespan::GetTotalSeconds | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:520 | header only |
 | TArray::RemoveAll | Engine/Source/Runtime/Core/Public/Containers/Array.h:3118 | header only (the predicate overload) |
 | TArray::RemoveAt | Engine/Source/Runtime/Core/Public/Containers/Array.h:2118 | header only (the index and count overload) |
+| Misc/Compression.h | Engine/Source/Runtime/Core/Public/Misc/Compression.h:1 | header only |
+| FCompression::CompressMemoryBound | Engine/Source/Runtime/Core/Public/Misc/Compression.h:71 | header only (the int32 overload) |
+| FCompression::CompressMemory | Engine/Source/Runtime/Core/Public/Misc/Compression.h:110 | header only (the int32 overload) |
+| NAME_Gzip | Engine/Source/Runtime/Core/Public/UObject/UnrealNames.inl:207 | header only (REGISTER_NAME(258, Gzip)) |
+| FString::Chr | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1673 | header only |
+| TArray::SetNumUninitialized | Engine/Source/Runtime/Core/Public/Containers/Array.h:2379 | header only |
+| TPair | Engine/Source/Runtime/Core/Public/Templates/Tuple.h:46 | header only (alias of TTuple) |
+| FJsonObject::GetStringField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:185 | header only |
