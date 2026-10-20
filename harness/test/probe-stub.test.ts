@@ -78,6 +78,24 @@ describe("startProbeStub", () => {
     ]);
     expect(stub.requests[1]!.observedAt).toBe("2026-10-20T00:00:00.000Z");
     expect(JSON.stringify(stub.requests)).not.toContain(FAKE_SECRET);
+    expect(stub.requests.every((r) => r.complete)).toBe(true);
+    expect(stub.requests[1]!.bodyBytes).toBe('{"observedAt":"2026-10-20T00:00:00.000Z"}'.length);
+  });
+
+  it("records a request when its headers arrive, even if its body never does, and still closes", async () => {
+    stub = await startProbeStub();
+    const socket = connect(Number(new URL(stub.elsewhereUrl).port), "127.0.0.1");
+    socket.on("error", () => undefined);
+    await new Promise<void>((r) => socket.on("connect", () => r()));
+    socket.write("POST /agent/v1/snapshots HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer x\r\nContent-Length: 10\r\n\r\n");
+    const deadline = Date.now() + 1000;
+    while (!stub.requests.some((r) => r.port === "elsewhere") && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const seen = stub.requests.filter((r) => r.port === "elsewhere");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ authorization: true, complete: false, bodyBytes: 0 });
+    await expect(stub.close()).resolves.toBeUndefined();
+    stub = undefined;
+    socket.destroy();
   });
 });
 

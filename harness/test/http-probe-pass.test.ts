@@ -17,6 +17,7 @@ const req = (over: Partial<ProbeRequest>): ProbeRequest => ({
   authorization: true,
   bodyBytes: 100,
   observedAt: null,
+  complete: true,
   ...over,
 });
 
@@ -69,7 +70,18 @@ describe("http-probe pass conditions", () => {
     p.requests.push(req({ port: "elsewhere", authorization: false }), req({ port: "elsewhere", authorization: true }));
     const v = evaluate(evidence(p));
     expect(v.pass).toBe(false);
-    expect(v.reasons).toContain("S3: the redirect target received 2 request(s), 1 with an Authorization header");
+    expect(v.reasons).toContain("S3: the redirect target received 2 request(s), 1 with an Authorization header, 0 never completed");
+  });
+
+  it("fails a request at the redirect target whose body never came, and counts it as incomplete", () => {
+    const p = probe();
+    p.requests.push(
+      req({ port: "elsewhere", authorization: true, bodyBytes: 0, complete: false }),
+      req({ port: "elsewhere", authorization: true, bodyBytes: 0, complete: false }),
+    );
+    const v = evaluate(evidence(p));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toContain("S3: the redirect target received 2 request(s), 2 with an Authorization header, 2 never completed");
   });
 
   it("fails a snapshot sent again in the normal phase", () => {

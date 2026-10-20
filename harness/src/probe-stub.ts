@@ -21,6 +21,8 @@ export interface ProbeRequest {
   bodyBytes: number;
   /** A snapshot body's observedAt, so a re-sent snapshot shows (Task 1's normal phase). */
   observedAt: string | null;
+  /** False until the body's end event: a request whose body never came stays false. */
+  complete: boolean;
 }
 export interface ProbeStub {
   backendUrl: string;
@@ -35,15 +37,18 @@ const listen = (server: Server | TcpServer) =>
   new Promise<number>((resolve) => server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port)));
 const closeServer = (server: Server | TcpServer) => new Promise<void>((resolve) => server.close(() => resolve()));
 
-function readBody(req: IncomingMessage): Promise<Buffer> {
+/** Reads the body, calling onChunk with the running byte count; resolves when the body ends (never, if it never does). */
+function readBody(req: IncomingMessage, onChunk: (total: number) => void = () => undefined): Promise<Buffer> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
     req.on("data", (c: Buffer) => {
       size += c.length;
       if (size <= MAX_BODY) chunks.push(c);
+      onChunk(size);
     });
     req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", () => undefined);
   });
 }
 
@@ -65,20 +70,29 @@ const json = (res: ServerResponse, status: number, body: unknown) => {
 export async function startProbeStub(now: () => Date = () => new Date()): Promise<ProbeStub> {
   const requests: ProbeRequest[] = [];
   let redirecting: string | null = null;
-  const record = (port: ProbeRequest["port"], req: IncomingMessage, body: Buffer) =>
-    requests.push({
+  /** Records the request now (headers are in), then fills in the body as it arrives. Resolves with the body when it ends. */
+  const record = async (port: ProbeRequest["port"], req: IncomingMessage): Promise<Buffer> => {
+    const entry: ProbeRequest = {
       at: now().toISOString(),
       port,
       method: req.method ?? "",
       path: req.url ?? "",
       userAgent: req.headers["user-agent"] ?? null,
       authorization: req.headers.authorization !== undefined,
-      bodyBytes: body.length,
-      observedAt: req.url === "/agent/v1/snapshots" ? observedAtOf(body) : null,
-    });
+      bodyBytes: 0,
+      observedAt: null,
+      complete: false,
+    };
+    requests.push(entry);
+    const body = await readBody(req, (total) => void (entry.bodyBytes = total));
+    entry.bodyBytes = body.length;
+    entry.observedAt = req.url === "/agent/v1/snapshots" ? observedAtOf(body) : null;
+    entry.complete = true;
+    return body;
+  };
 
   const elsewhere = createHttp(async (req, res) => {
-    record("elsewhere", req, await readBody(req));
+    await record("elsewhere", req);
     // A valid answer: if the mod accepted a redirected answer, its queue would move on and the next request would show it.
     json(res, 200, { cadence: CADENCE, commandsPending: false });
   });
@@ -86,8 +100,7 @@ export async function startProbeStub(now: () => Date = () => new Date()): Promis
   const elsewhereUrl = `http://127.0.0.1:${elsewherePort}`;
 
   const backend = createHttp(async (req, res) => {
-    const body = await readBody(req);
-    record("backend", req, body);
+    await record("backend", req);
     if (req.method === "POST" && req.url === "/agent/v1/enroll") return json(res, 201, { agentSecret: FAKE_SECRET, serverId: "probe", cadence: CADENCE });
     if (req.method === "POST" && req.url === "/agent/v1/snapshots") {
       if (redirecting) {
@@ -106,7 +119,13 @@ export async function startProbeStub(now: () => Date = () => new Date()): Promis
     requests,
     startRedirecting: () => void (redirecting ??= now().toISOString()),
     redirectingSince: () => redirecting,
-    close: async () => void (await Promise.all([closeServer(backend), closeServer(elsewhere)])),
+    close: async () => {
+      const done = Promise.all([closeServer(backend), closeServer(elsewhere)]);
+      // A request whose body never ends would hold its connection open and stall close().
+      backend.closeAllConnections();
+      elsewhere.closeAllConnections();
+      await done;
+    },
   };
 }
 
