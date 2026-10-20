@@ -45,17 +45,19 @@ function blank(text: string, strings: boolean): string {
 
 const spikeOf = (path: string) => path.split("/").slice(0, 2).join("/");
 
-interface Locals { types: Set<string>; functions: Set<string>; defines: Set<string>; headers: Set<string> }
+interface Locals { types: Set<string>; functions: Set<string>; receivers: Set<string>; defines: Set<string>; headers: Set<string> }
 
 /** Words that can precede a call but are not a return type, so "return Foo();" never declares Foo. */
 const NOT_A_TYPE = new Set(["return", "else", "throw", "new", "delete", "case", "co_return", "co_await", "co_yield", "goto"]);
+/** Keywords that can sit before a name without declaring it ("if (x)", "else Y;", "using namespace Z;"). */
+const NOT_A_DECLARATION = new Set(["if", "while", "for", "switch", "sizeof", "const", "static", "typename", "namespace", "using", "and", "or", "not", "class", "struct", "enum"]);
 const QUALIFIERS = String.raw`\s*(?:const\s*)?(?:noexcept\s*)?(?:override\s*)?(?:final\s*)?`;
 
 /** Namespaces the engine owns: a code's own "namespace UE::Mine" never excuses them. */
 const ENGINE_ROOTS = new Set(["UE", "UE4", "UE5", "std", "Chaos"]);
 
 function localsOf(files: SourceFile[]): Locals {
-  const locals: Locals = { types: new Set(), functions: new Set(), defines: new Set(), headers: new Set() };
+  const locals: Locals = { types: new Set(), functions: new Set(), receivers: new Set(), defines: new Set(), headers: new Set() };
   for (const f of files) {
     if (HEADER_EXT.test(f.path)) locals.headers.add(basename(f.path));
     if (!CODE_EXT.test(f.path)) continue;
@@ -73,6 +75,10 @@ function localsOf(files: SourceFile[]): Locals {
     }
     for (const m of code.matchAll(/\bIMPLEMENT_(?:SIMPLE|COMPLEX)_AUTOMATION_TEST\s*\(\s*([A-Za-z_]\w*)/g)) locals.types.add(m[1]!);
   }
+  // Names declared with one of the group's own types, and names declared with anything else (a template, an engine
+  // type, auto). Collected group-wide, so a name is excused only if no declaration anywhere gives it another type.
+  const ownDeclared = new Set<string>();
+  const otherDeclared = new Set<string>();
   for (const f of files) {
     if (!CODE_EXT.test(f.path)) continue;
     const code = blank(f.text, true);
@@ -80,13 +86,23 @@ function localsOf(files: SourceFile[]): Locals {
     for (const m of code.matchAll(/\b([A-Z]\w*)\s*::\s*(~?[A-Za-z_]\w*)\s*\(/g)) {
       if (locals.types.has(m[1]!)) locals.functions.add(m[2]!);
     }
+    // Variables, members and parameters ("const FOwn& Name;", "TOptional<FOwn> Name;"): the type's last component,
+    // its template arguments if any, then the name.
+    for (const m of code.matchAll(/\b(?:const\s+)?((?:\w+\s*::\s*)*[A-Za-z_]\w*)\s*(<[^<>;()]*>)?\s*[&*]*\s*(?:const\s+)?\b([A-Za-z_]\w*)\s*(?=[;={(,)])/g)) {
+      const type = m[1]!.split("::").pop()!.trim();
+      if (NOT_A_TYPE.has(type) || NOT_A_DECLARATION.has(type)) continue;
+      (!m[2] && locals.types.has(type) ? ownDeclared : otherDeclared).add(m[3]!);
+    }
     // Functions the spike defines with a body, or (in its own headers) declares: "<type> Name(...) {" / ";".
     const ending = HEADER_EXT.test(f.path) ? "[{;]" : "\\{";
-    const defined = new RegExp(String.raw`\b(\w+)[*&]?\s+[*&]?([A-Z]\w*)\s*\([^;{}()]*\)${QUALIFIERS}${ending}`, "g");
+    const defined = new RegExp(String.raw`\b(\w+)[>*&]?\s+[*&]?([A-Z]\w*)\s*\([^;{}()]*\)${QUALIFIERS}${ending}`, "g");
     for (const m of code.matchAll(defined)) {
       if (!NOT_A_TYPE.has(m[1]!)) locals.functions.add(m[2]!);
     }
   }
+  // Methods called on a receiver of the group's own type are the group's own; a name that is also declared with any
+  // other type anywhere in the group is not trusted, because the call could be on that one.
+  for (const name of ownDeclared) if (!otherDeclared.has(name)) locals.receivers.add(name);
   return locals;
 }
 
@@ -133,9 +149,10 @@ function usesInCode(f: SourceFile, locals: Locals): Use[] {
   for (const m of code.matchAll(/(?<![\w:])\b([A-Z]\w*)((?:\s*::\s*~?[A-Za-z_]\w*)+)/g)) {
     if (!locals.types.has(m[1]!)) add("symbol", (m[1]! + m[2]!).replace(/\s+/g, ""), lineOf(m.index!));
   }
-  // Method calls; a local method is excused only when called on this.
-  for (const m of code.matchAll(new RegExp(String.raw`(\bthis\s*)?(?:->|\.)\s*([A-Z]\w*)\s*${TEMPLATE_ARGS}\s*\(`, "g"))) {
-    if (!(m[1] && locals.functions.has(m[2]!))) add("method", m[2]!, lineOf(m.index! + m[0].indexOf(m[2]!)));
+  // Method calls; a local method is excused when called on this, and any method on a receiver of the group's own type.
+  for (const m of code.matchAll(new RegExp(String.raw`(?:\b(\w+)\s*)?(?:->|\.)\s*([A-Z]\w*)\s*${TEMPLATE_ARGS}\s*\(`, "g"))) {
+    const receiver = m[1];
+    if (!(receiver === "this" && locals.functions.has(m[2]!)) && !(receiver && locals.receivers.has(receiver))) add("method", m[2]!, lineOf(m.index! + m[0].indexOf(m[2]!)));
   }
   // Macros.
   for (const m of code.matchAll(/\b([A-Z][A-Z0-9_]{2,})\s*\(/g)) {

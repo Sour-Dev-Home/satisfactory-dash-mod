@@ -1,0 +1,17 @@
+{
+  "agentVersion": "mod/0.1.0",
+  "observedAt": "2026-10-20T13:26:42.134Z",
+  "reachable": true,
+  "paused": false,
+  "settings": { "autoPause": true },
+  "status": {
+    "tickHealth": "healthy",
+    "isGameRunning": false,
+    "gamePaused": false,
+    "sessionName": "",
+    "connectedPlayers": 0,
+    "playerLimit": 4,
+    "tickRate": 30,
+    "totalGameDurationSeconds": 0
+  }
+}

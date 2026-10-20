@@ -169,3 +169,135 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | ESearchCase::CaseSensitive | Engine/Source/Runtime/Core/Public/Misc/CString.h:23 | header only |
 | FString::Equals | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1492 | header only |
 | module:Projects | Engine/Source/Runtime/Projects/Projects.Build.cs:1 | header only |
+| HAL/FileManager.h | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:1 | header only |
+| Misc/FileHelper.h | Engine/Source/Runtime/Core/Public/Misc/FileHelper.h:1 | header only |
+| Misc/Guid.h | Engine/Source/Runtime/Core/Public/Misc/Guid.h:1 | header only |
+| Misc/Paths.h | Engine/Source/Runtime/Core/Public/Misc/Paths.h:1 | header only |
+| Policies/CondensedJsonPrintPolicy.h | Engine/Source/Runtime/Json/Public/Policies/CondensedJsonPrintPolicy.h:1 | header only |
+| Serialization/JsonWriter.h | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:1 | header only |
+| sys/stat.h | Engine/Source/Runtime/Core/Private/Unix/UnixForkPageProtector.cpp:16 | header only (POSIX system header; the engine checkout has no copy, the row points at the engine file that includes it) |
+| IFileManager | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:56 | header only |
+| IFileManager::Get | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:66 | header only |
+| IFileManager::Delete | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:107 | header only |
+| IFileManager::Move | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:113 | header only |
+| IFileManager::FileExists | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:116 | header only |
+| IFileManager::DirectoryExists | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:119 | header only |
+| FPaths::GetCleanFilename | Engine/Source/Runtime/Core/Public/Misc/Paths.h:510 | header only |
+| IFileManager::MakeDirectory | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:122 | header only |
+| IFileManager::DeleteDirectory | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:125 | header only |
+| IFileManager::GetTimeStamp | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:218 | header only |
+| IFileManager::SetTimeStamp | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:231 | header only |
+| FFileHelper::LoadFileToString | Engine/Source/Runtime/Core/Public/Misc/FileHelper.h:121 | header only |
+| FFileHelper::SaveStringToFile | Engine/Source/Runtime/Core/Public/Misc/FileHelper.h:178 | header only |
+| FFileHelper::EEncodingOptions::ForceUTF8 | Engine/Source/Runtime/Core/Public/Misc/FileHelper.h:44 | header only |
+| FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM | Engine/Source/Runtime/Core/Public/Misc/FileHelper.h:45 | header only |
+| FGuid::NewGuid | Engine/Source/Runtime/Core/Public/Misc/Guid.h:370 | header only |
+| FPaths::GetPath | Engine/Source/Runtime/Core/Public/Misc/Paths.h:522 | header only |
+| FPaths::ProjectSavedDir | Engine/Source/Runtime/Core/Public/Misc/Paths.h:279 | header only |
+| FChar::IsDigit | Engine/Source/Runtime/Core/Public/Misc/Char.h:240 | header only |
+| FCString::Atoi | Engine/Source/Runtime/Core/Public/Misc/CString.h:491 | header only |
+| ESearchCase::IgnoreCase | Engine/Source/Runtime/Core/Public/Misc/CString.h:26 | header only |
+| FDateTime | Engine/Source/Runtime/Core/Public/Misc/DateTime.h:75 | header only |
+| FDateTime::MinValue | Engine/Source/Runtime/Core/Public/Misc/DateTime.h:668 | header only |
+| FString::StartsWith | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1726 | header only |
+| FString::EndsWith | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1782 | header only |
+| FString::FindChar | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1440 | header only |
+| FString::FindLastChar | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1452 | header only |
+| FString::RightChop | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1221 | header only |
+| FString::ToUpper | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1553 | header only |
+| FString::TrimStartAndEnd | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1878 | header only |
+| FString::LeftChopInline | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1184 | header only |
+| MakeShared | Engine/Source/Runtime/Core/Public/Templates/SharedPointer.h:2252 | header only |
+| TCHAR_TO_UTF8 | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:1021 | header only |
+| FJsonValue | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:21 | header only |
+| FJsonValue::AsString | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:29 | header only |
+| EJson | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:22 | header only |
+| EJson::String | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:26 | header only |
+| FJsonObject::TryGetField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:62 | header only |
+| FJsonObject::HasField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:74 | header only |
+| FJsonObject::SetStringField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:231 | header only |
+| FJsonSerializer::Serialize | Engine/Source/Runtime/Json/Public/Serialization/JsonSerializer.h:166 | header only |
+| TJsonWriter | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:84 | header only |
+| TJsonWriterFactory | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:687 | header only |
+| TCondensedJsonPrintPolicy | Engine/Source/Runtime/Json/Public/Policies/CondensedJsonPrintPolicy.h:14 | header only |
+| TOptional | Engine/Source/Runtime/Core/Public/Misc/Optional.h:56 | header only |
+| TOptional::IsSet | Engine/Source/Runtime/Core/Public/Misc/Optional.h:343 | header only |
+| FString::ChrN | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1683 | header only |
+| MoveTemp | Engine/Source/Runtime/Core/Public/Templates/UnrealTemplate.h:549 | header only |
+| Dom/JsonValue.h | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:1 | header only |
+| Interfaces/IPluginManager.h | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:1 | header only |
+| limits | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:20 | header only (C++ standard header; the engine checkout has no copy, the row points at the engine file that includes it) |
+| IPluginManager::Get | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:649 | header only |
+| IPluginManager::FindPlugin | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:382 | header only (the FStringView overload) |
+| IPlugin | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:110 | header only |
+| IPlugin::GetBaseDir | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:140 | header only |
+| FJsonValue::CompareEqual | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:139 | header only |
+| FJsonValue::AsArray | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:38 | header only |
+| FJsonValueObject | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:293 | header only |
+| FJsonValueNull | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:312 | header only |
+| FJsonObject::GetBoolField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:261 | header only |
+| FJsonObject::GetObjectField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:290 | header only |
+| FJsonObject::SetField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:123 | header only |
+| FJsonObject::SetNumberField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:182 | header only |
+| FJsonObject::SetBoolField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:268 | header only |
+| FJsonObject::SetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:280 | header only (the const FString& and const TArray& overload) |
+| FJsonObject::SetObjectField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:297 | header only |
+| EJson::Null | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:25 | header only |
+| EJson::Boolean | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:28 | header only |
+| EJson::Array | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:29 | header only |
+| TOptional::GetValue | Engine/Source/Runtime/Core/Public/Misc/Optional.h:365 | header only (the const overload; non-const at :360) |
+| TArray | Engine/Source/Runtime/Core/Public/Containers/Array.h:651 | header only |
+| TArray::Num | Engine/Source/Runtime/Core/Public/Containers/Array.h:1116 | header only |
+| TArray::SetNum | Engine/Source/Runtime/Core/Public/Containers/Array.h:2320 | header only |
+| FString::AppendChar | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:447 | header only |
+| TCHAR | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatform.h:84 | header only |
+| FMath::IsFinite | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:586 | header only (FMath derives FPlatformMath, UnrealMathUtility.h:266; the double overload is :586) |
+| FMath::Max | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:960 | header only (inherited through FPlatformMath) |
+| FMath::Min | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:982 | header only (inherited through FPlatformMath) |
+| EJson::Number | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:27 | header only |
+| EJson::Object | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:30 | header only |
+| FJsonValue::AsNumber | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:26 | header only |
+| FJsonValue::AsBool | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:35 | header only |
+| FJsonValue::AsObject | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:41 | header only |
+| FUTF8ToTCHAR | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:1017 | header only (alias of TStringConversion) |
+| FString::ConstructFromPtrSize | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:128 | header only (the WIDECHAR overload; declared in this engine, no fallback needed) |
+| FString::Join | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2292 | header only |
+| FString::LeftInline | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1158 | header only |
+| FDateTime::ParseIso8601 | Engine/Source/Runtime/Core/Public/Misc/DateTime.h:729 | header only (converts any offset to UTC per its doc, so Z times and offsets both work) |
+| FMath::Clamp | Engine/Source/Runtime/Core/Public/Math/UnrealMathUtility.h:601 | header only (the double overload) |
+| FMath::RoundToInt | Engine/Source/Runtime/Core/Public/Math/UnrealPlatformMathSSE.h:283 | header only (the double overload; FMath derives FPlatformMath) |
+| TArray::GetData | Engine/Source/Runtime/Core/Public/Containers/Array.h:1009 | header only (the const overload; non-const at :999) |
+| TArray::Append | Engine/Source/Runtime/Core/Public/Containers/Array.h:2505 | header only (the pointer and count overload) |
+| FCString::Strcmp | Engine/Source/Runtime/Core/Public/Misc/CString.h:328 | header only (FCString is TCString<TCHAR>) |
+| FTimespan | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:75 | header only |
+| FTimespan::FromMinutes | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:661 | header only |
+| FTimespan::FromSeconds | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:673 | header only |
+| FTimespan::Zero | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:747 | header only |
+| FTimespan::GetTotalSeconds | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:520 | header only |
+| TArray::RemoveAll | Engine/Source/Runtime/Core/Public/Containers/Array.h:3118 | header only (the predicate overload) |
+| TArray::RemoveAt | Engine/Source/Runtime/Core/Public/Containers/Array.h:2118 | header only (the index and count overload) |
+| Misc/Compression.h | Engine/Source/Runtime/Core/Public/Misc/Compression.h:1 | header only |
+| FCompression::CompressMemoryBound | Engine/Source/Runtime/Core/Public/Misc/Compression.h:71 | header only (the int32 overload) |
+| FCompression::CompressMemory | Engine/Source/Runtime/Core/Public/Misc/Compression.h:110 | header only (the int32 overload) |
+| NAME_Gzip | Engine/Source/Runtime/Core/Public/UObject/UnrealNames.inl:207 | header only (REGISTER_NAME(258, Gzip)) |
+| FString::Chr | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1673 | header only |
+| TArray::SetNumUninitialized | Engine/Source/Runtime/Core/Public/Containers/Array.h:2379 | header only |
+| TPair | Engine/Source/Runtime/Core/Public/Templates/Tuple.h:46 | header only (alias of TTuple) |
+| FJsonObject::GetStringField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:185 | header only |
+| FMath::Pow | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:555 | header only (the double overload; FMath derives FPlatformMath) |
+| FCString::Atod | Engine/Source/Runtime/Core/Public/Misc/CString.h:506 | header only |
+| FString::IsNumeric | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1583 | header only (digits with one dot and an optional sign, no exponent, so "1e309" and HTTP dates are refused) |
+| Misc/OutputDevice.h | Engine/Source/Runtime/Core/Public/Misc/OutputDevice.h:1 | header only |
+| Misc/ScopeLock.h | Engine/Source/Runtime/Core/Public/Misc/ScopeLock.h:1 | header only |
+| FOutputDevice | Engine/Source/Runtime/Core/Public/Misc/OutputDevice.h:132 | header only |
+| ELogVerbosity::Type | Engine/Source/Runtime/Core/Public/Logging/LogVerbosity.h:16 | header only |
+| FName | Engine/Source/Runtime/Core/Public/UObject/NameTypes.h:575 | header only |
+| GLog | Engine/Source/Runtime/Core/Public/CoreGlobals.h:95 | header only (macro for GetGlobalLogSingleton(), an FOutputDeviceRedirector*, declared at CoreGlobals.h:68) |
+| FOutputDeviceRedirector::AddOutputDevice | Engine/Source/Runtime/Core/Public/Misc/OutputDeviceRedirector.h:68 | header only |
+| FOutputDeviceRedirector::RemoveOutputDevice | Engine/Source/Runtime/Core/Public/Misc/OutputDeviceRedirector.h:75 | header only |
+| FOutputDeviceRedirector::Flush | Engine/Source/Runtime/Core/Public/Misc/OutputDeviceRedirector.h:147 | header only |
+| FLogCategoryBase::GetCategoryName | Engine/Source/Runtime/Core/Public/Logging/LogCategory.h:41 | header only |
+| FScopeLock | Engine/Source/Runtime/Core/Public/Misc/ScopeLock.h:140 | header only |
+| FCriticalSection | Engine/Source/Runtime/Core/Public/HAL/CriticalSection.h:53 | header only (alias of UE::FPlatformRecursiveMutex) |
+| HAL/PlatformTime.h | Engine/Source/Runtime/Core/Public/HAL/PlatformTime.h:1 | header only |
+| FPlatformTime::Seconds | Engine/Source/Runtime/Core/Public/Windows/WindowsPlatformTime.h:23 | header only (FPlatformTime is a typedef of FWindowsPlatformTime, :64; the Linux build uses UnixPlatformTime.h) |

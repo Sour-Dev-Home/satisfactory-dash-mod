@@ -95,6 +95,32 @@ describe("extractUses: evasions the final review found", () => {
     expect(names(`${local}Req->ProcessRequest();`)).toEqual(["ProcessRequest"]);
   });
 
+  it("excuses a method called on a receiver declared with one of the group's own types", () => {
+    const own = "struct FOwn { bool Load() const; };\nbool FOwn::Load() const { return true; }\n";
+    expect(names(`${own}void F() { FOwn Store; Store.Load(); }`)).toEqual([]);
+    expect(names(`${own}void F() { const FOwn Store{P}; Store->Load(); }`)).toEqual([]);
+    expect(names(`struct FOwn {};
+void F(const FOwn& Ledger) { Ledger.Begin(); }`)).toEqual([]);
+  });
+
+  it("does not excuse a receiver declared with an engine or template type", () => {
+    const own = "struct FOwn { bool IsSet() const; };\nbool FOwn::IsSet() const { return true; }\n";
+    expect(names(`${own}void F() { TOptional<FOwn> X; X.IsSet(); }`)).toContain("IsSet");
+    expect(names(`${own}void F(const FString& X) { X.IsSet(); }`)).toContain("IsSet");
+  });
+
+  it("does not excuse a name that the group declares with an own type and with an engine type", () => {
+    const own = "struct FOwn { bool IsSet() const; };\nbool FOwn::IsSet() const { return true; }\n";
+    expect(names(`${own}void A() { FOwn X; X.IsSet(); }\nvoid B() { TOptional<FOwn> X; X.IsSet(); }`)).toContain("IsSet");
+    expect(names(`${own}void A() { FOwn X; X.IsSet(); }\nvoid B(IFoo& X) { X.IsSet(); }`)).toContain("IsSet");
+  });
+
+  it("does not excuse an engine receiver whose method name the group also defines", () => {
+    const own = "struct FOwn { bool Delete() const; };\nbool FOwn::Delete() const { return true; }\n";
+    expect(names(`${own}void F() { IFileManager& Files = IFileManager::Get(); Files.Delete(x); }`)).toContain("Delete");
+    expect(names(`${own}void F() { Thing.Delete(); }`)).toEqual(["Delete"]);
+  });
+
   it("excuses a function the spike defines or declares itself, but not a call in a return", () => {
     expect(names("static void Helper() {}\nvoid Run() { Helper(); }")).toEqual([]);
     expect(names("virtual void StartupModule() override;\n", "spikes/S1/Source/SatisModS1/Public/SatisModS1.h")).toEqual([]);
