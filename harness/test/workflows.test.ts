@@ -66,9 +66,9 @@ describe("core-run.yml (the core mod's runs on the self-hosted runner)", () => {
     expect(Object.keys(wf.on)).toEqual(["workflow_dispatch"]);
   });
 
-  it("offers exactly the core runs this harness drives that need no backend host", () => {
+  it("offers exactly the core runs this harness drives", () => {
     const input = (wf.on.workflow_dispatch as { inputs: { run: { options: string[] } } }).inputs.run;
-    expect(input.options).toEqual(Object.entries(CORE_RUNS).filter(([, spec]) => !spec.backend).map(([id]) => id));
+    expect(input.options).toEqual(Object.keys(CORE_RUNS));
   });
 
   it("reads contents only, on the ue runner behind the ue-runner environment", () => {

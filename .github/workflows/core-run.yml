@@ -3,7 +3,8 @@ name: core-run
 # Runs the core mod's runs (Plan 2B) on the owner's self-hosted `ue` runner (docs/runner.md, "Core runs"). This is a
 # public repository, so this workflow must never trigger from a pull request or a push: it is dispatched by hand
 # only. harness/test/workflows.test.ts fails CI if a trigger is added, an action is unpinned or a job leaves the
-# ue-runner environment. The options are the runs that need no backend host.
+# ue-runner environment. The options are the runs the harness drives so far; a run that needs the backend host (enrol)
+# refuses unless the owner has started it in their own session first (docs/runner.md, "The backend host").
 on:
   workflow_dispatch:
     inputs:
@@ -11,7 +12,7 @@ on:
         description: Core run
         required: true
         type: choice
-        options: [http-probe]
+        options: [http-probe, enrol]
 
 permissions:
   contents: read
