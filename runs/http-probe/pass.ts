@@ -50,7 +50,8 @@ export function evaluate(e: CoreEvidence): Verdict {
   if (withAuth) reasons.push(`S3: ${withAuth} request(s) at the redirect target carried an Authorization header`);
   if (withBody) reasons.push(`S3: ${withBody} request(s) at the redirect target carried a body`);
   const clean = elsewhere.length - elsewhere.filter((r) => r.authorization || r.bodyBytes > 0).length;
-  if (since !== null) {
+  if (since === null) reasons.push("S3: the redirects never began, so no redirected answer was tested");
+  else {
     // A refused (redirected) answer leaves the snapshot queued, so the next push repeats its observedAt.
     const after = atBackend.filter((r) => r.path === "/agent/v1/snapshots" && r.at >= since && r.observedAt !== null).map((r) => r.observedAt);
     if (new Set(after).size === after.length) reasons.push("S3: no snapshot was re-sent after the redirects began, so a redirected answer may have been accepted");

@@ -81,6 +81,18 @@ describe("http-probe pass conditions", () => {
     expect(v.reasons).toEqual(["S2: the mod doesn't offer TLS 1.3 and 1.2"]);
   });
 
+  it("fails an offer without TLS 1.2", () => {
+    const v = evaluate(evidence(probe({ hellos: [{ supportedVersions: [0x0304] }] })));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toEqual(["S2: the mod doesn't offer TLS 1.3 and 1.2"]);
+  });
+
+  it("fails when the redirects never began: S3 is untested", () => {
+    const v = evaluate(evidence(probe({ redirectingSince: null })));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toContain("S3: the redirects never began, so no redirected answer was tested");
+  });
+
   it("fails without a capture", () => {
     expect(evaluate(evidence(undefined))).toEqual({ pass: false, reasons: ["no probe capture"] });
   });
