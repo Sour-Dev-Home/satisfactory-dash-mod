@@ -36,7 +36,8 @@ export function evaluate(e: CoreEvidence): Verdict {
 
   if (elsewhere.length) {
     const withAuth = elsewhere.filter((r) => r.authorization).length;
-    reasons.push(`S3: the redirect target received ${elsewhere.length} request(s), ${withAuth} with an Authorization header`);
+    const incomplete = elsewhere.filter((r) => !r.complete).length;
+    reasons.push(`S3: the redirect target received ${elsewhere.length} request(s), ${withAuth} with an Authorization header, ${incomplete} never completed`);
   }
   if (since !== null && !e.lines.some((l) => /The backend redirected a request; its answer was refused/.test(l))) {
     reasons.push("S9: no line saying a redirected answer was refused");
