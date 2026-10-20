@@ -51,6 +51,9 @@ interface Locals { types: Set<string>; functions: Set<string>; defines: Set<stri
 const NOT_A_TYPE = new Set(["return", "else", "throw", "new", "delete", "case", "co_return", "co_await", "co_yield", "goto"]);
 const QUALIFIERS = String.raw`\s*(?:const\s*)?(?:noexcept\s*)?(?:override\s*)?(?:final\s*)?`;
 
+/** Namespaces the engine owns: a code's own "namespace UE::Mine" never excuses them. */
+const ENGINE_ROOTS = new Set(["UE", "UE4", "UE5", "std", "Chaos"]);
+
 function localsOf(files: SourceFile[]): Locals {
   const locals: Locals = { types: new Set(), functions: new Set(), defines: new Set(), headers: new Set() };
   for (const f of files) {
@@ -63,8 +66,10 @@ function localsOf(files: SourceFile[]): Locals {
     }
     for (const m of code.matchAll(/^\s*#\s*define\s+([A-Za-z_]\w*)/gm)) locals.defines.add(m[1]!);
     // The code's own namespaces, and the test classes that IMPLEMENT_*_AUTOMATION_TEST declares by macro.
-    for (const m of code.matchAll(/\bnamespace\s+([A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*)/g)) {
-      for (const part of m[1]!.split("::")) locals.types.add(part.trim());
+    // Only definitions ("namespace A {", "namespace A::B {"), and only the first component: never "using namespace X;"
+    // or "namespace x = y;", and never an engine root, which stays checked.
+    for (const m of code.matchAll(/\bnamespace\s+([A-Za-z_]\w*)(?:\s*::\s*[A-Za-z_]\w*)*\s*\{/g)) {
+      if (!ENGINE_ROOTS.has(m[1]!)) locals.types.add(m[1]!);
     }
     for (const m of code.matchAll(/\bIMPLEMENT_(?:SIMPLE|COMPLEX)_AUTOMATION_TEST\s*\(\s*([A-Za-z_]\w*)/g)) locals.types.add(m[1]!);
   }

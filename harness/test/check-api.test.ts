@@ -193,6 +193,22 @@ describe("extractUses locals", () => {
   });
 });
 
+describe("extractUses namespace excuse", () => {
+  const names = (text: string) => extractUses([cpp(text)]).map((u) => u.name);
+  it("does not excuse using-directives or namespace aliases", () => {
+    expect(names("using namespace UE;\nvoid f() { UE::Tasks::Launch(); }\n")).toContain("UE::Tasks::Launch");
+    expect(names("namespace Fs = std::filesystem;\nvoid f() { Fs::Exists(); }\n")).toContain("Fs::Exists");
+  });
+  it("does not excuse engine roots, even when the code defines a namespace in them", () => {
+    expect(names("namespace UE::SatisDash { int X(); }\nvoid f() { UE::Tasks::Launch(); }\n")).toContain("UE::Tasks::Launch");
+  });
+  it("excuses only the first component of a defined namespace", () => {
+    const n = names("namespace Mine::Inner { int X(); }\nvoid f() { Mine::Inner::X(); Inner::Y(); }\n");
+    expect(n).not.toContain("Mine::Inner::X");
+    expect(n).toContain("Inner::Y");
+  });
+});
+
 describe("scanSources", () => {
   it("scans mod/ as well as spikes/, and excuses the plugin's own modules", () => {
     const root = mkdtempSync(join(tmpdir(), "scan-"));
