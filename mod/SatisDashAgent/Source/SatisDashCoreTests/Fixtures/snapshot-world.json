@@ -1,0 +1,32 @@
+{
+  "agentVersion": "mod/0.1.0",
+  "observedAt": "2026-10-20T13:26:42.134Z",
+  "reachable": true,
+  "paused": false,
+  "settings": { "autoPause": true },
+  "status": {
+    "tickHealth": "healthy",
+    "isGameRunning": true,
+    "gamePaused": false,
+    "sessionName": "Golden Session",
+    "connectedPlayers": 1,
+    "playerLimit": 4,
+    "tickRate": 28.4,
+    "totalGameDurationSeconds": 123456
+  },
+  "power": {
+    "circuits": [
+      {
+        "circuitGroupId": 1,
+        "productionMW": 1200.5,
+        "consumptionMW": 0,
+        "capacityMW": 1500,
+        "maxConsumptionMW": 1400,
+        "fuseTriggered": false,
+        "batteryCapacityMWh": 100,
+        "batteryPercent": 100,
+        "batteryDifferentialMW": -12.5
+      }
+    ]
+  }
+}

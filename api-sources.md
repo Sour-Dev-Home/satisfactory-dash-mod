@@ -221,3 +221,33 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TOptional::IsSet | Engine/Source/Runtime/Core/Public/Misc/Optional.h:343 | header only |
 | FString::ChrN | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1683 | header only |
 | MoveTemp | Engine/Source/Runtime/Core/Public/Templates/UnrealTemplate.h:549 | header only |
+| Dom/JsonValue.h | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:1 | header only |
+| Interfaces/IPluginManager.h | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:1 | header only |
+| limits | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:20 | header only (C++ standard header; the engine checkout has no copy, the row points at the engine file that includes it) |
+| IPluginManager::Get | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:649 | header only |
+| IPluginManager::FindPlugin | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:382 | header only (the FStringView overload) |
+| IPlugin | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:110 | header only |
+| IPlugin::GetBaseDir | Engine/Source/Runtime/Projects/Public/Interfaces/IPluginManager.h:140 | header only |
+| FJsonValue::CompareEqual | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:139 | header only |
+| FJsonValue::AsArray | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:38 | header only |
+| FJsonValueObject | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:293 | header only |
+| FJsonValueNull | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:312 | header only |
+| FJsonObject::GetBoolField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:261 | header only |
+| FJsonObject::GetObjectField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:290 | header only |
+| FJsonObject::SetField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:123 | header only |
+| FJsonObject::SetNumberField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:182 | header only |
+| FJsonObject::SetBoolField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:268 | header only |
+| FJsonObject::SetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:280 | header only (the const FString& and const TArray& overload) |
+| FJsonObject::SetObjectField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:297 | header only |
+| EJson::Null | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:25 | header only |
+| EJson::Boolean | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:28 | header only |
+| EJson::Array | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:29 | header only |
+| TOptional::GetValue | Engine/Source/Runtime/Core/Public/Misc/Optional.h:365 | header only (the const overload; non-const at :360) |
+| TArray | Engine/Source/Runtime/Core/Public/Containers/Array.h:651 | header only |
+| TArray::Num | Engine/Source/Runtime/Core/Public/Containers/Array.h:1116 | header only |
+| TArray::SetNum | Engine/Source/Runtime/Core/Public/Containers/Array.h:2320 | header only |
+| FString::AppendChar | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:447 | header only |
+| TCHAR | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatform.h:84 | header only |
+| FMath::IsFinite | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:586 | header only (FMath derives FPlatformMath, UnrealMathUtility.h:266; the double overload is :586) |
+| FMath::Max | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:960 | header only (inherited through FPlatformMath) |
+| FMath::Min | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:982 | header only (inherited through FPlatformMath) |
