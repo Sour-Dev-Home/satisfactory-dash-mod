@@ -23,8 +23,8 @@ void SatisDash::FAgent::Boot()
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("The credential file can't be read; treating this server as not enrolled"));
 	}
-	const FConfigResult Loaded = LoadConfigFile(ConfigPath);
-	RememberConfigFile();
+	FConfigResult Loaded;
+	ReadConfigFile(false, Loaded);
 	Settle(Loaded);
 	bBooted = true;
 }
@@ -35,15 +35,43 @@ void SatisDash::FAgent::CheckConfig()
 	{
 		return; // decide after the answer: the next check sees the change
 	}
-	FString Text;
-	FFileHelper::LoadFileToString(Text, *ConfigPath);
-	if (ConfigModTime(ConfigPath) == ConfigTime && Text.Equals(ConfigText, ESearchCase::CaseSensitive))
+	FConfigResult Loaded;
+	if (ReadConfigFile(true, Loaded))
 	{
-		return;
+		Settle(Loaded);
 	}
-	const FConfigResult Loaded = LoadConfigFile(ConfigPath);
-	RememberConfigFile();
-	Settle(Loaded);
+}
+
+bool SatisDash::FAgent::ReadConfigFile(bool bOnlyIfChanged, FConfigResult& Out)
+{
+	if (!IFileManager::Get().FileExists(*ConfigPath))
+	{
+		// Missing: LoadConfigFile writes the defaults; remember what it wrote.
+		Out = LoadConfigFile(ConfigPath);
+		RememberConfigFile();
+		return true;
+	}
+	// One read per check: the time first, then the text, and the parse uses that same text. A save that lands in
+	// between leaves an older time with newer text, so the next check sees a difference and reads again.
+	const FDateTime Time = ConfigModTime(ConfigPath);
+	FString Text;
+	const bool bRead = FFileHelper::LoadFileToString(Text, *ConfigPath);
+	if (bOnlyIfChanged && Time == ConfigTime && Text.Equals(ConfigText, ESearchCase::CaseSensitive))
+	{
+		return false;
+	}
+	ConfigTime = Time;
+	ConfigText = Text;
+	if (bRead)
+	{
+		Out = ParseConfig(Text);
+	}
+	else
+	{
+		Out = FConfigResult();
+		Out.BadField = TEXT("json");
+	}
+	return true;
 }
 
 void SatisDash::FAgent::RememberConfigFile()
@@ -51,6 +79,28 @@ void SatisDash::FAgent::RememberConfigFile()
 	ConfigTime = ConfigModTime(ConfigPath);
 	ConfigText.Reset();
 	FFileHelper::LoadFileToString(ConfigText, *ConfigPath);
+}
+
+void SatisDash::FAgent::BlankCodeInFile()
+{
+	// Never from memory: the file may have been edited since it was read, and a broken one is never overwritten.
+	Config.EnrollmentCode.Reset();
+	FString Text;
+	if (!FFileHelper::LoadFileToString(Text, *ConfigPath))
+	{
+		return;
+	}
+	const FConfigResult Now = ParseConfig(Text);
+	if (Now.Status != EConfigStatus::Valid)
+	{
+		return; // left alone; the next CheckConfig sees it and settles
+	}
+	if (BlankConfigCode(ConfigPath, Now.Config))
+	{
+		Config = Now.Config;
+		Config.EnrollmentCode.Reset();
+		RememberConfigFile();
+	}
 }
 
 void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
@@ -69,9 +119,7 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 		{
 			// One code never enrols twice (spec error table): the credential wins and the code is blanked.
 			UE_LOG(LogSatisDash, Display, TEXT("An enrolment code is in SatisDashAgent.cfg, but this server is already enrolled; blanking it (revoke the server in the dashboard to enrol again)"));
-			BlankConfigCode(ConfigPath, Config);
-			Config.EnrollmentCode.Reset();
-			RememberConfigFile();
+			BlankCodeInFile();
 		}
 		Enter(EAgentState::Running, TEXT("Enrolled; reporting to the backend"), false);
 		return;
@@ -134,9 +182,7 @@ void SatisDash::FAgent::FinishEnroll(const FHttpReply& Reply, double Now)
 			}
 			Credential = Enrolled->Credential;
 			Cadence = Enrolled->Cadence;
-			BlankConfigCode(ConfigPath, Config);
-			Config.EnrollmentCode.Reset();
-			RememberConfigFile();
+			BlankCodeInFile();
 			EnrollFailures = 0;
 			Enter(EAgentState::Running, TEXT("Enrolled; reporting to the backend"), false);
 			return;

@@ -37,7 +37,11 @@ namespace SatisDash
 	private:
 		void Settle(const FConfigResult& Loaded);
 		void Enter(EAgentState Next, const FString& Line, bool bWarning);
+		/** Reads the file once; false when nothing changed and bOnlyIfChanged. Remembers exactly the text and time it parsed. */
+		bool ReadConfigFile(bool bOnlyIfChanged, FConfigResult& Out);
 		void RememberConfigFile();
+		/** Blanks the code in what the file holds now, and only if that still parses; otherwise leaves the file alone. */
+		void BlankCodeInFile();
 
 		FString ConfigPath;
 		FCredentialStore Credentials;

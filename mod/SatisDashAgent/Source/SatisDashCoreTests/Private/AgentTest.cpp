@@ -185,3 +185,40 @@ bool FAgentFailClosedTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("the broken file is left as it is"), SatisDash::Test::ReadText(F.ConfigPath), TEXT("{\"backendUrl\":\"http://example.com\"}"));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentEditDuringEnrolTest, "SatisDash.Core.Agent.EditDuringEnrol", SatisDash::Test::Flags)
+
+bool FAgentEditDuringEnrolTest::RunTest(const FString& Parameters)
+{
+	{
+		// A broken edit made while the enrol is in flight is never overwritten from memory.
+		const FFixture F;
+		F.writeConfig(TEXT("AB3D-7XQ2"));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		Agent.StartEnroll(0);
+		SatisDash::Test::WriteText(F.ConfigPath, TEXT("{ broken"));
+		Agent.FinishEnroll(SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()), 0);
+		SatisDash::Test::SameText(*this, TEXT("the broken file is left as it is"), SatisDash::Test::ReadText(F.ConfigPath), TEXT("{ broken"));
+		const FCredentialStore Store{F.CredentialPath};
+		TestTrue(TEXT("the credential is saved"), Store.Load().IsSet());
+		Agent.CheckConfig();
+		TestTrue(TEXT("the next check sees the broken file"), Agent.GetState() == EAgentState::ConfigBroken);
+		TestTrue(TEXT("and nothing is handed out"), Agent.GetCredential() == nullptr);
+	}
+	{
+		// A valid edit (a new URL, the same code) keeps its URL; only the code is blanked.
+		const FFixture F;
+		F.writeConfig(TEXT("AB3D-7XQ2"));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		Agent.StartEnroll(0);
+		SatisDash::Test::WriteText(F.ConfigPath, TEXT("{\"backendUrl\":\"https://other.example.com\",\"enrollmentCode\":\"AB3D-7XQ2\"}"));
+		Agent.FinishEnroll(SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()), 0);
+		const FConfigResult Written = ParseConfig(SatisDash::Test::ReadText(F.ConfigPath));
+		SatisDash::Test::SameText(*this, TEXT("the new URL is kept"), Written.Config.BackendUrl, TEXT("https://other.example.com"));
+		TestTrue(TEXT("the code is blanked"), Written.Config.EnrollmentCode.IsEmpty());
+		TestTrue(TEXT("running"), Agent.GetState() == EAgentState::Running);
+	}
+	return true;
+}
