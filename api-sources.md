@@ -251,3 +251,17 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FMath::IsFinite | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:586 | header only (FMath derives FPlatformMath, UnrealMathUtility.h:266; the double overload is :586) |
 | FMath::Max | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:960 | header only (inherited through FPlatformMath) |
 | FMath::Min | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:982 | header only (inherited through FPlatformMath) |
+| EJson::Number | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:27 | header only |
+| EJson::Object | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:30 | header only |
+| FJsonValue::AsNumber | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:26 | header only |
+| FJsonValue::AsBool | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:35 | header only |
+| FJsonValue::AsObject | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:41 | header only |
+| FUTF8ToTCHAR | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:1017 | header only (alias of TStringConversion) |
+| FString::ConstructFromPtrSize | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:128 | header only (the WIDECHAR overload; declared in this engine, no fallback needed) |
+| FString::Join | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2292 | header only |
+| FString::LeftInline | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1158 | header only |
+| FDateTime::ParseIso8601 | Engine/Source/Runtime/Core/Public/Misc/DateTime.h:729 | header only (converts any offset to UTC per its doc, so Z times and offsets both work) |
+| FMath::Clamp | Engine/Source/Runtime/Core/Public/Math/UnrealMathUtility.h:601 | header only (the double overload) |
+| FMath::RoundToInt | Engine/Source/Runtime/Core/Public/Math/UnrealPlatformMathSSE.h:283 | header only (the double overload; FMath derives FPlatformMath) |
+| TArray::GetData | Engine/Source/Runtime/Core/Public/Containers/Array.h:1009 | header only (the const overload; non-const at :999) |
+| TArray::Append | Engine/Source/Runtime/Core/Public/Containers/Array.h:2505 | header only (the pointer and count overload) |
