@@ -411,3 +411,12 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TMap::GetKeys | Engine/Source/Runtime/Core/Public/Containers/Map.h:327 | header only (the TArray overload; declared in TMapBase, which TMap inherits) |
 | TArray::Sort | Engine/Source/Runtime/Core/Public/Containers/Array.h:3425 | header only (the no-predicate overload) |
 | TArray::IsValidIndex | Engine/Source/Runtime/Core/Public/Containers/Array.h:1094 | header only |
+| TArray::Reserve | Engine/Source/Runtime/Core/Public/Containers/Array.h:3026 | header only |
+| FPowerCircuitStats::MaximumPowerConsumption | Source/FactoryGame/Public/FGPowerCircuit.h:110 | header only |
+| UFGCircuit::GetCircuitGroupID | Source/FactoryGame/Public/FGCircuit.h:71 | header only |
+| UFGPowerCircuit::IsFuseTriggered | Source/FactoryGame/Public/FGPowerCircuit.h:163 | header only |
+| UFGPowerCircuit::HasBatteries | Source/FactoryGame/Public/FGPowerCircuit.h:211 | header only |
+| UFGPowerCircuit::GetBatterySumPowerStore | Source/FactoryGame/Public/FGPowerCircuit.h:215 | header only |
+| UFGPowerCircuit::GetBatterySumPowerStoreCapacity | Source/FactoryGame/Public/FGPowerCircuit.h:219 | header only |
+| UFGPowerCircuit::GetBatterySumPowerInput | Source/FactoryGame/Public/FGPowerCircuit.h:227 | header only (clamped at 0, the charge half) |
+| UFGPowerCircuit::GetBatterySumPowerOutput | Source/FactoryGame/Public/FGPowerCircuit.h:231 | header only (clamped at 0, the discharge half) |
