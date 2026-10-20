@@ -8,6 +8,7 @@ import { sha1Prefix } from "../src/mod-config";
 import { RefusalError, type RunDeps, runSpike } from "../src/run";
 import type { ServerProcess } from "../src/server-control";
 import type { TickSeries } from "../src/ticks";
+import type { AutoPauseStep, StatusPair, StatusReading } from "../src/verdict";
 
 let out = "";
 afterEach(() => out && rmSync(out, { recursive: true, force: true }));
@@ -271,6 +272,79 @@ describe("runSpike", () => {
     const { result } = await runSpike("S3", deps);
     expect(seen).toEqual(["autopause false", "autopause false"]);
     expect(result.pass).toBe(false);
+  });
+
+  const reading = (running: boolean): StatusReading => ({ running, paused: false, players: 0, limit: 4, duration: running ? 100 : 0, tickRate: 30, health: "healthy", session: "da39a3ee5e6b" });
+  const statusPairs = (running: boolean): StatusPair[] => Array.from({ length: 10 }, (_, i) => ({ at: `t${i}`, mod: reading(running), api: reading(running) }));
+
+  it("S6: pairs status before the world loads and again after, from where the first phase stopped, without touching auto-pause", async () => {
+    const seen: string[] = [];
+    const { deps } = fakeDeps({
+      savesConflict: () => [],
+      loadWorld: async () => void seen.push("load world"),
+      waitHealthy: async () => void seen.push("healthy"),
+      readAutoPause: async () => (seen.push("read autopause"), true),
+      setAutoPause: async (on) => void seen.push(`autopause ${on}`),
+      collectStatus: async (from) => (seen.push(`collect status ${from}`), from === 0 ? { pairs: statusPairs(false), next: 7 } : { pairs: statusPairs(true), next: 9 }),
+      stop: async () => void seen.push("stop"),
+    });
+    const { result, dir } = await runSpike("S6", deps);
+    expect(seen).toEqual(["healthy", "collect status 0", "load world", "healthy", "read autopause", "collect status 7", "autopause true", "stop"]);
+    expect(result.pass).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, "status.json"), "utf8"))).toHaveLength(20);
+  });
+
+  it("S6: refuses before building without the staged world", async () => {
+    const { deps, calls } = fakeDeps({ savesConflict: () => [] });
+    await expect(runSpike("S6", deps)).rejects.toThrow(/S6 needs s3World/);
+    expect(calls.some((c) => c.startsWith("build"))).toBe(false);
+  });
+
+  it("S6: runs with s3World and no frmBaseUrl", async () => {
+    const { deps } = fakeDeps({
+      savesConflict: () => [],
+      loadWorld: async () => undefined,
+      readAutoPause: async () => true,
+      setAutoPause: async () => undefined,
+      collectStatus: async (from) => ({ pairs: statusPairs(from !== 0), next: 1 }),
+    });
+    expect((await runSpike("S6", deps)).result.pass).toBe(true);
+  });
+
+  const steps = (orig: boolean): AutoPauseStep[] =>
+    ([["read", orig, false], ["set", !orig, null], ["check", !orig, false], ["restore", orig, null], ["final", orig, false]] as const)
+      .map(([step, mod, pending]) => ({ at: step, step, mod, pending, api: mod }));
+
+  it("S7: loads the world, records auto-pause, collects the mod's steps, restores, and writes autopause.json", async () => {
+    const seen: string[] = [];
+    const { deps } = fakeDeps({
+      savesConflict: () => [],
+      loadWorld: async () => void seen.push("load world"),
+      waitHealthy: async () => void seen.push("healthy"),
+      readAutoPause: async () => (seen.push("read autopause"), true),
+      setAutoPause: async (on) => void seen.push(`autopause ${on}`),
+      collectAutoPause: async () => (seen.push("collect autopause"), steps(true)),
+      stop: async () => void seen.push("stop"),
+    });
+    const { result, dir } = await runSpike("S7", deps);
+    expect(seen).toEqual(["healthy", "load world", "healthy", "read autopause", "collect autopause", "autopause true", "stop"]);
+    expect(result.pass).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, "autopause.json"), "utf8"))).toEqual(steps(true));
+  });
+
+  it("S7: restores auto-pause even when collecting fails", async () => {
+    const seen: string[] = [];
+    const { deps } = fakeDeps({
+      savesConflict: () => [],
+      loadWorld: async () => undefined,
+      readAutoPause: async () => false,
+      setAutoPause: async (on) => void seen.push(`autopause ${on}`),
+      collectAutoPause: async () => { throw new Error("server gone"); },
+    });
+    const { result } = await runSpike("S7", deps);
+    expect(seen).toEqual(["autopause false"]);
+    expect(result.pass).toBe(false);
+    expect(result.reasons[0]).toMatch(/server gone/);
   });
 
   const fakeBackend = (order: string[]) => async () => (order.push("up"), {

@@ -1,7 +1,7 @@
 import type { CapturedRequest } from "./echo";
 import type { TickSeries } from "./ticks";
 
-export const SPIKE_IDS = ["S0", "S1", "S1b", "S2", "S3", "S4", "S5"] as const;
+export const SPIKE_IDS = ["S0", "S1", "S1b", "S2", "S3", "S4", "S5", "S6", "S7"] as const;
 export type SpikeId = (typeof SPIKE_IDS)[number];
 
 /** S4: what the harness wrote, and whether the full value showed up in the server log. */
