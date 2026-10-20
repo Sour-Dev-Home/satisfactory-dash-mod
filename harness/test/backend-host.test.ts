@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Backend } from "../src/backend";
-import { connectBackendHost, serveBackendHost } from "../src/backend-host";
+import { connectBackendHost, hostUntilStopped, serveBackendHost } from "../src/backend-host";
 
 const ID = "6f1c2b9e-1d2a-4c3b-9e8f-0a1b2c3d4e5f";
 
@@ -52,6 +52,49 @@ async function serve() {
     });
   return { ...fake, host, file, info, call };
 }
+
+describe("hostUntilStopped (the CLI's Ctrl+C handling)", () => {
+  function harness(opts: { stopDuringStart?: boolean; serveFails?: boolean } = {}) {
+    const order: string[] = [];
+    let stop: () => void = () => undefined;
+    const run = hostUntilStopped({
+      onStop: (h) => void (stop = h),
+      start: async () => {
+        order.push("up");
+        if (opts.stopDuringStart) stop();
+        return { ...fakeBackend().backend, down: async () => void order.push("down") };
+      },
+      serve: async (b) => {
+        if (opts.serveFails) throw new Error("port in use");
+        order.push("serve");
+        return { controlUrl: "", relayUrl: b.url, close: async () => { order.push("close"); await b.down(); } };
+      },
+      log: (s) => void order.push(`log ${s}`),
+    });
+    return { order, run, stop: () => stop() };
+  }
+
+  it("serves until stopped, then closes once even if stopped twice", async () => {
+    const h = harness();
+    await new Promise((r) => setTimeout(r, 10));
+    h.stop();
+    h.stop();
+    await h.run;
+    expect(h.order.filter((x) => !x.startsWith("log"))).toEqual(["up", "serve", "close", "down"]);
+  });
+
+  it("a stop while the stack comes up still runs down, without serving", async () => {
+    const h = harness({ stopDuringStart: true });
+    await h.run;
+    expect(h.order.filter((x) => !x.startsWith("log"))).toEqual(["up", "down"]);
+  });
+
+  it("runs down when serving fails", async () => {
+    const h = harness({ serveFails: true });
+    await expect(h.run).rejects.toThrow(/port in use/);
+    expect(h.order).toContain("down");
+  });
+});
 
 describe("backend host (ruling 10)", () => {
   it("listens on loopback only and writes the host file with a 64-hex token", async () => {

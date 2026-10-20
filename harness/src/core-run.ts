@@ -8,6 +8,8 @@ import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
 import { lastLines, RefusalError, type RunDeps, realDeps } from "./run";
 import { connectBackendHost, type HostClient } from "./backend-host";
+import { createServerApi } from "./server-api";
+import { readApiStatus } from "./status";
 import { type ProcessMemory, readProcessMemory, removeMod, type ServerProcess, whileRunning } from "./server-control";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
@@ -28,6 +30,9 @@ export interface CoreEvidence {
   captures: Record<string, unknown>;
 }
 
+/** One memory.json entry: game and session as QueryServerState said when the sample was taken (null: no answer). */
+export interface MemorySample { game: boolean | null; session: string | null; memory: ProcessMemory | null }
+
 export interface CoreContext {
   deps: CoreDeps;
   proc: ServerProcess;
@@ -42,8 +47,12 @@ export interface CoreContext {
   captures: Record<string, unknown>;
   /** Auto-pause as GetServerOptions said before the run touched it; put back at the end. */
   rememberAutoPause(value: boolean): void;
-  /** Records the server's memory now under label in memory.json (the owner's goal; evidence, not a pass condition). */
-  sampleMemory(label: string): Promise<void>;
+  /**
+   * Records the server's memory now in memory.json (the owner's goal; evidence, not a pass condition), under the stage
+   * plus whether a game was running, as the server's API says at that moment: "withMod" becomes withModNoGame,
+   * withModWithGame or withModGameUnknown. A repeated label gets "#2", "#3".
+   */
+  sampleMemory(stage: string): Promise<void>;
 }
 
 export interface CoreRunSpec {
@@ -76,6 +85,8 @@ export type CoreDeps = Pick<RunDeps,
   backendHost?: () => Promise<HostClient>;
   /** The spawned server's process tree's memory; null when it can't be read. */
   processMemory?: (pid: number) => Promise<ProcessMemory | null>;
+  /** Whether a game is running and its session hash, from QueryServerState now; null when the API doesn't answer. */
+  gameState?: () => Promise<{ running: boolean; session: string } | null>;
 };
 
 const ResultSchema = z.strictObject({
@@ -164,9 +175,19 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
       // no file, or not yet valid: nothing to note
     }
   };
-  const memory: Record<string, ProcessMemory | null> = {};
-  const sampleMemory = async (proc: ServerProcess, label: string) => {
-    if (deps.processMemory) memory[label] = await deps.processMemory(proc.pid).catch(() => null);
+  // Each sample says whether a game ran when it was taken, read from the API then, never assumed from the stage: the
+  // pre-boot runs the auto-loaded save (review of 66e1f0d, Important 1), so its no-mod figure includes a game.
+  const memory: Record<string, MemorySample> = {};
+  const sampleMemory = async (proc: ServerProcess, stage: string) => {
+    if (!deps.processMemory) return;
+    const [mem, game] = await Promise.all([
+      deps.processMemory(proc.pid).catch(() => null),
+      deps.gameState ? deps.gameState().catch(() => null) : Promise.resolve(null),
+    ]);
+    const base = `${stage}${game === null ? "GameUnknown" : game.running ? "WithGame" : "NoGame"}`;
+    let label = base;
+    for (let n = 2; label in memory; n++) label = `${base}#${n}`;
+    memory[label] = { game: game?.running ?? null, session: game?.session ?? null, memory: mem };
   };
   // The auto-load session the server had before the run (emptyBoot), and whether it is back.
   let autoLoadBefore: string | undefined;
@@ -188,7 +209,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
         await whileRunning(pre, deps.waitHealthy(), "waiting for health before clearing the auto-load save");
         autoLoadBefore = await whileRunning(pre, deps.readAutoLoad!(), "reading the auto-load save");
         await whileRunning(pre, deps.setAutoLoad!(""), "clearing the auto-load save");
-        await sampleMemory(pre, "noModNoGame");
+        await sampleMemory(pre, "noMod");
       } catch (e) {
         reasons.push(message(e));
       } finally {
@@ -221,7 +242,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
           }
         },
         rememberAutoPause: (v) => void (autoPauseBefore ??= v),
-        sampleMemory: (label) => sampleMemory(proc, label),
+        sampleMemory: (stage) => sampleMemory(proc, stage),
       };
       await spec.drive(ctx);
     } catch (e) {
@@ -274,7 +295,13 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     leaks,
     captures,
   };
-  const verdict = spec.evaluate(evidence);
+  // A judge that throws fails the run; the bundle is still written, so the failure comes with its evidence (rules 3, 4).
+  let verdict: Verdict;
+  try {
+    verdict = spec.evaluate(evidence);
+  } catch (e) {
+    verdict = { pass: false, reasons: [`judging the evidence failed: ${message(e)}`] };
+  }
   const allReasons = [...reasons, ...commonReasons(evidence), ...verdict.reasons];
   const result: CoreResult = {
     run: id,
@@ -331,6 +358,10 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
     ...(d.readAutoLoad && d.setAutoLoad ? { readAutoLoad: d.readAutoLoad, setAutoLoad: d.setAutoLoad } : {}),
     ...(config.backendHost ? { backendHost: () => connectBackendHost(config.backendHost!.file) } : {}),
     processMemory: readProcessMemory,
+    gameState: async () => {
+      const s = await readApiStatus(createServerApi(config.apiBaseUrl));
+      return { running: s.running, session: s.session };
+    },
     sleep,
     buildMod: () =>
       new Promise((resolve, reject) => {

@@ -153,6 +153,43 @@ export async function serveBackendHost(opts: { backend: Backend; file: string; p
   };
 }
 
+/**
+ * The CLI's lifecycle: the stop handler is registered before the stack starts and stays registered, so a Ctrl+C while
+ * compose comes up still ends in down -v (once it is up), and a second Ctrl+C during the close is ignored rather than
+ * killing it midway.
+ */
+export async function hostUntilStopped(opts: {
+  start(): Promise<Backend>;
+  serve(backend: Backend): Promise<BackendHost>;
+  onStop(handler: () => void): void;
+  log(s: string): void;
+}): Promise<void> {
+  let stopRequested = false;
+  let wake: () => void = () => undefined;
+  const stopped = new Promise<void>((resolve) => (wake = resolve));
+  opts.onStop(() => {
+    if (!stopRequested) opts.log("stopping: the stack goes down (down -v) as soon as it can; further Ctrl+C is ignored");
+    stopRequested = true;
+    wake();
+  });
+  const backend = await opts.start(); // a failed up already ran down -v (startBackend)
+  if (stopRequested) {
+    await backend.down();
+    return;
+  }
+  let host: BackendHost;
+  try {
+    host = await opts.serve(backend);
+  } catch (e) {
+    await backend.down();
+    throw e;
+  }
+  opts.log(`backend host up: relay ${host.relayUrl}; Ctrl+C to stop`);
+  await stopped;
+  await host.close(); // down -v, and the host file is deleted
+  opts.log("backend host stopped; the throwaway database is gone");
+}
+
 /** Reads the host file and returns a client for its fixed operations; every call carries the token. */
 export async function connectBackendHost(file: string): Promise<HostClient> {
   const host = HostFileSchema.parse(JSON.parse(readFileSync(file, "utf8")));

@@ -156,8 +156,10 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
 - `enrol` needs the backend host (below) and the staged world (`s3World`, `frmBaseUrl`), so it runs only as
   `satis-runner`. It boots the server once without the mod to clear the auto-load save (as S6 does) and puts it back at
   the end, then enrols the mod through a recorder on `127.0.0.1` that sits between the mod and the relay. It also
-  records the server's memory (`memory.json`: without the mod, with it and no game, with it and the world, at the end);
-  that is evidence only, not a pass condition yet.
+  records the server's memory (`memory.json`). Each sample's label and `game` field say whether a game was running when
+  it was taken, as `QueryServerState` said then, with the session's hash: the no-mod sample comes from that first boot,
+  which runs the auto-loaded save (`noModWithGame`), and `withModWithGame` is taken at the same stage (a save just loaded,
+  healthy). Compare those two only when their session hashes match. It is evidence only, not a pass condition yet.
 
 ## The backend host
 
@@ -181,7 +183,14 @@ through a small host on loopback.
 
    It brings the stack up from nothing (`down -v` first), listens on `127.0.0.1:<port>`, writes the host file
    (`relayUrl`, `controlUrl` and a random 64-hex-character token) and prints `backend host up: relay <url>; Ctrl+C to stop`.
-4. After the runs, press Ctrl+C: it runs `down -v` (the throwaway database is gone) and deletes the host file.
+4. After the runs, press Ctrl+C: it runs `down -v` (the throwaway database is gone) and deletes the host file. A Ctrl+C
+   while the stack is still coming up also ends in `down -v`, and a second Ctrl+C is ignored by the host. Docker's own
+   commands share the terminal, though, so a Ctrl+C can still cut a `docker compose` step short. If the terminal was
+   closed or a step was cut, clean up by hand from the satisfactory-dash checkout:
+
+       docker compose -p satis-s5 down -v
+
+   (The next `backend-host` start also runs `down -v` first.)
 
 It serves only fixed operations on the throwaway database, each behind the token: seed an enrolment code, revoke a
 credential, queue a `set_auto_pause` command, read a command, read a server's state, stop or start the relay. No SQL

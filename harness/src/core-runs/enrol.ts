@@ -53,15 +53,18 @@ export const enrol: CoreRunSpec = {
     try {
       await enrolPhase(ctx, host, recorder);
       const rounds = await collect(ctx, recorder, false, 4, undefined);
-      // The owner's memory goal: the server with the mod enrolled and pushing, still with no game (memory.json).
-      await ctx.sampleMemory("withModNoGame");
+      // The owner's memory goal (memory.json; each label says whether a game ran, as the API said then): the mod enrolled
+      // and pushing with no game; then, at the stage the no-mod pre-boot was sampled (a save just loaded and healthy,
+      // auto-pause as the server had it), the same with the mod; then after the world rounds.
+      await ctx.sampleMemory("withMod");
       await ctx.deps.loadWorld!();
       await ctx.deps.waitHealthy();
+      await ctx.sampleMemory("withMod");
       ctx.rememberAutoPause(await ctx.deps.readAutoPause!());
       await ctx.deps.setAutoPause!(false); // the factory runs, so power moves (S3)
       await ctx.deps.sleep(MIN); // the world settles
       rounds.push(...(await collect(ctx, recorder, true, 12, ctx.deps.config.frmBaseUrl)));
-      await ctx.sampleMemory("withModWorld");
+      await ctx.sampleMemory("withModAfterRounds");
       const cfg = JSON.parse(readFileSync(modConfigPath(ctx.deps.config.serverDir, MOD), "utf8")) as { enrollmentCode?: string };
       ctx.captures["enrol.json"] = {
         state: await host.state("mod"),

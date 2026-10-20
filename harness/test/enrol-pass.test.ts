@@ -46,7 +46,35 @@ const withRound = (r: Round) => {
 
 describe("enrol pass conditions", () => {
   it("passes a clean capture", () => {
-    expect(evaluate(evidence(enrol()))).toEqual({ pass: true, reasons: ["enrolled; 4 rounds with no game and 12 with the world match the game's APIs"] });
+    expect(evaluate(evidence(enrol()))).toEqual({
+      pass: true,
+      reasons: ["enrolled; 4 rounds with no game and 12 with the world match the game's APIs; autoPause compared in 16 of 16 rounds; power compared for 1 circuit group(s)"],
+    });
+  });
+
+  it("says so in the pass reason when the autoPause check was skipped, and when no circuit group was compared", () => {
+    const d = enrol();
+    for (const r of d.rounds) {
+      r.autoPause = null;
+      if (r.world) {
+        r.frm = [];
+        r.snapshot.power = { circuits: [] };
+      }
+    }
+    expect(evaluate(evidence(d))).toEqual({
+      pass: true,
+      reasons: ["enrolled; 4 rounds with no game and 12 with the world match the game's APIs; the autoPause check was skipped (GetServerOptions never answered); power compared for 0 circuit group(s)"],
+    });
+  });
+
+  it("fails, without throwing, a round whose 200 snapshot wasn't recorded", () => {
+    const d = enrol();
+    const r = d.rounds[3]!;
+    (r as { snapshot: unknown }).snapshot = undefined;
+    let v: ReturnType<typeof evaluate> | undefined;
+    expect(() => (v = evaluate(evidence(d)))).not.toThrow();
+    expect(v!.pass).toBe(false);
+    expect(v!.reasons).toEqual([`${r.at}: the snapshot body was not recorded`]);
   });
 
   it("fails with no capture or no enrolment line", () => {

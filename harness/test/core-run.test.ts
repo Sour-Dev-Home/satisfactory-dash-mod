@@ -225,12 +225,39 @@ describe("runCore", () => {
     expect(calls).toEqual([]);
   });
 
-  it("records the server's memory: without the mod in the empty boot, with it at the end, and what drive samples", async () => {
+  it("records the server's memory with whether a game ran, read at the time, in each sample's label (review of 66e1f0d)", async () => {
     const sample = { totalWorkingSetBytes: 1, processes: [{ name: "FactoryServer-Win64-Shipping-Cmd.exe", workingSetBytes: 1, peakWorkingSetBytes: 2 }] };
-    const { deps, calls } = fakeDeps({ processMemory: async () => sample });
+    // The pre-boot runs the auto-loaded save; the run's boot has none until drive loads the world.
+    const games = [{ running: true, session: "aaaaaaaaaaaa" }, { running: false, session: "da39a3ee5e6b" }, { running: true, session: "bbbbbbbbbbbb" }, null];
+    const { deps, calls } = fakeDeps({ processMemory: async () => sample, gameState: async () => games.shift() ?? null });
     Object.assign(deps, autoLoad(calls));
-    const { dir } = await runCore("enrol", spec({ emptyBoot: true, drive: async (ctx) => ctx.sampleMemory("emptyPhase") }), deps);
-    expect(JSON.parse(readFileSync(join(dir, "memory.json"), "utf8"))).toEqual({ noModNoGame: sample, emptyPhase: sample, end: sample });
+    const { dir } = await runCore("enrol", spec({
+      emptyBoot: true,
+      drive: async (ctx) => {
+        await ctx.sampleMemory("withMod");
+        await ctx.sampleMemory("withMod");
+      },
+    }), deps);
+    expect(JSON.parse(readFileSync(join(dir, "memory.json"), "utf8"))).toEqual({
+      noModWithGame: { game: true, session: "aaaaaaaaaaaa", memory: sample },
+      withModNoGame: { game: false, session: "da39a3ee5e6b", memory: sample },
+      withModWithGame: { game: true, session: "bbbbbbbbbbbb", memory: sample },
+      endGameUnknown: { game: null, session: null, memory: sample },
+    });
+  });
+
+  it("never overwrites a memory sample: a repeated label gets a number", async () => {
+    const sample = { totalWorkingSetBytes: 1, processes: [] };
+    const { deps } = fakeDeps({ processMemory: async () => sample, gameState: async () => ({ running: false, session: "x" }) });
+    const { dir } = await runCore("http-probe", spec({ drive: async (ctx) => { await ctx.sampleMemory("withMod"); await ctx.sampleMemory("withMod"); } }), deps);
+    expect(Object.keys(JSON.parse(readFileSync(join(dir, "memory.json"), "utf8")))).toEqual(["withModNoGame", "withModNoGame#2", "endNoGame"]);
+  });
+
+  it("an evaluate that throws fails the run and still writes the bundle", async () => {
+    const { result, dir } = await runCore("http-probe", spec({ evaluate: () => { throw new TypeError("x is undefined"); } }), fakeDeps().deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons).toContain("judging the evidence failed: x is undefined");
+    expect(readdirSync(dir).length).toBeGreaterThan(0);
   });
 
   it("builds outside the out dir, so nothing of the build is ever uploaded with the evidence", () => {

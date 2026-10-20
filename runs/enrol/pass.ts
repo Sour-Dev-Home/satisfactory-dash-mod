@@ -17,6 +17,9 @@ export interface Round { at: string; world: boolean; snapshot: Record<string, un
 export interface Enrol { state: { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean }; codeBlanked: boolean; credentialWritten: boolean; refused: number; rounds: Round[] }
 
 export function compareRound(r: Round): string[] {
+  // A 200 snapshot whose body wasn't recorded (over 2 MB, not JSON) fails its round instead of crashing the judge, so
+  // the bundle is still written (review of 66e1f0d, minor 3).
+  if (r.snapshot === null || typeof r.snapshot !== "object" || Array.isArray(r.snapshot)) return [`${r.at}: the snapshot body was not recorded`];
   const out: string[] = [];
   const s = r.snapshot.status as ModStatus | undefined;
   for (const k of Object.keys(r.snapshot)) if (!SNAPSHOT_KEYS.has(k)) out.push(`${r.at}: S13: unexpected snapshot field ${k}`);
@@ -72,5 +75,13 @@ export function evaluate(e: CoreEvidence): Verdict {
   if (world.length < NEED_WORLD) reasons.push(`only ${world.length} rounds with the world, need ${NEED_WORLD}`);
   for (const r of d.rounds) reasons.push(...compareRound(r));
   if (!e.lines.some((l) => /Enrolled; reporting to the backend/.test(l))) reasons.push("S9: no enrolment line");
-  return reasons.length ? { pass: false, reasons } : { pass: true, reasons: [`enrolled; ${empty.length} rounds with no game and ${world.length} with the world match the game's APIs`] };
+  if (reasons.length) return { pass: false, reasons };
+  // Said in the pass reason, never skipped silently (review of 66e1f0d): how many rounds compared auto-pause, and how
+  // many circuit groups the power comparison covered (zero groups pass, as the plan has it, but the reason says so).
+  const autoPauseRounds = d.rounds.filter((r) => r.autoPause !== null).length;
+  const autoPause = autoPauseRounds
+    ? `autoPause compared in ${autoPauseRounds} of ${d.rounds.length} rounds`
+    : "the autoPause check was skipped (GetServerOptions never answered)";
+  const groups = new Set(world.flatMap((r) => (r.frm ?? []).map((g) => g.groupId))).size;
+  return { pass: true, reasons: [`enrolled; ${empty.length} rounds with no game and ${world.length} with the world match the game's APIs; ${autoPause}; power compared for ${groups} circuit group(s)`] };
 }
