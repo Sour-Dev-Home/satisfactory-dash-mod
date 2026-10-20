@@ -119,6 +119,10 @@ S7's mod changed the setting leaves it changed, and so does S3's after it turned
 run, start the test server once, read `FG.DSAutoPause` with `GetServerOptions`, and set it back to what the test server
 had before (`ApplyServerOptions`, or the in-game server manager) before S2 or S3 measures anything.
 
+S6 also boots the server once first to clear its auto-load save (`SetAutoLoadSessionName` with an empty name), so the
+measured boot starts with no game, and sets it back at the end. A killed S6 run can leave it empty: the server then
+boots to the empty entry map until a save is loaded, which the world spikes do themselves.
+
 ## 5. Check it
 
 Actions → spike → the latest `main` push: `selftest` waits for your approval, then passes. Then run S0 with
