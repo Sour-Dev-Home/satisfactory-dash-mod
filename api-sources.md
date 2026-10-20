@@ -249,6 +249,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TArray | Engine/Source/Runtime/Core/Public/Containers/Array.h:651 | header only |
 | TArray::Num | Engine/Source/Runtime/Core/Public/Containers/Array.h:1116 | header only |
 | TArray::SetNum | Engine/Source/Runtime/Core/Public/Containers/Array.h:2320 | header only |
+| TArray::Shrink | Engine/Source/Runtime/Core/Public/Containers/Array.h:1269 | header only |
 | FString::AppendChar | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:447 | header only |
 | TCHAR | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatform.h:84 | header only |
 | FMath::IsFinite | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:586 | header only (FMath derives FPlatformMath, UnrealMathUtility.h:266; the double overload is :586) |
@@ -270,6 +271,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TArray::Append | Engine/Source/Runtime/Core/Public/Containers/Array.h:2505 | header only (the pointer and count overload) |
 | FCString::Strcmp | Engine/Source/Runtime/Core/Public/Misc/CString.h:328 | header only (FCString is TCString<TCHAR>) |
 | FTimespan | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:75 | header only |
+| FTimespan::FromMilliseconds | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:649 | header only |
 | FTimespan::FromMinutes | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:661 | header only |
 | FTimespan::FromSeconds | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:673 | header only |
 | FTimespan::Zero | Engine/Source/Runtime/Core/Public/Misc/Timespan.h:747 | header only |
@@ -406,3 +408,17 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | CURLE_PEER_FAILED_VERIFICATION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:581 | header only (an untrusted certificate: logged as TlsError) |
 | module:nghttp2 | Engine/Source/ThirdParty/nghttp2/nghttp2.Build.cs:1 | header only (libcurl needs it, libcurl.Build.cs:51-56; its dependency is private, so the mod names it) |
 | module:zlib | Engine/Source/ThirdParty/zlib/zlib.Build.cs:1 | header only (libcurl needs it, libcurl.Build.cs:51-56; its dependency is private, so the mod names it) |
+| ELogVerbosity::VerbosityMask | Engine/Source/Runtime/Core/Public/Logging/LogVerbosity.h:58 | header only |
+| ELogVerbosity::Error | Engine/Source/Runtime/Core/Public/Logging/LogVerbosity.h:28 | header only |
+| TMap::GetKeys | Engine/Source/Runtime/Core/Public/Containers/Map.h:327 | header only (the TArray overload; declared in TMapBase, which TMap inherits) |
+| TArray::Sort | Engine/Source/Runtime/Core/Public/Containers/Array.h:3425 | header only (the no-predicate overload) |
+| TArray::IsValidIndex | Engine/Source/Runtime/Core/Public/Containers/Array.h:1094 | header only |
+| TArray::Reserve | Engine/Source/Runtime/Core/Public/Containers/Array.h:3026 | header only |
+| FPowerCircuitStats::MaximumPowerConsumption | Source/FactoryGame/Public/FGPowerCircuit.h:110 | header only |
+| UFGCircuit::GetCircuitGroupID | Source/FactoryGame/Public/FGCircuit.h:71 | header only |
+| UFGPowerCircuit::IsFuseTriggered | Source/FactoryGame/Public/FGPowerCircuit.h:163 | header only |
+| UFGPowerCircuit::HasBatteries | Source/FactoryGame/Public/FGPowerCircuit.h:211 | header only |
+| UFGPowerCircuit::GetBatterySumPowerStore | Source/FactoryGame/Public/FGPowerCircuit.h:215 | header only |
+| UFGPowerCircuit::GetBatterySumPowerStoreCapacity | Source/FactoryGame/Public/FGPowerCircuit.h:219 | header only |
+| UFGPowerCircuit::GetBatterySumPowerInput | Source/FactoryGame/Public/FGPowerCircuit.h:227 | header only (clamped at 0, the charge half) |
+| UFGPowerCircuit::GetBatterySumPowerOutput | Source/FactoryGame/Public/FGPowerCircuit.h:231 | header only (clamped at 0, the discharge half) |

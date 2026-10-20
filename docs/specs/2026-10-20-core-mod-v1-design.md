@@ -60,7 +60,7 @@ One SML mod, `SatisDashAgent`. Each part does one job and mirrors a part of the 
 | `Enroller` | With a code and no credential: enrols, saves the credential, blanks the code | `enroll` |
 | `Sampler` | Builds a snapshot from native readers on the backend's cadence: **Status** (C8), **Power** (proven by S3), **AutoPause** (C9) | `sampler.ts` |
 | `Conform` | Clamps values to the contract's bounds | `conform.ts` |
-| `Pusher` | A 120-snapshot in-memory queue, oldest first; backoff from 1 s doubling to 60 s with jitter; honours `Retry-After` up to 300 s; drops a snapshot on any other 4xx; gzips bodies over 1 KB | `pusher.ts`, `queue.ts`, `backoff.ts` |
+| `Pusher` | An in-memory queue of at most 120 snapshots and 2 MiB, oldest first, each held as the body it will send (gzipped over 1 KB); backoff from 1 s doubling to 60 s with jitter; honours `Retry-After` up to 300 s; drops a snapshot on any other 4xx; gzips bodies over 1 KB | `pusher.ts`, `queue.ts`, `backoff.ts` |
 | `CommandRunner` | Long-polls for commands, runs `set_auto_pause` natively (C9), reports results, and keeps a ledger of command IDs so none runs twice | `commandRunner.ts`, `ledger.ts` |
 | `Halt` | On a 401: stops pushing and polling and logs once; a new code in the config re-enrols | `halted.ts` |
 
@@ -114,7 +114,7 @@ field only. That changes the design rather than blocking it, and goes back to th
 | Credential file broken or unreadable | Treated as not enrolled: idles until there's a code. Never sends an empty Bearer | One log line |
 | Credential written, code not yet blanked (a crash in between) | On the next boot the credential wins and the code is blanked then. One code never enrols twice | Nothing |
 | 401 on any call (revoked) | Deletes the credential, stops pushing and polling | One log line: revoked in the dashboard |
-| Backend down for a long time | The queue fills to 120 and drops the oldest. Commands pause too | One line when failures start and one when they stop |
+| Backend down for a long time | The queue fills to 120 snapshots or 2 MiB and drops the oldest. Commands pause too | One line when failures start and one when they stop |
 | Unknown command type | Reports `{ok: false, code: "unsupported"}` | The dashboard's command result |
 | `set_auto_pause` write fails | Reports `{ok: false, code: "upstream_error"}`; the ledger still records the ID, so a retry doesn't run it twice | The dashboard's command result |
 | A reader fails | That part is left out of the snapshot, never the whole snapshot; nothing propagates into the game's tick | A rate-limited log line naming the part |
@@ -186,8 +186,9 @@ recorded as accepted risks with the owner's say. Its report is kept with the v1 
 
 - `Config` and `CredentialStore`: missing, broken and valid files; the crash case where the code isn't blanked yet.
 - `Conform`: every bound in the contract, with values just inside and just outside.
-- `Pusher`: the backoff steps, the jitter range, `Retry-After` capped at 300 s, the queue dropping the oldest at 121,
-  gzip only above 1 KB, a 401 halting.
+- `Pusher`: the backoff steps, the jitter range, `Retry-After` capped at 300 s, the queue dropping the oldest at 121
+  snapshots or past 2 MiB of stored body bytes (a single snapshot over 2 MiB dropped alone), gzip only above 1 KB, a 401
+  halting.
 - `CommandRunner`: the ledger skips a repeated ID; an unknown type reports `unsupported`.
 - Snapshot JSON: checked against a fixture generated from satisfactory-dash's schema at the pinned commit, so drift
   fails the build.

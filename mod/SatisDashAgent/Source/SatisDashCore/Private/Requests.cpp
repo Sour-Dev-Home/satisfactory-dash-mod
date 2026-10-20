@@ -23,26 +23,41 @@ namespace
 		Spec.Headers.Add({ TEXT("Authorization"), TEXT("Bearer ") + Credential.AgentSecret });
 	}
 
+	void SetBody(SatisDash::FRequestSpec& Spec, SatisDash::FEncodedBody Body)
+	{
+		Spec.Headers.Add({ TEXT("Content-Type"), TEXT("application/json") });
+		if (Body.bGzip)
+		{
+			Spec.Headers.Add({ TEXT("Content-Encoding"), TEXT("gzip") });
+		}
+		Spec.Body = MoveTemp(Body.Bytes);
+	}
+
 	void SetJsonBody(SatisDash::FRequestSpec& Spec, const FString& Json)
 	{
-		const FTCHARToUTF8 Utf8(*Json);
-		TArray<uint8> Raw = TArray<uint8>(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
-		Spec.Headers.Add({ TEXT("Content-Type"), TEXT("application/json") });
-		if (Raw.Num() > SatisDash::GzipOverBytes)
-		{
-			int32 Size = FCompression::CompressMemoryBound(NAME_Gzip, Raw.Num());
-			TArray<uint8> Packed;
-			Packed.SetNumUninitialized(Size);
-			if (FCompression::CompressMemory(NAME_Gzip, Packed.GetData(), Size, Raw.GetData(), Raw.Num()))
-			{
-				Packed.SetNum(Size);
-				Spec.Headers.Add({ TEXT("Content-Encoding"), TEXT("gzip") });
-				Spec.Body = MoveTemp(Packed);
-				return;
-			}
-		}
-		Spec.Body = MoveTemp(Raw); // compression failing is not a reason to lose the snapshot
+		SetBody(Spec, SatisDash::EncodeBody(Json));
 	}
+}
+
+SatisDash::FEncodedBody SatisDash::EncodeBody(const FString& Json)
+{
+	FEncodedBody Out;
+	const FTCHARToUTF8 Utf8(*Json);
+	Out.Bytes = TArray<uint8>(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
+	if (Out.Bytes.Num() > GzipOverBytes)
+	{
+		int32 Size = FCompression::CompressMemoryBound(NAME_Gzip, Out.Bytes.Num());
+		TArray<uint8> Packed;
+		Packed.SetNumUninitialized(Size);
+		if (FCompression::CompressMemory(NAME_Gzip, Packed.GetData(), Size, Out.Bytes.GetData(), Out.Bytes.Num()))
+		{
+			Packed.SetNum(Size);
+			Packed.Shrink(); // held in the queue: give back the bound's slack
+			Out.Bytes = MoveTemp(Packed);
+			Out.bGzip = true;
+		}
+	}
+	return Out; // compression failing is not a reason to lose the snapshot: sent as is
 }
 
 FString SatisDash::PercentEncode(const FString& Value)
@@ -74,6 +89,14 @@ SatisDash::FRequestSpec SatisDash::BuildSnapshotRequest(const FAgentConfig& Conf
 	FRequestSpec Spec = Start(TEXT("POST"), Config.BackendUrl + TEXT("/agent/v1/snapshots"));
 	Authorize(Spec, Credential);
 	SetJsonBody(Spec, SnapshotJson);
+	return Spec;
+}
+
+SatisDash::FRequestSpec SatisDash::BuildSnapshotRequest(const FAgentConfig& Config, const FCredential& Credential, FEncodedBody Body)
+{
+	FRequestSpec Spec = Start(TEXT("POST"), Config.BackendUrl + TEXT("/agent/v1/snapshots"));
+	Authorize(Spec, Credential);
+	SetBody(Spec, MoveTemp(Body));
 	return Spec;
 }
 

@@ -106,6 +106,29 @@ bool FRequestsGzipTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRequestsEncodedBodyTest, "SatisDash.Core.Requests.EncodedBody", SatisDash::Test::Flags)
+
+bool FRequestsEncodedBodyTest::RunTest(const FString& Parameters)
+{
+	// The pusher stores the encoded body; what goes out must be exactly what the JSON overload sends.
+	for (const int32 Size : { 100, 3000 })
+	{
+		const FString Json = TEXT("{\"p\":\"") + FString::ChrN(Size - 8, TEXT('x')) + TEXT("\"}");
+		const FEncodedBody Encoded = EncodeBody(Json);
+		TestTrue(TEXT("gzipped only above 1 KB"), Encoded.bGzip == (Size > GzipOverBytes));
+		const FRequestSpec FromJson = BuildSnapshotRequest(Config(), Credential(), Json);
+		const FRequestSpec FromBody = BuildSnapshotRequest(Config(), Credential(), Encoded);
+		TestTrue(TEXT("the same bytes"), FromJson.Body == FromBody.Body);
+		TestEqual(TEXT("the same number of headers"), FromBody.Headers.Num(), FromJson.Headers.Num());
+		for (int32 I = 0; I < FromJson.Headers.Num() && I < FromBody.Headers.Num(); ++I)
+		{
+			SatisDash::Test::SameText(*this, TEXT("header name"), FromBody.Headers[I].Key, FromJson.Headers[I].Key);
+			SatisDash::Test::SameText(*this, TEXT("header value"), FromBody.Headers[I].Value, FromJson.Headers[I].Value);
+		}
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRequestsEncodeTest, "SatisDash.Core.Requests.PercentEncode", SatisDash::Test::Flags)
 
 bool FRequestsEncodeTest::RunTest(const FString& Parameters)

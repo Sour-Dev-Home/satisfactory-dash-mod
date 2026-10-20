@@ -13,6 +13,32 @@ namespace
 		Reply.RetryAfter = RetryAfter;
 		return Reply;
 	}
+
+	/** The text of a body StartSend returned, if it was stored as is ("" when none or gzipped). */
+	FString pusherSentText(const TOptional<FEncodedBody>& Body)
+	{
+		if (!Body.IsSet() || Body->bGzip)
+		{
+			return FString();
+		}
+		const FUTF8ToTCHAR Text = FUTF8ToTCHAR(reinterpret_cast<const ANSICHAR*>(Body->Bytes.GetData()), Body->Bytes.Num());
+		return FString::ConstructFromPtrSize(Text.Get(), Text.Length());
+	}
+
+	/** A JSON string gzip can barely shrink: Chars characters from a fixed LCG over 64 symbols (about 6 bits each). */
+	FString pusherNoiseJson(int32 Chars, uint32 Seed)
+	{
+		const TCHAR* Alphabet = TEXT("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
+		FString Out = TEXT("{\"n\":\"");
+		uint32 State = Seed;
+		for (int32 I = 0; I < Chars; ++I)
+		{
+			State = State * 1664525u + 1013904223u;
+			Out.AppendChar(Alphabet[(State >> 24) & 63]);
+		}
+		Out += TEXT("\"}");
+		return Out;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPusherBackoffTest, "SatisDash.Core.Pusher.Backoff", SatisDash::Test::Flags)
@@ -56,7 +82,7 @@ bool FPusherQueueTest::RunTest(const FString& Parameters)
 		Pusher.Enqueue(FString::Printf(TEXT("s%d"), I));
 	}
 	TestEqual(TEXT("at most 120"), Pusher.Num(), MaxQueuedSnapshots);
-	SatisDash::Test::SameText(*this, TEXT("the oldest was dropped"), Pusher.StartSend(0).Get(FString()), TEXT("s1"));
+	SatisDash::Test::SameText(*this, TEXT("the oldest was dropped"), pusherSentText(Pusher.StartSend(0)), TEXT("s1"));
 	Pusher.Clear();
 	TestEqual(TEXT("cleared"), Pusher.Num(), 0);
 	TestFalse(TEXT("nothing to send"), Pusher.StartSend(0).IsSet());
@@ -117,10 +143,97 @@ bool FPusherInFlightTest::RunTest(const FString& Parameters)
 	{
 		Pusher.Enqueue(FString::Printf(TEXT("s%d"), I));
 	}
-	SatisDash::Test::SameText(*this, TEXT("s0 in flight"), Pusher.StartSend(0).Get(FString()), TEXT("s0"));
+	SatisDash::Test::SameText(*this, TEXT("s0 in flight"), pusherSentText(Pusher.StartSend(0)), TEXT("s0"));
 	Pusher.Enqueue(TEXT("s120")); // the queue is full: s0, in flight, is dropped for room
 	Pusher.FinishSend(okReply(),0);
 	TestEqual(TEXT("s0's success doesn't pop s1"), Pusher.Num(), MaxQueuedSnapshots);
-	SatisDash::Test::SameText(*this, TEXT("s1 is next"), Pusher.StartSend(0).Get(FString()), TEXT("s1"));
+	SatisDash::Test::SameText(*this, TEXT("s1 is next"), pusherSentText(Pusher.StartSend(0)), TEXT("s1"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPusherFullAgainTest, "SatisDash.Core.Pusher.FullAgain", SatisDash::Test::Flags)
+
+bool FPusherFullAgainTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FPusher Pusher{ [] { return 1.0; } };
+	auto fullLines = [&Log]
+	{
+		int32 N = 0;
+		for (const FString& Line : Log.Take()) { N += Line.Contains(TEXT("queue is full")) ? 1 : 0; }
+		return N;
+	};
+	// A slow backend that answers every send: the queue overflows with no failure in between (2A final review).
+	for (int32 I = 0; I < 130; ++I) { Pusher.Enqueue(TEXT("{}")); }
+	TestEqual(TEXT("logged once"), fullLines(), 1);
+	for (int32 I = 0; I < 10; ++I) { Pusher.Enqueue(TEXT("{}")); }
+	TestEqual(TEXT("still once while it stays full"), fullLines(), 1);
+	while (Pusher.Num() > MaxQueuedSnapshots / 2)
+	{
+		Pusher.StartSend(0);
+		Pusher.FinishSend(SatisDash::Test::Reply(200, SatisDash::Test::SnapshotAnswerJson), 0);
+	}
+	for (int32 I = 0; I < 100; ++I) { Pusher.Enqueue(TEXT("{}")); }
+	TestEqual(TEXT("a second episode is logged again"), fullLines(), 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPusherFullAfterRefusedTest, "SatisDash.Core.Pusher.FullAfterRefused", SatisDash::Test::Flags)
+
+bool FPusherFullAfterRefusedTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FPusher Pusher{ [] { return 1.0; } };
+	auto fullLines = [&Log]
+	{
+		int32 N = 0;
+		for (const FString& Line : Log.Take()) { N += Line.Contains(TEXT("queue is full")) ? 1 : 0; }
+		return N;
+	};
+	for (int32 I = 0; I < 130; ++I) { Pusher.Enqueue(TEXT("{}")); }
+	// Drained to half by refusals (4xx), not successes: the episode still ends (task 4 review, minor 4).
+	while (Pusher.Num() > MaxQueuedSnapshots / 2)
+	{
+		Pusher.StartSend(0);
+		Pusher.FinishSend(statusReply(400), 0);
+	}
+	for (int32 I = 0; I < 100; ++I) { Pusher.Enqueue(TEXT("{}")); }
+	TestEqual(TEXT("a second episode is logged again"), fullLines(), 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPusherByteBudgetTest, "SatisDash.Core.Pusher.ByteBudget", SatisDash::Test::Flags)
+
+bool FPusherByteBudgetTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FPusher Pusher{ [] { return 1.0; } };
+	auto linesWith = [&Log](const TCHAR* Text)
+	{
+		int32 N = 0;
+		for (const FString& Line : Log.Take()) { N += Line.Contains(Text) ? 1 : 0; }
+		return N;
+	};
+	// About 75 KB each once gzipped: the 2 MiB budget fills long before the 120-snapshot cap.
+	for (int32 I = 0; I < 60; ++I) { Pusher.Enqueue(pusherNoiseJson(100000, I + 1)); }
+	TestTrue(TEXT("within the byte budget"), Pusher.QueuedBytes() <= MaxQueuedBytes);
+	TestTrue(TEXT("the budget, not the count, dropped the oldest"), Pusher.Num() < 60 && Pusher.Num() >= 20);
+	TestEqual(TEXT("logged once"), linesWith(TEXT("queue is full")), 1);
+
+	// One snapshot over the whole budget is dropped by itself; the queue keeps what it had.
+	const int32 Kept = Pusher.Num();
+	Pusher.Enqueue(pusherNoiseJson(4 * 1024 * 1024, 99));
+	TestEqual(TEXT("the oversized snapshot is dropped alone"), Pusher.Num(), Kept);
+	TestTrue(TEXT("still within the budget"), Pusher.QueuedBytes() <= MaxQueuedBytes);
+	TestEqual(TEXT("with one line"), linesWith(TEXT("larger than the queue's")), 1);
+
+	// The queue stores the body as it will be sent: gzipped above 1 KB.
+	Pusher.Clear();
+	TestTrue(TEXT("cleared"), Pusher.QueuedBytes() == 0);
+	Pusher.Enqueue(TEXT("{\"p\":\"") + FString::ChrN(5000, TEXT('x')) + TEXT("\"}"));
+	TestTrue(TEXT("stored gzipped"), Pusher.QueuedBytes() > 0 && Pusher.QueuedBytes() < 1000);
+	const TOptional<FEncodedBody> Next = Pusher.StartSend(0);
+	TestTrue(TEXT("and sent gzipped"), Next.IsSet() && Next->bGzip);
+	SatisDash::Test::NoErrorLines(*this, Log);
 	return true;
 }

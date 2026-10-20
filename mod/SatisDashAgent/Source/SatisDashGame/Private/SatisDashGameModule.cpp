@@ -83,10 +83,10 @@ private:
 		{
 			return;
 		}
-		if (TOptional<FString> Json = Pusher.StartSend(Now))
+		if (TOptional<SatisDash::FEncodedBody> Body = Pusher.StartSend(Now))
 		{
 			bSending = true;
-			Transport.Send(SatisDash::BuildSnapshotRequest(Agent.GetConfig(), *Credential, *Json), [this](const SatisDash::FHttpReply& Reply)
+			Transport.Send(SatisDash::BuildSnapshotRequest(Agent.GetConfig(), *Credential, MoveTemp(Body.GetValue())),[this](const SatisDash::FHttpReply& Reply)
 			{
 				bSending = false;
 				if (Pusher.FinishSend(Reply, FPlatformTime::Seconds()).bHalt)

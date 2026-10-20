@@ -23,12 +23,24 @@ namespace SatisDash
 	inline constexpr float LongPollGraceSeconds = 10.f;
 	inline constexpr int32 GzipOverBytes = 1024;
 
+	/** A JSON body as it goes on the wire: UTF-8, gzipped when over GzipOverBytes and compression worked. */
+	struct FEncodedBody
+	{
+		TArray<uint8> Bytes;
+		bool bGzip = false;
+	};
+
+	/** The bytes a request built from Json sends (the pusher stores these, so a queued snapshot is held compressed). */
+	SATISDASHCORE_API FEncodedBody EncodeBody(const FString& Json);
+
 	/** RFC 3986: unreserved characters kept, every other UTF-8 byte as %XX. For a command ID in a path. */
 	SATISDASHCORE_API FString PercentEncode(const FString& Value);
 	/** POST /agent/v1/enroll with {code, agentVersion}. No Authorization header. */
 	SATISDASHCORE_API FRequestSpec BuildEnrollRequest(const FAgentConfig& Config);
 	/** POST /agent/v1/snapshots. The secret goes only in the Authorization header (S7). */
 	SATISDASHCORE_API FRequestSpec BuildSnapshotRequest(const FAgentConfig& Config, const FCredential& Credential, const FString& SnapshotJson);
+	/** The same request from a body EncodeBody already made: byte for byte what the JSON overload sends. */
+	SATISDASHCORE_API FRequestSpec BuildSnapshotRequest(const FAgentConfig& Config, const FCredential& Credential, FEncodedBody Body);
 	/** GET /agent/v1/commands?waitSeconds=25, with a 35 s timeout. */
 	SATISDASHCORE_API FRequestSpec BuildCommandsPoll(const FAgentConfig& Config, const FCredential& Credential);
 	/** POST /agent/v1/commands/<id>/result. */

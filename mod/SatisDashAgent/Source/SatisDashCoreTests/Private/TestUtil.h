@@ -89,7 +89,14 @@ namespace SatisDash::Test
 			{
 				FScopeLock Lock(&Guard);
 				Lines.Add(Text);
+				Levels.Add(static_cast<ELogVerbosity::Type>(Verbosity & ELogVerbosity::VerbosityMask));
 			}
+		}
+		TArray<ELogVerbosity::Type> Verbosities()
+		{
+			GLog->Flush();
+			FScopeLock Lock(&Guard);
+			return Levels;
 		}
 		TArray<FString> Take()
 		{
@@ -101,5 +108,22 @@ namespace SatisDash::Test
 	private:
 		FCriticalSection Guard;
 		TArray<FString> Lines;
+		TArray<ELogVerbosity::Type> Levels;
 	};
+
+	/** Global Constraints: Display or Warning, never Error or Fatal. */
+	inline bool NoErrorLines(FAutomationTestBase& Test, FLogCapture& Capture)
+	{
+		const TArray<FString> Lines = Capture.Take();
+		const TArray<ELogVerbosity::Type> Levels = Capture.Verbosities();
+		for (int32 I = 0; I < Levels.Num(); ++I)
+		{
+			if (Levels[I] <= ELogVerbosity::Error)
+			{
+				Test.AddError(FString::Printf(TEXT("logged at Error: %s"), Lines.IsValidIndex(I) ? *Lines[I] : TEXT("?")));
+				return false;
+			}
+		}
+		return true;
+	}
 }

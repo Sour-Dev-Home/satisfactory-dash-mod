@@ -101,5 +101,6 @@ bool FLogNoSecretsTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("no rejected code"), Line.Contains(TEXT("QQQQ-2222"), ESearchCase::IgnoreCase));
 		TestFalse(TEXT("no Bearer"), Line.Contains(TEXT("Bearer"), ESearchCase::IgnoreCase));
 	}
+	SatisDash::Test::NoErrorLines(*this, Capture);
 	return true;
 }
