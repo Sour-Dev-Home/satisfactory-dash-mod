@@ -103,6 +103,18 @@ describe("extractUses: evasions the final review found", () => {
 void F(const FOwn& Ledger) { Ledger.Begin(); }`)).toEqual([]);
   });
 
+  it("does not excuse a receiver declared with an engine or template type", () => {
+    const own = "struct FOwn { bool IsSet() const; };\nbool FOwn::IsSet() const { return true; }\n";
+    expect(names(`${own}void F() { TOptional<FOwn> X; X.IsSet(); }`)).toContain("IsSet");
+    expect(names(`${own}void F(const FString& X) { X.IsSet(); }`)).toContain("IsSet");
+  });
+
+  it("does not excuse a name that the group declares with an own type and with an engine type", () => {
+    const own = "struct FOwn { bool IsSet() const; };\nbool FOwn::IsSet() const { return true; }\n";
+    expect(names(`${own}void A() { FOwn X; X.IsSet(); }\nvoid B() { TOptional<FOwn> X; X.IsSet(); }`)).toContain("IsSet");
+    expect(names(`${own}void A() { FOwn X; X.IsSet(); }\nvoid B(IFoo& X) { X.IsSet(); }`)).toContain("IsSet");
+  });
+
   it("does not excuse an engine receiver whose method name the group also defines", () => {
     const own = "struct FOwn { bool Delete() const; };\nbool FOwn::Delete() const { return true; }\n";
     expect(names(`${own}void F() { IFileManager& Files = IFileManager::Get(); Files.Delete(x); }`)).toContain("Delete");

@@ -297,3 +297,5 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FLogCategoryBase::GetCategoryName | Engine/Source/Runtime/Core/Public/Logging/LogCategory.h:41 | header only |
 | FScopeLock | Engine/Source/Runtime/Core/Public/Misc/ScopeLock.h:140 | header only |
 | FCriticalSection | Engine/Source/Runtime/Core/Public/HAL/CriticalSection.h:53 | header only (alias of UE::FPlatformRecursiveMutex) |
+| HAL/PlatformTime.h | Engine/Source/Runtime/Core/Public/HAL/PlatformTime.h:1 | header only |
+| FPlatformTime::Seconds | Engine/Source/Runtime/Core/Public/Windows/WindowsPlatformTime.h:23 | header only (FPlatformTime is a typedef of FWindowsPlatformTime, :64; the Linux build uses UnixPlatformTime.h) |

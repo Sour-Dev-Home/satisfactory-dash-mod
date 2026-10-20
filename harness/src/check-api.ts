@@ -49,6 +49,8 @@ interface Locals { types: Set<string>; functions: Set<string>; receivers: Set<st
 
 /** Words that can precede a call but are not a return type, so "return Foo();" never declares Foo. */
 const NOT_A_TYPE = new Set(["return", "else", "throw", "new", "delete", "case", "co_return", "co_await", "co_yield", "goto"]);
+/** Keywords that can sit before a name without declaring it ("if (x)", "else Y;", "using namespace Z;"). */
+const NOT_A_DECLARATION = new Set(["if", "while", "for", "switch", "sizeof", "const", "static", "typename", "namespace", "using", "and", "or", "not", "class", "struct", "enum"]);
 const QUALIFIERS = String.raw`\s*(?:const\s*)?(?:noexcept\s*)?(?:override\s*)?(?:final\s*)?`;
 
 /** Namespaces the engine owns: a code's own "namespace UE::Mine" never excuses them. */
@@ -73,6 +75,10 @@ function localsOf(files: SourceFile[]): Locals {
     }
     for (const m of code.matchAll(/\bIMPLEMENT_(?:SIMPLE|COMPLEX)_AUTOMATION_TEST\s*\(\s*([A-Za-z_]\w*)/g)) locals.types.add(m[1]!);
   }
+  // Names declared with one of the group's own types, and names declared with anything else (a template, an engine
+  // type, auto). Collected group-wide, so a name is excused only if no declaration anywhere gives it another type.
+  const ownDeclared = new Set<string>();
+  const otherDeclared = new Set<string>();
   for (const f of files) {
     if (!CODE_EXT.test(f.path)) continue;
     const code = blank(f.text, true);
@@ -80,10 +86,12 @@ function localsOf(files: SourceFile[]): Locals {
     for (const m of code.matchAll(/\b([A-Z]\w*)\s*::\s*(~?[A-Za-z_]\w*)\s*\(/g)) {
       if (locals.types.has(m[1]!)) locals.functions.add(m[2]!);
     }
-    // Variables, members and parameters declared with one of the group's own types ("const FOwn& Name;"): their
-    // methods are the group's own, so a "." or "->" call on them is excused. Engine-typed receivers stay checked.
-    for (const m of code.matchAll(/\b(?:const\s+)?(?:\w+\s*::\s*)*([A-Z]\w*)\s*[&*]*\s*(?:const\s+)?\b([A-Za-z_]\w*)\s*(?=[;={(,)])/g)) {
-      if (locals.types.has(m[1]!)) locals.receivers.add(m[2]!);
+    // Variables, members and parameters ("const FOwn& Name;", "TOptional<FOwn> Name;"): the type's last component,
+    // its template arguments if any, then the name.
+    for (const m of code.matchAll(/\b(?:const\s+)?((?:\w+\s*::\s*)*[A-Za-z_]\w*)\s*(<[^<>;()]*>)?\s*[&*]*\s*(?:const\s+)?\b([A-Za-z_]\w*)\s*(?=[;={(,)])/g)) {
+      const type = m[1]!.split("::").pop()!.trim();
+      if (NOT_A_TYPE.has(type) || NOT_A_DECLARATION.has(type)) continue;
+      (!m[2] && locals.types.has(type) ? ownDeclared : otherDeclared).add(m[3]!);
     }
     // Functions the spike defines with a body, or (in its own headers) declares: "<type> Name(...) {" / ";".
     const ending = HEADER_EXT.test(f.path) ? "[{;]" : "\\{";
@@ -92,6 +100,9 @@ function localsOf(files: SourceFile[]): Locals {
       if (!NOT_A_TYPE.has(m[1]!)) locals.functions.add(m[2]!);
     }
   }
+  // Methods called on a receiver of the group's own type are the group's own; a name that is also declared with any
+  // other type anywhere in the group is not trusted, because the call could be on that one.
+  for (const name of ownDeclared) if (!otherDeclared.has(name)) locals.receivers.add(name);
   return locals;
 }
 
