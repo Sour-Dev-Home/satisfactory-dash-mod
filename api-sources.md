@@ -281,3 +281,6 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TArray::SetNumUninitialized | Engine/Source/Runtime/Core/Public/Containers/Array.h:2379 | header only |
 | TPair | Engine/Source/Runtime/Core/Public/Templates/Tuple.h:46 | header only (alias of TTuple) |
 | FJsonObject::GetStringField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:185 | header only |
+| FMath::Pow | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:555 | header only (the double overload; FMath derives FPlatformMath) |
+| FCString::Atod | Engine/Source/Runtime/Core/Public/Misc/CString.h:506 | header only |
+| FString::IsNumeric | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1583 | header only (digits with one dot and an optional sign, no exponent, so "1e309" and HTTP dates are refused) |
