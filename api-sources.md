@@ -181,6 +181,8 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | IFileManager::Delete | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:107 | header only |
 | IFileManager::Move | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:113 | header only |
 | IFileManager::FileExists | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:116 | header only |
+| IFileManager::DirectoryExists | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:119 | header only |
+| FPaths::GetCleanFilename | Engine/Source/Runtime/Core/Public/Misc/Paths.h:510 | header only |
 | IFileManager::MakeDirectory | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:122 | header only |
 | IFileManager::DeleteDirectory | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:125 | header only |
 | IFileManager::GetTimeStamp | Engine/Source/Runtime/Core/Public/HAL/FileManager.h:218 | header only |

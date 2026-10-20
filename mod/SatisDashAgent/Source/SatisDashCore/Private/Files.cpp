@@ -1,5 +1,7 @@
 #include "SatisDash/Files.h"
 
+#include "SatisDash/Log.h"
+
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -31,7 +33,17 @@ bool SatisDash::WriteFileAtomic(const FString& Path, const FString& Text)
 	// on the game thread, and logs an Error. One attempt; the next save tries again.
 	if (!Files.Move(*Path, *Temp, true, false, false, true))
 	{
-		Files.Delete(*Temp, false, false, true);
+		// Move deletes the destination before it renames. If that delete worked and the rename did not, the .tmp is the
+		// only copy of the new contents: keep it (FCredentialStore::Load recovers it). Delete it only while the
+		// destination (a file, or a folder in the way) is still there.
+		if (Files.FileExists(*Path) || Files.DirectoryExists(*Path))
+		{
+			Files.Delete(*Temp, false, false, true);
+		}
+		else
+		{
+			UE_LOG(LogSatisDash, Warning, TEXT("Could not replace %s; the new contents stay in the .tmp file next to it."), *FPaths::GetCleanFilename(Path));
+		}
 		return false;
 	}
 	return true;
