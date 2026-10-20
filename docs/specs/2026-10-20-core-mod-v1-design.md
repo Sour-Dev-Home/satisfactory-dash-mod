@@ -1,7 +1,7 @@
 # G3, sub-project 2: the core mod, v1
 
-Status: draft for the owner's review (2026-10-20). Building it still needs the G3 decision record that ADR-0039 and
-owner decision D1 require; this spec is what that record will point to.
+Status: approved by the owner 2026-10-20 (mod PR #19); the build decision is ADR-0042 (satisfactory-dash #479). The
+"Security" section was added at the owner's request on 2026-10-20 and is in review with this amendment.
 
 ## What this is for
 
@@ -124,6 +124,59 @@ Two rules cover all of it:
 - **The game never notices the mod.** No path in it can crash, stall or pause the server.
 - **Logs are quiet and safe.** One line per state change, never one per attempt. Never the secret or the code, only
   present or absent, and HTTP status codes.
+
+## Security
+
+The owner asked for a security pass against OWASP (2026-10-20). The reference is the **OWASP Application Security
+Verification Standard 5.0.0** (May 2025, github.com/OWASP/ASVS, `5.0/en`), at Level 2 where a requirement applies.
+The mod is an outbound HTTPS client inside the game process: it opens no port, serves nothing and has no UI. So the
+chapters for browsers, sessions, OAuth and WebRTC (V3, V7, V10, V17) don't apply. The ones that do are mapped below.
+
+### What it protects, and from whom
+
+| Asset | Why it matters |
+| --- | --- |
+| The agent secret | Whoever holds it can push snapshots as this server and receive its commands |
+| The enrolment code | Single use for 10 minutes; whoever uses it first owns the enrolment |
+| The game's state | `set_auto_pause` changes the server; nothing else may |
+| The server's uptime | The mod must never crash, stall or slow the game |
+
+| Threat | Answer |
+| --- | --- |
+| Someone on the network path (public Wi-Fi at a host, a hostile network) reads or changes traffic | HTTPS with certificate verification on every call; no plain-HTTP fallback (V12) |
+| A redirect sends the request, and its Bearer header, to another host | Redirects aren't followed (V15) |
+| A compromised or impostor backend sends hostile responses | Every response is parsed against a strict schema with size limits; only known commands with valid parameters run (V2, V4) |
+| The secret leaks through logs or crash reports | Logging rules forbid it and the code; a harness check fails the build if either appears (V16) |
+| Another player on the server reads the secret | Nothing replicates it (C6); it's in a server-side file outside the config |
+| **Accepted:** the host's admin, or another mod in the same game process, reads the credential file or the process memory | They already control the server. Not defendable from inside the process. Answer: revoke the agent in the dashboard. The host guide (sub-project 4) says so |
+| **Accepted:** a stolen secret is used from elsewhere | It can only post snapshots for that one server and poll its commands; revoking it in the dashboard ends that |
+
+### Requirements
+
+Each one names its ASVS 5.0 requirement and how it is checked.
+
+| # | Requirement | ASVS 5.0 | Checked by |
+| --- | --- | --- | --- |
+| S1 | Every call uses `https://` with certificate verification on; a failed check is an error, never a retry over HTTP. `http://` is accepted only for `127.0.0.1` and `localhost` (the harness) | 12.2.1, 12.3.1, 12.3.2 | Unit test on `Config`'s URL rules; harness run against a wrong-host certificate, as S1b did (C3) |
+| S2 | TLS 1.2 or newer. The mod uses UE's HTTP module and sets nothing weaker; the backend enforces the floor | 12.1.1 | [NEEDS VERIFICATION: the TLS floor UE's libcurl negotiates, and the backend's minimum TLS setting] — checked once, recorded in the plan |
+| S3 | Redirects are not followed; a 3xx is an error and the Bearer header goes nowhere else | 15.3.2 | Harness: a stub backend answers 302 to another loopback port; that port must receive nothing |
+| S4 | Every response body is size-capped (64 KB; the agent's largest response is far smaller), must say `Content-Type: application/json`, and is parsed against the contract's schema; unknown fields are ignored, and wrong types or out-of-range values reject the whole response | 2.2.1, 4.1.1, 15.2.2 | Unit tests: oversized, wrong content type, malformed, wrong-type and out-of-range bodies for enrol, snapshot and command responses |
+| S5 | Cadence values from the backend are clamped to the contract's bounds (1–3600 s), so a hostile backend can't make the mod spin | 2.2.1, 15.2.2 | Unit test: cadence 0 and 10⁶ are clamped |
+| S6 | Commands: only `set_auto_pause` with a boolean `enabled` runs. Anything else reports `unsupported`. A command ID runs at most once (the ledger), and IDs are length-checked | 2.2.1, 2.3.1 | Unit tests: unknown type, missing or wrong-type params, a repeated ID, an over-long ID |
+| S7 | The secret is never sent in a URL, only in the `Authorization` header | 14.2.1 | Unit test on the request builder |
+| S8 | The secret and code are never logged, not even in part; the mod logs only "present"/"absent" and HTTP status codes | 16.2.5 | Harness check on every run's log, for the secret, the code and the string `Bearer` (S5's `bearerInLog`, extended) |
+| S9 | Security events are logged once each: enrolment succeeded or was rejected, 401 and halt, a TLS failure, a refused response | 16.3.1, 16.3.4 | Harness runs (enrol, revoke, wrong-host certificate) check for each line |
+| S10 | Any failure fails closed: no snapshot is sent without a valid credential, a broken config doesn't fall back to defaults that send data, and a failed command doesn't half-apply | 16.5.2, 16.5.3 | The error table above, each row a unit test |
+| S11 | The credential lives only in `Saved/SatisDash/credential.json`, never in the config or the build. It's written atomically (temp file, then rename). On Linux servers it's created with mode `0600` | 13.3.1, 13.3.2 | Unit test of the atomic write; on Linux, a harness check of the mode once Linux builds exist (sub-project 4) |
+| S12 | The mod contacts only the configured backend host; nothing else, including no telemetry of its own | 13.1.1, 13.2.4 | Harness: an outbound-traffic check during the parity run (only the backend's host:port is contacted) |
+| S13 | Snapshots carry game data only: no host name, IP, user name, path or player account IDs beyond what the contract defines | 14.1.1, 14.2.3 | Unit test: the snapshot JSON's fields equal the contract fixture's fields |
+| S14 | Builds are reproducible from the repository in CI; SML and the engine are pinned (`harness/toolchain.json`); a release lists its dependencies; no test code ships in a release build | 15.1.2, 15.2.3 | Sub-project 4's CI. For v1: the plan keeps test code in test-only modules |
+
+### The security review
+
+Before v1 is called done, a security review separate from the normal code review checks the finished mod against
+the table above, row by row. The workspace's `security-reviewer` agent runs it, and its findings are fixed or
+recorded as accepted risks with the owner's say. Its report is kept with the v1 evidence.
 
 ## Testing
 
