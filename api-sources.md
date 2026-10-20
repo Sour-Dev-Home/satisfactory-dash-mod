@@ -249,6 +249,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TArray | Engine/Source/Runtime/Core/Public/Containers/Array.h:651 | header only |
 | TArray::Num | Engine/Source/Runtime/Core/Public/Containers/Array.h:1116 | header only |
 | TArray::SetNum | Engine/Source/Runtime/Core/Public/Containers/Array.h:2320 | header only |
+| TArray::Shrink | Engine/Source/Runtime/Core/Public/Containers/Array.h:1269 | header only |
 | FString::AppendChar | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:447 | header only |
 | TCHAR | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatform.h:84 | header only |
 | FMath::IsFinite | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:586 | header only (FMath derives FPlatformMath, UnrealMathUtility.h:266; the double overload is :586) |

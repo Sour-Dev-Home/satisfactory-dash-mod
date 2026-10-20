@@ -29,29 +29,46 @@ SatisDash::FPusher::FPusher(TFunction<double()> InRandom01)
 {
 }
 
-void SatisDash::FPusher::Enqueue(FString SnapshotJson)
+void SatisDash::FPusher::Enqueue(const FString& SnapshotJson)
 {
-	Queue.Add({ NextSeq++, MoveTemp(SnapshotJson) });
-	if (Queue.Num() > MaxQueuedSnapshots)
+	FEncodedBody Body = EncodeBody(SnapshotJson);
+	if (Body.Bytes.Num() > MaxQueuedBytes)
 	{
-		const int32 Dropped = Queue.Num() - MaxQueuedSnapshots;
+		// Room for it would mean dropping every snapshot and still not fitting: it goes alone.
+		++Oversized;
+		if (Oversized == 1 || Oversized % 100 == 0)
+		{
+			UE_LOG(LogSatisDash, Warning, TEXT("A snapshot is larger than the queue's %lld-byte budget (%d bytes); dropped it (%d so far)"), MaxQueuedBytes, Body.Bytes.Num(), Oversized);
+		}
+		return;
+	}
+	StoredBytes += Body.Bytes.Num();
+	Queue.Add({ NextSeq++, MoveTemp(Body) });
+	int32 Dropped = 0;
+	while (Queue.Num() - Dropped > MaxQueuedSnapshots || StoredBytes > MaxQueuedBytes)
+	{
+		StoredBytes -= Queue[Dropped].Body.Bytes.Num();
+		++Dropped;
+	}
+	if (Dropped > 0)
+	{
 		Queue.RemoveAt(0, Dropped);
 		if (DroppedInStreak == 0)
 		{
-			UE_LOG(LogSatisDash, Warning, TEXT("The snapshot queue is full (%d); dropping the oldest until the backend answers"), MaxQueuedSnapshots);
+			UE_LOG(LogSatisDash, Warning, TEXT("The snapshot queue is full (%d snapshots or %lld bytes); dropping the oldest until the backend answers"), MaxQueuedSnapshots, MaxQueuedBytes);
 		}
 		DroppedInStreak += Dropped;
 	}
 }
 
-TOptional<FString> SatisDash::FPusher::StartSend(double Now)
+TOptional<SatisDash::FEncodedBody> SatisDash::FPusher::StartSend(double Now)
 {
 	if (InFlight.IsSet() || Queue.Num() == 0 || Now < NextAttemptAt)
 	{
 		return {};
 	}
 	InFlight = Queue[0].Seq;
-	return Queue[0].Json;
+	return Queue[0].Body;
 }
 
 void SatisDash::FPusher::PopIfFront(const TOptional<uint64>& Seq)
@@ -59,7 +76,18 @@ void SatisDash::FPusher::PopIfFront(const TOptional<uint64>& Seq)
 	// The sent snapshot may have been dropped for room while it was in flight (pusher.ts: queue.peek() === head).
 	if (Seq.IsSet() && Queue.Num() > 0 && Queue[0].Seq == Seq.GetValue())
 	{
+		StoredBytes -= Queue[0].Body.Bytes.Num();
 		Queue.RemoveAt(0);
+	}
+}
+
+void SatisDash::FPusher::NoteRoom()
+{
+	if (DroppedInStreak > 0 && Queue.Num() <= MaxQueuedSnapshots / 2 && StoredBytes <= MaxQueuedBytes / 2)
+	{
+		// A slow backend that never fails: the episode ends once the queue has drained to half (2A final review).
+		UE_LOG(LogSatisDash, Display, TEXT("The snapshot queue has room again (%d dropped while the backend was slow)"), DroppedInStreak);
+		DroppedInStreak = 0;
 	}
 }
 
@@ -77,6 +105,7 @@ SatisDash::FPusher::FOutcome SatisDash::FPusher::FinishSend(const FHttpReply& Re
 	if (Kind == EReplyKind::Fatal)
 	{
 		PopIfFront(Sent);
+		NoteRoom();
 		++Refused;
 		if (Refused == 1 || Refused % 100 == 0)
 		{
@@ -96,11 +125,9 @@ SatisDash::FPusher::FOutcome SatisDash::FPusher::FinishSend(const FHttpReply& Re
 				FailureCount = 0;
 				DroppedInStreak = 0;
 			}
-			else if (DroppedInStreak > 0 && Queue.Num() <= MaxQueuedSnapshots / 2)
+			else
 			{
-				// A slow backend that never fails: the episode ends once the queue has drained to half (2A final review).
-				UE_LOG(LogSatisDash, Display, TEXT("The snapshot queue has room again (%d dropped while the backend was slow)"), DroppedInStreak);
-				DroppedInStreak = 0;
+				NoteRoom();
 			}
 			return Out;
 		}
@@ -119,6 +146,7 @@ SatisDash::FPusher::FOutcome SatisDash::FPusher::FinishSend(const FHttpReply& Re
 void SatisDash::FPusher::Clear()
 {
 	Queue.Reset();
+	StoredBytes = 0;
 	InFlight.Reset();
 	NextAttemptAt = 0;
 	FailureCount = 0;

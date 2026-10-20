@@ -42,7 +42,6 @@ bool FDriverOneAtATimeTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
-	const FAgent& Agent = Driver.GetAgent();
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	F.run(Driver, 30);
 	// Pusher.h: one FinishSend per StartSend; while the backend is slow, snapshots wait in the queue.
@@ -66,7 +65,6 @@ bool FDriverPartsTest::RunTest(const FString& Parameters)
 	SatisDash::Test::FLogCapture Log;
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
-	const FAgent& Agent = Driver.GetAgent();
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	auto answerAll = [&F] { while (F.Net.answer(TEXT("/agent/v1/snapshots"), SatisDash::Test::SnapshotOk(false))) {} };
 
@@ -154,7 +152,6 @@ bool FDriverReenrolTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
-	const FAgent& Agent = Driver.GetAgent();
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	F.run(Driver, 1);
 	F.Net.answer(DriverSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
@@ -192,5 +189,68 @@ bool FDriverCadenceTest::RunTest(const FString& Parameters)
 			TEXT("{\"cadence\":{\"statusSeconds\":20,\"powerSeconds\":60,\"factorySeconds\":30},\"commandsPending\":false}")))) {}
 	}
 	TestEqual(TEXT("one pass per 20 s"), F.Net.sent(DriverSnapshots) - Before, 2);
+	return true;
+}
+
+namespace
+{
+	/**
+	 * The review's sequence: Running on backend A with a push in flight, then the config names backend B with a new
+	 * code, and B's enrolment succeeds while A's push is still out. Returns false if B never enrolled.
+	 */
+	bool driverMoveToSecondBackend(FDriverFixture& F, FDriver& Driver, const FString& Secret)
+	{
+		F.enrol(Driver, SatisDash::Test::FakeSecret());
+		F.run(Driver, 20);
+		F.writeConfig(TEXT("http://localhost:2"), TEXT("ZZZZ-2222"));
+		F.run(Driver, 61);
+		if (F.Net.pending(DriverSnapshots) != 1 || F.Net.pending(DriverEnroll) != 1)
+		{
+			return false;
+		}
+		F.Net.answer(DriverEnroll, SatisDash::Test::Reply(201, FString::Printf(
+			TEXT("{\"agentSecret\":\"%s\",\"serverId\":\"srv-2\",\"cadence\":%s}"), *Secret, SatisDash::Test::CadenceJson)));
+		const FAgent& Agent = Driver.GetAgent();
+		return Agent.GetState() == EAgentState::Running;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverStaleAuthTest, "SatisDash.Core.Driver.StaleAuth", SatisDash::Test::Flags)
+
+bool FDriverStaleAuthTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	const FAgent& Agent = Driver.GetAgent();
+	const FString Second = FString::ChrN(42, TEXT('b')) + TEXT("_");
+	TestTrue(TEXT("enrolled at B with A's push still out"), driverMoveToSecondBackend(F, Driver, Second));
+	// A revoked this server (the usual first step of a move): its 401 is about A's credential, never B's.
+	F.Net.answer(DriverSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
+	TestTrue(TEXT("still running on B"), Agent.GetState() == EAgentState::Running);
+	TestTrue(TEXT("B's credential file is kept"), IFileManager::Get().FileExists(*F.CredentialPath));
+	const FCredential* Held = Agent.GetCredential();
+	TestTrue(TEXT("B's credential is held"), Held != nullptr);
+	if (Held != nullptr)
+	{
+		SatisDash::Test::SameText(*this, TEXT("B's secret"), Held->AgentSecret, Second);
+	}
+	F.run(Driver, 1);
+	TestEqual(TEXT("the old queue was cleared, then a fresh snapshot sent"), F.Net.pending(DriverSnapshots), 1);
+	SatisDash::Test::SameText(*this, TEXT("to B, with B's secret"), F.Net.lastAuth(DriverSnapshots), TEXT("Bearer ") + Second);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverStaleCadenceTest, "SatisDash.Core.Driver.StaleCadence", SatisDash::Test::Flags)
+
+bool FDriverStaleCadenceTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	const FAgent& Agent = Driver.GetAgent();
+	TestTrue(TEXT("enrolled at B with A's push still out"), driverMoveToSecondBackend(F, Driver, FString::ChrN(42, TEXT('b')) + TEXT("_")));
+	F.Net.answer(DriverSnapshots, SatisDash::Test::Reply(200,
+		TEXT("{\"cadence\":{\"statusSeconds\":20,\"powerSeconds\":60,\"factorySeconds\":30},\"commandsPending\":false}")));
+	TestEqual(TEXT("A's late cadence is not taken"), Agent.GetCadence().StatusSeconds, 5);
+	TestTrue(TEXT("still running on B"), Agent.GetState() == EAgentState::Running);
 	return true;
 }

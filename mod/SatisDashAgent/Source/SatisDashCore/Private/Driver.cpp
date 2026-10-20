@@ -29,6 +29,8 @@ void SatisDash::FDriver::Tick()
 	}
 	if (TOptional<FRequestSpec> EnrollRequest = Agent.StartEnroll(Now))
 	{
+		// FinishEnroll is the whole of the answer and always runs (one Finish per Start). An enrolment can't go stale:
+		// it only starts while not Running, and CheckConfig waits for its answer, so the backend can't change under it.
 		Transport.Send(*EnrollRequest, [this](const FHttpReply& Reply) { Agent.FinishEnroll(Reply, Clock.Now()); });
 	}
 
@@ -36,17 +38,20 @@ void SatisDash::FDriver::Tick()
 	const bool bNowRunning = Agent.GetCredential() != nullptr;
 	if (bRunning && !bNowRunning)
 	{
+		++Generation;
 		bClearPending = true;
 		StopCommands();
 	}
 	if (!bRunning && bNowRunning)
 	{
+		++Generation;
 		NextStatusAt = Now;
 		LastPowerAt.Reset();
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
 	{
+		++Generation;
 		Pusher.Clear();
 		bClearPending = false;
 	}
@@ -117,18 +122,27 @@ void SatisDash::FDriver::TickPush(double Now)
 	{
 		return;
 	}
-	const TOptional<FString> SnapshotJson = Pusher.StartSend(Now);
-	if (!SnapshotJson.IsSet())
+	TOptional<FEncodedBody> Body = Pusher.StartSend(Now);
+	if (!Body.IsSet())
 	{
 		return;
 	}
 	bSendInFlight = true;
-	Transport.Send(BuildSnapshotRequest(Agent.GetConfig(), *Credential, *SnapshotJson), [this](const FHttpReply& Reply)
+	const uint32 SentIn = Generation;
+	Transport.Send(BuildSnapshotRequest(Agent.GetConfig(), *Credential, MoveTemp(Body.GetValue())), [this, SentIn](const FHttpReply& Reply)
 	{
 		bSendInFlight = false;
 		const FPusher::FOutcome Outcome = Pusher.FinishSend(Reply, Clock.Now());
+		if (SentIn != Generation)
+		{
+			// Sent with an older credential, or to an older backend (task 4 review): its 401 or cadence is about that
+			// one, never the one held now. Its queue is cleared on the next tick (bClearPending). A revoked old
+			// credential kept this way costs one more 401 if the config ever switches back to its backend.
+			return;
+		}
 		if (Outcome.bHalt)
 		{
+			++Generation;
 			Agent.OnAuthRejected();
 			return;
 		}

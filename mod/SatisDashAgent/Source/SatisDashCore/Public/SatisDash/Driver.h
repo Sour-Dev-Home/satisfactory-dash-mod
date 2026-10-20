@@ -26,11 +26,13 @@ namespace SatisDash
 	/**
 	 * The Node agent's agentRunner.ts on one game-thread tick: config checks, enrolment, sampling, pushing, commands and
 	 * halt. Owns every pairing rule in Agent.h and Pusher.h, so the game module only ticks it. Not copyable: replies
-	 * call back into it, so it must outlive every request it sent (the transport's CancelAll ensures that).
+	 * call back into it, so it must outlive every request it sent. ITransport has no cancel: whoever owns the transport
+	 * must destroy the driver together with dropping its handlers, never drop them and keep ticking (an unanswered Start
+	 * wedges enrolment or pushing).
 	 *
-	 * Memory (it lives for the server's whole uptime): the snapshot queue is at most MaxQueuedSnapshots (120) bodies,
-	 * the part log at most three keys (status, auto-pause, power), at most one enrolment and one push in flight. A tick
-	 * with nothing due allocates nothing.
+	 * Memory (it lives for the server's whole uptime): the snapshot queue holds at most MaxQueuedSnapshots (120) bodies
+	 * and MaxQueuedBytes (2 MiB) of them, the part log at most three keys (status, auto-pause, power), at most one
+	 * enrolment and one push in flight. A tick with nothing due allocates nothing.
 	 */
 	class SATISDASHCORE_API FDriver
 	{
@@ -58,7 +60,7 @@ namespace SatisDash
 		ITransport& Transport;
 		IGameReader& Game;
 		FAgent Agent;
-		/** Bounded: at most MaxQueuedSnapshots (120) snapshots, the oldest dropped first (Pusher.h). */
+		/** Bounded: at most MaxQueuedSnapshots (120) snapshots and MaxQueuedBytes (2 MiB), the oldest dropped first (Pusher.h). */
 		FPusher Pusher;
 		/** Bounded: one key per snapshot part (status, auto-pause, power), each logged at most once per 600 s. */
 		FRateLimitedLog PartLog;
@@ -69,6 +71,11 @@ namespace SatisDash
 		bool bSendInFlight = false;
 		/** Leaving Running asks for a Clear; it happens once no send is in flight (Pusher.h). */
 		bool bClearPending = false;
+		/**
+		 * Which backend and credential a reply belongs to: bumped whenever they change (leaving or entering Running, a
+		 * halt, a Clear). A reply sent under an older generation still finishes its Start, and changes nothing else.
+		 */
+		uint32 Generation = 0;
 		// Task 5 adds the command members here.
 	};
 }
