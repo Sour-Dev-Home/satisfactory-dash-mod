@@ -234,9 +234,11 @@ describe("runSpike", () => {
       collectPower: async () => (seen.push("collect"), { pairs, frmCircuits: [0], modCircuits: [0] }),
       stop: async () => void (seen.push("stop"), calls.push("stop")),
     }, `LogSatisMod: Display: satis-mod loaded\n${lines.join("\n")}\n`);
-    const { result } = await runSpike("S3", deps);
+    const { result, dir } = await runSpike("S3", deps);
     expect(seen).toEqual(["healthy", "load world", "healthy", "read autopause", "autopause false", "collect", "autopause true", "stop"]);
     expect(result.pass).toBe(true);
+    // The bundle shows what was compared (run #11's had only the summary).
+    expect(JSON.parse(readFileSync(join(dir, "power.json"), "utf8"))).toEqual({ pairs, frmCircuits: [0], modCircuits: [0] });
   });
 
   it("S3: refuses before building when another server keeps its settings in this account's saves folder", async () => {

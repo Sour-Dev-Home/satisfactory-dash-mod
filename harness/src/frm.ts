@@ -25,11 +25,15 @@ export function parseS3Lines(lines: string[]): { circuitId: number; reading: Pow
   });
 }
 
-/** A mod circuit pairs with the FRM group whose only associated circuit it is (ruling 6); otherwise frm is null. */
+/** A mod circuit pairs with the FRM group holding it (ruling 6, amended by the owner 2026-10-20: in run #11 FRM grouped
+ *  circuits 0 and 3, and the mod read the group's figures for both). The verdict checks that a joined group's circuits
+ *  read the same values; a circuit FRM doesn't know pairs with null. */
 export function pairReadings(at: string, mod: { circuitId: number; reading: PowerReading }[], frm: FrmGroup[] | null): PowerPair[] {
   return mod.map(({ circuitId, reading }) => {
-    const g = frm?.find((x) => x.circuits.length === 1 && x.circuits[0] === circuitId);
-    return { at, circuitId, mod: reading, frm: g ? { production: g.production, consumption: g.consumption, capacity: g.capacity } : null };
+    const g = frm?.find((x) => x.circuits.includes(circuitId));
+    return g
+      ? { at, circuitId, mod: reading, frm: { production: g.production, consumption: g.consumption, capacity: g.capacity }, group: g.circuits }
+      : { at, circuitId, mod: reading, frm: null };
   });
 }
 
