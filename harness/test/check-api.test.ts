@@ -92,7 +92,19 @@ describe("extractUses: evasions the final review found", () => {
   it("excuses a local method only when called on this", () => {
     const local = "class FLocalThing {};\nvoid FLocalThing::ProcessRequest() {}\n";
     expect(names(`${local}this->ProcessRequest();`)).toEqual([]);
-    expect(names(`${local}Req->ProcessRequest();`)).toEqual(["ProcessRequest"]);
+    expect(names(`${local}Req->Other();`)).toEqual(["Other"]);
+  });
+
+  it("excuses a method called through . or -> when the group defines it out of line on its own class", () => {
+    const own = "struct FOwn { bool Load() const; };\nbool FOwn::Load() const { return true; }\n";
+    expect(names(`${own}void F() { Store.Load(); }`)).toEqual([]);
+    expect(names(`${own}void F() { Store->Load(); }`)).toEqual([]);
+  });
+
+  it("still reports a method with no own out-of-line definition, or only a declaration", () => {
+    expect(names("void F() { Thing.Fetch(); }")).toEqual(["Fetch"]);
+    expect(names("struct FOwn { bool Fetch(); };\nvoid F() { x.Fetch(); }")).toEqual(["Fetch"]);
+    expect(names("bool UEngineThing::Fetch() { return true; }\nvoid F() { x.Fetch(); }")).toContain("Fetch");
   });
 
   it("excuses a function the spike defines or declares itself, but not a call in a return", () => {
