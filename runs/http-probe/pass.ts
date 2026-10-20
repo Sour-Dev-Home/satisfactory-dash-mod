@@ -1,5 +1,6 @@
 // The HTTP probe (Plan 2B Task 1): S2, S3, User-Agent, and S1/S9 against an untrusted certificate. Gate A.
-// Backend TLS minimum, from the dash session: <pending>
+// Backend TLS minimum, from the dash session (2026-10-20): api.satis-manager.com accepts TLS 1.2 and 1.3 and refuses 1.1
+// (alert 70, measured with OpenSSL 3.5.6); set at Cloudflare's edge (Minimum TLS Version, inferred from the handshakes).
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { ProbeRequest } from "../../harness/src/probe-stub";
 import type { Verdict } from "../../harness/src/verdict";
@@ -11,8 +12,9 @@ const TLS12 = 0x0303;
 interface Probe {
   redirectingSince: string | null;
   requests: ProbeRequest[];
-  hellos: { supportedVersions: number[] }[];
-  untrusted: { handshakeFailures: number; requests: number };
+  /** supportedVersions is null when the hello has no supported_versions extension (probe-stub.ts parseClientHello). */
+  hellos: { supportedVersions: number[] | null }[];
+  untrusted: { url: string; handshakeFailures: number; requests: number };
 }
 
 export function evaluate(e: CoreEvidence): Verdict {
@@ -41,14 +43,18 @@ export function evaluate(e: CoreEvidence): Verdict {
   }
 
   if (!p.hellos.length) reasons.push("S2: no ClientHello arrived");
-  else {
-    const lowest = Math.min(...p.hellos.flatMap((h) => h.supportedVersions));
+  else if (p.hellos.some((h) => h.supportedVersions === null)) {
+    // Without the extension the hello names only the client's maximum version.
+    reasons.push("S2: the ClientHello has no supported_versions, so its floor is unproven");
+  } else {
+    const lowest = Math.min(...p.hellos.flatMap((h) => h.supportedVersions ?? []));
     if (lowest < TLS12) reasons.push(`S2: the mod offers TLS below 1.2 (0x${lowest.toString(16)})`);
   }
 
   if (!p.untrusted.handshakeFailures) reasons.push("S1: the untrusted certificate's handshake never failed");
   if (p.untrusted.requests) reasons.push("S1: data arrived over a certificate nobody trusts: verification is off");
-  if (!e.lines.some((l) => /Couldn't reach the backend \(/.test(l))) reasons.push("S9: no line for the failed TLS connection");
+  // The line must name the untrusted backend's origin: the hello phase's failure (another origin) doesn't count.
+  if (!e.lines.some((l) => l.includes(`Couldn't reach the backend at ${p.untrusted.url} (`))) reasons.push("S9: no line for the failed TLS connection");
 
   return reasons.length
     ? { pass: false, reasons }

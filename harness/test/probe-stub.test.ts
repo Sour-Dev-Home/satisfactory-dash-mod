@@ -18,8 +18,8 @@ describe("parseClientHello", () => {
   it("reads supported_versions and drops GREASE values", () => {
     expect(parseClientHello(hello(0x0303, [0x0a0a, 0x0304, 0x0303]))).toEqual({ legacyVersion: 0x0303, supportedVersions: [0x0304, 0x0303] });
   });
-  it("falls back to the legacy version without the extension", () => {
-    expect(parseClientHello(hello(0x0301))).toEqual({ legacyVersion: 0x0301, supportedVersions: [0x0301] });
+  it("says the versions are unknown without the extension: the legacy version is the maximum, not the floor", () => {
+    expect(parseClientHello(hello(0x0303))).toEqual({ legacyVersion: 0x0303, supportedVersions: null });
   });
   it("refuses what isn't a ClientHello", () => {
     expect(parseClientHello(Buffer.from("GET / HTTP/1.1\r\n\r\n"))).toBeNull();

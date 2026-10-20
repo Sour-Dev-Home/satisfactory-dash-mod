@@ -330,3 +330,5 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | ReadAutoPause | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:32 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |
 | ReadPower | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:34 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |
 | ApplyAutoPause | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Ports.h:36 | the plugin's own declaration, not an engine symbol: check-api reads a using-alias and a pure virtual (= 0) as uses (Plan 2B Task 1) |
+| ESearchDir::FromStart | Engine/Source/Runtime/Core/Public/Misc/CString.h:36 | header only (namespace ESearchDir, :31) |
+| FString::Find | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1314 | header only (the const TCHAR* overload with search case, direction and start position) |

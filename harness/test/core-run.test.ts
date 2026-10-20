@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RunnerConfigSchema } from "../src/config";
-import { type CoreDeps, type CoreRunSpec, credentialPath, MOD, runCore } from "../src/core-run";
+import { type CoreDeps, type CoreRunSpec, coreBuildDir, credentialPath, MOD, runCore } from "../src/core-run";
 import { modConfigPath } from "../src/mod-config";
 import { RefusalError } from "../src/run";
 import type { ServerProcess } from "../src/server-control";
@@ -37,6 +37,7 @@ function fakeDeps(over: Partial<CoreDeps> = {}, log = () => "[x][1]LogSatisDash:
     buildMod: async () => (calls.push("build"), "D:/b/SatisDashAgent"),
     removeSpikeMods: () => void calls.push("remove SatisMod*"),
     install: (dir, expected) => void calls.push(`install ${dir} as ${expected}`),
+    removeMod: (name) => void calls.push(`uninstall ${name}`),
     start: () => {
       const p: ServerProcess = { pid: 100 + procs.length, exited: new Promise(() => {}) };
       procs.push(p);
@@ -82,7 +83,7 @@ describe("runCore", () => {
   it("passes a clean run and writes its bundle", async () => {
     const { deps, calls } = fakeDeps();
     const { result, dir } = await runCore("http-probe", spec(), deps);
-    expect(calls).toEqual(["probe", "build", "remove SatisMod*", "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy", "stop"]);
+    expect(calls).toEqual(["probe", "build", "remove SatisMod*", "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy", "stop", "uninstall SatisDashAgent"]);
     expect(result).toMatchObject({ run: "http-probe", pass: true, reasons: ["fine"], modLines: ["[x][1]LogSatisDash: Display: booted"] });
     expect(dir).toMatch(/core-http-probe-2026-10-20T16-00-00-000Z$/);
     expect(JSON.parse(readFileSync(join(dir, "leaks.json"), "utf8"))).toEqual({ code: false, secret: null, bearer: false });
@@ -102,6 +103,7 @@ describe("runCore", () => {
     expect(result.pass).toBe(false);
     expect(result.reasons[0]).toBe("boom");
     expect(stopped).toEqual(procs);
+    expect(calls.at(-1)).toBe("uninstall SatisDashAgent");
     expect(calls).toContain("auto-pause false");
     expect(calls.indexOf("auto-pause false")).toBeLessThan(calls.indexOf("stop"));
     const cred = credentialPath(serverDir);
@@ -164,6 +166,20 @@ describe("runCore", () => {
     await expect(runCore("enrol", spec({ backend: true }), noHost.deps)).rejects.toThrow(RefusalError);
     await expect(runCore("enrol", spec({ backend: true }), noHost.deps)).rejects.toThrow(/needs the backend host/);
     expect(noHost.calls).toEqual([]);
+  });
+
+  it("uninstalls the mod even when installing it fails", async () => {
+    const { deps, calls } = fakeDeps({ install: () => { throw new Error("copy failed"); } });
+    await expect(runCore("http-probe", spec(), deps)).rejects.toThrow(/copy failed/);
+    expect(calls.at(-1)).toBe("uninstall SatisDashAgent");
+  });
+
+  it("builds outside the out dir, so nothing of the build is ever uploaded with the evidence", () => {
+    for (const out of [join(tmpdir(), "core-run"), join(tmpdir(), "core-run") + "/", "relative/out"]) {
+      const rel = relative(out, coreBuildDir(out));
+      expect(rel.startsWith("..") || isAbsolute(rel), `${out} -> ${coreBuildDir(out)}`).toBe(true);
+      expect(coreBuildDir(out).endsWith(MOD)).toBe(true);
+    }
   });
 
   it("refuses when check-api fails or the build fails", async () => {

@@ -142,8 +142,9 @@ The core mod's unit tests (`mod/SatisDashAgent`, UE automation tests) run throug
 
 `harness core-run <run> --out <dir>` (workflow `core-run.yml`, "Run workflow" only) puts the core mod on the test
 server and judges it by `runs/<run>/pass.ts`. Each run builds the mod with `scripts/build-mod.ps1` (so `modTest` must
-be set, as above), installs it, writes its config, starts the server, drives the run, stops the server, and always
-deletes the mod's config and credential afterwards, failed runs included. Every run also fails if the mod logs at
+be set, as above) into `<out>-build`, beside the uploaded out dir and never inside it. It installs the mod, writes its
+config, starts the server, drives the run and stops the server. Afterwards it always deletes the mod's config and
+credential and uninstalls the mod, failed runs included. Every run also fails if the mod logs at
 Error, or if the server log carries the run's enrolment code, the agent secret or the string `Bearer`.
 
 - `http-probe` talks only to stubs it starts on `127.0.0.1`, and needs `openssl` on the runner account's `PATH` (Git

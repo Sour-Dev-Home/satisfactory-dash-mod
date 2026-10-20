@@ -4,7 +4,9 @@ import type { CoreEvidence } from "../src/core-run";
 import type { ProbeRequest } from "../src/probe-stub";
 
 const REDIRECTED = "[t][1]LogSatisDash: Warning: The backend redirected a request; its answer was refused (redirects are never accepted)";
-const UNREACHABLE = "[t][2]LogSatisDash: Warning: Couldn't reach the backend (ConnectionError)";
+const UNTRUSTED_URL = "https://127.0.0.1:4443";
+const HELLO_UNREACHABLE = "[t][2]LogSatisDash: Warning: Couldn't reach the backend at https://127.0.0.1:4442 (ConnectionError)";
+const UNREACHABLE = `[t][3]LogSatisDash: Warning: Couldn't reach the backend at ${UNTRUSTED_URL} (ConnectionError)`;
 
 const req = (over: Partial<ProbeRequest>): ProbeRequest => ({
   at: "2026-10-20T16:00:01.000Z",
@@ -30,12 +32,12 @@ function probe(over: Record<string, unknown> = {}) {
       req({ observedAt: "2026-10-20T16:00:16.000Z", at: "2026-10-20T16:01:02.000Z" }),
     ],
     hellos: [{ supportedVersions: [0x0304, 0x0303] }],
-    untrusted: { handshakeFailures: 1, requests: 0 },
+    untrusted: { url: UNTRUSTED_URL, handshakeFailures: 1, requests: 0 },
     ...over,
   };
 }
 
-const evidence = (p: unknown, lines = [REDIRECTED, UNREACHABLE]): CoreEvidence => ({
+const evidence = (p: unknown, lines = [REDIRECTED, HELLO_UNREACHABLE, UNREACHABLE]): CoreEvidence => ({
   lines,
   errorLines: [],
   leaks: { code: false, secret: false, bearer: false },
@@ -94,7 +96,7 @@ describe("http-probe pass conditions", () => {
   });
 
   it("fails data over the untrusted certificate, and a handshake that never failed", () => {
-    const v = evaluate(evidence(probe({ untrusted: { handshakeFailures: 0, requests: 2 } })));
+    const v = evaluate(evidence(probe({ untrusted: { url: UNTRUSTED_URL, handshakeFailures: 0, requests: 2 } })));
     expect(v.pass).toBe(false);
     expect(v.reasons).toContain("S1: data arrived over a certificate nobody trusts: verification is off");
     expect(v.reasons).toContain("S1: the untrusted certificate's handshake never failed");
@@ -105,5 +107,18 @@ describe("http-probe pass conditions", () => {
     expect(noRedirect.pass).toBe(false);
     expect(noRedirect.reasons).toContain("S9: no line saying a redirected answer was refused");
     expect(evaluate(evidence(probe(), [REDIRECTED])).reasons).toContain("S9: no line for the failed TLS connection");
+  });
+
+  it("needs the TLS failure line for the untrusted backend's origin: the hello phase's line doesn't count", () => {
+    const onlyHello = evaluate(evidence(probe(), [REDIRECTED, HELLO_UNREACHABLE]));
+    expect(onlyHello.pass).toBe(false);
+    expect(onlyHello.reasons).toEqual(["S9: no line for the failed TLS connection"]);
+    expect(evaluate(evidence(probe(), [REDIRECTED, HELLO_UNREACHABLE, UNREACHABLE])).pass).toBe(true);
+  });
+
+  it("fails a ClientHello without supported_versions: its floor is unproven", () => {
+    const v = evaluate(evidence(probe({ hellos: [{ supportedVersions: [0x0304, 0x0303] }, { supportedVersions: null }] })));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toEqual(["S2: the ClientHello has no supported_versions, so its floor is unproven"]);
   });
 });

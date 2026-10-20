@@ -110,8 +110,11 @@ export async function startProbeStub(now: () => Date = () => new Date()): Promis
   };
 }
 
-/** TLS record type 22 (handshake), message type 1 (ClientHello); extension 43 is supported_versions (RFC 8446 4.2.1). */
-export function parseClientHello(buf: Buffer): { legacyVersion: number; supportedVersions: number[] } | null {
+/**
+ * TLS record type 22 (handshake), message type 1 (ClientHello); extension 43 is supported_versions (RFC 8446 4.2.1).
+ * Without that extension supportedVersions is null: the legacy version is the client's maximum, so its floor is unknown.
+ */
+export function parseClientHello(buf: Buffer): { legacyVersion: number; supportedVersions: number[] | null } | null {
   try {
     if (buf[0] !== 0x16 || buf[5] !== 0x01) return null;
     let at = 9;
@@ -120,7 +123,7 @@ export function parseClientHello(buf: Buffer): { legacyVersion: number; supporte
     at += 1 + buf[at]!; // session id
     at += 2 + buf.readUInt16BE(at); // cipher suites
     at += 1 + buf[at]!; // compression methods
-    if (at >= buf.length) return { legacyVersion, supportedVersions: [legacyVersion] };
+    if (at >= buf.length) return { legacyVersion, supportedVersions: null };
     const end = at + 2 + buf.readUInt16BE(at);
     if (end > buf.length) return null;
     at += 2;
@@ -135,13 +138,13 @@ export function parseClientHello(buf: Buffer): { legacyVersion: number; supporte
       }
       at += 4 + len;
     }
-    return { legacyVersion, supportedVersions: [legacyVersion] };
+    return { legacyVersion, supportedVersions: null };
   } catch {
     return null;
   }
 }
 
-export interface HelloCapture { url: string; hellos: { at: string; legacyVersion: number; supportedVersions: number[] }[]; close(): Promise<void> }
+export interface HelloCapture { url: string; hellos: { at: string; legacyVersion: number; supportedVersions: number[] | null }[]; close(): Promise<void> }
 
 /** S2: a plain TCP listener that reads the first TLS record, keeps the versions offered, and hangs up. */
 export async function startHelloCapture(now: () => Date = () => new Date()): Promise<HelloCapture> {

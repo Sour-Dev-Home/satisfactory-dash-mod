@@ -1,13 +1,13 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { type RunnerConfig } from "./config";
 import { redact, writeBundle } from "./evidence";
 import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
 import { lastLines, RefusalError, type RunDeps, realDeps } from "./run";
-import type { ServerProcess } from "./server-control";
+import { removeMod, type ServerProcess } from "./server-control";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
@@ -58,6 +58,8 @@ export type CoreDeps = Pick<RunDeps,
   "waitHealthy" | "resetLog" | "readLogSince" | "loadWorld" | "savesConflict" | "readAutoPause" | "setAutoPause" | "sampleTicks" | "now" | "env"> & {
   /** Runs scripts/build-mod.ps1 and returns the unpacked plugin's folder. */
   buildMod(): Promise<string>;
+  /** Uninstalls a mod from the test server's Mods folder. */
+  removeMod(name: string): void;
   sleep(ms: number): Promise<void>;
   /** Present when the runner config names the backend host's file. Task 6 adds the host and gives this its type. */
   backendHost?: () => Promise<unknown>;
@@ -186,6 +188,8 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     // The file goes with the config whatever happened.
     noteSecret();
     scrub();
+    // The core mod never stays on the test server: a later spike run would boot with it loaded.
+    deps.removeMod(MOD);
   }
 
   const leaks = { code: codes.some((c) => log.includes(c)), secret: secrets.length ? secrets.some((s) => log.includes(s)) : null, bearer: /Bearer/.test(log) };
@@ -218,10 +222,19 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Where the mod is built: a sibling of the out dir (<out>-build/SatisDashAgent), never inside it. The out dir is the
+ * public artifact, and a packaged plugin (its PDB holds the build machine's paths) must never be uploaded.
+ */
+export function coreBuildDir(outDir: string): string {
+  const out = resolve(outDir);
+  return join(dirname(out), `${basename(out)}-build`, MOD);
+}
+
 /** The spike runner's real dependencies that a core run uses, plus the mod's own build (scripts/build-mod.ps1). */
 export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir: string, repoRoot: string): CoreDeps {
   const d = realDeps(config, toolchain, outDir, repoRoot);
-  const built = join(outDir, "build", MOD);
+  const built = coreBuildDir(outDir);
   return {
     config: d.config,
     toolchain: d.toolchain,
@@ -230,6 +243,7 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
     serverAnswering: d.serverAnswering,
     install: d.install,
     removeSpikeMods: d.removeSpikeMods,
+    removeMod: (name) => removeMod(name, config.serverDir),
     start: d.start,
     stop: d.stop,
     waitHealthy: d.waitHealthy,

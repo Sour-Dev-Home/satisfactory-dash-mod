@@ -24,6 +24,8 @@ export const httpProbe: CoreRunSpec = {
         ctx.writeConfig({ backendUrl: stub.backendUrl, enrollmentCode: randomCode() });
         await ctx.waitFor("an enrol and three snapshots", () =>
           stub.requests.filter((r) => r.path === "/agent/v1/snapshots").length >= 3 ? true : undefined, 3 * MIN);
+        // S8: the secret is searched for in the log whatever the agent later does with its file.
+        ctx.noteSecret();
         // 2. S3: snapshots now get 302 to the other port; the mod retries with backoff (1, 2, 4, 8, 16 s ...).
         stub.startRedirecting();
         await ctx.deps.sleep(MIN);
@@ -39,7 +41,7 @@ export const httpProbe: CoreRunSpec = {
           redirectingSince: stub.redirectingSince(),
           requests: stub.requests,
           hellos: hello.hellos,
-          untrusted: { handshakeFailures: untrusted.handshakeFailures, requests: untrusted.requests },
+          untrusted: { url: untrusted.url, handshakeFailures: untrusted.handshakeFailures, requests: untrusted.requests },
         };
         await untrusted.close();
       }
