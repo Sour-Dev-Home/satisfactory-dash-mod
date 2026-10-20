@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { logOffset, modLines, readLogSince, resetLog, versionLines, waitForLine } from "../src/log-watch";
+import { lineReader, logOffset, modLines, readLogSince, resetLog, versionLines, waitForLine } from "../src/log-watch";
 
 let dir = "";
 let log = "";
@@ -85,5 +85,17 @@ describe("log text helpers", () => {
   it("leaves out the crash reporter's auth header, which only looks like a version line", () => {
     const text = "LogInit: Net CL: 513885\nx-sentry-auth:Sentry sentry_key=abc, sentry_version=7, sentry_client=x\n";
     expect(versionLines(text)).toEqual(["LogInit: Net CL: 513885"]);
+  });
+});
+
+describe("lineReader", () => {
+  it("returns only new whole lines containing the marker, and advances past them", () => {
+    writeFileSync(log, "a satis-mod s6 one\nnoise\nb satis-mod s6 tw");
+    const r = lineReader(log, 0, "satis-mod s6 ");
+    expect(r.readNew()).toEqual(["a satis-mod s6 one"]);
+    appendFileSync(log, "o\n");
+    expect(r.readNew()).toEqual(["b satis-mod s6 two"]);
+    expect(r.readNew()).toEqual([]);
+    expect(r.offset()).toBe(Buffer.byteLength("a satis-mod s6 one\nnoise\nb satis-mod s6 two\n"));
   });
 });

@@ -1,7 +1,7 @@
 import type { CapturedRequest } from "./echo";
 import type { TickSeries } from "./ticks";
 
-export const SPIKE_IDS = ["S0", "S1", "S1b", "S2", "S3", "S4", "S5"] as const;
+export const SPIKE_IDS = ["S0", "S1", "S1b", "S2", "S3", "S4", "S5", "S6", "S7"] as const;
 export type SpikeId = (typeof SPIKE_IDS)[number];
 
 /** S4: what the harness wrote, and whether the full value showed up in the server log. */
@@ -11,6 +11,13 @@ export interface BackendEvidence { codeConsumed: boolean; agentVersion: string |
 /** S3: one mod reading paired with FRM's reading of the same circuit, taken right after it. */
 export interface PowerReading { production: number; consumption: number; capacity: number }
 export interface PowerPair { at: string; circuitId: number; mod: PowerReading; frm: PowerReading | null; group?: number[] }
+/** S6: one round of status, as the mod read it natively and as QueryServerState plus HealthCheck reported it. The
+ *  session is the first 12 hex characters of the name's SHA-1 over UTF-8: bundles are public. */
+export interface StatusReading { running: boolean; paused: boolean; players: number; limit: number; duration: number; tickRate: number; health: string; session: string }
+export interface StatusPair { at: string; mod: StatusReading; api: StatusReading | null }
+/** S7: one step the mod logged (read, set, check, restore, final) and GetServerOptions' value read right after. */
+export type AutoPauseStepName = "read" | "set" | "check" | "restore" | "final";
+export interface AutoPauseStep { at: string; step: AutoPauseStepName; mod: boolean; pending: boolean | null; api: boolean | null }
 
 export interface Evidence {
   modLines: string[];
@@ -19,5 +26,8 @@ export interface Evidence {
   credential?: CredentialEvidence;
   backend?: BackendEvidence;
   power?: { pairs: PowerPair[]; frmCircuits: number[]; modCircuits: number[] };
+  status?: { pairs: StatusPair[] };
+  /** `before`: what GetServerOptions said before the mod acted (null if that read failed). */
+  autoPause?: { before: boolean | null; steps: AutoPauseStep[] };
 }
 export interface Verdict { pass: boolean; reasons: string[] }

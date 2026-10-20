@@ -109,6 +109,16 @@ satisfactory-dash's G0 addendum 2 (#462): `docs-vault/raw-sources/dedicated-serv
   The config names `"frmBaseUrl": "http://127.0.0.1:18081"`. FRM's web server didn't start on the empty entry map
   (one boot, 2026-10-20), so the S3 run itself is the first check of the port.
 
+S6 and S7 load the same staged save and follow the same rule: they run only as `satis-runner`, and the harness
+refuses them when another server's settings share the saves folder. They don't need FRM, only `s3World`. S6 reads
+`QueryServerState` and `HealthCheck`; S7 reads `GetServerOptions` and keeps only `FG.DSAutoPause`. Both put
+auto-pause back as they found it.
+
+That restore runs in the harness's own cleanup, so a run that is killed (a cancelled workflow, a runner crash) after
+S7's mod changed the setting leaves it changed, and so does S3's after it turned auto-pause off. After a killed world
+run, start the test server once, read `FG.DSAutoPause` with `GetServerOptions`, and set it back to what the test server
+had before (`ApplyServerOptions`, or the in-game server manager) before S2 or S3 measures anything.
+
 ## 5. Check it
 
 Actions → spike → the latest `main` push: `selftest` waits for your approval, then passes. Then run S0 with

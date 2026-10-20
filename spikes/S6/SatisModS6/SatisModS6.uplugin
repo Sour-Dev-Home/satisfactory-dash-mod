@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.0.1",
+	"SemVersion": "0.0.1",
+	"GameVersion": ">=513885",
+	"FriendlyName": "satis-dash spike S6",
+	"Description": "Core mod spike S6 (claim C8): logs every status field read natively, for comparison with QueryServerState and HealthCheck. Not a product.",
+	"Category": "Modding",
+	"CreatedBy": "Sour-Dev-Home",
+	"CreatedByURL": "https://github.com/Sour-Dev-Home/satisfactory-dash-mod",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{ "Name": "SatisModS6", "Type": "Runtime", "LoadingPhase": "Default", "TargetAllowList": [ "Server", "Editor" ] }
+	],
+	"Plugins": [
+		{ "Name": "SML", "Enabled": true, "SemVersion": "^3.12.0" }
+	]
+}

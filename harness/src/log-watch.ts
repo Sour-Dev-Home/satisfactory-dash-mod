@@ -33,6 +33,21 @@ export function readLogSince(path: string, offset: number): string {
   return buf.toString("utf8");
 }
 
+/** Reads the log from `from` on, a poll at a time: only whole lines (a poll can land mid-write) that contain marker. */
+export function lineReader(path: string, from: number, marker: string): { readNew(): string[]; offset(): number } {
+  let seen = from;
+  return {
+    readNew: () => {
+      // readLogSince's offset is in bytes.
+      const text = readLogSince(path, seen);
+      const whole = text.slice(0, text.lastIndexOf("\n") + 1);
+      seen += Buffer.byteLength(whole, "utf8");
+      return whole.split(/\r?\n/).filter((l) => l.includes(marker));
+    },
+    offset: () => seen,
+  };
+}
+
 export interface WaitOptions {
   fromOffset: number;
   timeoutMs: number;
