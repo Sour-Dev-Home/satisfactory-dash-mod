@@ -154,3 +154,25 @@ bool FResponsesCommandsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("at most 20 per poll"), Capped.IsSet() ? Capped->Num() : -1, MaxCommandsPerPoll);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FResponsesCommandIdDotsTest, "SatisDash.Core.Responses.CommandIdDots", SatisDash::Test::Flags)
+
+bool FResponsesCommandIdDotsTest::RunTest(const FString& Parameters)
+{
+	// Security review F4: an ID of dots only would be a dot segment in the result URL, and move its path.
+	auto parse = [](const TCHAR* Id)
+	{
+		return ParseCommandsResponse(SatisDash::Test::Reply(200, FString::Printf(
+			TEXT("{\"commands\":[{\"id\":\"%s\",\"type\":\"set_auto_pause\",\"params\":{},\"expiresAt\":\"2026-10-20T12:05:00.000Z\"}]}"), Id)));
+	};
+	TestFalse(TEXT("."), parse(TEXT(".")).IsSet());
+	TestFalse(TEXT(".."), parse(TEXT("..")).IsSet());
+	TestFalse(TEXT("..."), parse(TEXT("...")).IsSet());
+	// A dot inside a real ID stays allowed (Node parity: encodeURIComponent keeps it).
+	const TOptional<TArray<FAgentCommand>> Dotted = parse(TEXT("a.b"));
+	TestTrue(TEXT("a.b"), Dotted.IsSet() && Dotted->Num() == 1);
+	TestTrue(TEXT(".a"), parse(TEXT(".a")).IsSet());
+	const TOptional<TArray<FAgentCommand>> Uuid = parse(TEXT("3f2b8c1e-4d5a-4e6f-9a7b-1c2d3e4f5a6b"));
+	TestTrue(TEXT("a UUID"), Uuid.IsSet() && Uuid->Num() == 1);
+	return true;
+}
