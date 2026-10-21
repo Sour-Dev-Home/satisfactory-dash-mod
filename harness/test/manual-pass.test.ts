@@ -53,6 +53,12 @@ describe("manual pass", () => {
     expect(evaluate(ev(capture({ samples: [] }))).pass).toBe(false);
   });
 
+  it("says first that there is no FRM evidence when both reads failed (review of 93a6886)", () => {
+    const v = evaluate(ev(capture({ frm: { start: { error: "boom" }, end: { error: "boom" } } })));
+    expect(v.pass).toBe(true);
+    expect(v.reasons[0]).toMatch(/^NO FRM EVIDENCE/);
+  });
+
   it("does not fail on a failed FRM read, but records it in the reasons", () => {
     const v = evaluate(ev(capture({ frm: { start: { error: "boom" }, end: { belts: [], pipes: [] } } })));
     expect(v.pass).toBe(true);
