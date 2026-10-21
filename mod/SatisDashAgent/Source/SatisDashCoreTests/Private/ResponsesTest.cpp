@@ -1,3 +1,4 @@
+#include "SatisDash/JsonUtil.h"
 #include "SatisDash/Responses.h"
 #include "TestUtil.h"
 
@@ -35,6 +36,26 @@ bool FResponsesLimitsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("malformed"), ParseSnapshotResponse(SatisDash::Test::Reply(200, TEXT("{\"cadence\":"))).IsSet());
 	TestFalse(TEXT("an array"), ParseSnapshotResponse(SatisDash::Test::Reply(200, TEXT("[]"))).IsSet());
 	TestFalse(TEXT("an empty body"), ParseSnapshotResponse(SatisDash::Test::Reply(200, TEXT(""))).IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FResponsesNestingTest, "SatisDash.Core.Responses.Nesting", SatisDash::Test::Flags)
+
+bool FResponsesNestingTest::RunTest(const FString& Parameters)
+{
+	// Security review F1: a hostile body never reaches the JSON parser deeper than Json::MaxDepth.
+	TestFalse(TEXT("64 KB of ["), ParseSnapshotResponse(SatisDash::Test::Reply(200, FString::ChrN(MaxResponseBytes, TEXT('[')))).IsSet());
+	TestFalse(TEXT("cadence then 64 KB of ["),
+		ParseSnapshotResponse(SatisDash::Test::Reply(200, TEXT("{\"cadence\":") + FString::ChrN(MaxResponseBytes - 11, TEXT('[')))).IsSet());
+	const FString Head = TEXT("{\"cadence\":{\"statusSeconds\":5,\"powerSeconds\":5,\"factorySeconds\":30},\"commandsPending\":false,\"x\":");
+	// The answer itself is one level, so the extra field holds MaxDepth - 1 more at the cap.
+	TestTrue(TEXT("an extra field at the cap"),
+		ParseSnapshotResponse(SatisDash::Test::Reply(200, Head + SatisDash::Test::NestedObjects(SatisDash::Json::MaxDepth - 1) + TEXT("}"))).IsSet());
+	TestFalse(TEXT("an extra field one over the cap"),
+		ParseSnapshotResponse(SatisDash::Test::Reply(200, Head + SatisDash::Test::NestedObjects(SatisDash::Json::MaxDepth) + TEXT("}"))).IsSet());
+	TestFalse(TEXT("enrol answer one over the cap"),
+		ParseEnrollResponse(SatisDash::Test::Reply(201, FString::Printf(TEXT("{\"agentSecret\":\"%s\",\"serverId\":\"srv-1\",\"cadence\":%s,\"x\":%s}"),
+			*SatisDash::Test::FakeSecret(), SatisDash::Test::CadenceJson, *SatisDash::Test::NestedObjects(SatisDash::Json::MaxDepth)))).IsSet());
 	return true;
 }
 

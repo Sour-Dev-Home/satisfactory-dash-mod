@@ -16,7 +16,18 @@ namespace SatisDash::Test
 	/** A fake secret of the contract's shape. Never a real credential. */
 	inline FString FakeSecret() { return FString::ChrN(42, TEXT('a')) + TEXT("_"); }
 
-	inline const TCHAR* CadenceJson = TEXT("{\"statusSeconds\":5,\"powerSeconds\":5,\"factorySeconds\":30}");
+	/** {"a":{"a":...1...}}: Levels objects deep. */
+	inline FString NestedObjects(int32 Levels)
+	{
+		FString Text;
+		for (int32 I = 0; I < Levels; ++I)
+		{
+			Text += TEXT("{\"a\":");
+		}
+		return Text + TEXT("1") + FString::ChrN(Levels, TEXT('}'));
+	}
+
+	inline const TCHAR* CadenceJson =TEXT("{\"statusSeconds\":5,\"powerSeconds\":5,\"factorySeconds\":30}");
 	inline const TCHAR* SnapshotAnswerJson =
 		TEXT("{\"cadence\":{\"statusSeconds\":5,\"powerSeconds\":5,\"factorySeconds\":30},\"commandsPending\":false}");
 
