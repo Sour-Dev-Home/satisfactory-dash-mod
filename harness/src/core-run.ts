@@ -11,6 +11,8 @@ import { connectBackendHost, type HostClient } from "./backend-host";
 import { createServerApi } from "./server-api";
 import { readApiStatus } from "./status";
 import { type ProcessMemory, readProcessMemory, removeMod, type ServerProcess, whileRunning } from "./server-control";
+import { readTickRate, sampleTicks, TICK_INTERVAL_MS, type TickSeries } from "./ticks";
+import { sampleOutbound } from "./outbound";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
@@ -53,7 +55,12 @@ export interface CoreContext {
    * withModWithGame or withModGameUnknown. A repeated label gets "#2", "#3".
    */
   sampleMemory(stage: string): Promise<void>;
+  /** What the spec's measureBaseline returned in the boot without the mod; undefined when there was none or it failed. */
+  baseline?: unknown;
 }
+
+/** The boot without the mod (CoreRunSpec.baseline): its process, for sampling by pid. */
+export interface BaselineContext { deps: CoreDeps; proc: ServerProcess }
 
 export interface CoreRunSpec {
   requirements: string[];
@@ -66,6 +73,13 @@ export interface CoreRunSpec {
    * server auto-loads its last save). The session is put back at the end, whatever happens.
    */
   emptyBoot?: boolean;
+  /**
+   * Boots once without the mod before the mod's boot, as runSpike does for S2 (run.ts, spec.ticks): the staged world
+   * loaded, auto-pause off (put back before that server stops), then measureBaseline. Its result is ctx.baseline. Needs
+   * world and measureBaseline.
+   */
+  baseline?: boolean;
+  measureBaseline?(b: BaselineContext): Promise<unknown>;
   /** Checks what the run needs before the (long) build; a throw refuses the run. */
   preflight?(): void;
   drive(ctx: CoreContext): Promise<void>;
@@ -87,6 +101,10 @@ export type CoreDeps = Pick<RunDeps,
   processMemory?: (pid: number) => Promise<ProcessMemory | null>;
   /** Whether a game is running and its session hash, from QueryServerState now; null when the API doesn't answer. */
   gameState?: () => Promise<{ running: boolean; session: string } | null>;
+  /** sampleTicks (ticks.ts) over QueryServerState's tick rate every TICK_INTERVAL_MS, with the run's own window. */
+  sampleTickWindow?: (opts: { warmupMs: number; durationMs: number }) => Promise<TickSeries>;
+  /** S12: the outbound endpoints of the process tree under pid now (outbound.ts); rejects when they can't be read. */
+  sampleOutbound?: (pid: number) => Promise<string[]>;
 };
 
 const ResultSchema = z.strictObject({
@@ -131,6 +149,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   if (api.missing.length || api.badRows.length) throw new RefusalError(`check-api failed: ${[...api.badRows, ...api.missing.map((u) => `${u.path}:${u.line} ${u.name}`)].join(", ")}`);
   if (spec.backend && !deps.backendHost) throw new RefusalError(`${id} needs the backend host (backendHost in the runner config; docs/runner.md)`);
   if (spec.emptyBoot && (!deps.readAutoLoad || !deps.setAutoLoad)) throw new RefusalError(`${id} needs the auto-load save deps`);
+  if (spec.baseline && (!spec.world || !spec.measureBaseline)) throw new RefusalError(`${id}: a baseline boot needs the world and a measureBaseline`);
   if (spec.world) {
     if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict) throw new RefusalError(`${id} needs s3World in the runner config`);
     const shared = deps.savesConflict();
@@ -192,6 +211,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   // The auto-load session the server had before the run (emptyBoot), and whether it is back.
   let autoLoadBefore: string | undefined;
   let autoLoadRestored = false;
+  let baseline: unknown;
   const restoreAutoLoad = async () => {
     if (autoLoadBefore === undefined || autoLoadRestored) return;
     try {
@@ -216,6 +236,31 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
         await deps.stop(pre);
       }
       if (await deps.serverAnswering()) throw new Error(`something still answers at ${deps.config.apiBaseUrl} after the empty boot`);
+    }
+    if (spec.baseline) {
+      // Before the mod is installed (S2's baseline, run.ts): same save, world loaded, auto-pause off.
+      const pre = deps.start();
+      let autoPause: boolean | undefined;
+      try {
+        await whileRunning(pre, deps.waitHealthy(), "waiting for health before the baseline");
+        await whileRunning(pre, deps.loadWorld!(), "loading the world for the baseline");
+        await whileRunning(pre, deps.waitHealthy(), "waiting for health after loading the world for the baseline");
+        autoPause = await whileRunning(pre, deps.readAutoPause!(), "reading auto-pause for the baseline");
+        await whileRunning(pre, deps.setAutoPause!(false), "turning auto-pause off for the baseline");
+        baseline = await whileRunning(pre, spec.measureBaseline!({ deps, proc: pre }), "measuring the baseline");
+      } catch (e) {
+        reasons.push(`baseline: ${message(e)}`);
+      } finally {
+        if (autoPause !== undefined) {
+          try {
+            await deps.setAutoPause!(autoPause);
+          } catch (e) {
+            reasons.push(`restoring auto-pause after the baseline: ${message(e)}`);
+          }
+        }
+        await deps.stop(pre);
+      }
+      if (await deps.serverAnswering()) throw new Error(`something still answers at ${deps.config.apiBaseUrl} after the baseline boot`);
     }
     deps.install(pluginDir, MOD);
     const offset = deps.resetLog();
@@ -243,6 +288,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
         },
         rememberAutoPause: (v) => void (autoPauseBefore ??= v),
         sampleMemory: (stage) => sampleMemory(proc, stage),
+        baseline,
       };
       await spec.drive(ctx);
     } catch (e) {
@@ -362,6 +408,11 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
       const s = await readApiStatus(createServerApi(config.apiBaseUrl));
       return { running: s.running, session: s.session };
     },
+    sampleTickWindow: (opts) => {
+      const api = createServerApi(config.apiBaseUrl);
+      return sampleTicks(() => readTickRate(api), { ...opts, intervalMs: TICK_INTERVAL_MS, sleep, now: Date.now });
+    },
+    sampleOutbound: (pid) => sampleOutbound(pid),
     sleep,
     buildMod: () =>
       new Promise((resolve, reject) => {
