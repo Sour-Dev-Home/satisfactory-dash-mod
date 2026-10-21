@@ -11,7 +11,7 @@ namespace
 	{
 		FAgentConfig C;
 		C.BackendUrl = TEXT("https://example.com/base");
-		C.EnrollmentCode = TEXT("AB3D-7XQ2");
+		C.EnrollmentCode = TEXT("AB3D-7XQ2-K5MN");
 		return C;
 	}
 
@@ -56,7 +56,7 @@ bool FRequestsEnrollTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("body is JSON"), Body.IsValid());
 	if (Body.IsValid())
 	{
-		SatisDash::Test::SameText(*this, TEXT("code"), Body->GetStringField(TEXT("code")), TEXT("AB3D-7XQ2"));
+		SatisDash::Test::SameText(*this, TEXT("code"), Body->GetStringField(TEXT("code")), TEXT("AB3D-7XQ2-K5MN"));
 		SatisDash::Test::SameText(*this, TEXT("agentVersion"), Body->GetStringField(TEXT("agentVersion")), AgentVersion());
 		TestEqual(TEXT("exactly two fields (EnrollRequestSchema is strict)"), Body->Values.Num(), 2);
 	}

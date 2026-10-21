@@ -50,7 +50,7 @@ bool FAgentBootTest::RunTest(const FString& Parameters)
 	{
 		// The crash case: the credential was written but the code not yet blanked. The credential wins.
 		const FFixture F;
-		F.writeConfig(TEXT("AB3D-7XQ2"));
+		F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
 		F.writeCredential();
 		FAgent Agent = F.makeAgent();
 		Agent.Boot();
@@ -76,7 +76,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentEnrolTest, "SatisDash.Core.Agent.Enrol", 
 bool FAgentEnrolTest::RunTest(const FString& Parameters)
 {
 	const FFixture F;
-	F.writeConfig(TEXT("AB3D-7XQ2"));
+	F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
 	FAgent Agent = F.makeAgent();
 	Agent.Boot();
 	TestTrue(TEXT("enrolling"), Agent.GetState() == EAgentState::Enrolling);
@@ -104,7 +104,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentRejectedTest, "SatisDash.Core.Agent.CodeR
 bool FAgentRejectedTest::RunTest(const FString& Parameters)
 {
 	const FFixture F;
-	F.writeConfig(TEXT("AB3D-7XQ2"));
+	F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
 	FAgent Agent = F.makeAgent();
 	Agent.Boot();
 	Agent.StartEnroll(0);
@@ -122,7 +122,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentConfigChangeTest, "SatisDash.Core.Agent.C
 bool FAgentConfigChangeTest::RunTest(const FString& Parameters)
 {
 	const FFixture F;
-	F.writeConfig(TEXT("AB3D-7XQ2"));
+	F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
 	FAgent Agent = F.makeAgent();
 	Agent.Boot();
 	Agent.StartEnroll(0);
@@ -137,11 +137,11 @@ bool FAgentConfigChangeTest::RunTest(const FString& Parameters)
 
 	// A new code with the old modification time (an upload that keeps the timestamp).
 	const FDateTime Kept = ConfigModTime(F.ConfigPath);
-	F.writeConfig(TEXT("QQQQ-2222"));
+	F.writeConfig(TEXT("QQQQ-2222-2222"));
 	IFileManager::Get().SetTimeStamp(*F.ConfigPath, Kept);
 	Agent.CheckConfig();
 	TestTrue(TEXT("new text retries even with the same time"), Agent.GetState() == EAgentState::Enrolling);
-	SatisDash::Test::SameText(*this, TEXT("with the new code"), Agent.GetConfig().EnrollmentCode, TEXT("QQQQ-2222"));
+	SatisDash::Test::SameText(*this, TEXT("with the new code"), Agent.GetConfig().EnrollmentCode, TEXT("QQQQ-2222-2222"));
 
 	SatisDash::Test::WriteText(F.ConfigPath, TEXT("{ broken"));
 	Agent.CheckConfig();
@@ -167,7 +167,7 @@ bool FAgentHaltTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("the file is deleted"), IFileManager::Get().FileExists(*F.CredentialPath));
 	Agent.CheckConfig();
 	TestTrue(TEXT("stays halted"), Agent.GetState() == EAgentState::Halted);
-	F.writeConfig(TEXT("AB3D-7XQ2"));
+	F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
 	Agent.CheckConfig();
 	TestTrue(TEXT("a new code re-enrols"), Agent.GetState() == EAgentState::Enrolling);
 	return true;
@@ -196,7 +196,7 @@ bool FAgentEditDuringEnrolTest::RunTest(const FString& Parameters)
 	{
 		// A broken edit made while the enrol is in flight is never overwritten from memory.
 		const FFixture F;
-		F.writeConfig(TEXT("AB3D-7XQ2"));
+		F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
 		FAgent Agent = F.makeAgent();
 		Agent.Boot();
 		Agent.StartEnroll(0);
@@ -213,11 +213,11 @@ bool FAgentEditDuringEnrolTest::RunTest(const FString& Parameters)
 		// A valid edit (a new URL, the same code) keeps its URL; only the code is blanked. The credential was issued by
 		// the URL the request went to, so it is not this config's: idle, nothing handed out.
 		const FFixture F;
-		F.writeConfig(TEXT("AB3D-7XQ2"));
+		F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
 		FAgent Agent = F.makeAgent();
 		Agent.Boot();
 		Agent.StartEnroll(0);
-		SatisDash::Test::WriteText(F.ConfigPath, TEXT("{\"backendUrl\":\"https://other.example.com\",\"enrollmentCode\":\"AB3D-7XQ2\"}"));
+		SatisDash::Test::WriteText(F.ConfigPath, TEXT("{\"backendUrl\":\"https://other.example.com\",\"enrollmentCode\":\"AB3D-7XQ2-K5MN\"}"));
 		Agent.FinishEnroll(SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()), 0);
 		const FConfigResult Written = ParseConfig(SatisDash::Test::ReadText(F.ConfigPath));
 		SatisDash::Test::SameText(*this, TEXT("the new URL is kept"), Written.Config.BackendUrl, TEXT("https://other.example.com"));
@@ -242,7 +242,7 @@ bool FAgentBackendBindingTest::RunTest(const FString& Parameters)
 		// A new URL with a fresh code enrols there, and the new credential carries the new URL.
 		const FFixture F;
 		F.writeCredential();
-		F.writeConfigAt(TEXT("https://other.example.com"), TEXT("AB3D-7XQ2"));
+		F.writeConfigAt(TEXT("https://other.example.com"), TEXT("AB3D-7XQ2-K5MN"));
 		FAgent Agent = F.makeAgent();
 		Agent.Boot();
 		TestTrue(TEXT("a credential for another backend: enrolling"), Agent.GetState() == EAgentState::Enrolling);
@@ -252,7 +252,7 @@ bool FAgentBackendBindingTest::RunTest(const FString& Parameters)
 		Agent.FinishEnroll(SatisDash::Test::Reply(404, TEXT("{}")), 0);
 		const FCredentialStore Store{F.CredentialPath};
 		TestTrue(TEXT("a failed enrol leaves the old file"), Store.Load().IsSet() && Store.Load()->BackendUrl == TEXT("https://example.com"));
-		F.writeConfigAt(TEXT("https://other.example.com"), TEXT("QQQQ-2222"));
+		F.writeConfigAt(TEXT("https://other.example.com"), TEXT("QQQQ-2222-2222"));
 		Agent.CheckConfig();
 		Agent.StartEnroll(0);
 		Agent.FinishEnroll(SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()), 0);

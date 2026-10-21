@@ -105,13 +105,14 @@ FString SatisDash::NormalizeBackendUrl(const FString& Url)
 
 bool SatisDash::IsEnrollmentCode(const FString& Code)
 {
-	if (Code.Len() != 9 || Code[4] != TEXT('-'))
+	// XXXX-XXXX-XXXX: 12 base32 characters, 60 bits (dash #524, ADR-0046). No allocation.
+	if (Code.Len() != 14 || Code[4] != TEXT('-') || Code[9] != TEXT('-'))
 	{
 		return false;
 	}
-	for (int32 I = 0; I < 9; ++I)
+	for (int32 I = 0; I < 14; ++I)
 	{
-		if (I != 4 && !IsBase32(Code[I]))
+		if (I != 4 && I != 9 && !IsBase32(Code[I]))
 		{
 			return false;
 		}

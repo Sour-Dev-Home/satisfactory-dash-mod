@@ -184,7 +184,7 @@ namespace SatisDash::Test
 		/** Boots a driver against http://127.0.0.1:1 with a code and answers its enrolment with 201. */
 		void enrol(SatisDash::FDriver& Driver, const FString& Secret)
 		{
-			writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2"));
+			writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"));
 			Driver.Boot();
 			Driver.Tick();
 			Net.answer(TEXT("/agent/v1/enroll"), Reply(201, FString::Printf(

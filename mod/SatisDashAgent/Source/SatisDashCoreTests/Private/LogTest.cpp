@@ -65,7 +65,7 @@ bool FLogNoSecretsTest::RunTest(const FString& Parameters)
 	};
 
 	// Every logging path: enrol with a failure, a pasted code while enrolled, revoke, a rejected code, a pusher streak.
-	writeCode(TEXT("AB3D-7XQ2"));
+	writeCode(TEXT("AB3D-7XQ2-K5MN"));
 	FAgent Agent{ConfigPath, Dir.Path / TEXT("credential.json"), [] { return 1.0; }};
 	Agent.Boot();
 	Agent.StartEnroll(0);
@@ -73,12 +73,12 @@ bool FLogNoSecretsTest::RunTest(const FString& Parameters)
 	Agent.StartEnroll(10);
 	Agent.FinishEnroll(SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()), 10);
 	TestTrue(TEXT("running after enrolling"), Agent.GetState() == EAgentState::Running);
-	writeCode(TEXT("ZZZZ-7777"));
+	writeCode(TEXT("ZZZZ-7777-7777"));
 	Agent.CheckConfig();
 	TestTrue(TEXT("still running with a pasted code"), Agent.GetState() == EAgentState::Running);
 	Agent.OnAuthRejected();
 	TestTrue(TEXT("halted"), Agent.GetState() == EAgentState::Halted);
-	writeCode(TEXT("QQQQ-2222"));
+	writeCode(TEXT("QQQQ-2222-2222"));
 	Agent.CheckConfig();
 	TestTrue(TEXT("enrolling again"), Agent.GetState() == EAgentState::Enrolling);
 	Agent.StartEnroll(20);
@@ -96,9 +96,9 @@ bool FLogNoSecretsTest::RunTest(const FString& Parameters)
 	{
 		TestFalse(TEXT("no secret"), Line.Contains(SatisDash::Test::FakeSecret(), ESearchCase::CaseSensitive));
 		TestFalse(TEXT("no part of the secret"), Line.Contains(SatisDash::Test::FakeSecret().Left(8), ESearchCase::CaseSensitive));
-		TestFalse(TEXT("no first code"), Line.Contains(TEXT("AB3D-7XQ2"), ESearchCase::IgnoreCase));
-		TestFalse(TEXT("no pasted code"), Line.Contains(TEXT("ZZZZ-7777"), ESearchCase::IgnoreCase));
-		TestFalse(TEXT("no rejected code"), Line.Contains(TEXT("QQQQ-2222"), ESearchCase::IgnoreCase));
+		TestFalse(TEXT("no first code"), Line.Contains(TEXT("AB3D-7XQ2-K5MN"), ESearchCase::IgnoreCase));
+		TestFalse(TEXT("no pasted code"), Line.Contains(TEXT("ZZZZ-7777-7777"), ESearchCase::IgnoreCase));
+		TestFalse(TEXT("no rejected code"), Line.Contains(TEXT("QQQQ-2222-2222"), ESearchCase::IgnoreCase));
 		TestFalse(TEXT("no Bearer"), Line.Contains(TEXT("Bearer"), ESearchCase::IgnoreCase));
 	}
 	SatisDash::Test::NoErrorLines(*this, Capture);
