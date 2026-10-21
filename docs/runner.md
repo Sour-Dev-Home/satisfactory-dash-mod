@@ -205,6 +205,29 @@ runner config's `s5.checkout` names (it is at that commit already, for the backe
 Rebuild and copy it again whenever the contract pin moves. The run never touches your live agent or its store: its
 own store lives only in the run's `SD_AGENT_HOME`, is DPAPI-protected for `satis-runner`, and is deleted at the end.
 
+### Manual session
+
+`manual` holds the test server up for a person to play on, for the dash's G-B1 and G-B2 checks (whether FRM's belt
+`ConnectedTo` goes stale after a rebuild, and the unit of pipe `Speed`). It needs no backend and the staged world, so it
+runs only as `satis-runner`, like every other world run: the server must be this account's test server, never the
+owner's own.
+
+- The owner dispatches `core-run` with `run=manual`. The run builds and installs the mod as every core run does
+  (`CoreRunSpec` can't skip that), but writes no config, so the mod stays idle. It boots the server, loads the staged
+  world, turns auto-pause off, then keeps the server up for about `MANUAL_MINUTES` (default 45, at most 75; the workflow
+  times out at 90; the last sample is 30 s before the end) and logs `manual session: N min left` every minute. Then it
+  puts auto-pause back, stops the server and cleans up as every run does. Cancelling the workflow kills the runner before
+  that cleanup, as for every run, so auto-pause stays off on the test server until the next run puts it back.
+- The client joins `127.0.0.1:17777` (the test server's `-Port`), from the same PC. The harness sets no server password
+  and no admin claim: it starts the server with insecure local access, which only lifts the token for the HTTPS API on
+  loopback. If the game asks for a password or to claim the server, that is the server's own state, not something the
+  harness set or knows; the owner does it in the client. No secret belongs in this repository.
+- The client needs SML installed: the server runs SML and FRM, and a client without SML can't join a modded server.
+- The verdict is availability only: `QueryServerState` is sampled every 30 s, and a sample that is missing, gets no
+  answer within 10 s, or says the game isn't running fails the run. If the server exits, the run stops and fails. `manual.json` also holds FRM's `getBelts` and `getPipes` (`frmBaseUrl`) at the start and at the end, trimmed
+  to `ID`, `ClassName`, `ConnectedTo0`, `ConnectedTo1` and `ItemsPerMinute` or `Speed`. A failed FRM read is recorded and
+  does not fail the run; when both fail, the first reason says `NO FRM EVIDENCE`. G-B1 and G-B2 are judged by the owner from what they saw and from those two reads.
+
 ## The backend host
 
 Runs that need a backend (`enrol` and the later core runs) talk to the throwaway satisfactory-dash backend from S5,
