@@ -1,8 +1,24 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertLoopbackOnly, composeEnv, type Exec, randomCode, startBackend } from "../src/backend";
+import { assertLoopbackOnly, composeEnv, contractPin, type Exec, randomCode, startBackend } from "../src/backend";
+import { RefusalError } from "../src/refusal";
 
 // "{}" is an empty `compose config --format json`; up, down and the seed INSERT ignore stdout.
 const ok = { code: 0, stdout: "{}", stderr: "" };
+const PIN = (JSON.parse(readFileSync(join(import.meta.dirname, "..", "contract", "manifest.json"), "utf8")) as { commit: string }).commit;
+const NEWER = "0123456789abcdef0123456789abcdef01234567";
+const APP = "ghcr.io/sour-dev-home/satisfactory-dash-backend:main";
+const OPS = "ghcr.io/sour-dev-home/satisfactory-dash-ops:main";
+const CONFIG = { services: { backend: { image: APP }, migrate: { image: OPS }, backup: { image: OPS } } };
+const labels = (revision: string) => JSON.stringify({ "org.opencontainers.image.revision": revision, "org.opencontainers.image.source": "x" });
+/** What a healthy machine answers: the resolved config names both images, each carries NEWER, which descends from the pin. */
+const base: Exec = async (cmd, args) => {
+  if (cmd === "docker" && args[0] === "image" && args[1] === "inspect") return { ...ok, stdout: `${labels(NEWER)}\n` };
+  if (cmd === "git") return { ...ok, stdout: "" };
+  if (args.includes("config")) return { ...ok, stdout: JSON.stringify(CONFIG) };
+  return ok;
+};
 
 describe("throwaway backend", () => {
   it("makes codes the backend accepts (agent.ts EnrollmentCodeSchema)", () => {
@@ -24,10 +40,10 @@ describe("throwaway backend", () => {
 
   it("runs compose up with both files, seeds a code, reads the state, and always runs down -v (Review Focus 2)", async () => {
     const seen: string[] = [];
-    const exec: Exec = async (cmd, args) => {
+    const exec: Exec = async (cmd, args, o) => {
       seen.push([cmd, ...args].join(" "));
       if (args.includes("psql") && args.join(" ").includes("SELECT")) return { ...ok, stdout: "t|spike-s5|t|f\n" };
-      return ok;
+      return base(cmd, args, o);
     };
     const backend = await startBackend({ checkout: "D:/dash", relayFile: "D:/mod/harness/compose/s5-relay.yaml", port: 13101, exec });
     expect(backend.url).toBe("http://127.0.0.1:13101");
@@ -43,7 +59,7 @@ describe("throwaway backend", () => {
 
   it("starts fresh: down -v runs before up, so a killed run's database is never reused (final review, finding 2)", async () => {
     const seen: string[] = [];
-    const exec: Exec = async (_cmd, args) => (seen.push(args.slice(7).join(" ")), ok);
+    const exec: Exec = async (cmd, args, o) => (seen.push(args.slice(7).join(" ")), base(cmd, args, o));
     await startBackend({ checkout: "D:/dash", relayFile: "r.yaml", port: 13101, exec });
     expect(seen.indexOf("down -v")).toBeLessThan(seen.indexOf("up -d --wait"));
     expect(seen.indexOf("down -v")).toBeGreaterThanOrEqual(0);
@@ -76,13 +92,13 @@ describe("throwaway backend", () => {
   const started = async (reply = "") => {
     const sql: string[] = [];
     const all: string[] = [];
-    const exec: Exec = async (_cmd, args) => {
+    const exec: Exec = async (cmd, args, o) => {
       all.push(args.join(" "));
       if (args.includes("psql")) {
         sql.push(args.at(-1)!);
         return { ...ok, stdout: reply };
       }
-      return ok;
+      return base(cmd, args, o);
     };
     const backend = await startBackend({ checkout: "D:/dash", relayFile: "r.yaml", port: 13101, exec });
     return { backend, sql, all };
@@ -157,8 +173,91 @@ describe("throwaway backend", () => {
 
   it("runs down -v when compose up fails", async () => {
     const seen: string[] = [];
-    const exec: Exec = async (_cmd, args) => (seen.push(args.join(" ")), args.includes("up") ? { code: 1, stdout: "", stderr: "boom" } : ok);
+    const exec: Exec = async (cmd, args, o) => (seen.push(args.join(" ")), args.includes("up") ? { code: 1, stdout: "", stderr: "boom" } : base(cmd, args, o));
     await expect(startBackend({ checkout: "D:/dash", relayFile: "r.yaml", port: 13101, exec })).rejects.toThrow(/compose up failed/);
     expect(seen.at(-1)).toMatch(/down -v$/);
+  });
+});
+
+describe("the backend image guard (enrol run 39609914480: a stale local image)", () => {
+  /** base, with one command's answer replaced; every command is kept with its cwd. */
+  const machine = (answer: (cmd: string, args: string[]) => { code: number; stdout: string; stderr: string } | undefined) => {
+    const seen: Array<{ line: string; cwd: string }> = [];
+    const exec: Exec = async (cmd, args, o) => {
+      seen.push({ line: [cmd, ...args].join(" "), cwd: o.cwd });
+      return answer(cmd, args) ?? base(cmd, args, o);
+    };
+    return { seen, exec };
+  };
+  const start = (exec: Exec) => startBackend({ checkout: "D:/dash", relayFile: "r.yaml", port: 13101, exec });
+  const booted = (seen: Array<{ line: string }>) => seen.some((s) => / up -d --wait/.test(s.line));
+
+  it("pins the contract's commit (harness/contract/manifest.json)", () => {
+    expect(contractPin()).toBe(PIN);
+  });
+
+  it("reads each image's revision label, checks it descends from the pin with the checkout's git, and records both", async () => {
+    const { seen, exec } = machine(() => undefined);
+    const backend = await start(exec);
+    expect(backend.images).toEqual({ app: { image: APP, revision: NEWER }, ops: { image: OPS, revision: NEWER } });
+    const inspect = seen.filter((s) => s.line.startsWith("docker image inspect"));
+    expect(inspect.map((s) => s.line)).toEqual([
+      `docker image inspect --format {{json .Config.Labels}} ${APP}`,
+      `docker image inspect --format {{json .Config.Labels}} ${OPS}`,
+    ]);
+    const git = seen.filter((s) => s.line.startsWith("git "));
+    expect(git.map((s) => s.line)).toEqual([`git merge-base --is-ancestor ${PIN} ${NEWER}`, `git merge-base --is-ancestor ${PIN} ${NEWER}`]);
+    expect(git.every((s) => s.cwd === "D:/dash")).toBe(true);
+    // All of it before the stack boots.
+    const up = seen.findIndex((s) => / up -d --wait/.test(s.line));
+    expect(seen.findIndex((s) => s.line.startsWith("git "))).toBeLessThan(up);
+  });
+
+  it("accepts an image built from the pin itself", async () => {
+    const { exec } = machine((cmd, args) => (cmd === "docker" && args[1] === "inspect" ? { ...ok, stdout: labels(PIN) } : undefined));
+    expect((await start(exec)).images.app.revision).toBe(PIN);
+  });
+
+  it("refuses before any boot when an image's revision isn't the pin or a descendant of it", async () => {
+    const { seen, exec } = machine((cmd) => (cmd === "git" ? { code: 1, stdout: "", stderr: "" } : undefined));
+    const err = await start(exec).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RefusalError);
+    expect(String(err)).toContain(`${APP} was built from ${NEWER}`);
+    expect(String(err)).toContain(`not ${PIN} or a descendant of it`);
+    expect(String(err)).toMatch(/docker pull/);
+    expect(booted(seen)).toBe(false);
+  });
+
+  it("refuses when the checkout's git doesn't know the image's commit (fetch the checkout, no network from here)", async () => {
+    const { seen, exec } = machine((cmd) => (cmd === "git" ? { code: 128, stdout: "", stderr: "fatal: Not a valid commit name" } : undefined));
+    const err = await start(exec).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RefusalError);
+    expect(String(err)).toMatch(/git fetch/);
+    expect(booted(seen)).toBe(false);
+  });
+
+  it("refuses when an image isn't on this machine", async () => {
+    const { seen, exec } = machine((cmd, args) => (cmd === "docker" && args[1] === "inspect" && args.at(-1) === OPS ? { code: 1, stdout: "", stderr: "No such image" } : undefined));
+    const err = await start(exec).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RefusalError);
+    expect(String(err)).toContain(`${OPS} is not on this machine`);
+    expect(booted(seen)).toBe(false);
+  });
+
+  it("refuses an image with no revision label, or one that isn't a full commit, without running git on it", async () => {
+    for (const stdout of ["null\n", JSON.stringify({ other: "x" }), labels("main"), labels(`${NEWER} --upload-pack=x`)]) {
+      const { seen, exec } = machine((cmd, args) => (cmd === "docker" && args[1] === "inspect" ? { ...ok, stdout } : undefined));
+      const err = await start(exec).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(RefusalError);
+      expect(String(err)).toMatch(/revision/);
+      expect(seen.some((s) => s.line.startsWith("git "))).toBe(false);
+      expect(booted(seen)).toBe(false);
+    }
+  });
+
+  it("refuses when the resolved config names no image for the backend or the migrations", async () => {
+    const { seen, exec } = machine((_cmd, args) => (args.includes("config") ? { ...ok, stdout: JSON.stringify({ services: { backend: { image: APP } } }) } : undefined));
+    await expect(start(exec)).rejects.toThrow(/migrate/);
+    expect(booted(seen)).toBe(false);
   });
 });

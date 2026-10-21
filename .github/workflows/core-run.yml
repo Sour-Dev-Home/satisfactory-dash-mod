@@ -4,8 +4,8 @@ name: core-run
 # public repository, so this workflow must never trigger from a pull request or a push: it is dispatched by hand
 # only. harness/test/workflows.test.ts fails CI if a trigger is added, an action is unpinned or a job leaves the
 # ue-runner environment. The options are the runs the harness drives so far; a run that needs the backend host (enrol,
-# revoke, command, outage, tick-cost) refuses unless the owner has started it in their own session first (docs/runner.md,
-# "The backend host").
+# revoke, command, outage, tick-cost, parity) refuses unless the owner has started it in their own session first
+# (docs/runner.md, "The backend host"). parity also needs parity.agentCjs in the runner config.
 on:
   workflow_dispatch:
     inputs:
@@ -13,7 +13,7 @@ on:
         description: Core run
         required: true
         type: choice
-        options: [http-probe, enrol, revoke, command, outage, tick-cost]
+        options: [http-probe, enrol, revoke, command, outage, tick-cost, parity]
 
 permissions:
   contents: read

@@ -171,6 +171,35 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   without the mod (world loaded, auto-pause off) and once with it, and measures each for the warmup plus 10 minutes. Every
   30 s it samples the outbound TCP connections and the working set of the server's process tree, by the spawned pid
   (`tick-cost.json`). No FRM poller runs during it.
+- `parity` needs the backend host, the staged world (`s3World`, `frmBaseUrl`) and `parity.agentCjs` (below). With the
+  world running and auto-pause off, it enrols the mod through the recorder, then makes a game API token on the test
+  server (`server.GenerateAPIToken`, through the HTTPS API's `RunCommand` on loopback) and sets up satisfactory-dash's
+  Node agent with it, as `satis-runner`, in a throwaway `SD_AGENT_HOME` under that account's temp folder: `set-tokens`
+  (the tokens on its stdin, never on a command line), `check`, `enroll` with the `node` server's code against the same
+  recorder, then `run`. Both agents run side by side for 30 minutes and are judged against each other
+  (`parity.json`). At the end it stops the Node agent, deletes its folder and prunes the test server's application
+  tokens (`server.InvalidateAPITokens`). It takes about 45 minutes plus the build.
+
+### The parity run's Node agent
+
+The Node agent must be built from the commit the contract is pinned to (`harness/contract/manifest.json`, `commit`;
+81f22aef today), since it checks the enrolment code itself. In your own terminal, in the satisfactory-dash checkout the
+runner config's `s5.checkout` names (it is at that commit already, for the backend):
+
+    git fetch origin
+    git checkout --detach 81f22aef6d679b5a2b8465673b2abe51dbaf98ef
+    npm ci
+    npm run build -w agent
+    New-Item -ItemType Directory -Force D:\satis-runner-config\node-agent
+    Copy-Item agent\dist\agent.cjs D:\satis-runner-config\node-agent\agent.cjs -Force
+    icacls D:\satis-runner-config\node-agent /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" "satis-runner:(OI)(CI)RX"
+
+`agent.cjs` is one bundled file (esbuild), so it is all the runner needs. Then add to `D:\satis-runner-config\harness.json`:
+
+    "parity": { "agentCjs": "D:/satis-runner-config/node-agent/agent.cjs" }
+
+Rebuild and copy it again whenever the contract pin moves. The run never touches your live agent or its store: its
+own store lives only in the run's `SD_AGENT_HOME`, is DPAPI-protected for `satis-runner`, and is deleted at the end.
 
 ## The backend host
 
@@ -194,6 +223,17 @@ through a small host on loopback.
 
    It brings the stack up from nothing (`down -v` first), listens on `127.0.0.1:<port>`, writes the host file
    (`relayUrl`, `controlUrl` and a random 64-hex-character token) and prints `backend host up: relay <url>; Ctrl+C to stop`.
+
+   Before anything boots, it checks the images the stack will run (`APP_IMAGE` for the backend, `OPS_IMAGE` for the
+   migrations; compose.yaml's defaults are `ghcr.io/sour-dev-home/satisfactory-dash-backend:main` and `...-ops:main`).
+   Each image's `org.opencontainers.image.revision` label (`docker image inspect`) must be the contract pin
+   (`harness/contract/manifest.json`, `commit`) or a later commit: the checkout's own git answers that
+   (`git merge-base --is-ancestor <pin> <revision>`), so nothing needs the network. Otherwise it refuses:
+   - an image that is missing, too old or has no revision label: `docker pull <image>` (it names it), then start again;
+   - "can't tell whether ... descends": the checkout doesn't know that commit yet, so run `git fetch origin` in it, then
+     start again.
+
+   Every backend run records the two images and their revisions in its evidence (`backend.json`).
 4. After the runs, press Ctrl+C: it runs `down -v` (the throwaway database is gone) and deletes the host file. A Ctrl+C
    while the stack is still coming up also ends in `down -v`, and a second Ctrl+C is ignored by the host. Docker's own
    commands share the terminal, though, so a Ctrl+C can still cut a `docker compose` step short. If the terminal was
@@ -204,7 +244,8 @@ through a small host on loopback.
    (The next `backend-host` start also runs `down -v` first.)
 
 It serves only fixed operations on the throwaway database, each behind the token: seed an enrolment code, revoke a
-credential, queue a `set_auto_pause` command, read a command, read a server's state, stop or start the relay. No SQL
+credential, queue a `set_auto_pause` command, read a command, read a server's state, stop or start the relay, and say
+which images it runs. No SQL
 and no shell come from the caller; codes, ids and params are checked before anything runs. It uses the same compose
 project as a local S5 run (`satis-s5`), so never run both at once.
 

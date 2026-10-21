@@ -11,7 +11,8 @@ export interface RecordedCall {
   at: string;
   /** When the answer had finished being sent (or the exchange failed): the earliest the agent could know it. */
   doneAt: string;
-  agent: "mod" | "other";
+  /** By User-Agent: the mod, satisfactory-dash's Node agent (parity run), or anything else. */
+  agent: "mod" | "node" | "other";
   method: string;
   /** The path without its query. */
   path: string;
@@ -77,10 +78,12 @@ export async function startRecorder(upstream: string): Promise<Recorder> {
   const handle = (req: IncomingMessage, res: ServerResponse) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     const method = req.method ?? "GET";
+    const ua = String(req.headers["user-agent"] ?? "");
     const entry: RecordedCall = {
       at: new Date().toISOString(),
       doneAt: "",
-      agent: String(req.headers["user-agent"] ?? "").startsWith("satisfactory-dash-mod/") ? "mod" : "other",
+      // satisfactory-dash agent/src/backendClient.ts sends satisfactory-dash-agent/<version>.
+      agent: ua.startsWith("satisfactory-dash-mod/") ? "mod" : ua.startsWith("satisfactory-dash-agent/") ? "node" : "other",
       method,
       path,
       status: 0,

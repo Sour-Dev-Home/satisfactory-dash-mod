@@ -6,11 +6,16 @@ import type { Backend } from "../src/backend";
 import { connectBackendHost, hostUntilStopped, serveBackendHost } from "../src/backend-host";
 
 const ID = "6f1c2b9e-1d2a-4c3b-9e8f-0a1b2c3d4e5f";
+const IMAGES = {
+  app: { image: "ghcr.io/sour-dev-home/satisfactory-dash-backend:main", revision: "0123456789abcdef0123456789abcdef01234567" },
+  ops: { image: "ghcr.io/sour-dev-home/satisfactory-dash-ops:main", revision: "0123456789abcdef0123456789abcdef01234567" },
+};
 
 function fakeBackend() {
   const calls: string[] = [];
   const backend: Backend = {
     url: "http://127.0.0.1:13101",
+    images: IMAGES,
     seedCode: async (s, c) => void calls.push(`seed ${s} ${c}`),
     state: async (s) => (calls.push(`state ${s}`), { codeConsumed: true, agentVersion: "mod/0.1.0", lastSeen: true, revoked: false }),
     revoke: async (s) => void calls.push(`revoke ${s}`),
@@ -172,6 +177,16 @@ describe("backend host (ruling 10)", () => {
     await client.stopRelay();
     await client.startRelay();
     expect(calls).toEqual(["seed mod AB3D-7XQ2-K5MN", 'queue mod {"enabled":true}', `command ${ID}`, "state mod", "revoke mod", "relay stop", "relay start"]);
+  });
+
+  it("serves the images the stack runs (the image guard's revisions), so every backend run records them", async () => {
+    const { file, call, calls } = await serve();
+    expect(await (await call("GET", "/images")).json()).toEqual(IMAGES);
+    expect((await call("POST", "/images")).status).toBe(404);
+    expect((await call("GET", "/images", undefined, null)).status).toBe(401);
+    const client = await connectBackendHost(file);
+    expect(await client.images()).toEqual(IMAGES);
+    expect(calls).toEqual([]);
   });
 
   it("connectBackendHost refuses a host file that points beyond loopback, and a client call that fails throws", async () => {

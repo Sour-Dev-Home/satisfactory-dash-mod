@@ -101,6 +101,17 @@ describe("recorder (ruling 11)", () => {
     expect(e.snapshot).toEqual({ ...snapshot, status: { sessionName: sessionHash("Owner's Session"), tickRate: 30 } });
   });
 
+  it("records the Node agent's User-Agent (backendClient.ts: satisfactory-dash-agent/<version>) as agent node, its session hashed too", async () => {
+    const up = await upstream(() => ({ status: 200, body: '{"commandsPending":false}' }));
+    const rec = await recorderFor(up.url);
+    await send(rec.url, "POST", "/agent/v1/snapshots", {
+      headers: { "user-agent": "satisfactory-dash-agent/0.1.0", "content-type": "application/json" },
+      body: JSON.stringify(snapshot),
+    });
+    expect(rec.entries[0]).toMatchObject({ agent: "node", path: "/agent/v1/snapshots", status: 200 });
+    expect(rec.entries[0]!.snapshot).toEqual({ ...snapshot, status: { sessionName: sessionHash("Owner's Session"), tickRate: 30 } });
+  });
+
   it("forwards a body over 2 MB but doesn't record it", async () => {
     const up = await upstream(() => ({ status: 413, body: "{}" }));
     const rec = await recorderFor(up.url);

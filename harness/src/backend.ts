@@ -1,7 +1,12 @@
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, scrypt } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { LOOPBACK_HOSTS } from "./config";
+import { ManifestSchema } from "./contract";
+import { RefusalError } from "./refusal";
 
 export type Exec = (cmd: string, args: string[], opts: { cwd: string; env?: Record<string, string> }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
@@ -15,9 +20,15 @@ const DISPLAY_NAMES = { mod: "Core mod", node: "Core node agent", s5: "S5 spike"
 export type BackendServer = keyof typeof PUBLIC_IDS;
 export interface BackendState { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean; revoked: boolean }
 export interface CommandState { status: string; resultCode: string | null }
+/** A compose image and the commit its org.opencontainers.image.revision label names. */
+export interface ImageRevision { image: string; revision: string }
+/** APP_IMAGE (the backend service) and OPS_IMAGE (the migrations), as the resolved compose config names them. */
+export interface BackendImages { app: ImageRevision; ops: ImageRevision }
 
 export interface Backend {
   url: string;
+  /** What the stack runs (the image guard checked each against the contract pin before it booted). */
+  images: BackendImages;
   seedCode(server: BackendServer, code: string): Promise<void>;
   /** The server's newest code, and its credential (agent_credentials has one row per server). */
   state(server: BackendServer): Promise<BackendState>;
@@ -81,7 +92,52 @@ export function assertLoopbackOnly(env: Record<string, string>): void {
 }
 
 interface ComposeConfig {
-  services?: Record<string, { ports?: Array<{ host_ip?: string; published?: string | number }>; environment?: Record<string, string | null> }>;
+  services?: Record<string, { image?: string; ports?: Array<{ host_ip?: string; published?: string | number }>; environment?: Record<string, string | null> }>;
+}
+
+/** The satisfactory-dash commit the vendored contract was taken from (harness/contract/manifest.json). */
+export function contractPin(): string {
+  const file = join(dirname(fileURLToPath(import.meta.url)), "..", "contract", "manifest.json");
+  return ManifestSchema.parse(JSON.parse(readFileSync(file, "utf8"))).commit;
+}
+
+const REVISION_LABEL = "org.opencontainers.image.revision";
+const COMMIT = /^[0-9a-f]{40}$/;
+
+/**
+ * The image guard (enrol run 39609914480 failed on a stale local image). The stack runs the prebuilt APP_IMAGE and
+ * OPS_IMAGE (compose.yaml), never the checkout, so each image must be built from the contract pin or a later commit.
+ * Its revision label (image.yml sets it to github.sha) is read with `docker image inspect`, and ancestry is asked of the
+ * checkout's own git (`merge-base --is-ancestor`, exit 0: the pin is the commit or an ancestor of it; 1: it isn't), so
+ * nothing here needs the network. Refuses before anything boots.
+ */
+async function checkImages(config: ComposeConfig, opts: { checkout: string; exec: Exec; pin: string }): Promise<BackendImages> {
+  const one = async (service: string, role: string): Promise<ImageRevision> => {
+    const image = config.services?.[service]?.image;
+    if (!image) throw new RefusalError(`the resolved compose config names no image for ${service} (${role})`);
+    const inspected = await opts.exec("docker", ["image", "inspect", "--format", "{{json .Config.Labels}}", image], { cwd: opts.checkout });
+    if (inspected.code !== 0) throw new RefusalError(`the ${role} image ${image} is not on this machine: docker pull ${image}, then start again`);
+    let revision: unknown;
+    try {
+      revision = (JSON.parse(inspected.stdout) as Record<string, unknown> | null)?.[REVISION_LABEL];
+    } catch {
+      revision = undefined;
+    }
+    if (typeof revision !== "string" || !COMMIT.test(revision)) {
+      throw new RefusalError(`the ${role} image ${image} has no ${REVISION_LABEL} label naming a full commit: docker pull ${image}, then start again`);
+    }
+    const git = await opts.exec("git", ["merge-base", "--is-ancestor", opts.pin, revision], { cwd: opts.checkout });
+    if (git.code === 1) {
+      throw new RefusalError(`the ${role} image ${image} was built from ${revision}, not ${opts.pin} or a descendant of it (the contract pin): docker pull ${image}, then start again`);
+    }
+    if (git.code !== 0) {
+      throw new RefusalError(`the satisfactory-dash checkout can't tell whether ${revision} (the ${role} image ${image}) descends from ${opts.pin}: git fetch in the checkout, then start again`);
+    }
+    return { image, revision };
+  };
+  const app = await one("backend", "APP_IMAGE");
+  const ops = await one("migrate", "OPS_IMAGE");
+  return { app, ops };
 }
 
 /** Every published port binds to loopback (no host_ip means 0.0.0.0), and no resolved env value is a non-loopback URL. */
@@ -97,7 +153,7 @@ function assertComposeLoopbackOnly(config: ComposeConfig): void {
 
 const hex = (code: string) => createHash("sha256").update(code, "utf8").digest("hex"); // agentRepository.ts:14
 
-export async function startBackend(opts: { checkout: string; relayFile: string; port: number; exec: Exec }): Promise<Backend> {
+export async function startBackend(opts: { checkout: string; relayFile: string; port: number; exec: Exec; pin?: string }): Promise<Backend> {
   const env = { ...(await composeEnv()), SPIKE_BACKEND_PORT: String(opts.port) };
   assertLoopbackOnly(env);
   const compose = (...args: string[]) =>
@@ -114,7 +170,9 @@ export async function startBackend(opts: { checkout: string; relayFile: string; 
   // Review Focus 3 on what compose will actually run: the checkout's .env and the host env feed interpolation too.
   const resolved = await compose("config", "--format", "json");
   if (resolved.code !== 0) throw new Error(`compose config failed: ${resolved.stderr.trim()}`);
-  assertComposeLoopbackOnly(JSON.parse(resolved.stdout) as ComposeConfig);
+  const config = JSON.parse(resolved.stdout) as ComposeConfig;
+  assertComposeLoopbackOnly(config);
+  const images = await checkImages(config, { checkout: opts.checkout, exec: opts.exec, pin: opts.pin ?? contractPin() });
 
   const up = await compose("up", "-d", "--wait");
   if (up.code !== 0) {
@@ -126,6 +184,7 @@ export async function startBackend(opts: { checkout: string; relayFile: string; 
     `(SELECT ${column} FROM agents.agent_credentials a JOIN servers.servers s ON s.id = a.server_id WHERE s.public_id = '${PUBLIC_IDS[server]}')`;
   return {
     url: `http://127.0.0.1:${opts.port}`,
+    images,
     async seedCode(server, code) {
       // Columns from 1790294400000_core_tables.sql:68-74 and 1790899200000_agents.sql:19-28. created_by may be NULL.
       // A server seeded twice (a later phase's new code) keeps its row: public_id is UNIQUE (core_tables.sql:71).

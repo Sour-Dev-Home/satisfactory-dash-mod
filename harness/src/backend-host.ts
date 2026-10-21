@@ -6,7 +6,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { z } from "zod";
-import { type Backend, UUID } from "./backend";
+import { type Backend, type BackendImages, UUID } from "./backend";
 import { LOOPBACK_HOSTS } from "./config";
 
 export type ServerKey = "mod" | "node";
@@ -20,6 +20,8 @@ export interface HostClient {
   state(server: ServerKey): Promise<HostState>;
   stopRelay(): Promise<void>;
   startRelay(): Promise<void>;
+  /** The images the stack runs and their revisions (startBackend's image guard), for the run's evidence. */
+  images(): Promise<BackendImages>;
 }
 export interface BackendHost { controlUrl: string; relayUrl: string; close(): Promise<void> }
 
@@ -100,6 +102,7 @@ export async function serveBackendHost(opts: { backend: Backend; file: string; p
     if (post("/relay/stop")) return void (await backend.stopRelay());
     if (post("/relay/start")) return void (await backend.startRelay());
     if (method === "GET") {
+      if (path === "/images") return backend.images;
       const command = /^\/command\/([^/]+)$/.exec(path)?.[1];
       if (command !== undefined && UUID.test(command)) return await backend.command(command);
       const server = /^\/state\/([^/]+)$/.exec(path)?.[1];
@@ -217,5 +220,9 @@ export async function connectBackendHost(file: string): Promise<HostClient> {
         .parse(await call("GET", `/state/${server}`)),
     stopRelay: async () => void (await call("POST", "/relay/stop")),
     startRelay: async () => void (await call("POST", "/relay/start")),
+    images: async () => {
+      const image = z.strictObject({ image: z.string().min(1), revision: z.string().regex(/^[0-9a-f]{40}$/) });
+      return z.strictObject({ app: image, ops: image }).parse(await call("GET", "/images"));
+    },
   };
 }
