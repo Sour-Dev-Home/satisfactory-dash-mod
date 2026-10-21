@@ -151,8 +151,8 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   for it on the runner account's `PATH`, in the file named by `SATIS_OPENSSL` (checked first), then in Git for
   Windows' usual folders (`C:\Program Files\Git\usr\bin`, `...\mingw64\bin`). With none of them it refuses before
   building the mod.
-- `core-run.yml` offers only the runs that need no backend host. It needs the `ue-runner` deployment approved, like
-  `spike.yml`.
+- `core-run.yml` offers every run the harness drives; one that needs the backend host refuses unless the owner has
+  started it (below). It needs the `ue-runner` deployment approved, like `spike.yml`.
 - `enrol` needs the backend host (below) and the staged world (`s3World`, `frmBaseUrl`), so it runs only as
   `satis-runner`. It boots the server once without the mod to clear the auto-load save (as S6 does) and puts it back at
   the end, then enrols the mod through a recorder on `127.0.0.1` that sits between the mod and the relay. It also
@@ -160,6 +160,10 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   it was taken, as `QueryServerState` said then, with the session's hash: the no-mod sample comes from that first boot,
   which runs the auto-loaded save (`noModWithGame`), and `withModWithGame` is taken at the same stage (a save just loaded,
   healthy). Compare those two only when their session hashes match. It is evidence only, not a pass condition yet.
+- `revoke` needs the backend host and no world (it clears the auto-load save like `enrol`). It enrols, revokes the
+  server, watches for the halt line and two quiet minutes, then enrols the same server again with a new code
+  (`revoke.json`). `command` needs the backend host and the staged world: it flips auto-pause from the dashboard, sends a
+  command the mod must refuse, and restores the value (`command.json`). Both record `memory.json` with `enrol`'s labels.
 
 ## The backend host
 
