@@ -48,6 +48,11 @@ export const RunnerConfigSchema = z.strictObject({
   backendHost: z.strictObject({ file: z.string().min(1), port: z.number().int().min(1024).max(65535) }).optional(),
   /** The core mod's unit tests (scripts/test-mod.ps1): the SML project folder and the engine root. */
   modTest: z.strictObject({ project: z.string().min(1), engine: z.string().min(1) }).optional(),
+  /**
+   * The parity run: a satisfactory-dash `agent/dist/agent.cjs` built from the contract pin, copied where satis-runner can
+   * read it (docs/runner.md, "The parity run's Node agent").
+   */
+  parity: z.strictObject({ agentCjs: z.string().min(1) }).optional(),
 });
 export type RunnerConfig = z.infer<typeof RunnerConfigSchema>;
 

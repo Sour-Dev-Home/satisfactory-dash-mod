@@ -396,6 +396,7 @@ describe("runSpike", () => {
 
   const fakeBackend = (order: string[]) => async () => (order.push("up"), {
     url: "http://127.0.0.1:13101",
+    images: { app: { image: "app:main", revision: "0".repeat(40) }, ops: { image: "ops:main", revision: "0".repeat(40) } },
     seedCode: async () => void order.push("seed"),
     state: async () => ({ codeConsumed: true, agentVersion: "spike-s5", lastSeen: true, revoked: false }),
     revoke: async () => {},

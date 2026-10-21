@@ -7,6 +7,7 @@ import { redact, writeBundle } from "./evidence";
 import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
 import { lastLines, RefusalError, type RunDeps, realDeps } from "./run";
+import { contractPin } from "./backend";
 import { connectBackendHost, type HostClient } from "./backend-host";
 import { createServerApi } from "./server-api";
 import { readApiStatus } from "./status";
@@ -41,8 +42,13 @@ export interface CoreContext {
   offset: number;
   /** Writes SatisDashAgent.cfg and remembers the code as a value the log must never carry. */
   writeConfig(values: { backendUrl: string; enrollmentCode: string }): void;
-  /** Reads the secret from credential.json now, so it is searched for in the log even if a halt deletes the file later. */
-  noteSecret(): void;
+  /**
+   * Reads the secret from credential.json now, so it is searched for in the log even if a halt deletes the file later.
+   * With a value (a token or code the drive made, e.g. the parity run's game API token), notes that value instead.
+   */
+  noteSecret(value?: string): void;
+  /** Remembers an enrolment code the drive gave another agent (the parity run's Node agent) as one the log must not carry. */
+  noteCode(code: string): void;
   credentialExists(): boolean;
   /** Polls check every second until it returns a value, or fails the run naming what. */
   waitFor<T>(what: string, check: () => Promise<T | undefined> | T | undefined, timeoutMs: number): Promise<T>;
@@ -81,7 +87,7 @@ export interface CoreRunSpec {
   baseline?: boolean;
   measureBaseline?(b: BaselineContext): Promise<unknown>;
   /** Checks what the run needs before the (long) build; a throw refuses the run. */
-  preflight?(): void;
+  preflight?(deps: CoreDeps): void;
   drive(ctx: CoreContext): Promise<void>;
   evaluate(e: CoreEvidence): Verdict;
 }
@@ -156,7 +162,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     if (shared.length) throw new RefusalError(`another server keeps its settings in this account's saves folder (${shared.join(", ")}): ${id} runs only as satis-runner`);
   }
   try {
-    spec.preflight?.();
+    spec.preflight?.(deps);
   } catch (e) {
     throw new RefusalError(message(e));
   }
@@ -186,7 +192,11 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   let autoPauseBefore: boolean | undefined;
   let log = "";
   // The secret is read only to search the log for it; it is never written anywhere.
-  const noteSecret = () => {
+  const noteSecret = (value?: string) => {
+    if (value !== undefined) {
+      if (value && !secrets.includes(value)) secrets.push(value);
+      return;
+    }
     try {
       const s = (JSON.parse(readFileSync(cred, "utf8")) as { agentSecret?: unknown }).agentSecret;
       if (typeof s === "string" && s && !secrets.includes(s)) secrets.push(s);
@@ -222,6 +232,15 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     }
   };
   try {
+    if (spec.backend) {
+      // Which backend this run judged against (the image guard's revisions, checked when the host started it).
+      try {
+        // With this harness's own contract pin: a host started from an older checkout would have guarded an older one.
+        captures["backend.json"] = { images: await (await deps.backendHost!()).images(), pin: contractPin() };
+      } catch (e) {
+        reasons.push(`reading the backend's images: ${message(e)}`);
+      }
+    }
     if (spec.emptyBoot) {
       // Before the mod is installed, so this boot also measures the server without it (the owner's memory goal).
       const pre = deps.start();
@@ -276,6 +295,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
           writeModConfig(deps.config.serverDir, MOD, v);
         },
         noteSecret,
+        noteCode: (code) => void (code && !codes.includes(code) && codes.push(code)),
         credentialExists: () => existsSync(cred),
         waitFor: async (what, check, timeoutMs) => {
           const end = Date.now() + timeoutMs;

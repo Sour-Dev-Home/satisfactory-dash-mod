@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { contractPin } from "../src/backend";
+import type { HostClient } from "../src/backend-host";
 import { RunnerConfigSchema } from "../src/config";
 import { type CoreDeps, type CoreRunSpec, coreBuildDir, credentialPath, MOD, runCore } from "../src/core-run";
 import { modConfigPath } from "../src/mod-config";
@@ -142,6 +144,51 @@ describe("runCore", () => {
       },
     }), made.deps);
     expect(result.reasons).toContain("S8: the server log carries the agent secret");
+  });
+
+  it("searches for a value the drive notes itself (the parity run's game API token), and keeps it out of the bundle", async () => {
+    const TOKEN = "eyJwbCI6IkFQSVRva2VuIn0.0123456789ABCDEF";
+    const made = fakeDeps({}, () => `LogSatisDash: Display: ${TOKEN}\n`);
+    const { result, dir } = await runCore("http-probe", spec({ drive: async (ctx) => ctx.noteSecret(TOKEN) }), made.deps);
+    expect(result.reasons).toContain("S8: the server log carries the agent secret");
+    expect(bundleText(dir)).not.toContain(TOKEN);
+    const clean = await runCore("http-probe", spec({ drive: async (ctx) => ctx.noteSecret(TOKEN) }), fakeDeps().deps);
+    expect(clean.result.pass).toBe(true);
+  });
+
+  it("searches for a code the drive notes itself (the Node agent's), reported as a code, not as the agent secret", async () => {
+    const NODE_CODE = "QQQQ-2222-ZZZZ";
+    const made = fakeDeps({}, () => `LogSatisDash: Display: ${NODE_CODE}\n`);
+    const { result, dir } = await runCore("http-probe", spec({ drive: async (ctx) => ctx.noteCode(NODE_CODE) }), made.deps);
+    expect(result.reasons).toContain("S8: the server log carries an enrolment code");
+    expect(result.reasons).not.toContain("S8: the server log carries the agent secret");
+    expect(bundleText(dir)).not.toContain(NODE_CODE);
+  });
+
+  it("records the images the backend host runs (backend.json) in every backend run, and fails when it can't read them", async () => {
+    const images = {
+      app: { image: "ghcr.io/sour-dev-home/satisfactory-dash-backend:main", revision: "0123456789abcdef0123456789abcdef01234567" },
+      ops: { image: "ghcr.io/sour-dev-home/satisfactory-dash-ops:main", revision: "0123456789abcdef0123456789abcdef01234567" },
+    };
+    const host = (read: () => Promise<typeof images>): HostClient => ({
+      relayUrl: "http://127.0.0.1:13101",
+      seedCode: async () => undefined,
+      revoke: async () => undefined,
+      queueCommand: async () => "",
+      command: async () => ({ status: "pending", resultCode: null }),
+      state: async () => ({ codeConsumed: false, agentVersion: null, lastSeen: false, revoked: false }),
+      stopRelay: async () => undefined,
+      startRelay: async () => undefined,
+      images: read,
+    });
+    const good = await runCore("enrol", spec({ backend: true }), fakeDeps({ backendHost: async () => host(async () => images) }).deps);
+    expect(good.result.pass).toBe(true);
+    expect(JSON.parse(readFileSync(join(good.dir, "backend.json"), "utf8"))).toEqual({ images, pin: contractPin() });
+    const bad = await runCore("enrol", spec({ backend: true }), fakeDeps({ backendHost: async () => host(async () => { throw new Error("backend host: GET /images answered 404"); }) }).deps);
+    expect(bad.result.pass).toBe(false);
+    expect(bad.result.reasons).toContain("reading the backend's images: backend host: GET /images answered 404");
+    const none = await runCore("http-probe", spec(), fakeDeps().deps);
+    expect(existsSync(join(none.dir, "backend.json"))).toBe(false);
   });
 
   it("fails a run whose log has an Error line from the mod, or the string Bearer anywhere", async () => {
@@ -322,5 +369,12 @@ describe("runCore", () => {
     await expect(runCore("http-probe", s, f.deps)).rejects.toThrow(RefusalError);
     await expect(runCore("http-probe", s, f.deps)).rejects.toThrow(/needs a thing/);
     expect(f.calls).not.toContain("build");
+  });
+
+  it("hands the preflight the run's deps, so it can check the runner config", async () => {
+    const f = fakeDeps();
+    let seen: CoreDeps | undefined;
+    await runCore("http-probe", spec({ preflight: (d) => void (seen = d) }), f.deps);
+    expect(seen).toBe(f.deps);
   });
 });

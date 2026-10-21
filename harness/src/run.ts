@@ -38,8 +38,9 @@ import { type Toolchain, toolchainMismatches } from "./toolchain";
 import { loadWorld, otherServerSettings, readAutoLoad, setAutoLoad } from "./world";
 import { type AutoPauseStep, type Evidence, SPIKE_IDS, type SpikeId, type StatusPair, type Verdict } from "./verdict";
 
-/** A precondition failed: nothing ran, and no evidence is written. */
-export class RefusalError extends Error {}
+import { RefusalError } from "./refusal";
+
+export { RefusalError };
 
 export interface SpikeSpec {
   claim: string;

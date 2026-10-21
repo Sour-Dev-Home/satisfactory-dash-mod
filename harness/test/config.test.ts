@@ -38,6 +38,14 @@ describe("RunnerConfigSchema", () => {
     expect(() => RunnerConfigSchema.parse({ ...valid, backendHost: { file: "x", port: 13102, token: "t" } })).toThrow();
   });
 
+  it("takes the parity run's agent.cjs path, and refuses an empty one or extra keys", () => {
+    expect(RunnerConfigSchema.parse(valid).parity).toBeUndefined();
+    const cfg = RunnerConfigSchema.parse({ ...valid, parity: { agentCjs: "D:/satis-runner-config/node-agent/agent.cjs" } });
+    expect(cfg.parity).toEqual({ agentCjs: "D:/satis-runner-config/node-agent/agent.cjs" });
+    expect(() => RunnerConfigSchema.parse({ ...valid, parity: { agentCjs: "" } })).toThrow();
+    expect(() => RunnerConfigSchema.parse({ ...valid, parity: { agentCjs: "a.cjs", apiToken: "t" } })).toThrow();
+  });
+
   it("refuses a plugin dir without {spike}", () => {
     expect(() => RunnerConfigSchema.parse({ ...valid, builtPluginDir: "D:/satis-build" })).toThrow();
   });
