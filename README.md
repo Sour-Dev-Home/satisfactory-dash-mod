@@ -10,13 +10,32 @@ for players whose game server is rented and cannot run a second program beside i
 
 ## Status
 
-Exploration only (ADR-0039 gates G0-G2). There is **no build decision (G3)** without the owner's explicit go, and the
-[edge agent](https://github.com/Sour-Dev-Home/satisfactory-dash) remains the supported way satisfactory-dash reads a
-game server. Nothing here is installed on, or affects, any real Satisfactory server other than the owner's own, during
-a spike he runs himself.
+G2's spikes passed, and the owner went on to G3: the **core mod, v1** (`mod/SatisDashAgent`, spec
+`docs/specs/2026-10-20-core-mod-v1-design.md`). It is built and proven on the test server, but not yet released: the
+[edge agent](https://github.com/Sour-Dev-Home/satisfactory-dash) stays the supported way satisfactory-dash reads a game
+server until the switchover (sub-project 5), and nothing here is installed on any real server but the owner's own.
+
+## The core mod, v1
+
+`SatisDashAgent` runs inside a dedicated server and replaces the Node edge agent for status, power and auto-pause. It
+is an outbound HTTPS client only: it opens no port, serves nothing and has no UI. It enrols once with a code from the
+dashboard, pushes a snapshot every 5 s, and long-polls for commands (only `set_auto_pause` in v1).
+
+- **Config:** `FactoryGame/Configs/SatisDashAgent.cfg`, written with defaults on first start:
+  `{"backendUrl": "https://api.satis-manager.com", "enrollmentCode": ""}`. Put the dashboard's code in
+  `enrollmentCode`; the mod blanks it once enrolled. Without a valid config the mod stays idle.
+- **Credential:** `FactoryGame/Saved/SatisDash/credential.json`, the per-server secret. Revoke it from the dashboard.
+- **Logs:** `LogSatisDash`, Display and Warning only; never the secret or the code.
+- **Evidence:** every harness run's verdict, the security review and its decisions are listed in Plan 2B's final PR;
+  the review is `docs/reviews/2026-10-core-mod-v1-security.md`, with `docs/reviews/2026-10-core-mod-v1-security-decisions.md`.
+  `docs/runner.md` explains how the runs work.
 
 ## What's here
 
+- `mod/SatisDashAgent` — the core mod: `SatisDashCore` (pure logic and its tests) and `SatisDashGame` (transport,
+  game reader, driver).
+- `harness/` and `runs/` — the harness that builds, installs and judges the mod on the test server, and each run's
+  pass condition.
 - `spikes/S0` … `spikes/S5` — one folder per spike, each testing exactly one claim from
   [`mod-claims.md`](https://github.com/Sour-Dev-Home/satisfactory-dash/blob/main/docs-vault/wiki/mod-claims.md) in the
   main repo (the table of claims, sources and status lives there, not here). A spike's evidence (log excerpts, an echo
@@ -28,8 +47,9 @@ a spike he runs himself.
 
 Needs the Unreal Engine 5.6.1 toolchain SML documents (see
 [`sml-getting-started-2026-09-27.adoc`](https://github.com/Sour-Dev-Home/satisfactory-dash/blob/main/docs-vault/raw-sources/sml-getting-started-2026-09-27.adoc)
-in the main repo for exact versions and steps). No CI builds this repo: UE builds do not fit free-tier runners, so every
-spike is built and run on the owner's own PC against his own dedicated server.
+in the main repo for exact versions and steps). UE builds do not fit free-tier runners, so the mod and the spikes are
+built and run by a self-hosted runner on the owner's PC, against a separate test server, and every run waits for the
+owner's approval (`docs/runner.md`). GitHub's runners only run the harness's own tests.
 
 ## Secrets
 
