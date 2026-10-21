@@ -34,7 +34,9 @@
 //    last one at or before the mod's observedAt and the first one at or after it, each within PARITY_NEIGHBOUR_GAP_MS
 //    of it. A missing neighbour on either side fails the round;
 //  - each power field, per circuit group, must lie in [lo - tol, hi + tol], lo and hi the two Node values,
-//    tol = 0.01 * max(|lo|, |hi|, 1): S3's 1% stays. Group ids and the fuse must match at least one neighbour, and only
+//    tol = PARITY_POWER_TOLERANCE * max(|lo|, |hi|, 1). It was S3's 1%; run 39625857599 failed 46 of 356 rounds by
+//    1.0-2.4% (median 1.2%), while the Node agent's own consumption moved 1.5% (median) and 4.1% (p90) between its 5 s
+//    samples, so the owner widened it to 3% (2026-10-21). Group ids and the fuse must match at least one neighbour, and only
 //    the neighbour(s) whose group ids match bracket the values. A group's several rows (a joined group) are one row,
 //    which they must all agree on;
 //  - power must be compared in at least NEED_PAIRS rounds; a round where both sides have no circuit group doesn't count.
@@ -57,9 +59,11 @@ export const NEED_PAIRS = Math.ceil(((WINDOW_MINUTES * 60) / STATUS_SECONDS) * 0
 export const PARITY_NEIGHBOUR_GAP_MS = 5000;
 const DURATION_DRIFT = 10; // S6
 const tickClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, 0.1 * Math.max(a, b)); // S6
-/** S3's 1% around the range the two neighbours span, as enrol's bracket. */
+/** How far beyond the neighbours' range a power value may be (owner, 2026-10-21, after run 39625857599; see the header). */
+export const PARITY_POWER_TOLERANCE = 0.03;
+/** PARITY_POWER_TOLERANCE around the range the two neighbours span. */
 const inBracket = (v: number, lo: number, hi: number) => {
-  const tol = 0.01 * Math.max(Math.abs(lo), Math.abs(hi), 1);
+  const tol = PARITY_POWER_TOLERANCE * Math.max(Math.abs(lo), Math.abs(hi), 1);
   return lo - tol <= v && v <= hi + tol;
 };
 

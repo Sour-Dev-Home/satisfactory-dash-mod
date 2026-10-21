@@ -136,14 +136,14 @@ describe("parity pass conditions (Task 9)", () => {
   });
 
   describe("power against the Node agent's neighbours (owner, 2026-10-21)", () => {
-    it("passes a value inside the two readings' range, or within 1% of its ends", () => {
+    it("passes a value inside the two readings' range, or within 3% of its ends (owner, after run 39625857599)", () => {
       const b = { dt: -4000, circuits: [circuit({ consumptionMW: 800 })] };
       const a = { dt: 1000, circuits: [circuit({ consumptionMW: 820 })] };
       expect(power([circuit({ consumptionMW: 815 })], b, a)).toEqual({ reasons: [], compared: true, counted: true });
-      expect(power([circuit({ consumptionMW: 828 })], b, a).reasons).toEqual([]); // 820 + 8.2
-      expect(power([circuit({ consumptionMW: 792 })], b, a).reasons).toEqual([]); // 800 - 8.2
-      expect(power([circuit({ consumptionMW: 829 })], b, a).reasons).toEqual([`${iso(T0)}: group 1 consumptionMW mod 829 vs node 800..820`]);
-      expect(power([circuit({ consumptionMW: 791 })], b, a).reasons).toEqual([`${iso(T0)}: group 1 consumptionMW mod 791 vs node 800..820`]);
+      expect(power([circuit({ consumptionMW: 844 })], b, a).reasons).toEqual([]); // 820 + 24.6
+      expect(power([circuit({ consumptionMW: 776 })], b, a).reasons).toEqual([]); // 800 - 24.6
+      expect(power([circuit({ consumptionMW: 845 })], b, a).reasons).toEqual([`${iso(T0)}: group 1 consumptionMW mod 845 vs node 800..820`]);
+      expect(power([circuit({ consumptionMW: 775 })], b, a).reasons).toEqual([`${iso(T0)}: group 1 consumptionMW mod 775 vs node 800..820`]);
     });
 
     it("judges every power field the same way", () => {
@@ -159,8 +159,9 @@ describe("parity pass conditions (Task 9)", () => {
       const nodes = [-9000, -4000, -1000, 0, 2000, 6000].map((dt) => snap(T0 + dt, { power: { circuits: [circuit({ consumptionMW: 800 + dt / 100 })] } }));
       // The neighbours are the one at the sample's own time on both sides: 800..800.
       expect(comparePower(snap(T0, { power: { circuits: [circuit({ consumptionMW: 800 })] } }), nodes).reasons).toEqual([]);
-      const off = snap(T0 + 1000, { power: { circuits: [circuit({ consumptionMW: 830 })] } });
-      expect(comparePower(off, nodes).reasons).toEqual([`${iso(T0 + 1000)}: group 1 consumptionMW mod 830 vs node 800..820`]);
+      const off = snap(T0 + 1000, { power: { circuits: [circuit({ consumptionMW: 850 })] } });
+      // Past 820 + 3%; within reach of the 6 s reading (860), which is too far to be a neighbour.
+      expect(comparePower(off, nodes).reasons).toEqual([`${iso(T0 + 1000)}: group 1 consumptionMW mod 850 vs node 800..820`]);
     });
 
     it("fails a round missing a neighbour on either side, or with one more than 5 s away", () => {
