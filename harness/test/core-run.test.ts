@@ -225,6 +225,46 @@ describe("runCore", () => {
     expect(calls).toEqual([]);
   });
 
+  it("baseline: boots once without the mod, world loaded and auto-pause off, measures it, and hands the result to drive", async () => {
+    const { deps, calls } = fakeDeps();
+    let seen: unknown;
+    const { result } = await runCore("tick-cost", spec({
+      world: true,
+      baseline: true,
+      measureBaseline: async ({ proc }) => (calls.push(`measure ${proc.pid}`), { median: 22 }),
+      drive: async (ctx) => void (seen = ctx.baseline),
+    }), deps);
+    expect(result.pass).toBe(true);
+    expect(seen).toEqual({ median: 22 });
+    expect(calls).toEqual([
+      "probe", "build", "remove SatisMod*",
+      "start", "healthy", "load world", "healthy", "auto-pause false", "measure 100", "auto-pause true", "stop", "probe",
+      "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy", "stop", "uninstall SatisDashAgent",
+    ]);
+  });
+
+  it("baseline: a failed measurement fails the run, restores auto-pause and stops the server; drive still runs with no baseline", async () => {
+    const { deps, calls } = fakeDeps();
+    let seen: unknown = "unset";
+    const { result } = await runCore("tick-cost", spec({
+      world: true,
+      baseline: true,
+      measureBaseline: async () => { throw new Error("no ticks"); },
+      drive: async (ctx) => void (seen = ctx.baseline),
+    }), deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons).toContain("baseline: no ticks");
+    expect(seen).toBeUndefined();
+    expect(calls.slice(calls.indexOf("auto-pause false"), calls.indexOf("auto-pause false") + 3)).toEqual(["auto-pause false", "auto-pause true", "stop"]);
+  });
+
+  it("baseline is refused without the world or a measurement", async () => {
+    const { deps, calls } = fakeDeps();
+    await expect(runCore("tick-cost", spec({ baseline: true, measureBaseline: async () => 1 }), deps)).rejects.toThrow(/baseline/);
+    await expect(runCore("tick-cost", spec({ world: true, baseline: true }), deps)).rejects.toThrow(/baseline/);
+    expect(calls).toEqual([]);
+  });
+
   it("records the server's memory with whether a game ran, read at the time, in each sample's label (review of 66e1f0d)", async () => {
     const sample = { totalWorkingSetBytes: 1, processes: [{ name: "FactoryServer-Win64-Shipping-Cmd.exe", workingSetBytes: 1, peakWorkingSetBytes: 2 }] };
     // The pre-boot runs the auto-loaded save; the run's boot has none until drive loads the world.

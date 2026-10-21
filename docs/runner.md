@@ -164,6 +164,13 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   server, watches for the halt line and two quiet minutes, then enrols the same server again with a new code
   (`revoke.json`). `command` needs the backend host and the staged world: it flips auto-pause from the dashboard, sends a
   command the mod must refuse, and restores the value (`command.json`). Both record `memory.json` with `enrol`'s labels.
+- `outage` needs the backend host and the staged world. With the world running and the mod enrolled, it samples ticks
+  for 3 minutes (after the usual warmup), stops the relay for 3 minutes, starts it again and waits 3 minutes for the
+  catch-up (`outage.json`). It always starts the relay again, even when the run fails.
+- `tick-cost` needs the backend host and the staged world, and takes about twice as long as the others: it boots once
+  without the mod (world loaded, auto-pause off) and once with it, and measures each for the warmup plus 10 minutes. Every
+  30 s it samples the outbound TCP connections and the working set of the server's process tree, by the spawned pid
+  (`tick-cost.json`). No FRM poller runs during it.
 
 ## The backend host
 

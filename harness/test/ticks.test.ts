@@ -26,6 +26,17 @@ describe("median", () => {
 });
 
 describe("sampleTicks", () => {
+  it("ends early once stopped says so (an orphaned measurement stops with its server; review M1)", async () => {
+    let t = 0;
+    let reads = 0;
+    const read = async () => (reads++, 30);
+    const series = await sampleTicks(read, {
+      durationMs: 60_000, intervalMs: 10_000, now: () => t, sleep: async (ms) => void (t += ms), stopped: () => reads >= 2,
+    });
+    expect(reads).toBe(2);
+    expect(series.samples).toHaveLength(2);
+  });
+
   it("samples every interval for the window, counting failed reads", async () => {
     let t = 0;
     let n = 0;
