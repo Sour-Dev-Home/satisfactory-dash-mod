@@ -40,7 +40,7 @@ namespace SatisDash
 	SATISDASHCORE_API bool IsAllowedRequestUrl(const FString& Url, bool& OutPlainHttp);
 	/** The form ParseConfig stores: surrounding whitespace trimmed, trailing slashes removed. The credential uses it too. */
 	SATISDASHCORE_API FString NormalizeBackendUrl(const FString& Url);
-	/** The contract's code: four base32 characters, a dash, four more (EnrollmentCodeSchema). */
+	/** The contract's code: three groups of four base32 characters joined by dashes, ^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$ (EnrollmentCodeSchema). */
 	SATISDASHCORE_API bool IsEnrollmentCode(const FString& Code);
 	/** Trims both values, upper-cases the code and drops trailing slashes from the URL, then checks them. */
 	SATISDASHCORE_API FConfigResult ParseConfig(const FString& Text);
