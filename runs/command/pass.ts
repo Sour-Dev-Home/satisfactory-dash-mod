@@ -8,6 +8,9 @@
 // whole run. Controller ruling (2026-10-20, review of 9b23fd1): exactly one result per command ID is accepted (2xx); a
 // correct mod retries a result refused transiently (DriverCommands.cpp), so extra posts refused with 5xx or 429 are
 // allowed and counted in the pass reason. Any other refusal, or a second accepted post, fails.
+// Re-review of 9e0f811 (controller ruling, 2026-10-20): a post that got no answer (status 0) is transient too, as
+// ClassifyReply has it (Responses.cpp:16-18) and ShouldRetryResult retries it; and the accepted post must be the last
+// one to finish, since nothing more is posted for an ID once its result is accepted.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { Verdict } from "../../harness/src/verdict";
 
@@ -16,7 +19,8 @@ const APPLIED = /Applied set_auto_pause/;
 
 export interface Outcome { id: string; status: string; resultCode: string | null; apiAfter: boolean | null; resultStatuses: number[] }
 const isAccepted = (s: number) => s >= 200 && s < 300;
-const isTransient = (s: number) => (s >= 500 && s < 600) || s === 429;
+/** No answer (0), 429 or 5xx: ClassifyReply treats these as transient (Responses.cpp:16-18), and ShouldRetryResult retries. */
+const isTransient = (s: number) => s === 0 || s === 429 || (s >= 500 && s <= 599);
 export interface Command {
   /** Auto-pause before the first command, from GetServerOptions. */
   before: boolean;
@@ -35,7 +39,11 @@ function judge(name: string, o: Outcome | null, want: { status: string; resultCo
   else if (o.apiAfter !== want.autoPause) out.push(`${name}: GetServerOptions reads auto-pause ${o.apiAfter}, expected ${want.autoPause}`);
   const accepted = o.resultStatuses.filter(isAccepted).length;
   if (accepted !== 1) out.push(`${name}: ${accepted} result post(s) accepted, not 1`);
-  for (const s of new Set(o.resultStatuses.filter((s) => !isAccepted(s) && !isTransient(s)))) out.push(`${name}: a result post was answered ${s}, not 2xx or a transient 5xx/429`);
+  // resultStatuses is in finish order: once a result is accepted, nothing more is posted for that ID.
+  if (accepted >= 1 && !isAccepted(o.resultStatuses[o.resultStatuses.length - 1]!)) {
+    out.push(`${name}: a result post finished after the accepted one (answers in order: ${o.resultStatuses.join(", ")})`);
+  }
+  for (const s of new Set(o.resultStatuses.filter((s) => !isAccepted(s) && !isTransient(s)))) out.push(`${name}: a result post was answered ${s}, not 2xx or transient (no answer, 429 or 5xx)`);
   return out;
 }
 
@@ -60,7 +68,7 @@ export function evaluate(e: CoreEvidence): Verdict {
         pass: true,
         reasons: [
           `auto-pause ${onOff(c.before)} -> ${onOff(flippedTo)} -> ${onOff(c.before)} as GetServerOptions read it; { enabled: "yes" } failed as unsupported and changed nothing; ` +
-            `1 result accepted per command (3), ${all.length} result post(s) in all, ${transient} refused transiently (5xx/429) and retried; Applied set_auto_pause logged ${applied} times`,
+            `1 result accepted per command (3), ${all.length} result post(s) in all, ${transient} refused transiently (no answer, 429 or 5xx) and retried; Applied set_auto_pause logged ${applied} times`,
         ],
       };
 }

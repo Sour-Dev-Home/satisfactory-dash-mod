@@ -63,16 +63,23 @@ describe("command pass", () => {
     expect(evaluate(ev({ ...c, restored: { ...c.restored!, resultStatuses: [...statuses] } })).reasons).toContain(`restore: ${n} result post(s) accepted, not 1`);
   });
 
-  it("allows a transient 5xx/429 refusal before the accepted result, and counts it in the pass reason", () => {
+  it("allows a transient no-answer/429/5xx refusal before the accepted result, and counts it in the pass reason", () => {
     const c = capture();
-    const v = evaluate(ev({ ...c, flipped: { ...c.flipped!, resultStatuses: [503, 429, 200] }, unsupported: { ...c.unsupported!, resultStatuses: [502, 204] } }));
+    const v = evaluate(ev({ ...c, flipped: { ...c.flipped!, resultStatuses: [503, 429, 0, 200] }, unsupported: { ...c.unsupported!, resultStatuses: [502, 204] } }));
     expect(v.pass).toBe(true);
-    expect(v.reasons[0]).toContain("6 result post(s) in all, 3 refused transiently (5xx/429) and retried");
+    expect(v.reasons[0]).toContain("7 result post(s) in all, 4 refused transiently (no answer, 429 or 5xx) and retried");
   });
 
-  it.each([400, 404, 409, 0])("fails an extra result post refused with %i (not a transient 5xx/429)", (s) => {
+  it.each([400, 404, 409])("fails an extra result post refused with %i (not transient)", (s) => {
     const c = capture();
-    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, resultStatuses: [s, 200] } })).reasons).toContain(`flip: a result post was answered ${s}, not 2xx or a transient 5xx/429`);
+    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, resultStatuses: [s, 200] } })).reasons).toContain(`flip: a result post was answered ${s}, not 2xx or transient (no answer, 429 or 5xx)`);
+  });
+
+  it("fails a post that finished after the accepted one (re-review of 9e0f811)", () => {
+    const c = capture();
+    const v = evaluate(ev({ ...c, flipped: { ...c.flipped!, resultStatuses: [200, 503] } }));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toContain("flip: a result post finished after the accepted one (answers in order: 200, 503)");
   });
 
   it("fails an unsupported command that succeeded, or failed for another reason", () => {
