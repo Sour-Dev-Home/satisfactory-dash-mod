@@ -112,14 +112,42 @@ describe("recorder (ruling 11)", () => {
     expect(rec.entries[0]!.snapshot).toEqual({ ...snapshot, status: { sessionName: sessionHash("Owner's Session"), tickRate: 30 } });
   });
 
-  it("forwards a body over 2 MB but doesn't record it", async () => {
+  it("keeps a snapshot over 2 MB without its bulky parts, marked oversized (review of 0dee72a, Important 1)", async () => {
+    const up = await upstream(() => ({ status: 200, body: "{}" }));
+    const rec = await recorderFor(up.url);
+    const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
+    const factory = { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, name: "Constructor", className: "Build_ConstructorMk1_C", pad: "p".repeat(60) })) };
+    const big = JSON.stringify({ ...snapshot, ...parts, factory, players: { available: true, players: [{ name: "Someone", online: true }] } });
+    expect(Buffer.byteLength(big)).toBeGreaterThan(2 * 1024 * 1024);
+    for (const gzip of [false, true]) {
+      await send(rec.url, "POST", "/agent/v1/snapshots", {
+        headers: { "user-agent": "satisfactory-dash-agent/0.1.0", "content-type": "application/json", ...(gzip ? { "content-encoding": "gzip" } : {}) },
+        body: gzip ? gzipSync(big) : big,
+      });
+    }
+    expect(up.seen[0]!.body.length).toBe(Buffer.byteLength(big)); // forwarded whole
+    for (const e of rec.entries) {
+      expect(e).toMatchObject({ status: 200, oversized: true });
+      expect(e.snapshot).toEqual({ ...snapshot, ...parts, status: { sessionName: sessionHash("Owner's Session"), tickRate: 30 } });
+    }
+  });
+
+  it("forwards a body over 8 MB (more than the backend's 5 MB limit) but doesn't record it", async () => {
     const up = await upstream(() => ({ status: 413, body: "{}" }));
     const rec = await recorderFor(up.url);
-    const big = JSON.stringify({ ...snapshot, pad: "p".repeat(2 * 1024 * 1024 + 10) });
+    const big = JSON.stringify({ ...snapshot, pad: "p".repeat(8 * 1024 * 1024 + 10) });
     await send(rec.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: big });
     expect(up.seen[0]!.body.length).toBe(Buffer.byteLength(big));
     expect(rec.entries[0]).toMatchObject({ status: 413 });
     expect(rec.entries[0]!.snapshot).toBeUndefined();
+  });
+
+  it("keeps a small snapshot whole and doesn't mark it oversized", async () => {
+    const up = await upstream(() => ({ status: 200, body: "{}" }));
+    const rec = await recorderFor(up.url);
+    await send(rec.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: JSON.stringify({ ...snapshot, factory: { buildings: [] } }) });
+    expect(rec.entries[0]!.oversized).toBeUndefined();
+    expect(rec.entries[0]!.snapshot).toMatchObject({ factory: { buildings: [] } });
   });
 
   it("never records the Authorization value, the code or the secret", async () => {

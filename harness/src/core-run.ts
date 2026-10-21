@@ -7,6 +7,7 @@ import { redact, writeBundle } from "./evidence";
 import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
 import { lastLines, RefusalError, type RunDeps, realDeps } from "./run";
+import { contractPin } from "./backend";
 import { connectBackendHost, type HostClient } from "./backend-host";
 import { createServerApi } from "./server-api";
 import { readApiStatus } from "./status";
@@ -46,6 +47,8 @@ export interface CoreContext {
    * With a value (a token or code the drive made, e.g. the parity run's game API token), notes that value instead.
    */
   noteSecret(value?: string): void;
+  /** Remembers an enrolment code the drive gave another agent (the parity run's Node agent) as one the log must not carry. */
+  noteCode(code: string): void;
   credentialExists(): boolean;
   /** Polls check every second until it returns a value, or fails the run naming what. */
   waitFor<T>(what: string, check: () => Promise<T | undefined> | T | undefined, timeoutMs: number): Promise<T>;
@@ -232,7 +235,8 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     if (spec.backend) {
       // Which backend this run judged against (the image guard's revisions, checked when the host started it).
       try {
-        captures["backend.json"] = { images: await (await deps.backendHost!()).images() };
+        // With this harness's own contract pin: a host started from an older checkout would have guarded an older one.
+        captures["backend.json"] = { images: await (await deps.backendHost!()).images(), pin: contractPin() };
       } catch (e) {
         reasons.push(`reading the backend's images: ${message(e)}`);
       }
@@ -291,6 +295,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
           writeModConfig(deps.config.serverDir, MOD, v);
         },
         noteSecret,
+        noteCode: (code) => void (code && !codes.includes(code) && codes.push(code)),
         credentialExists: () => existsSync(cred),
         waitFor: async (what, check, timeoutMs) => {
           const end = Date.now() + timeoutMs;

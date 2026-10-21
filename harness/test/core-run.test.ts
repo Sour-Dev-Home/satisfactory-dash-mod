@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { contractPin } from "../src/backend";
 import type { HostClient } from "../src/backend-host";
 import { RunnerConfigSchema } from "../src/config";
 import { type CoreDeps, type CoreRunSpec, coreBuildDir, credentialPath, MOD, runCore } from "../src/core-run";
@@ -155,6 +156,15 @@ describe("runCore", () => {
     expect(clean.result.pass).toBe(true);
   });
 
+  it("searches for a code the drive notes itself (the Node agent's), reported as a code, not as the agent secret", async () => {
+    const NODE_CODE = "QQQQ-2222-ZZZZ";
+    const made = fakeDeps({}, () => `LogSatisDash: Display: ${NODE_CODE}\n`);
+    const { result, dir } = await runCore("http-probe", spec({ drive: async (ctx) => ctx.noteCode(NODE_CODE) }), made.deps);
+    expect(result.reasons).toContain("S8: the server log carries an enrolment code");
+    expect(result.reasons).not.toContain("S8: the server log carries the agent secret");
+    expect(bundleText(dir)).not.toContain(NODE_CODE);
+  });
+
   it("records the images the backend host runs (backend.json) in every backend run, and fails when it can't read them", async () => {
     const images = {
       app: { image: "ghcr.io/sour-dev-home/satisfactory-dash-backend:main", revision: "0123456789abcdef0123456789abcdef01234567" },
@@ -173,7 +183,7 @@ describe("runCore", () => {
     });
     const good = await runCore("enrol", spec({ backend: true }), fakeDeps({ backendHost: async () => host(async () => images) }).deps);
     expect(good.result.pass).toBe(true);
-    expect(JSON.parse(readFileSync(join(good.dir, "backend.json"), "utf8"))).toEqual({ images });
+    expect(JSON.parse(readFileSync(join(good.dir, "backend.json"), "utf8"))).toEqual({ images, pin: contractPin() });
     const bad = await runCore("enrol", spec({ backend: true }), fakeDeps({ backendHost: async () => host(async () => { throw new Error("backend host: GET /images answered 404"); }) }).deps);
     expect(bad.result.pass).toBe(false);
     expect(bad.result.reasons).toContain("reading the backend's images: backend host: GET /images answered 404");

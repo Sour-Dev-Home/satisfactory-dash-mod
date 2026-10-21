@@ -20,41 +20,54 @@ export interface RecordedCall {
   status: number;
   authorization: boolean;
   snapshot?: unknown;
+  /** The snapshot was over MAX_RECORDED: `snapshot` keeps only its small parts (OVERSIZED_KEPT). */
+  oversized?: true;
   commandIds?: string[];
   result?: unknown;
 }
 export interface Recorder { url: string; entries: RecordedCall[]; close(): Promise<void> }
 
 const MAX_RECORDED = 2 * 1024 * 1024;
+/**
+ * A snapshot post is read up to this size (raw and unzipped): above the backend's own limit (satisfactory-dash
+ * backend/src/modules/agents/config.ts SNAPSHOT_MAX_BYTES, 5 MB), so every snapshot the backend accepted can be read.
+ */
+const SNAPSHOT_READ_LIMIT = 8 * 1024 * 1024;
+/** What an oversized snapshot keeps: everything but the bulky parts (factory, players, mapLive). */
+const OVERSIZED_KEPT = ["agentVersion", "observedAt", "reachable", "paused", "settings", "status", "power"];
 const SNAPSHOTS = "/agent/v1/snapshots";
 const COMMANDS = "/agent/v1/commands";
 const RESULT = /^\/agent\/v1\/commands\/[^/]+\/result$/;
 
-/** Keeps at most MAX_RECORDED bytes of a stream that is forwarded whole; over that, nothing is recorded. */
+/** Keeps at most `limit` bytes of a stream that is forwarded whole; over that, nothing is recorded. */
 class Capped {
   private chunks: Buffer[] = [];
   private size = 0;
   over = false;
+  constructor(private readonly limit = MAX_RECORDED) {}
   add(chunk: Buffer) {
     if (this.over) return;
     this.size += chunk.length;
-    if (this.size > MAX_RECORDED) {
+    if (this.size > this.limit) {
       this.over = true;
       this.chunks = [];
     } else {
       this.chunks.push(chunk);
     }
   }
-  /** The body as JSON (gunzipped if it says gzip), or undefined when it was too big or isn't JSON. */
-  json(headers: IncomingHttpHeaders): unknown {
+  /** The body as JSON (gunzipped if it says gzip) and its unzipped size, or undefined when too big or not JSON. */
+  read(headers: IncomingHttpHeaders): { value: unknown; size: number } | undefined {
     if (this.over || !this.size) return undefined;
     try {
       let raw = Buffer.concat(this.chunks);
-      if (String(headers["content-encoding"] ?? "").toLowerCase() === "gzip") raw = gunzipSync(raw, { maxOutputLength: MAX_RECORDED });
-      return JSON.parse(raw.toString("utf8"));
+      if (String(headers["content-encoding"] ?? "").toLowerCase() === "gzip") raw = gunzipSync(raw, { maxOutputLength: this.limit });
+      return { value: JSON.parse(raw.toString("utf8")), size: raw.length };
     } catch {
       return undefined;
     }
+  }
+  json(headers: IncomingHttpHeaders): unknown {
+    return this.read(headers)?.value;
   }
 }
 
@@ -89,7 +102,7 @@ export async function startRecorder(upstream: string): Promise<Recorder> {
       status: 0,
       authorization: req.headers.authorization !== undefined,
     };
-    const sent = new Capped();
+    const sent = new Capped(method === "POST" && path === SNAPSHOTS ? SNAPSHOT_READ_LIMIT : MAX_RECORDED);
     const got = new Capped();
     let done = false;
     const finish = () => {
@@ -98,8 +111,14 @@ export async function startRecorder(upstream: string): Promise<Recorder> {
       entry.doneAt = new Date().toISOString();
       if (entry.status !== 0) {
         if (method === "POST" && path === SNAPSHOTS) {
-          const s = sent.json(req.headers);
-          if (s !== undefined) entry.snapshot = hashSession(s);
+          const s = sent.read(req.headers);
+          if (s !== undefined && s.size > MAX_RECORDED && s.value !== null && typeof s.value === "object" && !Array.isArray(s.value)) {
+            const kept = Object.fromEntries(Object.entries(s.value).filter(([k]) => OVERSIZED_KEPT.includes(k)));
+            entry.snapshot = hashSession(kept);
+            entry.oversized = true;
+          } else if (s !== undefined && s.size <= MAX_RECORDED) {
+            entry.snapshot = hashSession(s.value);
+          }
         } else if (method === "GET" && path === COMMANDS) {
           const ids = commandIds(got.json(upRes?.headers ?? {}));
           if (ids) entry.commandIds = ids;

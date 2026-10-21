@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertLoopbackOnly, composeEnv, contractPin, type Exec, randomCode, startBackend } from "../src/backend";
+import { assertLoopbackOnly, composeEnv, contractPin, type Exec, randomCode, realExec, startBackend } from "../src/backend";
 import { RefusalError } from "../src/refusal";
 
 // "{}" is an empty `compose config --format json`; up, down and the seed INSERT ignore stdout.
@@ -234,6 +234,24 @@ describe("the backend image guard (enrol run 39609914480: a stale local image)",
     expect(err).toBeInstanceOf(RefusalError);
     expect(String(err)).toMatch(/git fetch/);
     expect(booted(seen)).toBe(false);
+  });
+
+  it("says git or docker couldn't run, not that the image is too old (review of 0dee72a, minor 3)", async () => {
+    const noGit = machine((cmd) => (cmd === "git" ? { code: -1, stdout: "", stderr: "spawn git ENOENT" } : undefined));
+    const gitErr = await start(noGit.exec).catch((e: unknown) => e);
+    expect(gitErr).toBeInstanceOf(RefusalError);
+    expect(String(gitErr)).toMatch(/git could not be run/);
+    expect(String(gitErr)).not.toMatch(/descendant/);
+    expect(booted(noGit.seen)).toBe(false);
+    const noDocker = machine((cmd, args) => (cmd === "docker" && args[0] === "image" ? { code: -1, stdout: "", stderr: "spawn docker ENOENT" } : undefined));
+    const dockerErr = await start(noDocker.exec).catch((e: unknown) => e);
+    expect(String(dockerErr)).toMatch(/docker could not be run/);
+    expect(String(dockerErr)).not.toMatch(/not on this machine/);
+  });
+
+  it("realExec reports a command that couldn't start as code -1, never as exit 1", async () => {
+    const r = await realExec("satis-no-such-command-xyz", [], { cwd: "." });
+    expect(r.code).toBe(-1);
   });
 
   it("refuses when an image isn't on this machine", async () => {

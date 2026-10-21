@@ -43,8 +43,11 @@ export interface NodeAgentOptions {
   killTree?: (pid: number) => Promise<void>;
   /** How long set-tokens, check and enroll may take each. */
   stepTimeoutMs?: number;
+  /** How long stop() waits for `run` to exit after the kill. */
+  stopWaitMs?: number;
 }
-export interface NodeAgent { pid: number; exited: Promise<number | null>; stop(): Promise<void> }
+/** stop() kills the tree, deletes `home`, and rejects when `run` outlived the kill or the folder couldn't be deleted. */
+export interface NodeAgent { pid: number; home: string; exited: Promise<number | null>; stop(): Promise<void> }
 
 const OUTPUT_KEPT = 16 * 1024;
 const CODE = /^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$/;
@@ -136,15 +139,20 @@ export async function startNodeAgent(o: NodeAgentOptions): Promise<NodeAgent> {
     throw e;
   }
   let stopped = false;
+  const waitMs = o.stopWaitMs ?? 10_000;
   return {
     pid: run.pid,
+    home,
     exited: run.exited,
     async stop() {
       if (stopped) return;
       stopped = true;
       await kill(run.pid);
-      await Promise.race([run.exited, new Promise((r) => setTimeout(r, 10_000))]);
-      removeHome();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const exited = await Promise.race([run.exited.then(() => true), new Promise<boolean>((r) => (timer = setTimeout(() => r(false), waitMs)))]);
+      clearTimeout(timer);
+      removeHome(); // throws if a live process still holds it
+      if (!exited) throw new Error(`the Node agent did not exit within ${waitMs} ms of its kill`);
     },
   };
 }

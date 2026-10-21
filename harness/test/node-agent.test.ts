@@ -104,6 +104,14 @@ describe("startNodeAgent (the parity run's satisfactory-dash agent)", () => {
     expect(f.killed).toHaveLength(1);
   });
 
+  it("says where its store is, and stop() rejects when the agent outlives the kill, still deleting the store", async () => {
+    const f = fakeSpawner();
+    const agent = await startNodeAgent(base(f, { killTree: async () => undefined, stopWaitMs: 30 }));
+    expect(agent.home).toBe(f.spawned[0]!.env.SD_AGENT_HOME);
+    await expect(agent.stop()).rejects.toThrow(/the Node agent did not exit within 30 ms of its kill/);
+    expect(existsSync(agent.home)).toBe(false);
+  });
+
   it("gives the tokens on set-tokens' stdin only, never in an argument, the environment or a log", async () => {
     const log = vi.spyOn(console, "log");
     const error = vi.spyOn(console, "error");

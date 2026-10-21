@@ -10,10 +10,13 @@ import { RefusalError } from "./refusal";
 
 export type Exec = (cmd: string, args: string[], opts: { cwd: string; env?: Record<string, string> }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
+/** A command that couldn't be started at all (not on PATH, ENOENT): never confused with its own exit codes. */
+export const EXEC_NOT_STARTED = -1;
+
 /** Runs a command with no shell (execFile), the compose env layered over the process's own. */
 export const realExec: Exec = (cmd, args, o) => new Promise((resolve) =>
   execFile(cmd, args, { cwd: o.cwd, env: { ...process.env, ...o.env }, maxBuffer: 16 * 1024 * 1024 },
-    (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr })));
+    (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : EXEC_NOT_STARTED) : 0, stdout, stderr })));
 /** servers.servers.public_id: ^[a-z0-9-]{1,32}$ (1790294400000_core_tables.sql:71). */
 const PUBLIC_IDS = { mod: "core-mod", node: "core-node", s5: "spike-s5" } as const;
 const DISPLAY_NAMES = { mod: "Core mod", node: "Core node agent", s5: "S5 spike" } as const;
@@ -116,6 +119,7 @@ async function checkImages(config: ComposeConfig, opts: { checkout: string; exec
     const image = config.services?.[service]?.image;
     if (!image) throw new RefusalError(`the resolved compose config names no image for ${service} (${role})`);
     const inspected = await opts.exec("docker", ["image", "inspect", "--format", "{{json .Config.Labels}}", image], { cwd: opts.checkout });
+    if (inspected.code === EXEC_NOT_STARTED) throw new RefusalError("docker could not be run (is it installed and on PATH?): the image guard can't read the images");
     if (inspected.code !== 0) throw new RefusalError(`the ${role} image ${image} is not on this machine: docker pull ${image}, then start again`);
     let revision: unknown;
     try {
@@ -127,6 +131,9 @@ async function checkImages(config: ComposeConfig, opts: { checkout: string; exec
       throw new RefusalError(`the ${role} image ${image} has no ${REVISION_LABEL} label naming a full commit: docker pull ${image}, then start again`);
     }
     const git = await opts.exec("git", ["merge-base", "--is-ancestor", opts.pin, revision], { cwd: opts.checkout });
+    if (git.code === EXEC_NOT_STARTED) {
+      throw new RefusalError("git could not be run in the satisfactory-dash checkout (is it installed and on PATH?): the image guard can't check the images' commits");
+    }
     if (git.code === 1) {
       throw new RefusalError(`the ${role} image ${image} was built from ${revision}, not ${opts.pin} or a descendant of it (the contract pin): docker pull ${image}, then start again`);
     }
