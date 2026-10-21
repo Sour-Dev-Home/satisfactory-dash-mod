@@ -5,10 +5,16 @@
 // FRM read just before and just after the mod's sample. Each compared field must lie in [lo - tol, hi + tol], lo and hi
 // the min and max of the two reads, tol = 0.01 * max(|lo|, |hi|, 1): the 1% stays. Group ids and the fuse must match at
 // least one of the two reads. A round missing either read fails.
+// "Just before and just after" means within 1 s (controller ruling on the owner's decision, re-review 2 of 4cca001):
+// the "before" read ended at most FRM_BRACKET_GAP_MS before the snapshot's observedAt, the "after" read started at most
+// that long after it, checked here from the recorded times, so a rejudge sees the same rule. The harness collects reads
+// with the same limit (it imports this constant) and polls about every 250 ms, so one failed read still leaves one.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { Verdict } from "../../harness/src/verdict";
 
 export const requirements = ["enrol", "C8", "C9", "power", "S10", "S13"];
+/** How far from the mod's sample each FRM read may be (see the header). */
+export const FRM_BRACKET_GAP_MS = 1000;
 const NEED_WORLD = 10;
 const NEED_EMPTY = 3;
 const tickClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, 0.1 * Math.max(a, b)); // S6
@@ -26,9 +32,11 @@ export interface FrmGroup { groupId: number; production: number; consumption: nu
 /** frmBefore and frmAfter: FRM read just before and just after the mod's sample (null: no such read); when they ran. */
 export interface Round {
   at: string; world: boolean; snapshot: Record<string, unknown>; api: ApiStatus | null; autoPause: boolean | null;
-  frmBefore: FrmGroup[] | null; frmAfter: FrmGroup[] | null; frmBeforeEndedAt?: string | null; frmAfterStartedAt?: string | null;
+  frmBefore: FrmGroup[] | null; frmAfter: FrmGroup[] | null; frmBeforeEndedAt: string | null; frmAfterStartedAt: string | null;
 }
-export interface Enrol { state: { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean }; codeBlanked: boolean; credentialWritten: boolean; refused: number; rounds: Round[] }
+/** How FRM was polled during the world rounds (evidence: the tick and memory figures were taken under this load). */
+export interface FrmPolling { intervalMs: number; reads: number; failed: number }
+export interface Enrol { state: { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean }; codeBlanked: boolean; credentialWritten: boolean; refused: number; rounds: Round[]; frmPolling?: FrmPolling }
 
 export function compareRound(r: Round): string[] {
   // A 200 snapshot whose body wasn't recorded (over 2 MB, not JSON) fails its round instead of crashing the judge, so
@@ -59,6 +67,20 @@ export function compareRound(r: Round): string[] {
   // Never passes on missing data: both reads must be there.
   if (!r.frmBefore) return [...out, `${r.at}: no FRM read before the mod's sample`];
   if (!r.frmAfter) return [...out, `${r.at}: no FRM read after the mod's sample`];
+  // The time rule (header): before ended in [observedAt - gap, observedAt], after started in [observedAt, observedAt + gap].
+  const ms = (v: unknown) => (typeof v === "string" ? Date.parse(v) : Number.NaN);
+  const observed = ms(r.snapshot.observedAt);
+  if (!Number.isFinite(observed)) return [...out, `${r.at}: the snapshot has no observedAt to bracket`];
+  const timing: string[] = [];
+  const beforeEnded = ms(r.frmBeforeEndedAt);
+  if (!Number.isFinite(beforeEnded)) timing.push(`${r.at}: no time for the FRM read before the mod's sample`);
+  else if (beforeEnded > observed) timing.push(`${r.at}: the FRM read before the mod's sample ended ${beforeEnded - observed} ms after it`);
+  else if (observed - beforeEnded > FRM_BRACKET_GAP_MS) timing.push(`${r.at}: the FRM read before the mod's sample ended ${observed - beforeEnded} ms before it, more than ${FRM_BRACKET_GAP_MS} ms`);
+  const afterStarted = ms(r.frmAfterStartedAt);
+  if (!Number.isFinite(afterStarted)) timing.push(`${r.at}: no time for the FRM read after the mod's sample`);
+  else if (afterStarted < observed) timing.push(`${r.at}: the FRM read after the mod's sample started ${observed - afterStarted} ms before it`);
+  else if (afterStarted - observed > FRM_BRACKET_GAP_MS) timing.push(`${r.at}: the FRM read after the mod's sample started ${afterStarted - observed} ms after it, more than ${FRM_BRACKET_GAP_MS} ms`);
+  if (timing.length) return [...out, ...timing];
   const ids = (xs: number[]) => [...xs].sort((x, y) => x - y).join(",");
   const modIds = ids(power.map((c) => c.circuitGroupId));
   const beforeIds = ids(r.frmBefore.map((g) => g.groupId));
@@ -112,6 +134,8 @@ export function evaluate(e: CoreEvidence): Verdict {
   const autoPause = autoPauseRounds
     ? `autoPause compared in ${autoPauseRounds} of ${d.rounds.length} rounds`
     : "the autoPause check was skipped (GetServerOptions never answered)";
+  const p = d.frmPolling;
+  const polling = p ? `; FRM was polled every ${p.intervalMs} ms during the world rounds (${p.reads} reads, ${p.failed} failed)` : "";
   const groups = new Set(world.flatMap((r) => (r.frmBefore ?? []).map((g) => g.groupId))).size;
-  return { pass: true, reasons: [`enrolled; ${empty.length} rounds with no game and ${world.length} with the world match the game's APIs; ${autoPause}; power compared for ${groups} circuit group(s)`] };
+  return { pass: true, reasons: [`enrolled; ${empty.length} rounds with no game and ${world.length} with the world match the game's APIs; ${autoPause}; power compared for ${groups} circuit group(s)${polling}`] };
 }

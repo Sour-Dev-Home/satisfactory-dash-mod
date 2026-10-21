@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Enrol, evaluate, type Round } from "../../runs/enrol/pass";
+import { type Enrol, evaluate, FRM_BRACKET_GAP_MS, type Round } from "../../runs/enrol/pass";
 import type { CoreEvidence } from "../src/core-run";
 import { parseGetPowerFull } from "../src/frm";
 
@@ -26,6 +26,9 @@ function round(i: number, world: boolean, over: { snapshot?: Record<string, unkn
     autoPause: false,
     frmBefore: over.frmBefore !== undefined ? over.frmBefore : frm,
     frmAfter: over.frmAfter !== undefined ? over.frmAfter : frm,
+    // The sample is at OBSERVED; the reads 0.3 s either side of it.
+    frmBeforeEndedAt: world ? "2026-10-20T15:59:59.700Z" : null,
+    frmAfterStartedAt: world ? "2026-10-20T16:00:00.300Z" : null,
   };
 }
 
@@ -166,6 +169,44 @@ describe("enrol pass conditions", () => {
       expect(evaluate(evidence(withRound(before))).reasons).toEqual([`${before.at}: no FRM read before the mod's sample`]);
       const after = modRound(800, at(800), null);
       expect(evaluate(evidence(withRound(after))).reasons).toEqual([`${after.at}: no FRM read after the mod's sample`]);
+    });
+
+    it("says in the pass reason that FRM was polled during the world rounds, how often and how many reads", () => {
+      const v = evaluate(evidence(enrol({ frmPolling: { intervalMs: 250, reads: 412, failed: 1 } })));
+      expect(v.pass).toBe(true);
+      expect(v.reasons[0]).toMatch(/; FRM was polled every 250 ms during the world rounds \(412 reads, 1 failed\)$/);
+    });
+
+    it("the gap constant is 1 s (controller ruling on the owner's decision)", () => {
+      expect(FRM_BRACKET_GAP_MS).toBe(1000);
+    });
+
+    it("passes reads 0.4 s either side of the sample", () => {
+      const r = { ...round(30, true), frmBeforeEndedAt: "2026-10-20T15:59:59.600Z", frmAfterStartedAt: "2026-10-20T16:00:00.400Z" };
+      expect(evaluate(evidence(withRound(r))).pass).toBe(true);
+    });
+
+    it("fails a read 1.2 s away, either side, with the exact reason", () => {
+      const b = { ...round(30, true), frmBeforeEndedAt: "2026-10-20T15:59:58.800Z" };
+      expect(evaluate(evidence(withRound(b))).reasons).toEqual([`${b.at}: the FRM read before the mod's sample ended 1200 ms before it, more than 1000 ms`]);
+      const a = { ...round(30, true), frmAfterStartedAt: "2026-10-20T16:00:01.200Z" };
+      expect(evaluate(evidence(withRound(a))).reasons).toEqual([`${a.at}: the FRM read after the mod's sample started 1200 ms after it, more than 1000 ms`]);
+    });
+
+    it("fails reversed reads: a 'before' that ended after the sample, an 'after' that started before it", () => {
+      const b = { ...round(30, true), frmBeforeEndedAt: "2026-10-20T16:00:00.100Z" };
+      expect(evaluate(evidence(withRound(b))).reasons).toEqual([`${b.at}: the FRM read before the mod's sample ended 100 ms after it`]);
+      const a = { ...round(30, true), frmAfterStartedAt: "2026-10-20T15:59:59.900Z" };
+      expect(evaluate(evidence(withRound(a))).reasons).toEqual([`${a.at}: the FRM read after the mod's sample started 100 ms before it`]);
+    });
+
+    it("fails a missing read time, or a snapshot with no observedAt", () => {
+      const b = { ...round(30, true), frmBeforeEndedAt: null };
+      expect(evaluate(evidence(withRound(b))).reasons).toEqual([`${b.at}: no time for the FRM read before the mod's sample`]);
+      const a = { ...round(30, true), frmAfterStartedAt: "not a time" };
+      expect(evaluate(evidence(withRound(a))).reasons).toEqual([`${a.at}: no time for the FRM read after the mod's sample`]);
+      const o = round(30, true, { snapshot: { observedAt: undefined } });
+      expect(evaluate(evidence(withRound(o))).reasons).toEqual([`${o.at}: the snapshot has no observedAt to bracket`]);
     });
 
     it("takes group ids and the fuse from either read, and fails when neither matches", () => {

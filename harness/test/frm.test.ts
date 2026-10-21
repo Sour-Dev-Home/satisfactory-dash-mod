@@ -56,6 +56,7 @@ describe("FRM reads that bracket the mod's sample (owner, 2026-10-20)", () => {
     await new Promise((r) => setTimeout(r, 20));
     poller.stop();
     expect(poller.reads).toHaveLength(3);
+    expect(poller.counts()).toEqual({ reads: 3, failed: 1 });
     expect(poller.reads.every((x) => x.endedAt > x.startedAt)).toBe(true);
   });
 });

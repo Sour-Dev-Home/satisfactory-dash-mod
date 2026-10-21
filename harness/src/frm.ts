@@ -67,9 +67,11 @@ export function pickBracket(reads: FrmRead[], sampleAt: number, gapMs: number): 
 export function startFrmPoller(
   read: () => Promise<FrmCircuitGroup[]>,
   opts: { now: () => number; sleep: (ms: number) => Promise<void>; intervalMs?: number },
-): { reads: FrmRead[]; stop(): void } {
+): { reads: FrmRead[]; counts(): { reads: number; failed: number }; stop(): void } {
   const reads: FrmRead[] = [];
   let running = true;
+  let total = 0;
+  let failed = 0;
   void (async () => {
     while (running) {
       const startedAt = opts.now();
@@ -77,14 +79,16 @@ export function startFrmPoller(
         const groups = await read();
         if (!running) break;
         reads.push({ startedAt, endedAt: opts.now(), groups });
+        total++;
         if (reads.length > 400) reads.shift();
       } catch {
         // a failed read brackets nothing; the round then misses a read and fails
+        if (running) failed++;
       }
       await opts.sleep(opts.intervalMs ?? 250);
     }
   })();
-  return { reads, stop: () => void (running = false) };
+  return { reads, counts: () => ({ reads: total, failed }), stop: () => void (running = false) };
 }
 
 const LINE = /satis-mod s3 circuit=(\d+) production=([\d.]+) consumption=([\d.]+) capacity=([\d.]+)/;
