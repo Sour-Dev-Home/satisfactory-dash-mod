@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+import { type Command, evaluate } from "../../runs/command/pass";
+import type { CoreEvidence } from "../src/core-run";
+
+const applied = (on: boolean) => `[t][1]LogSatisDash: Display: Applied set_auto_pause from the dashboard: auto-pause is now ${on ? "on" : "off"}`;
+
+function capture(over: Partial<Command> = {}): Command {
+  return {
+    before: true,
+    flipped: { id: "f", status: "succeeded", resultCode: null, apiAfter: false, results: 1 },
+    unsupported: { id: "u", status: "failed", resultCode: "unsupported", apiAfter: false, results: 1 },
+    restored: { id: "r", status: "succeeded", resultCode: null, apiAfter: true, results: 1 },
+    ...over,
+  };
+}
+
+const ev = (c: Command | undefined, lines = [applied(false), applied(true)]): CoreEvidence => ({
+  lines, errorLines: [], leaks: { code: false, secret: false, bearer: false }, captures: c ? { "command.json": c } : {},
+});
+
+describe("command pass", () => {
+  it("passes a clean capture and states the counts", () => {
+    const v = evaluate(ev(capture()));
+    expect(v.pass).toBe(true);
+    expect(v.reasons[0]).toContain("auto-pause on -> off -> on");
+    expect(v.reasons[0]).toContain("Applied set_auto_pause logged 2 times");
+  });
+
+  it("passes starting from auto-pause off", () => {
+    const c = capture({
+      before: false,
+      flipped: { id: "f", status: "succeeded", resultCode: null, apiAfter: true, results: 1 },
+      unsupported: { id: "u", status: "failed", resultCode: "unsupported", apiAfter: true, results: 1 },
+      restored: { id: "r", status: "succeeded", resultCode: null, apiAfter: false, results: 1 },
+    });
+    expect(evaluate(ev(c)).pass).toBe(true);
+  });
+
+  it("fails without a capture", () => {
+    expect(evaluate(ev(undefined))).toEqual({ pass: false, reasons: ["no command capture"] });
+  });
+
+  it("fails when a command never ran", () => {
+    const v = evaluate(ev(capture({ flipped: null, unsupported: null, restored: null })));
+    expect(v.reasons).toEqual(expect.arrayContaining(["the flip command never ran", "the unsupported command never ran", "the restore command never ran"]));
+  });
+
+  it("fails a flip that didn't succeed, or carries a result code", () => {
+    const c = capture();
+    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, status: "sent" } })).reasons).toContain("flip: status sent, not succeeded");
+    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, resultCode: "upstream_error" } })).reasons).toContain("flip: result code upstream_error, expected none");
+  });
+
+  it("fails a flip that GetServerOptions doesn't show", () => {
+    const c = capture();
+    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, apiAfter: true } })).reasons).toContain("flip: GetServerOptions reads auto-pause true, expected false");
+    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, apiAfter: null } })).reasons).toContain("flip: GetServerOptions didn't answer");
+  });
+
+  it.each([0, 2])("fails a flip with %i result posts", (n) => {
+    const c = capture();
+    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, results: n } })).reasons).toContain(`flip: ${n} result post(s), not 1`);
+  });
+
+  it("fails an unsupported command that succeeded, or failed for another reason", () => {
+    const c = capture();
+    expect(evaluate(ev({ ...c, unsupported: { ...c.unsupported!, status: "succeeded", resultCode: null } })).reasons).toEqual(
+      expect.arrayContaining(["unsupported: status succeeded, not failed", "unsupported: result code none, expected unsupported"]),
+    );
+    expect(evaluate(ev({ ...c, unsupported: { ...c.unsupported!, resultCode: "upstream_error" } })).reasons).toContain("unsupported: result code upstream_error, expected unsupported");
+  });
+
+  it("fails an unsupported command that changed auto-pause", () => {
+    const c = capture();
+    expect(evaluate(ev({ ...c, unsupported: { ...c.unsupported!, apiAfter: true } })).reasons).toContain("unsupported: GetServerOptions reads auto-pause true, expected false");
+    expect(evaluate(ev({ ...c, unsupported: { ...c.unsupported!, apiAfter: null } })).reasons).toContain("unsupported: GetServerOptions didn't answer");
+  });
+
+  it("fails a restore that didn't succeed or didn't restore", () => {
+    const c = capture();
+    expect(evaluate(ev({ ...c, restored: { ...c.restored!, status: "failed" } })).reasons).toContain("restore: status failed, not succeeded");
+    expect(evaluate(ev({ ...c, restored: { ...c.restored!, apiAfter: false } })).reasons).toContain("restore: GetServerOptions reads auto-pause false, expected true");
+  });
+
+  it.each([[[applied(false)], 1], [[applied(false), applied(true), applied(true)], 3], [[], 0]] as const)("fails when Applied is logged other than twice", (lines, n) => {
+    expect(evaluate(ev(capture(), [...lines])).reasons).toContain(`Applied set_auto_pause logged ${n} times, not 2`);
+  });
+});

@@ -12,7 +12,8 @@ import { createServerApi } from "../server-api";
 import { readApiStatus } from "../status";
 
 const MIN = 60_000;
-const accepted = (rec: Recorder) => rec.entries.filter((e) => e.agent === "mod" && e.path === "/agent/v1/snapshots" && e.status === 200);
+/** The mod's snapshots the backend accepted (200), in the order they finished. */
+export const accepted = (rec: Recorder) => rec.entries.filter((e) => e.agent === "mod" && e.path === "/agent/v1/snapshots" && e.status === 200);
 
 /** Seeds a code, points the mod at the recorder, and waits for the enrolment and a first accepted snapshot. */
 export async function enrolPhase(ctx: CoreContext, host: HostClient, recorder: Recorder, opts: { timeoutMs?: number } = {}): Promise<void> {
