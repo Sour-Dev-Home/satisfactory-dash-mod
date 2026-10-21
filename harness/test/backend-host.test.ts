@@ -129,8 +129,9 @@ describe("backend host (ruling 10)", () => {
 
   it("refuses loose bodies, other servers and unknown routes, touching nothing", async () => {
     const { call, calls } = await serve();
-    expect((await call("POST", "/seed", { server: "mod", code: "ab3d-7xq2" })).status).toBe(400);
-    expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ1" })).status).toBe(400);
+    expect((await call("POST", "/seed", { server: "mod", code: "ab3d-7xq2-k5mn" })).status).toBe(400);
+    expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ2-K5M1" })).status).toBe(400);
+    expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ2" })).status).toBe(400);
     expect((await call("POST", "/seed", { server: "s5", code: "AB3D-7XQ2-K5MN" })).status).toBe(400);
     expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ2-K5MN", sql: "x" })).status).toBe(400);
     expect((await call("POST", "/revoke", "not json")).status).toBe(400);

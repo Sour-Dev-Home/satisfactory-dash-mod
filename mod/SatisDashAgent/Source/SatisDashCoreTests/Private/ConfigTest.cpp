@@ -47,7 +47,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigParseTest, "SatisDash.Core.Config.Parse"
 
 bool FConfigParseTest::RunTest(const FString& Parameters)
 {
-	const FConfigResult Ok = ParseConfig(TEXT("{\"backendUrl\":\"https://example.com/\",\"enrollmentCode\":\" ab3d-7xq2-k5mn\"}"));
+	const FConfigResult Ok = ParseConfig(TEXT("{\"backendUrl\":\"https://example.com/\",\"enrollmentCode\":\" ab3d-7xq2-k5mn \"}"));
 	TestTrue(TEXT("valid"), Ok.Status == EConfigStatus::Valid);
 	SatisDash::Test::SameText(*this, TEXT("trailing slash dropped"), Ok.Config.BackendUrl, TEXT("https://example.com"));
 	SatisDash::Test::SameText(*this, TEXT("code trimmed and upper-cased"), Ok.Config.EnrollmentCode, TEXT("AB3D-7XQ2-K5MN"));
@@ -87,7 +87,8 @@ bool FConfigParseTest::RunTest(const FString& Parameters)
 	expectBroken(TEXT("{\"backendUrl\":5}"), TEXT("backendUrl"));
 	expectBroken(TEXT("{\"backendUrl\":\"http://example.com\"}"), TEXT("backendUrl"));
 	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB3D7XQ2K5MN\"}"), TEXT("enrollmentCode"));
-	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB1D-7XQ2\"}"), TEXT("enrollmentCode"));
+	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB1D-7XQ2-K5MN\"}"), TEXT("enrollmentCode"));
+	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB3D-7XQ2\"}"), TEXT("enrollmentCode"));
 	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":12}"), TEXT("enrollmentCode"));
 	return true;
 }

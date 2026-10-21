@@ -8,7 +8,7 @@
 
 **Tech Stack:** Unreal Engine 5.6.1-CSS, SML 3.12.0 (`harness/toolchain.json`), C++20, UE automation tests, UE's HTTP module (libcurl on Windows), FactoryGame and FactoryDedicatedServer headers; the TypeScript harness (Node, zod 4, Vitest 5); satisfactory-dash's compose stack at the pinned commit for the backend.
 
-**Spec:** `docs/specs/2026-10-20-core-mod-v1-design.md` (approved, mod PR #19; Security section mod PR #24). The build decision is satisfactory-dash ADR-0042 (#479). The contract is satisfactory-dash `packages/shared/src/agent.ts` at `ab4626f`, vendored in `harness/contract/`. Plan 2A (`docs/plans/2026-10-20-core-mod-v1-2a-logic.md`, merged as #26 and #27) produced every interface this plan consumes; read its Global Constraints too.
+**Spec:** `docs/specs/2026-10-20-core-mod-v1-design.md` (approved, mod PR #19; Security section mod PR #24). The build decision is satisfactory-dash ADR-0042 (#479). The contract is satisfactory-dash `packages/shared/src/agent.ts` at `ab4626f`, vendored in `harness/contract/` (re-vendored at `81f22ae` on 2026-10-21 for the 12-character codes of dash #524; the Node agent and the test backend for the parity run share that pin). Plan 2A (`docs/plans/2026-10-20-core-mod-v1-2a-logic.md`, merged as #26 and #27) produced every interface this plan consumes; read its Global Constraints too.
 
 ## Global Constraints
 
