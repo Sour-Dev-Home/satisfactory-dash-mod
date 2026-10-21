@@ -52,10 +52,10 @@ const power = (mod: Circuit[], before: { dt: number; circuits: Circuit[] } | nul
   comparePower(snap(T0, { power: { circuits: mod } }), [before, after].filter((x) => x !== null).map((x) => snap(T0 + x.dt, { power: { circuits: x.circuits } })));
 
 describe("parity pass conditions (Task 9)", () => {
-  it("needs 30 * 60 / 5 * 0.8 pairs, pairs at most 2.5 s apart, and power neighbours at most 5 s away", () => {
+  it("needs 30 * 60 / 5 * 0.8 pairs, pairs at most 2.5 s apart, and power neighbours at most 6 s away", () => {
     expect(NEED_PAIRS).toBe(288);
     expect(PAIR_GAP_MS).toBe(2500);
-    expect(PARITY_NEIGHBOUR_GAP_MS).toBe(5000);
+    expect(PARITY_NEIGHBOUR_GAP_MS).toBe(6000);
   });
 
   it("passes a run where everything matches, and states the real counts", () => {
@@ -155,21 +155,24 @@ describe("parity pass conditions (Task 9)", () => {
       expect(diff.reasons).toEqual([`${iso(T0)}: group 1 batteryDifferentialMW mod 5 vs node 0`]);
     });
 
-    it("takes the last Node reading at or before the sample and the first at or after it, each within 5 s", () => {
+    it("takes the last Node reading at or before the sample and the first at or after it, each within 6 s", () => {
       const nodes = [-9000, -4000, -1000, 0, 2000, 6000].map((dt) => snap(T0 + dt, { power: { circuits: [circuit({ consumptionMW: 800 + dt / 100 })] } }));
       // The neighbours are the one at the sample's own time on both sides: 800..800.
       expect(comparePower(snap(T0, { power: { circuits: [circuit({ consumptionMW: 800 })] } }), nodes).reasons).toEqual([]);
       const off = snap(T0 + 1000, { power: { circuits: [circuit({ consumptionMW: 850 })] } });
-      // Past 820 + 3%; within reach of the 6 s reading (860), which is too far to be a neighbour.
+      // Past 820 + 3%; within reach of the 6 s reading (860), which is not the first one after the sample.
       expect(comparePower(off, nodes).reasons).toEqual([`${iso(T0 + 1000)}: group 1 consumptionMW mod 850 vs node 800..820`]);
     });
 
-    it("fails a round missing a neighbour on either side, or with one more than 5 s away", () => {
+    it("fails a round missing a neighbour on either side, or with one more than 6 s away", () => {
       const c = [circuit()];
       expect(power(c, null, { dt: 1000, circuits: c }).reasons).toEqual([`${iso(T0)}: no Node agent power reading at or before the mod's sample, within ${PARITY_NEIGHBOUR_GAP_MS} ms`]);
       expect(power(c, { dt: -1000, circuits: c }, null).reasons).toEqual([`${iso(T0)}: no Node agent power reading at or after the mod's sample, within ${PARITY_NEIGHBOUR_GAP_MS} ms`]);
-      expect(power(c, { dt: -5001, circuits: c }, { dt: 1000, circuits: c }).reasons).toHaveLength(1);
-      expect(power(c, { dt: -5000, circuits: c }, { dt: 5000, circuits: c }).reasons).toEqual([]);
+      expect(power(c, { dt: -6001, circuits: c }, { dt: 1000, circuits: c }).reasons).toHaveLength(1);
+      expect(power(c, { dt: -1000, circuits: c }, { dt: 6001, circuits: c }).reasons).toHaveLength(1);
+      expect(power(c, { dt: -6000, circuits: c }, { dt: 6000, circuits: c }).reasons).toEqual([]);
+      // Run 39625857599's case: a Node sample 3 ms before the mod's, the next one 5051 ms after that one.
+      expect(power(c, { dt: -3, circuits: c }, { dt: 5048, circuits: c }).reasons).toEqual([]);
       expect(power(c, null, { dt: 1000, circuits: c }).compared).toBe(false);
     });
 

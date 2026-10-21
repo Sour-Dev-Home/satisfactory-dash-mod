@@ -55,8 +55,12 @@ export const PAIR_GAP_MS = 2500;
 export const WINDOW_MINUTES = 30;
 const STATUS_SECONDS = 5; // FCadence::StatusSeconds (Responses.h:35); the Node agent's INITIAL_CADENCE (agentRunner.ts:14)
 export const NEED_PAIRS = Math.ceil(((WINDOW_MINUTES * 60) / STATUS_SECONDS) * 0.8);
-/** How far from the mod's sample each Node power neighbour may be (owner, 2026-10-21; see the header). */
-export const PARITY_NEIGHBOUR_GAP_MS = 5000;
+/**
+ * How far from the mod's sample each Node power neighbour may be (owner, 2026-10-21; see the header). It was 5000 ms,
+ * but the Node agent's cadence runs a little over 5 s (run 39625857599: 5007 ms median, 5051 ms max), so a mod sample
+ * landing just after a Node one had no neighbour after it in 3 rounds. The owner raised it to one cadence plus 1 s.
+ */
+export const PARITY_NEIGHBOUR_GAP_MS = 6000;
 const DURATION_DRIFT = 10; // S6
 const tickClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, 0.1 * Math.max(a, b)); // S6
 /** How far beyond the neighbours' range a power value may be (owner, 2026-10-21, after run 39625857599; see the header). */
