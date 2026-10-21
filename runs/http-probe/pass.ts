@@ -6,7 +6,8 @@
 // with redirects off and a TLS 1.2 minimum (Plan 2B Task 1e). That replaces the earlier amendments, which let the
 // target see body-less GETs and recorded TLS 1.0/1.1 offers without failing them:
 // - S3: the mod never follows a redirect, so the redirect target receives nothing at all; a redirected answer is
-//   refused, proven by a snapshot re-sent after the redirects began.
+//   refused, proven by a snapshot re-sent after the redirects began. Since Task 6 the commands poll is redirected too
+//   (Step 8), and at least one must have been.
 // - S2: the mod sets the floor itself (CURL_SSLVERSION_TLSv1_2): it offers TLS 1.3 and 1.2 and nothing older. The
 //   backend's own floor (self-hosted backends default to 1.2+, satisfactory-dash #493) stays as a second line.
 import type { CoreEvidence } from "../../harness/src/core-run";
@@ -55,6 +56,10 @@ export function evaluate(e: CoreEvidence): Verdict {
     // A refused (redirected) answer leaves the snapshot queued, so the next push repeats its observedAt.
     const after = atBackend.filter((r) => r.path === "/agent/v1/snapshots" && r.at >= since && r.observedAt !== null).map((r) => r.observedAt);
     if (new Set(after).size === after.length) reasons.push("S3: no snapshot was re-sent after the redirects began, so a redirected answer may have been accepted");
+    // Task 6 Step 8: the driver also polls for commands; the stub redirects those too, and the target must see none.
+    if (!atBackend.some((r) => r.method === "GET" && r.path.startsWith("/agent/v1/commands") && r.at >= since)) {
+      reasons.push("S3: no commands poll reached the stub after the redirects began, so a redirected poll was not tested");
+    }
     if (!e.lines.some((l) => /The backend redirected a request; its answer was refused/.test(l))) reasons.push("S9: no line saying a redirected answer was refused");
   }
 

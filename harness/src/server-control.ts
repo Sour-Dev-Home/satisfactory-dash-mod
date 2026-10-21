@@ -138,3 +138,42 @@ export async function stopServer(
   await opts.kill(proc.pid);
   return "killed";
 }
+
+export interface ProcessRow { ProcessId: number; ParentProcessId: number; Name: string; WorkingSetSize: number; PeakWorkingSetSize: number }
+export interface ProcessMemory {
+  /** The tree's working set now, summed. */
+  totalWorkingSetBytes: number;
+  /** Each process of the tree: FactoryServer.exe launches the game as a child process, which holds the memory. */
+  processes: Array<{ name: string; workingSetBytes: number; peakWorkingSetBytes: number }>;
+}
+
+/** The spawned process and its descendants, from Win32_Process rows (PeakWorkingSetSize is in KB, WorkingSetSize in bytes). */
+export function treeMemory(rows: ProcessRow[], rootPid: number): ProcessMemory | null {
+  const tree = rows.filter((r) => r.ProcessId === rootPid);
+  if (!tree.length) return null;
+  for (let i = 0; i < tree.length; i++) {
+    const pid = tree[i]!.ProcessId;
+    tree.push(...rows.filter((r) => r.ParentProcessId === pid && r.ProcessId !== pid && !tree.includes(r)));
+  }
+  const processes = tree.map((r) => ({ name: r.Name, workingSetBytes: Number(r.WorkingSetSize), peakWorkingSetBytes: Number(r.PeakWorkingSetSize) * 1024 }));
+  return { totalWorkingSetBytes: processes.reduce((t, p) => t + p.workingSetBytes, 0), processes };
+}
+
+/** Reads the tree's memory by pid (never by image name). Null when it can't be read; it is evidence, not a pass condition. */
+export const readProcessMemory = (pid: number): Promise<ProcessMemory | null> =>
+  new Promise((resolve) =>
+    execFile(
+      "pwsh",
+      ["-NoProfile", "-NonInteractive", "-Command",
+        "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,WorkingSetSize,PeakWorkingSetSize | ConvertTo-Json -Compress"],
+      { maxBuffer: 16 * 1024 * 1024, windowsHide: true },
+      (err, stdout) => {
+        if (err) return resolve(null);
+        try {
+          const rows = JSON.parse(stdout) as ProcessRow[] | ProcessRow;
+          resolve(treeMemory(Array.isArray(rows) ? rows : [rows], pid));
+        } catch {
+          resolve(null);
+        }
+      },
+    ));

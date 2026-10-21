@@ -1,17 +1,47 @@
+import { execFile } from "node:child_process";
 import { createHash, randomBytes, scrypt } from "node:crypto";
 import { promisify } from "node:util";
 import { LOOPBACK_HOSTS } from "./config";
 
 export type Exec = (cmd: string, args: string[], opts: { cwd: string; env?: Record<string, string> }) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+/** Runs a command with no shell (execFile), the compose env layered over the process's own. */
+export const realExec: Exec = (cmd, args, o) => new Promise((resolve) =>
+  execFile(cmd, args, { cwd: o.cwd, env: { ...process.env, ...o.env }, maxBuffer: 16 * 1024 * 1024 },
+    (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr })));
+/** servers.servers.public_id: ^[a-z0-9-]{1,32}$ (1790294400000_core_tables.sql:71). */
+const PUBLIC_IDS = { mod: "core-mod", node: "core-node", s5: "spike-s5" } as const;
+const DISPLAY_NAMES = { mod: "Core mod", node: "Core node agent", s5: "S5 spike" } as const;
+export type BackendServer = keyof typeof PUBLIC_IDS;
+export interface BackendState { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean; revoked: boolean }
+export interface CommandState { status: string; resultCode: string | null }
+
 export interface Backend {
   url: string;
-  seedCode(code: string): Promise<void>;
-  state(): Promise<{ codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean }>;
+  seedCode(server: BackendServer, code: string): Promise<void>;
+  /** The server's newest code, and its credential (agent_credentials has one row per server). */
+  state(server: BackendServer): Promise<BackendState>;
+  revoke(server: BackendServer): Promise<void>;
+  /** Queues a set_auto_pause command (the only type, 1790985600000_agent_commands.sql) for 5 minutes; returns its id. */
+  queueCommand(server: BackendServer, params: Record<string, unknown>): Promise<string>;
+  command(id: string): Promise<CommandState>;
+  stopRelay(): Promise<void>;
+  startRelay(): Promise<void>;
   down(): Promise<void>;
 }
 
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A JSON literal for SQL: one { enabled } key at most, serialised by JSON.stringify, single quotes doubled. */
+function paramsLiteral(params: Record<string, unknown>): string {
+  const keys = Object.keys(params);
+  if (typeof params !== "object" || params === null || Array.isArray(params) || keys.length > 1 || keys.some((k) => k !== "enabled")) {
+    throw new Error("command params must be one { enabled } object");
+  }
+  return `'${JSON.stringify(params).replaceAll("'", "''")}'::jsonb`;
+}
+
 const PROJECT = "satis-s5";
-const SERVER_PUBLIC_ID = "spike-s5"; // servers.servers.public_id: ^[a-z0-9-]{1,32}$ (1790294400000_core_tables.sql:71)
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 /** XXXX-XXXX in base32 (agent.ts EnrollmentCodeSchema). */
@@ -91,24 +121,60 @@ export async function startBackend(opts: { checkout: string; relayFile: string; 
     await down();
     throw new Error(`compose up failed: ${up.stderr.trim().split("\n").slice(-20).join("\n")}`);
   }
+  // Every value spliced into SQL below is a fixed public id, a hex hash, a checked UUID or a checked JSON literal.
+  const credential = (server: BackendServer, column: string) =>
+    `(SELECT ${column} FROM agents.agent_credentials a JOIN servers.servers s ON s.id = a.server_id WHERE s.public_id = '${PUBLIC_IDS[server]}')`;
   return {
     url: `http://127.0.0.1:${opts.port}`,
-    async seedCode(code) {
+    async seedCode(server, code) {
       // Columns from 1790294400000_core_tables.sql:68-74 and 1790899200000_agents.sql:19-28. created_by may be NULL.
+      // A server seeded twice (a later phase's new code) keeps its row: public_id is UNIQUE (core_tables.sql:71).
+      const id = PUBLIC_IDS[server];
       await psql(
-        `INSERT INTO servers.servers (public_id, display_name) VALUES ('${SERVER_PUBLIC_ID}', 'S5 spike'); ` +
+        `INSERT INTO servers.servers (public_id, display_name) VALUES ('${id}', '${DISPLAY_NAMES[server]}') ON CONFLICT (public_id) DO NOTHING; ` +
           `INSERT INTO agents.enrollment_codes (server_id, code_hash, expires_at) ` +
-          `SELECT id, decode('${hex(code)}', 'hex'), now() + interval '10 minutes' FROM servers.servers WHERE public_id = '${SERVER_PUBLIC_ID}';`,
+          `SELECT id, decode('${hex(code)}', 'hex'), now() + interval '10 minutes' FROM servers.servers WHERE public_id = '${id}';`,
       );
     },
-    async state() {
+    async state(server) {
       const out = await psql(
-        `SELECT (SELECT c.consumed_at IS NOT NULL FROM agents.enrollment_codes c JOIN servers.servers s ON s.id = c.server_id WHERE s.public_id = '${SERVER_PUBLIC_ID}'), ` +
-          `(SELECT a.agent_version FROM agents.agent_credentials a JOIN servers.servers s ON s.id = a.server_id WHERE s.public_id = '${SERVER_PUBLIC_ID}'), ` +
-          `(SELECT a.last_seen_at IS NOT NULL FROM agents.agent_credentials a JOIN servers.servers s ON s.id = a.server_id WHERE s.public_id = '${SERVER_PUBLIC_ID}');`,
+        `SELECT (SELECT c.consumed_at IS NOT NULL FROM agents.enrollment_codes c JOIN servers.servers s ON s.id = c.server_id WHERE s.public_id = '${PUBLIC_IDS[server]}' ORDER BY c.created_at DESC LIMIT 1), ` +
+          `${credential(server, "a.agent_version")}, ${credential(server, "a.last_seen_at IS NOT NULL")}, ${credential(server, "a.revoked_at IS NOT NULL")};`,
       );
-      const [consumed, version, seen] = out.trim().split("|");
-      return { codeConsumed: consumed === "t", agentVersion: version ? version : null, lastSeen: seen === "t" };
+      const [consumed, version, seen, revoked] = out.trim().split("|");
+      return { codeConsumed: consumed === "t", agentVersion: version ? version : null, lastSeen: seen === "t", revoked: revoked === "t" };
+    },
+    async revoke(server) {
+      // 1790899200000_agents.sql:37 (revoked_at).
+      await psql(
+        `UPDATE agents.agent_credentials SET revoked_at = now() WHERE server_id = (SELECT id FROM servers.servers WHERE public_id = '${PUBLIC_IDS[server]}');`,
+      );
+    },
+    async queueCommand(server, params) {
+      const literal = paramsLiteral(params);
+      const out = await psql(
+        `INSERT INTO agents.commands (server_id, type, params, expires_at) SELECT id, 'set_auto_pause', ${literal}, now() + interval '5 minutes' ` +
+          `FROM servers.servers WHERE public_id = '${PUBLIC_IDS[server]}' RETURNING id;`,
+      );
+      // psql prints RETURNING's row, then the command tag (INSERT 0 1) unless quiet: the id is the first line.
+      const id = out.trim().split("\n")[0]!.trim();
+      if (!UUID.test(id)) throw new Error("queueing the command returned no id (is the server seeded?)");
+      return id;
+    },
+    async command(id) {
+      if (!UUID.test(id)) throw new Error("a command id must be a UUID");
+      const out = await psql(`SELECT status, result_code FROM agents.commands WHERE id = '${id}';`);
+      const [status, resultCode] = out.trim().split("|");
+      if (!status) throw new Error("no such command");
+      return { status, resultCode: resultCode ? resultCode : null };
+    },
+    async stopRelay() {
+      const r = await compose("stop", "spike-relay");
+      if (r.code !== 0) throw new Error(`stopping the relay failed: ${r.stderr.trim()}`);
+    },
+    async startRelay() {
+      const r = await compose("start", "spike-relay");
+      if (r.code !== 0) throw new Error(`starting the relay failed: ${r.stderr.trim()}`);
     },
     down,
   };

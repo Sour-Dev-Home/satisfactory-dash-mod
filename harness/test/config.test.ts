@@ -30,6 +30,14 @@ describe("RunnerConfigSchema", () => {
     expect(() => RunnerConfigSchema.parse({ ...valid, buildCommand: [] })).toThrow(/Alpakit/);
   });
 
+  it("takes the backend host's file and port, and refuses a privileged port or extra keys", () => {
+    const cfg = RunnerConfigSchema.parse({ ...valid, backendHost: { file: "D:/satis-runner/backend-host.json", port: 13102 } });
+    expect(cfg.backendHost).toEqual({ file: "D:/satis-runner/backend-host.json", port: 13102 });
+    expect(() => RunnerConfigSchema.parse({ ...valid, backendHost: { file: "x", port: 80 } })).toThrow();
+    expect(() => RunnerConfigSchema.parse({ ...valid, backendHost: { file: "", port: 13102 } })).toThrow();
+    expect(() => RunnerConfigSchema.parse({ ...valid, backendHost: { file: "x", port: 13102, token: "t" } })).toThrow();
+  });
+
   it("refuses a plugin dir without {spike}", () => {
     expect(() => RunnerConfigSchema.parse({ ...valid, builtPluginDir: "D:/satis-build" })).toThrow();
   });

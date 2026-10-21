@@ -17,6 +17,80 @@ export function parseGetPower(body: unknown): FrmGroup[] {
   }));
 }
 
+// The full figures, with the field names satisfactory-dash parses (packages/game-adapter/src/rawSchemas.ts:125-136).
+const FullGroupSchema = z.object({
+  CircuitGroupID: z.number().int(),
+  PowerProduction: z.number(),
+  PowerConsumed: z.number(),
+  PowerCapacity: z.number(),
+  PowerMaxConsumed: z.number(),
+  BatteryCapacity: z.number(),
+  BatteryPercent: z.number(),
+  BatteryDifferential: z.number(),
+  FuseTriggered: z.boolean(),
+});
+export interface FrmCircuitGroup {
+  groupId: number; production: number; consumption: number; capacity: number; maxConsumption: number;
+  batteryCapacity: number; batteryPercent: number; batteryDifferential: number; fuseTriggered: boolean;
+}
+
+/** One row per circuit group: rows FRM gives for circuits of one group must carry the same figures, or the body is refused. */
+export function parseGetPowerFull(body: unknown): FrmCircuitGroup[] {
+  const out: FrmCircuitGroup[] = [];
+  for (const g of z.array(FullGroupSchema).parse(body)) {
+    const row: FrmCircuitGroup = {
+      groupId: g.CircuitGroupID, production: g.PowerProduction, consumption: g.PowerConsumed, capacity: g.PowerCapacity,
+      maxConsumption: g.PowerMaxConsumed, batteryCapacity: g.BatteryCapacity, batteryPercent: g.BatteryPercent,
+      batteryDifferential: g.BatteryDifferential, fuseTriggered: g.FuseTriggered,
+    };
+    const seen = out.find((x) => x.groupId === row.groupId);
+    if (!seen) out.push(row);
+    else if (JSON.stringify(seen) !== JSON.stringify(row)) throw new Error(`FRM's rows for group ${row.groupId} disagree`);
+  }
+  return out;
+}
+
+/** One successful FRM read and when it ran (ms since the epoch, the harness's clock, which is the server's machine). */
+export interface FrmRead { startedAt: number; endedAt: number; groups: FrmCircuitGroup[] }
+
+/**
+ * The owner's bracket (2026-10-20): the last read that had ended by the sample, and the first that started after it,
+ * so the two reads enclose the moment the mod sampled. A read farther than gapMs from the sample doesn't count.
+ */
+export function pickBracket(reads: FrmRead[], sampleAt: number, gapMs: number): { before: FrmRead | null; after: FrmRead | null } {
+  const before = reads.filter((r) => r.endedAt <= sampleAt && sampleAt - r.endedAt <= gapMs).at(-1) ?? null;
+  const after = reads.find((r) => r.startedAt >= sampleAt && r.startedAt - sampleAt <= gapMs) ?? null;
+  return { before, after };
+}
+
+/** Reads FRM back to back (a short sleep between) until stopped; keeps the last 400 successful reads. */
+export function startFrmPoller(
+  read: () => Promise<FrmCircuitGroup[]>,
+  opts: { now: () => number; sleep: (ms: number) => Promise<void>; intervalMs?: number },
+): { reads: FrmRead[]; counts(): { reads: number; failed: number }; stop(): void } {
+  const reads: FrmRead[] = [];
+  let running = true;
+  let total = 0;
+  let failed = 0;
+  void (async () => {
+    while (running) {
+      const startedAt = opts.now();
+      try {
+        const groups = await read();
+        if (!running) break;
+        reads.push({ startedAt, endedAt: opts.now(), groups });
+        total++;
+        if (reads.length > 400) reads.shift();
+      } catch {
+        // a failed read brackets nothing; the round then misses a read and fails
+        if (running) failed++;
+      }
+      await opts.sleep(opts.intervalMs ?? 250);
+    }
+  })();
+  return { reads, counts: () => ({ reads: total, failed }), stop: () => void (running = false) };
+}
+
 const LINE = /satis-mod s3 circuit=(\d+) production=([\d.]+) consumption=([\d.]+) capacity=([\d.]+)/;
 export function parseS3Lines(lines: string[]): { circuitId: number; reading: PowerReading }[] {
   return lines.flatMap((l) => {

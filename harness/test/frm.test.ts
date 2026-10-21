@@ -1,11 +1,65 @@
 import { describe, expect, it } from "vitest";
-import { collectPowerPairs, pairReadings, parseGetPower, parseS3Lines, readAutoPause } from "../src/frm";
+import { collectPowerPairs, pairReadings, parseGetPower, parseGetPowerFull, parseS3Lines, pickBracket, readAutoPause, startFrmPoller } from "../src/frm";
 
 // Shape from satisfactory-dash raw-sources/captured-responses/frm-getPower-2026-09-22-F-panel.json (FRM 1.5.3).
 const frmBody = [
   { CircuitGroupID: 0, PowerProduction: 3633.3, PowerConsumed: 2692.1, PowerCapacity: 4083.3, AssociatedCircuits: [0], FuseTriggered: false },
   { CircuitGroupID: 1, PowerProduction: 100, PowerConsumed: 50, PowerCapacity: 120, AssociatedCircuits: [3, 4], FuseTriggered: false },
 ];
+
+describe("parseGetPowerFull (rawSchemas.ts:125-136)", () => {
+  const extra = { PowerMaxConsumed: 5000, BatteryCapacity: 100, BatteryPercent: 42.5, BatteryDifferential: -3.25 };
+  const full = frmBody.map((g) => ({ ...g, ...extra }));
+
+  it("reads every figure the enrol run compares", () => {
+    expect(parseGetPowerFull(full)).toEqual([
+      { groupId: 0, production: 3633.3, consumption: 2692.1, capacity: 4083.3, maxConsumption: 5000, batteryCapacity: 100, batteryPercent: 42.5, batteryDifferential: -3.25, fuseTriggered: false },
+      { groupId: 1, production: 100, consumption: 50, capacity: 120, maxConsumption: 5000, batteryCapacity: 100, batteryPercent: 42.5, batteryDifferential: -3.25, fuseTriggered: false },
+    ]);
+  });
+
+  it("refuses a body missing a figure", () => {
+    expect(() => parseGetPowerFull(frmBody)).toThrow();
+  });
+
+  it("gives a joined group (two FRM circuits, one group id) one row, and refuses one whose rows disagree", () => {
+    const row = { ...full[1]!, AssociatedCircuits: [3] };
+    expect(parseGetPowerFull([row, { ...row, AssociatedCircuits: [4] }])).toHaveLength(1);
+    expect(() => parseGetPowerFull([row, { ...row, PowerConsumed: 51 }])).toThrow(/group 1/);
+  });
+});
+
+describe("FRM reads that bracket the mod's sample (owner, 2026-10-20)", () => {
+  const read = (startedAt: number, endedAt: number) => ({ startedAt, endedAt, groups: [] });
+
+  it("takes the last read that ended by the sample and the first that started after it", () => {
+    const reads = [read(0, 100), read(400, 500), read(800, 900), read(1200, 1300)];
+    expect(pickBracket(reads, 700, 3000)).toEqual({ before: reads[1], after: reads[2] });
+  });
+
+  it("a read in flight across the sample brackets nothing", () => {
+    expect(pickBracket([read(600, 800)], 700, 3000)).toEqual({ before: null, after: null });
+  });
+
+  it("drops reads farther than the gap from the sample", () => {
+    expect(pickBracket([read(0, 100), read(6300, 6400)], 3200, 3000)).toEqual({ before: null, after: null });
+  });
+
+  it("polls until stopped, keeping only successful reads with their times", async () => {
+    let t = 0;
+    let n = 0;
+    const poller = startFrmPoller(async () => {
+      n++;
+      if (n === 2) throw new Error("FRM busy");
+      return parseGetPowerFull([]);
+    }, { now: () => (t += 10), sleep: async () => { if (n >= 4) await new Promise(() => {}); } });
+    await new Promise((r) => setTimeout(r, 20));
+    poller.stop();
+    expect(poller.reads).toHaveLength(3);
+    expect(poller.counts()).toEqual({ reads: 3, failed: 1 });
+    expect(poller.reads.every((x) => x.endedAt > x.startedAt)).toBe(true);
+  });
+});
 
 describe("FRM pairing", () => {
   it("parses getPower groups and their circuits", () => {

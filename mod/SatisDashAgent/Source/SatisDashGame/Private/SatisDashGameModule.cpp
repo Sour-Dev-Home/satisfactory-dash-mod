@@ -1,22 +1,28 @@
 #include "Containers/Ticker.h"
 #include "CurlTransport.h"
+#include "Engine/World.h"
+#include "GameReader.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/CoreMisc.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
-#include "SatisDash/Agent.h"
+#include "SatisDash/Driver.h"
 #include "SatisDash/Log.h"
-#include "SatisDash/Pusher.h"
-#include "SatisDash/Snapshot.h"
-#include "SatisDash/Version.h"
 #include "SatisDashCurl.h"
 
 namespace
 {
-	double random01() { return double(FMath::FRand()); }
+	SatisDash::FDriverClock gameClock()
+	{
+		SatisDash::FDriverClock Clock;
+		Clock.Now = [] { return FPlatformTime::Seconds(); };
+		Clock.UtcNow = [] { return FDateTime::UtcNow(); };
+		Clock.Random01 = [] { return double(FMath::FRand()); };
+		return Clock;
+	}
 }
 
-/** Task 1's wiring: enrols and pushes empty snapshots, so the HTTP probe can measure the transport. Task 6 replaces it. */
+/** Plan 2B Task 6: the game ticks the driver, which owns enrolment, sampling, pushing and commands (Driver.h). */
 class FSatisDashGameModule : public IModuleInterface
 {
 public:
@@ -37,13 +43,30 @@ public:
 			return;
 		}
 		bCurlReady = true;
-		Agent.Boot();
-		TickHandle = FTSTicker::GetCoreTicker().AddTicker(TEXT("SatisDashProbe"), 0.5f, [this](float) { Tick(); return true; });
+		// The entry map is a game world too; each loaded save is a new one (S6). The reader always reads the newest.
+		WorldInitHandle = FWorldDelegates::OnPostWorldInitialization.AddLambda([this](UWorld* InWorld, const UWorld::InitializationValues)
+		{
+			if (InWorld != nullptr && InWorld->IsGameWorld())
+			{
+				Reader.SetWorld(InWorld);
+			}
+		});
+		Driver.Boot();
+		// The core ticker runs on the game thread (spec "Runtime"); a tick costs a few comparisons unless something is due.
+		TickHandle = FTSTicker::GetCoreTicker().AddTicker(TEXT("SatisDashAgent"), 0.5f, [this](float)
+		{
+			Driver.Tick();
+			return true;
+		});
 	}
 
 	virtual void ShutdownModule() override
 	{
+		// The driver is never ticked again from here on: its ticker goes first, then the transport drops every handler
+		// without calling it (CurlTransport.h), so no reply runs into a driver that has stopped. The two are destroyed
+		// together with the module (Driver.h: never cancel and keep ticking).
 		FTSTicker::RemoveTicker(TickHandle);
+		FWorldDelegates::OnPostWorldInitialization.Remove(WorldInitHandle);
 		// Every easy handle and the multi handle are released here, before the mod's libcurl copy is cleaned up.
 		Transport.CancelAll();
 		if (bCurlReady)
@@ -54,60 +77,15 @@ public:
 	}
 
 private:
-	void Tick()
-	{
-		const double Now = FPlatformTime::Seconds();
-		if (Now >= NextConfigAt)
-		{
-			NextConfigAt = Now + 60.0;
-			Agent.CheckConfig();
-		}
-		if (TOptional<SatisDash::FRequestSpec> Enroll = Agent.StartEnroll(Now))
-		{
-			Transport.Send(*Enroll, [this](const SatisDash::FHttpReply& Reply) { Agent.FinishEnroll(Reply, FPlatformTime::Seconds()); });
-		}
-		const SatisDash::FCredential* Credential = Agent.GetCredential();
-		if (Credential == nullptr)
-		{
-			return;
-		}
-		if (Now >= NextSnapshotAt)
-		{
-			NextSnapshotAt = Now + 5.0;
-			SatisDash::FSnapshot Snapshot;
-			Snapshot.AgentVersion = SatisDash::AgentVersion();
-			Snapshot.ObservedAt = FDateTime::UtcNow();
-			Pusher.Enqueue(SatisDash::SnapshotToJson(Snapshot));
-		}
-		if (bSending)
-		{
-			return;
-		}
-		if (TOptional<SatisDash::FEncodedBody> Body = Pusher.StartSend(Now))
-		{
-			bSending = true;
-			Transport.Send(SatisDash::BuildSnapshotRequest(Agent.GetConfig(), *Credential, MoveTemp(Body.GetValue())),[this](const SatisDash::FHttpReply& Reply)
-			{
-				bSending = false;
-				if (Pusher.FinishSend(Reply, FPlatformTime::Seconds()).bHalt)
-				{
-					Agent.OnAuthRejected();
-				}
-			});
-		}
-	}
-
 	SatisDash::FCurlTransport Transport;
-	// Held by value (check-api excuses calls only on receivers declared with the plugin's own type, not a TUniquePtr).
-	// Their constructors only store their arguments; nothing reads or writes a file before Boot, which only a dedicated
-	// server reaches.
-	SatisDash::FAgent Agent = SatisDash::FAgent(FPaths::ProjectDir() / TEXT("Configs/SatisDashAgent.cfg"),
-		FPaths::ProjectSavedDir() / TEXT("SatisDash/credential.json"), [] { return random01(); });
-	SatisDash::FPusher Pusher = SatisDash::FPusher([] { return random01(); });
+	SatisDash::FGameReader Reader;
+	// Held by value (check-api excuses calls only on receivers declared with the plugin's own type, not a TUniquePtr), and
+	// declared after the transport and the reader it holds references to, so it is destroyed before them. Its constructor
+	// only stores its arguments; nothing reads or writes a file before Boot, which only a dedicated server reaches.
+	SatisDash::FDriver Driver = SatisDash::FDriver(FPaths::ProjectDir() / TEXT("Configs/SatisDashAgent.cfg"),
+		FPaths::ProjectSavedDir() / TEXT("SatisDash/credential.json"), Transport, Reader, gameClock());
+	FDelegateHandle WorldInitHandle;
 	FTSTicker::FDelegateHandle TickHandle;
-	double NextConfigAt = 0;
-	double NextSnapshotAt = 0;
-	bool bSending = false;
 	bool bCurlReady = false;
 };
 

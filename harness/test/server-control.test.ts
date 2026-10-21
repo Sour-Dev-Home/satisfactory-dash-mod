@@ -10,6 +10,7 @@ import {
   removeSpikeMods,
   serverAnswering,
   startServer,
+  treeMemory,
   stopServer,
   waitHealthy,
   whileRunning,
@@ -162,5 +163,30 @@ describe("stopServer", () => {
     });
     expect(r).toBe("killed");
     expect(killed).toEqual([42]);
+  });
+});
+
+describe("treeMemory (the owner's memory goal)", () => {
+  // Win32_Process rows: PeakWorkingSetSize is in kilobytes, WorkingSetSize in bytes.
+  const rows = [
+    { ProcessId: 10, ParentProcessId: 1, Name: "FactoryServer.exe", WorkingSetSize: 5_000_000, PeakWorkingSetSize: 6_000 },
+    { ProcessId: 11, ParentProcessId: 10, Name: "FactoryServer-Win64-Shipping-Cmd.exe", WorkingSetSize: 3_000_000_000, PeakWorkingSetSize: 4_000_000 },
+    { ProcessId: 12, ParentProcessId: 11, Name: "conhost.exe", WorkingSetSize: 1_000, PeakWorkingSetSize: 2 },
+    { ProcessId: 13, ParentProcessId: 1, Name: "other.exe", WorkingSetSize: 9, PeakWorkingSetSize: 9 },
+  ];
+
+  it("sums the spawned process and its descendants only, peak in bytes", () => {
+    expect(treeMemory(rows, 10)).toEqual({
+      totalWorkingSetBytes: 3_005_001_000,
+      processes: [
+        { name: "FactoryServer.exe", workingSetBytes: 5_000_000, peakWorkingSetBytes: 6_144_000 },
+        { name: "FactoryServer-Win64-Shipping-Cmd.exe", workingSetBytes: 3_000_000_000, peakWorkingSetBytes: 4_096_000_000 },
+        { name: "conhost.exe", workingSetBytes: 1_000, peakWorkingSetBytes: 2_048 },
+      ],
+    });
+  });
+
+  it("is null when the process is gone", () => {
+    expect(treeMemory(rows, 99)).toBeNull();
   });
 });

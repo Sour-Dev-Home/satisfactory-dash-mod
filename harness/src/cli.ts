@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { realExec, startBackend } from "./backend";
+import { hostUntilStopped, serveBackendHost } from "./backend-host";
 import { checkApi, scanSources } from "./check-api";
 import { loadConfig } from "./config";
 import { type CoreRunId, realCoreDeps, runCore } from "./core-run";
@@ -103,6 +105,32 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
         throw e;
       }
     }
+    case "backend-host": {
+      // The owner's session only (ruling 10): Docker runs as the owner; the runner reaches it through the host file.
+      const path = process.env.SATIS_HARNESS_CONFIG;
+      if (!path) {
+        io.error("SATIS_HARNESS_CONFIG is not set (see docs/runner.md)");
+        return 2;
+      }
+      const config = loadConfig(path);
+      if (!config.s5 || !config.backendHost) {
+        io.error("backend-host needs s5 and backendHost in the runner config (see docs/runner.md, \"The backend host\")");
+        return 2;
+      }
+      const hostCfg = config.backendHost;
+      const s5 = config.s5;
+      await hostUntilStopped({
+        start: () => startBackend({ checkout: s5.checkout, relayFile: join(HARNESS_ROOT, "compose", "s5-relay.yaml"), port: s5.port, exec: realExec }),
+        serve: (backend) => serveBackendHost({ backend, file: hostCfg.file, port: hostCfg.port }),
+        // process.on, not once: the handler stays, so a second Ctrl+C never falls back to the default kill.
+        onStop: (handler) => {
+          process.on("SIGINT", handler);
+          process.on("SIGTERM", handler);
+        },
+        log: (s) => io.log(s),
+      });
+      return 0;
+    }
     case "rejudge": {
       const dir = argv[1];
       if (!dir) {
@@ -149,7 +177,7 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
       return verdict.pass ? 0 : 1;
     }
     default:
-      io.error("usage: harness <check-api|verify-contract|selftest|run|core-run|rejudge|test-mod|judge-mod-test>");
+      io.error("usage: harness <check-api|verify-contract|selftest|run|core-run|backend-host|rejudge|test-mod|judge-mod-test>");
       return 2;
   }
 }

@@ -397,7 +397,12 @@ describe("runSpike", () => {
   const fakeBackend = (order: string[]) => async () => (order.push("up"), {
     url: "http://127.0.0.1:13101",
     seedCode: async () => void order.push("seed"),
-    state: async () => ({ codeConsumed: true, agentVersion: "spike-s5", lastSeen: true }),
+    state: async () => ({ codeConsumed: true, agentVersion: "spike-s5", lastSeen: true, revoked: false }),
+    revoke: async () => {},
+    queueCommand: async () => "",
+    command: async () => ({ status: "pending", resultCode: null }),
+    stopRelay: async () => {},
+    startRelay: async () => {},
     down: async () => void order.push("down"),
   });
 

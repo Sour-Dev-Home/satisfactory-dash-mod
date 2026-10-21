@@ -44,6 +44,8 @@ export const RunnerConfigSchema = z.strictObject({
   s3World: z.string().min(1).optional(),
   /** S5 only, local runs: a satisfactory-dash checkout at the pinned commit, and the relay's loopback port. */
   s5: z.strictObject({ checkout: z.string().min(1), port: z.number().int().min(1024).max(65535) }).optional(),
+  /** Backend runs (ruling 10): the host file the owner's backend host writes (outside the repository), and its port. */
+  backendHost: z.strictObject({ file: z.string().min(1), port: z.number().int().min(1024).max(65535) }).optional(),
   /** The core mod's unit tests (scripts/test-mod.ps1): the SML project folder and the engine root. */
   modTest: z.strictObject({ project: z.string().min(1), engine: z.string().min(1) }).optional(),
 });
