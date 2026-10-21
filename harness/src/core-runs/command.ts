@@ -5,8 +5,10 @@ import { startRecorder, type Recorder } from "../recorder";
 import { enrolPhase } from "./enrol";
 
 const IN_FLIGHT = new Set(["pending", "sent"]);
-const resultPosts = (rec: Recorder, id: string) =>
-  rec.entries.filter((e) => e.agent === "mod" && e.method === "POST" && e.path === `/agent/v1/commands/${id}/result`).length;
+/** The answers to every result post for this command, in the order they finished. */
+const resultStatuses = (rec: Recorder, id: string) =>
+  rec.entries.filter((e) => e.agent === "mod" && e.method === "POST" && e.path === `/agent/v1/commands/${id}/result`).map((e) => e.status);
+const acceptedResult = (rec: Recorder, id: string) => resultStatuses(rec, id).some((s) => s >= 200 && s < 300);
 
 /** Queues one set_auto_pause, waits up to 90 s for it to leave pending/sent, then reads the game's API. */
 async function runCommand(ctx: CoreContext, host: HostClient, recorder: Recorder, params: Record<string, unknown>): Promise<Pass.Outcome> {
@@ -19,9 +21,9 @@ async function runCommand(ctx: CoreContext, host: HostClient, recorder: Recorder
     }, 90_000)
     .catch(() => undefined); // the outcome records the status it was left in; pass.ts fails it
   // The backend marks the command done while answering the result post, so let the recorder finish that entry.
-  await ctx.waitFor("the result post", () => (resultPosts(recorder, id) ? true : undefined), 10_000).catch(() => undefined);
+  await ctx.waitFor("the accepted result post", () => (acceptedResult(recorder, id) ? true : undefined), 10_000).catch(() => undefined);
   const apiAfter = await ctx.deps.readAutoPause!().catch(() => null);
-  return { id, status: last.status, resultCode: last.resultCode, apiAfter, results: resultPosts(recorder, id) };
+  return { id, status: last.status, resultCode: last.resultCode, apiAfter, resultStatuses: resultStatuses(recorder, id) };
 }
 
 /** The command run (C9 needs a game: S7 skipped the entry map). */
@@ -52,7 +54,7 @@ export const command: CoreRunSpec = {
     } finally {
       if (capture) {
         // Counted again over the whole run, so a late duplicate result post is caught too.
-        for (const o of [capture.flipped, capture.unsupported, capture.restored]) if (o) o.results = resultPosts(recorder, o.id);
+        for (const o of [capture.flipped, capture.unsupported, capture.restored]) if (o) o.resultStatuses = resultStatuses(recorder, o.id);
         ctx.captures["command.json"] = capture;
       }
       ctx.captures["recorder.json"] = recorder.entries.map(({ snapshot: _, ...rest }) => rest);

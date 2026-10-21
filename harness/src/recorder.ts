@@ -7,7 +7,10 @@ import { gunzipSync } from "node:zlib";
 import { sessionHash } from "./status";
 
 export interface RecordedCall {
+  /** When the request arrived. */
   at: string;
+  /** When the answer had finished being sent (or the exchange failed): the earliest the agent could know it. */
+  doneAt: string;
   agent: "mod" | "other";
   method: string;
   /** The path without its query. */
@@ -76,6 +79,7 @@ export async function startRecorder(upstream: string): Promise<Recorder> {
     const method = req.method ?? "GET";
     const entry: RecordedCall = {
       at: new Date().toISOString(),
+      doneAt: "",
       agent: String(req.headers["user-agent"] ?? "").startsWith("satisfactory-dash-mod/") ? "mod" : "other",
       method,
       path,
@@ -88,6 +92,7 @@ export async function startRecorder(upstream: string): Promise<Recorder> {
     const finish = () => {
       if (done) return;
       done = true;
+      entry.doneAt = new Date().toISOString();
       if (entry.status !== 0) {
         if (method === "POST" && path === SNAPSHOTS) {
           const s = sent.json(req.headers);

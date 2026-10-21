@@ -68,7 +68,8 @@ export const revoke: CoreRunSpec = {
       if (capture.revokedAt) {
         const from = capture.revokedAt;
         const until = capture.reseededAt;
-        capture.afterRevoke = recorder.entries.filter((e) => e.at >= from && (until === null || e.at < until)).map(bodyless);
+        // By when each was answered: a request that started just before the revoke can carry the halting 401.
+        capture.afterRevoke = recorder.entries.filter((e) => e.doneAt >= from && (until === null || e.at < until)).map(bodyless);
       }
       if (capture.reseededAt) {
         const since = capture.reseededAt;

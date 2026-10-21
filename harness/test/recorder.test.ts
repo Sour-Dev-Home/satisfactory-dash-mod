@@ -66,7 +66,23 @@ describe("recorder (ruling 11)", () => {
     expect(up.seen[0]).toMatchObject({ method: "PUT", url: "/some/where?q=1" });
     expect(up.seen[0]!.headers["x-custom"]).toBe("abc");
     expect(up.seen[0]!.body.toString()).toBe("hello");
-    expect(rec.entries).toEqual([{ at: expect.any(String), agent: "other", method: "PUT", path: "/some/where", status: 418, authorization: false }]);
+    expect(rec.entries).toEqual([{ at: expect.any(String), doneAt: expect.any(String), agent: "other", method: "PUT", path: "/some/where", status: 418, authorization: false }]);
+  });
+
+  it("stamps doneAt when the answer has finished, not when the request arrived (review of 9b23fd1)", async () => {
+    // Head at once, body 300 ms later: the agent only has the whole answer then.
+    const server: Server = createServer((_req, res) => {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.write("{");
+      setTimeout(() => res.end("}"), 300);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    closers.push(() => new Promise<void>((r) => server.close(() => r())));
+    const rec = await recorderFor(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    await send(rec.url, "GET", "/agent/v1/commands", { headers: { "user-agent": MOD_UA } });
+    await expect.poll(() => rec.entries.length).toBe(1);
+    const e = rec.entries[0]!;
+    expect(Date.parse(e.doneAt) - Date.parse(e.at)).toBeGreaterThanOrEqual(250);
   });
 
   it("records a gzipped snapshot decompressed, the mod's User-Agent as agent mod, and the session as its hash", async () => {
@@ -107,7 +123,7 @@ describe("recorder (ruling 11)", () => {
     expect(text).not.toContain(CODE);
     expect(text).not.toContain("Bearer");
     expect(rec.entries.map((e) => e.authorization)).toEqual([false, true, true]);
-    expect(rec.entries[0]).toEqual({ at: expect.any(String), agent: "mod", method: "POST", path: "/agent/v1/enroll", status: 201, authorization: false });
+    expect(rec.entries[0]).toEqual({ at: expect.any(String), doneAt: expect.any(String), agent: "mod", method: "POST", path: "/agent/v1/enroll", status: 201, authorization: false });
   });
 
   it("records the command IDs a poll returned, and a result's body", async () => {

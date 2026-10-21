@@ -7,9 +7,9 @@ const applied = (on: boolean) => `[t][1]LogSatisDash: Display: Applied set_auto_
 function capture(over: Partial<Command> = {}): Command {
   return {
     before: true,
-    flipped: { id: "f", status: "succeeded", resultCode: null, apiAfter: false, results: 1 },
-    unsupported: { id: "u", status: "failed", resultCode: "unsupported", apiAfter: false, results: 1 },
-    restored: { id: "r", status: "succeeded", resultCode: null, apiAfter: true, results: 1 },
+    flipped: { id: "f", status: "succeeded", resultCode: null, apiAfter: false, resultStatuses: [200] },
+    unsupported: { id: "u", status: "failed", resultCode: "unsupported", apiAfter: false, resultStatuses: [204] },
+    restored: { id: "r", status: "succeeded", resultCode: null, apiAfter: true, resultStatuses: [200] },
     ...over,
   };
 }
@@ -29,9 +29,9 @@ describe("command pass", () => {
   it("passes starting from auto-pause off", () => {
     const c = capture({
       before: false,
-      flipped: { id: "f", status: "succeeded", resultCode: null, apiAfter: true, results: 1 },
-      unsupported: { id: "u", status: "failed", resultCode: "unsupported", apiAfter: true, results: 1 },
-      restored: { id: "r", status: "succeeded", resultCode: null, apiAfter: false, results: 1 },
+      flipped: { id: "f", status: "succeeded", resultCode: null, apiAfter: true, resultStatuses: [200] },
+      unsupported: { id: "u", status: "failed", resultCode: "unsupported", apiAfter: true, resultStatuses: [200] },
+      restored: { id: "r", status: "succeeded", resultCode: null, apiAfter: false, resultStatuses: [200] },
     });
     expect(evaluate(ev(c)).pass).toBe(true);
   });
@@ -57,9 +57,22 @@ describe("command pass", () => {
     expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, apiAfter: null } })).reasons).toContain("flip: GetServerOptions didn't answer");
   });
 
-  it.each([0, 2])("fails a flip with %i result posts", (n) => {
+  it.each([[[], 0], [[200, 200], 2], [[503, 503], 0], [[200, 204], 2]] as const)("fails a command whose results were accepted other than once (%j)", (statuses, n) => {
     const c = capture();
-    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, results: n } })).reasons).toContain(`flip: ${n} result post(s), not 1`);
+    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, resultStatuses: [...statuses] } })).reasons).toContain(`flip: ${n} result post(s) accepted, not 1`);
+    expect(evaluate(ev({ ...c, restored: { ...c.restored!, resultStatuses: [...statuses] } })).reasons).toContain(`restore: ${n} result post(s) accepted, not 1`);
+  });
+
+  it("allows a transient 5xx/429 refusal before the accepted result, and counts it in the pass reason", () => {
+    const c = capture();
+    const v = evaluate(ev({ ...c, flipped: { ...c.flipped!, resultStatuses: [503, 429, 200] }, unsupported: { ...c.unsupported!, resultStatuses: [502, 204] } }));
+    expect(v.pass).toBe(true);
+    expect(v.reasons[0]).toContain("6 result post(s) in all, 3 refused transiently (5xx/429) and retried");
+  });
+
+  it.each([400, 404, 409, 0])("fails an extra result post refused with %i (not a transient 5xx/429)", (s) => {
+    const c = capture();
+    expect(evaluate(ev({ ...c, flipped: { ...c.flipped!, resultStatuses: [s, 200] } })).reasons).toContain(`flip: a result post was answered ${s}, not 2xx or a transient 5xx/429`);
   });
 
   it("fails an unsupported command that succeeded, or failed for another reason", () => {
