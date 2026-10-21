@@ -50,6 +50,43 @@ export function parseGetPowerFull(body: unknown): FrmCircuitGroup[] {
   return out;
 }
 
+/** One successful FRM read and when it ran (ms since the epoch, the harness's clock, which is the server's machine). */
+export interface FrmRead { startedAt: number; endedAt: number; groups: FrmCircuitGroup[] }
+
+/**
+ * The owner's bracket (2026-10-20): the last read that had ended by the sample, and the first that started after it,
+ * so the two reads enclose the moment the mod sampled. A read farther than gapMs from the sample doesn't count.
+ */
+export function pickBracket(reads: FrmRead[], sampleAt: number, gapMs: number): { before: FrmRead | null; after: FrmRead | null } {
+  const before = reads.filter((r) => r.endedAt <= sampleAt && sampleAt - r.endedAt <= gapMs).at(-1) ?? null;
+  const after = reads.find((r) => r.startedAt >= sampleAt && r.startedAt - sampleAt <= gapMs) ?? null;
+  return { before, after };
+}
+
+/** Reads FRM back to back (a short sleep between) until stopped; keeps the last 400 successful reads. */
+export function startFrmPoller(
+  read: () => Promise<FrmCircuitGroup[]>,
+  opts: { now: () => number; sleep: (ms: number) => Promise<void>; intervalMs?: number },
+): { reads: FrmRead[]; stop(): void } {
+  const reads: FrmRead[] = [];
+  let running = true;
+  void (async () => {
+    while (running) {
+      const startedAt = opts.now();
+      try {
+        const groups = await read();
+        if (!running) break;
+        reads.push({ startedAt, endedAt: opts.now(), groups });
+        if (reads.length > 400) reads.shift();
+      } catch {
+        // a failed read brackets nothing; the round then misses a read and fails
+      }
+      await opts.sleep(opts.intervalMs ?? 250);
+    }
+  })();
+  return { reads, stop: () => void (running = false) };
+}
+
 const LINE = /satis-mod s3 circuit=(\d+) production=([\d.]+) consumption=([\d.]+) capacity=([\d.]+)/;
 export function parseS3Lines(lines: string[]): { circuitId: number; reading: PowerReading }[] {
   return lines.flatMap((l) => {

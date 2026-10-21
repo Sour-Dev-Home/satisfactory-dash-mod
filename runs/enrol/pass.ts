@@ -1,5 +1,10 @@
 // The enrol run (spec "Testing" 2): enrol with a seeded code, write the credential, blank the code, and have the
 // snapshots accepted. Every native reading is compared with the game's APIs (C8, C9, power; Task 3, ruling 7).
+// Owner decision (2026-10-20), after enrol run 39517898558 failed one of 12 world rounds on consumption (1233.10 vs FRM
+// 1218.20, 1.2%; consumption swings ~60 MW between rounds, and the other 11 matched to ~0.05%): power is judged against
+// FRM read just before and just after the mod's sample. Each compared field must lie in [lo - tol, hi + tol], lo and hi
+// the min and max of the two reads, tol = 0.01 * max(|lo|, |hi|, 1): the 1% stays. Group ids and the fuse must match at
+// least one of the two reads. A round missing either read fails.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { Verdict } from "../../harness/src/verdict";
 
@@ -7,13 +12,22 @@ export const requirements = ["enrol", "C8", "C9", "power", "S10", "S13"];
 const NEED_WORLD = 10;
 const NEED_EMPTY = 3;
 const tickClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, 0.1 * Math.max(a, b)); // S6
-const within = (a: number, b: number) => Math.abs(a - b) <= 0.01 * Math.max(Math.abs(a), Math.abs(b), 1); // S3
+/** The owner's bracket (2026-10-20): mod within 1% of the range the two FRM reads span. */
+const inBracket = (mod: number, lo: number, hi: number) => {
+  const tol = 0.01 * Math.max(Math.abs(lo), Math.abs(hi), 1);
+  return lo - tol <= mod && mod <= hi + tol;
+};
 const SNAPSHOT_KEYS = new Set(["agentVersion", "observedAt", "reachable", "paused", "status", "power", "settings"]);
 
 export interface ApiStatus { running: boolean; paused: boolean; players: number; limit: number; duration: number; tickRate: number; health: string; session: string }
 export interface ModStatus { isGameRunning: boolean; gamePaused: boolean; connectedPlayers: number; playerLimit: number; totalGameDurationSeconds: number; tickRate: number; tickHealth: string; sessionName: string }
 export interface Circuit { circuitGroupId: number; productionMW: number; consumptionMW: number; capacityMW: number; maxConsumptionMW: number; fuseTriggered: boolean; batteryCapacityMWh: number; batteryPercent: number; batteryDifferentialMW: number }
-export interface Round { at: string; world: boolean; snapshot: Record<string, unknown>; api: ApiStatus | null; autoPause: boolean | null; frm: Array<{ groupId: number; production: number; consumption: number; capacity: number; maxConsumption: number; batteryCapacity: number; batteryPercent: number; batteryDifferential: number; fuseTriggered: boolean }> | null }
+export interface FrmGroup { groupId: number; production: number; consumption: number; capacity: number; maxConsumption: number; batteryCapacity: number; batteryPercent: number; batteryDifferential: number; fuseTriggered: boolean }
+/** frmBefore and frmAfter: FRM read just before and just after the mod's sample (null: no such read); when they ran. */
+export interface Round {
+  at: string; world: boolean; snapshot: Record<string, unknown>; api: ApiStatus | null; autoPause: boolean | null;
+  frmBefore: FrmGroup[] | null; frmAfter: FrmGroup[] | null; frmBeforeEndedAt?: string | null; frmAfterStartedAt?: string | null;
+}
 export interface Enrol { state: { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean }; codeBlanked: boolean; credentialWritten: boolean; refused: number; rounds: Round[] }
 
 export function compareRound(r: Round): string[] {
@@ -41,20 +55,36 @@ export function compareRound(r: Round): string[] {
     if (power !== undefined) out.push(`${r.at}: power sent with no game running`);
     return out;
   }
-  if (!power || !r.frm) return [...out, `${r.at}: no power to compare`];
+  if (!power) return [...out, `${r.at}: no power to compare`];
+  // Never passes on missing data: both reads must be there.
+  if (!r.frmBefore) return [...out, `${r.at}: no FRM read before the mod's sample`];
+  if (!r.frmAfter) return [...out, `${r.at}: no FRM read after the mod's sample`];
   const ids = (xs: number[]) => [...xs].sort((x, y) => x - y).join(",");
-  if (ids(power.map((c) => c.circuitGroupId)) !== ids(r.frm.map((g) => g.groupId))) {
-    return [...out, `${r.at}: circuit groups ${ids(power.map((c) => c.circuitGroupId))} vs FRM ${ids(r.frm.map((g) => g.groupId))}`];
+  const modIds = ids(power.map((c) => c.circuitGroupId));
+  const beforeIds = ids(r.frmBefore.map((g) => g.groupId));
+  const afterIds = ids(r.frmAfter.map((g) => g.groupId));
+  // The group set must match at least one read; only the read(s) that match bracket the values.
+  const reads = [r.frmBefore, r.frmAfter].filter((f) => ids(f.map((g) => g.groupId)) === modIds);
+  if (!reads.length) {
+    const frmIds = beforeIds === afterIds ? beforeIds : `${beforeIds} before, ${afterIds} after`;
+    return [...out, `${r.at}: circuit groups ${modIds} vs FRM ${frmIds}`];
   }
+  const fields: Array<[string, (c: Circuit) => number, (g: FrmGroup) => number]> = [
+    ["production", (c) => c.productionMW, (g) => g.production], ["consumption", (c) => c.consumptionMW, (g) => g.consumption],
+    ["capacity", (c) => c.capacityMW, (g) => g.capacity], ["maxConsumption", (c) => c.maxConsumptionMW, (g) => g.maxConsumption],
+    ["batteryCapacity", (c) => c.batteryCapacityMWh, (g) => g.batteryCapacity], ["batteryPercent", (c) => c.batteryPercent, (g) => g.batteryPercent],
+    ["batteryDifferential", (c) => c.batteryDifferentialMW, (g) => g.batteryDifferential],
+  ];
   for (const c of power) {
-    const g = r.frm.find((x) => x.groupId === c.circuitGroupId)!;
-    const pairs: Array<[string, number, number]> = [
-      ["production", c.productionMW, g.production], ["consumption", c.consumptionMW, g.consumption], ["capacity", c.capacityMW, g.capacity],
-      ["maxConsumption", c.maxConsumptionMW, g.maxConsumption], ["batteryCapacity", c.batteryCapacityMWh, g.batteryCapacity],
-      ["batteryPercent", c.batteryPercent, g.batteryPercent], ["batteryDifferential", c.batteryDifferentialMW, g.batteryDifferential],
-    ];
-    for (const [name, mod, frm] of pairs) if (!within(mod, frm)) out.push(`${r.at}: group ${c.circuitGroupId} ${name} ${mod} vs FRM ${frm}`);
-    if (c.fuseTriggered !== g.fuseTriggered) out.push(`${r.at}: group ${c.circuitGroupId} fuse ${c.fuseTriggered} vs FRM ${g.fuseTriggered}`);
+    const gs = reads.map((f) => f.find((x) => x.groupId === c.circuitGroupId)!);
+    for (const [name, modOf, frmOf] of fields) {
+      const values = gs.map(frmOf);
+      const lo = Math.min(...values);
+      const hi = Math.max(...values);
+      const mod = modOf(c);
+      if (!inBracket(mod, lo, hi)) out.push(`${r.at}: group ${c.circuitGroupId} ${name} ${mod} vs FRM ${lo === hi ? lo : `${lo}..${hi}`}`);
+    }
+    if (!gs.some((g) => g.fuseTriggered === c.fuseTriggered)) out.push(`${r.at}: group ${c.circuitGroupId} fuse ${c.fuseTriggered} vs FRM ${gs[0]!.fuseTriggered}`);
   }
   return out;
 }
@@ -82,6 +112,6 @@ export function evaluate(e: CoreEvidence): Verdict {
   const autoPause = autoPauseRounds
     ? `autoPause compared in ${autoPauseRounds} of ${d.rounds.length} rounds`
     : "the autoPause check was skipped (GetServerOptions never answered)";
-  const groups = new Set(world.flatMap((r) => (r.frm ?? []).map((g) => g.groupId))).size;
+  const groups = new Set(world.flatMap((r) => (r.frmBefore ?? []).map((g) => g.groupId))).size;
   return { pass: true, reasons: [`enrolled; ${empty.length} rounds with no game and ${world.length} with the world match the game's APIs; ${autoPause}; power compared for ${groups} circuit group(s)`] };
 }

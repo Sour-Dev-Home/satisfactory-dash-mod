@@ -4,7 +4,7 @@ import type { CoreContext, CoreRunSpec } from "../core-run";
 import { MOD } from "../core-run";
 import { randomCode } from "../backend";
 import type { HostClient } from "../backend-host";
-import { parseGetPowerFull, readAutoPause } from "../frm";
+import { parseGetPowerFull, pickBracket, readAutoPause, startFrmPoller } from "../frm";
 import { modConfigPath } from "../mod-config";
 import { startRecorder, type Recorder } from "../recorder";
 import { createServerApi } from "../server-api";
@@ -22,21 +22,50 @@ export async function enrolPhase(ctx: CoreContext, host: HostClient, recorder: R
   ctx.noteSecret(); // before any revoke deletes the file
 }
 
-/** Waits for each new accepted snapshot and reads the game's APIs right after it. */
+/** A read farther than this from the mod's sample doesn't bracket it (the poller reads every ~0.25 s plus FRM's time). */
+const BRACKET_GAP_MS = 3000;
+const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Waits for each new accepted snapshot and reads the game's APIs right after it. In the world, FRM is read back to back
+ * the whole time (owner, 2026-10-20, after run 39517898558): the mod reads power in the same game-thread tick it stamps
+ * observedAt (Driver.cpp TickSample), so the last FRM read that ended by observedAt and the first that started after
+ * it bracket the mod's sample. Both clocks are the same machine's.
+ */
 async function collect(ctx: CoreContext, recorder: Recorder, world: boolean, want: number, frmBaseUrl: string | undefined): Promise<Pass.Round[]> {
   const api = createServerApi(ctx.deps.config.apiBaseUrl);
   const rounds: Pass.Round[] = [];
-  let seen = accepted(recorder).length;
-  while (rounds.length < want) {
-    await ctx.waitFor("the next accepted snapshot", () => (accepted(recorder).length > seen ? true : undefined), MIN);
-    const entry = accepted(recorder)[seen]!;
-    seen = accepted(recorder).length;
-    const [status, autoPause, frm] = await Promise.all([
-      readApiStatus(api).catch(() => null),
-      readAutoPause(api).catch(() => null),
-      world && frmBaseUrl ? fetch(new URL("/getPower", frmBaseUrl), { signal: AbortSignal.timeout(2000) }).then(async (r) => parseGetPowerFull(await r.json())).catch(() => null) : Promise.resolve(null),
-    ]);
-    rounds.push({ at: entry.at, world, snapshot: entry.snapshot as Record<string, unknown>, api: status, autoPause, frm });
+  const poller = world && frmBaseUrl
+    ? startFrmPoller(
+        () => fetch(new URL("/getPower", frmBaseUrl), { signal: AbortSignal.timeout(2000) }).then(async (r) => parseGetPowerFull(await r.json())),
+        { now: Date.now, sleep: realSleep },
+      )
+    : null;
+  try {
+    let seen = accepted(recorder).length;
+    while (rounds.length < want) {
+      await ctx.waitFor("the next accepted snapshot", () => (accepted(recorder).length > seen ? true : undefined), MIN);
+      const entry = accepted(recorder)[seen]!;
+      seen = accepted(recorder).length;
+      const [status, autoPause] = await Promise.all([readApiStatus(api).catch(() => null), readAutoPause(api).catch(() => null)]);
+      let bracket: ReturnType<typeof pickBracket> = { before: null, after: null };
+      const observed = Date.parse(String((entry.snapshot as { observedAt?: unknown } | undefined)?.observedAt ?? ""));
+      if (poller && Number.isFinite(observed)) {
+        // The push follows the sample, so the read after it is usually in already; wait a little for it if not.
+        await ctx.waitFor("an FRM read after the sample", () => (poller.reads.some((r) => r.startedAt >= observed) || Date.now() - observed > BRACKET_GAP_MS ? true : undefined), 10_000).catch(() => undefined);
+        bracket = pickBracket(poller.reads, observed, BRACKET_GAP_MS);
+      }
+      const iso = (ms: number | undefined) => (ms === undefined ? null : new Date(ms).toISOString());
+      rounds.push({
+        at: entry.at, world, snapshot: entry.snapshot as Record<string, unknown>, api: status, autoPause,
+        frmBefore: bracket.before?.groups ?? null,
+        frmAfter: bracket.after?.groups ?? null,
+        frmBeforeEndedAt: iso(bracket.before?.endedAt),
+        frmAfterStartedAt: iso(bracket.after?.startedAt),
+      });
+    }
+  } finally {
+    poller?.stop();
   }
   return rounds;
 }

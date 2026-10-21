@@ -9,7 +9,10 @@ const ENROLLED = "[t][1]LogSatisDash: Display: Enrolled; reporting to the backen
 const circuit = { circuitGroupId: 1, productionMW: 1200, consumptionMW: 800, capacityMW: 1500, maxConsumptionMW: 1400, fuseTriggered: false, batteryCapacityMWh: 100, batteryPercent: 50, batteryDifferentialMW: -12.5 };
 const frmRow = { CircuitGroupID: 1, PowerProduction: 1200, PowerConsumed: 800, PowerCapacity: 1500, PowerMaxConsumed: 1400, BatteryCapacity: 100, BatteryPercent: 50, BatteryDifferential: -12.5, FuseTriggered: false };
 
-function round(i: number, world: boolean, over: { snapshot?: Record<string, unknown>; status?: Record<string, unknown>; api?: Record<string, unknown>; frm?: Round["frm"] } = {}): Round {
+type Frm = Round["frmBefore"];
+/** frm sets both reads; frmBefore / frmAfter override one of them. */
+function round(i: number, world: boolean, over: { snapshot?: Record<string, unknown>; status?: Record<string, unknown>; api?: Record<string, unknown>; frm?: Frm; frmBefore?: Frm; frmAfter?: Frm } = {}): Round {
+  const frm = world ? (over.frm !== undefined ? over.frm : parseGetPowerFull([frmRow])) : null;
   const status = { isGameRunning: world, gamePaused: false, connectedPlayers: 0, playerLimit: 4, totalGameDurationSeconds: world ? 5000 + i * 5 : 0, tickRate: 30, tickHealth: "healthy", sessionName: world ? SESSION : "da39a3ee5e6b", ...over.status };
   return {
     at: `2026-10-20T16:00:${String(i).padStart(2, "0")}.000Z`,
@@ -21,7 +24,8 @@ function round(i: number, world: boolean, over: { snapshot?: Record<string, unkn
     },
     api: { running: world, paused: false, players: 0, limit: 4, duration: world ? 5000 + i * 5 : 0, tickRate: 30, health: "healthy", session: world ? SESSION : "da39a3ee5e6b", ...over.api } as Round["api"],
     autoPause: false,
-    frm: world ? (over.frm !== undefined ? over.frm : parseGetPowerFull([frmRow])) : null,
+    frmBefore: over.frmBefore !== undefined ? over.frmBefore : frm,
+    frmAfter: over.frmAfter !== undefined ? over.frmAfter : frm,
   };
 }
 
@@ -57,7 +61,8 @@ describe("enrol pass conditions", () => {
     for (const r of d.rounds) {
       r.autoPause = null;
       if (r.world) {
-        r.frm = [];
+        r.frmBefore = [];
+        r.frmAfter = [];
         r.snapshot.power = { circuits: [] };
       }
     }
@@ -131,5 +136,47 @@ describe("enrol pass conditions", () => {
   it("compares a joined group (two FRM circuits, one group id) as one row", () => {
     const r = round(30, true, { frm: parseGetPowerFull([{ ...frmRow, AssociatedCircuits: [0] }, { ...frmRow, AssociatedCircuits: [3] }]) });
     expect(evaluate(evidence(withRound(r))).pass).toBe(true);
+  });
+
+  describe("power bracketed by FRM before and after the sample (owner, 2026-10-20; run 39517898558)", () => {
+    const at = (consumed: number) => parseGetPowerFull([{ ...frmRow, CircuitGroupID: 0, PowerConsumed: consumed }]);
+    const modRound = (consumption: number, frmBefore: Frm, frmAfter: Frm) =>
+      round(30, true, { snapshot: { power: { circuits: [{ ...circuit, circuitGroupId: 0, consumptionMW: consumption }] } }, frmBefore, frmAfter });
+
+    it("passes run 39517898558's failing round when the reads bracket it (before 1233.2, after 1218.2, mod 1233.1)", () => {
+      const r = modRound(1233.1043701171875, at(1233.2), at(1218.204345703125));
+      expect(evaluate(evidence(withRound(r))).pass).toBe(true);
+    });
+
+    it("passes a value within 1% outside the bracket, either side", () => {
+      // tol = 0.01 * max(|1218.2|, |1233.2|, 1) = 12.332
+      expect(evaluate(evidence(withRound(modRound(1245.5, at(1233.2), at(1218.2))))).pass).toBe(true);
+      expect(evaluate(evidence(withRound(modRound(1205.9, at(1218.2), at(1233.2))))).pass).toBe(true);
+    });
+
+    it("fails a value more than 1% outside the bracket, with the exact reason", () => {
+      const r = modRound(1245.6, at(1233.2), at(1218.2));
+      const v = evaluate(evidence(withRound(r)));
+      expect(v.pass).toBe(false);
+      expect(v.reasons).toEqual([`${r.at}: group 0 consumption 1245.6 vs FRM 1218.2..1233.2`]);
+    });
+
+    it("fails a round missing the read before or after the sample", () => {
+      const before = modRound(800, null, at(800));
+      expect(evaluate(evidence(withRound(before))).reasons).toEqual([`${before.at}: no FRM read before the mod's sample`]);
+      const after = modRound(800, at(800), null);
+      expect(evaluate(evidence(withRound(after))).reasons).toEqual([`${after.at}: no FRM read after the mod's sample`]);
+    });
+
+    it("takes group ids and the fuse from either read, and fails when neither matches", () => {
+      const two = parseGetPowerFull([frmRow, { ...frmRow, CircuitGroupID: 2 }]);
+      expect(evaluate(evidence(withRound(round(30, true, { frmBefore: parseGetPowerFull([frmRow]), frmAfter: two })))).pass).toBe(true);
+      const tripped = parseGetPowerFull([{ ...frmRow, FuseTriggered: true }]);
+      expect(evaluate(evidence(withRound(round(30, true, { frmBefore: tripped, frmAfter: parseGetPowerFull([frmRow]) })))).pass).toBe(true);
+      const r = round(30, true, { frmBefore: two, frmAfter: parseGetPowerFull([{ ...frmRow, CircuitGroupID: 3 }]) });
+      expect(evaluate(evidence(withRound(r))).reasons).toEqual([`${r.at}: circuit groups 1 vs FRM 1,2 before, 3 after`]);
+      const f = round(30, true, { frm: tripped });
+      expect(evaluate(evidence(withRound(f))).reasons).toEqual([`${f.at}: group 1 fuse false vs FRM true`]);
+    });
   });
 });
