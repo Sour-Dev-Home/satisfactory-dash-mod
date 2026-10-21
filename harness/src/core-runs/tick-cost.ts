@@ -14,7 +14,7 @@ export const TICK_COST_SAMPLE_MS = 30_000;
 export interface Measured {
   ticks: TickSeries | null;
   outbound: string[];
-  /** DNS cache names per endpoint address (evidence only). */
+  /** This boot's DNS cache names per address it contacted (S12 matches by them; owner, 2026-10-21). */
   outboundNames: Record<string, string[]>;
   outboundSamples: Pass.OutboundCount;
   /** From the end of the warmup to the end of the window. */
@@ -40,7 +40,7 @@ export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promis
   const state = deps.gameState ? await deps.gameState().catch(() => null) : null;
   const endpoints = new Set<string>();
   const names = new Map<string, Set<string>>();
-  const outboundSamples = { ok: 0, failed: 0 };
+  const outboundSamples: Pass.OutboundCount = { ok: 0, failed: 0, dnsFailed: 0 };
   const memory: Pass.MemoryPoint[] = [];
   const sampleOnce = async () => {
     const at = now();
@@ -51,6 +51,7 @@ export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promis
     ]);
     if (out) {
       outboundSamples.ok++;
+      if (out.dnsFailed) outboundSamples.dnsFailed++;
       for (const x of out.endpoints) endpoints.add(x);
       for (const [address, ns] of Object.entries(out.names)) {
         if (!names.has(address)) names.set(address, new Set());
@@ -85,12 +86,6 @@ export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promis
   return { ticks, outbound: [...endpoints].sort(), outboundNames, outboundSamples, memory, session: state?.running ? state.session : null };
 }
 
-const mergeNames = (...all: Array<Record<string, string[]> | undefined>) => {
-  const out: Record<string, string[]> = {};
-  for (const m of all) for (const [a, ns] of Object.entries(m ?? {})) out[a] = [...new Set([...(out[a] ?? []), ...ns])].sort();
-  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
-};
-
 /** Circuit groups in the mod's last accepted snapshot (evidence on the reader's circuit scan). */
 function circuitGroups(snapshot: unknown): number | null {
   const circuits = (snapshot as { power?: { circuits?: unknown } } | undefined)?.power?.circuits;
@@ -117,14 +112,16 @@ export const tickCost: CoreRunSpec = {
       withMod: null,
       outboundBaseline: base?.outbound ?? [],
       outboundWithMod: [],
-      outboundSamples: { baseline: base?.outboundSamples ?? { ok: 0, failed: 0 }, withMod: { ok: 0, failed: 0 } },
+      outboundSamples: { baseline: base?.outboundSamples ?? { ok: 0, failed: 0, dnsFailed: 0 }, withMod: { ok: 0, failed: 0, dnsFailed: 0 } },
       memoryBaseline: base?.memory ?? [],
       memoryWithMod: [],
       recorder: new URL(recorder.url).host,
       circuitGroups: null,
       sessionBaseline: base?.session ?? null,
       sessionWithMod: null,
-      outboundNames: mergeNames(base?.outboundNames),
+      // Kept per boot: S12 matches a with-mod address by name only against names the baseline boot itself resolved.
+      outboundNamesBaseline: base?.outboundNames ?? {},
+      outboundNamesWithMod: {},
     };
     try {
       await enrolPhase(ctx, host, recorder);
@@ -139,7 +136,7 @@ export const tickCost: CoreRunSpec = {
       capture.outboundSamples.withMod = w.outboundSamples;
       capture.memoryWithMod = w.memory;
       capture.sessionWithMod = w.session;
-      capture.outboundNames = mergeNames(base?.outboundNames, w.outboundNames);
+      capture.outboundNamesWithMod = w.outboundNames;
     } finally {
       const last = accepted(recorder).at(-1);
       capture.circuitGroups = last ? circuitGroups(last.snapshot) : null;

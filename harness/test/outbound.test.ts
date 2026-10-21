@@ -81,7 +81,7 @@ describe("sampleOutbound", () => {
     expect((await sampleOutbound(1, async () => JSON.stringify({ listening: null, connections: null }))).endpoints).toEqual([]);
   });
 
-  it("names each endpoint's address from the DNS cache where it can (evidence only; controller ruling on I2)", async () => {
+  it("names each endpoint's address from the DNS cache where it can (S12 matches by them; owner, 2026-10-21)", async () => {
     const out = JSON.stringify({
       listening: [],
       connections: [row({ RemoteAddress: "203.0.113.7" }), row({ LocalPort: 50001, RemoteAddress: "::ffff:198.51.100.2" }), row({ LocalPort: 50002, RemoteAddress: "192.0.2.9" })],

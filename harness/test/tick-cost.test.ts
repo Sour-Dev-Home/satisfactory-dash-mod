@@ -39,6 +39,7 @@ describe("measureWindow", () => {
     expect(m.session).toBe("a1b2c3d4e5f6");
     expect(m.outbound).toEqual(["127.0.0.1:13105", "203.0.113.7:443"]);
     expect(m.outboundNames).toEqual({ "203.0.113.7": ["api.example.com"] });
+    expect(m.outboundSamples.dnsFailed).toBe(0);
     const slots = (TICK_WARMUP_MS + TICK_COST_WINDOW_MS) / TICK_COST_SAMPLE_MS;
     // One per 30 s slot from the start (the last slot may fall on the window's end), plus one at the end.
     expect(m.outboundSamples.failed).toBe(0);
@@ -59,6 +60,15 @@ describe("measureWindow", () => {
     expect(m.outboundSamples.ok).toBe(0);
     expect(m.outboundSamples.failed).toBeGreaterThan(0);
     expect(m.session).toBeNull();
+  });
+
+  it("counts the samples whose DNS read failed (owner, 2026-10-21: names are judged now)", async () => {
+    let n = 0;
+    const m = await measureWindow(fakeDeps({
+      sampleOutbound: async () => ({ endpoints: ["127.0.0.1:13105"], names: {}, dnsFailed: n++ === 1 }),
+    }), 100);
+    expect(m.outboundSamples.dnsFailed).toBe(1);
+    expect(m.outboundSamples.failed).toBe(0);
   });
 
   it("records no session when no game runs, so two empty sessions can't look like the same save", async () => {

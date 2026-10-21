@@ -4,16 +4,22 @@
 // read (GameValues.h:27), so the with-mod median covers that scan; the pass reason says how many circuit groups the
 // save has, so a reader can judge it.
 // - C4 (S2's rule, spikes/S2/pass.ts): the with-mod tick median is at least 95% of the baseline's; both windows have samples.
-// - S12: every endpoint the with-mod boot's process tree connected out to that the baseline boot's didn't is the
-//   recorder's 127.0.0.1:<port>. Outbound connections are sampled every 30 s through both boots (harness/src/outbound.ts);
-//   a failed sample, or fewer than 2 per window, fails the run. A positive control (review I1 of 1ca0065): the recorder's
+// - S12: the with-mod boot's process tree connects out only where the baseline boot's did, plus the recorder.
+//   Outbound connections and the DNS client cache are sampled every 30 s through both boots (harness/src/outbound.ts).
+//   A failed sample, or fewer than 2 per window, fails the run. A positive control (review I1 of 1ca0065): the recorder's
 //   endpoint must appear in outboundWithMod, since the mod's command long poll holds a connection to it open (25 s +
 //   10 s, Requests.h:23), so a sampler that sees nothing can't pass S12.
-//   Controller ruling (review I2 of 1ca0065), an accepted risk: endpoints are compared as raw ip:port against one
-//   baseline boot, as the plan says. If the game itself reaches rotating online-service or CDN addresses, a with-mod boot
-//   can fail on an address the mod never opened. The DNS cache names per address (outboundNames) are recorded so such a
-//   failure can be triaged; they never change the verdict. A failure on such an address goes to the owner, never "fixed"
-//   by loosening this rule.
+//   Owner decision (2026-10-21, after run 39538061390, which failed only on the game's own public-IP lookup:
+//   api.ipify.org at 104.26.12.205 in the baseline and 172.67.74.152 with the mod, rotating Cloudflare addresses; the
+//   mod has no such code): endpoints are matched by DNS name. This replaces the controller's earlier "raw ip:port"
+//   ruling (review I2 of 1ca0065). An endpoint seen only in the with-mod boot passes if, and only if:
+//   1. it is the recorder's 127.0.0.1:<port>; or
+//   2. the with-mod boot's DNS cache names its address, and at least one of those names belongs to an endpoint the
+//      baseline boot contacted on the same port, named by the baseline boot's own DNS cache (outboundNamesBaseline holds
+//      names only for addresses the baseline contacted).
+//   A new endpoint with no name, or whose names the baseline didn't contact, fails with its IP and names. Any failed
+//   DNS read in either boot fails S12 (a missing name could hide a mismatch, and baseline names could be incomplete).
+//   The pass reason lists each endpoint matched by name with the name and both IPs.
 // - Same save (controller ruling, review of 1ca0065): both boots load the same staged world, and the session hash each
 //   boot runs is recorded; differing or missing hashes fail the run, since the comparison is valid only on the same save.
 // - Memory (owner decision, 2026-10-20): the server process tree's working set (the reader memory.json uses, by pid),
@@ -40,7 +46,8 @@ export interface MemoryPoint {
   workingSetBytes: number | null;
   processes?: Array<{ name: string; workingSetBytes: number; peakWorkingSetBytes: number }> | null;
 }
-export interface OutboundCount { ok: number; failed: number }
+/** Outbound samples read, failed, and (of those read) whose DNS cache read failed. */
+export interface OutboundCount { ok: number; failed: number; dnsFailed: number }
 
 export interface TickCost {
   baseline: TickSeries | null;
@@ -59,8 +66,15 @@ export interface TickCost {
   /** The session hash QueryServerState gave at the start of each boot's measurement; null when unread. */
   sessionBaseline: string | null;
   sessionWithMod: string | null;
-  /** DNS cache names per endpoint address, both boots merged (evidence only; never judged). */
-  outboundNames: Record<string, string[]>;
+  /** Each boot's DNS cache names per address it contacted (owner, 2026-10-21: judged for S12). */
+  outboundNamesBaseline: Record<string, string[]>;
+  outboundNamesWithMod: Record<string, string[]>;
+}
+
+/** "a.b.c.d:443" or "[v6]:443" into its address and port. */
+function splitEndpoint(x: string): { address: string; port: string } {
+  const i = x.lastIndexOf(":");
+  return { address: x.slice(0, i).replace(/^\[(.*)\]$/, "$1"), port: x.slice(i + 1) };
 }
 
 const fmt = (bytes: number) => (bytes / MB).toFixed(1);
@@ -97,12 +111,37 @@ export function evaluate(e: CoreEvidence): Verdict {
     const ok = n?.ok ?? 0;
     if (n?.failed) reasons.push(`S12: ${n.failed} outbound sample(s) of the ${name} window failed`);
     if (ok < MIN_SAMPLES) reasons.push(`S12: the ${name} window has ${ok} outbound sample(s), fewer than ${MIN_SAMPLES}`);
+    if (typeof n?.dnsFailed !== "number") reasons.push(`S12: the ${name} window's DNS reads were not counted`);
+    else if (n.dnsFailed) reasons.push(`S12: ${n.dnsFailed} DNS read(s) of the ${name} window failed`);
   }
   if (!c.outboundWithMod.includes(c.recorder)) reasons.push(`S12: the sampler never saw the mod's connection to the recorder (${c.recorder})`);
   const known = new Set(c.outboundBaseline);
   const added = c.outboundWithMod.filter((x) => !known.has(x));
+  // name:port -> the baseline endpoints of that name, from the baseline boot's own DNS cache only.
+  const baselineByName = new Map<string, string[]>();
+  for (const x of c.outboundBaseline) {
+    const { address, port } = splitEndpoint(x);
+    for (const name of c.outboundNamesBaseline?.[address] ?? []) {
+      const key = `${name}:${port}`;
+      baselineByName.set(key, [...(baselineByName.get(key) ?? []), x]);
+    }
+  }
+  const byName: string[] = [];
   for (const x of added) {
-    if (!recorderOk || x !== c.recorder) reasons.push(`S12: the mod's boot contacted ${x}, which the baseline didn't and isn't the recorder (${c.recorder})`);
+    if (recorderOk && x === c.recorder) continue;
+    const { address, port } = splitEndpoint(x);
+    const names = c.outboundNamesWithMod?.[address] ?? [];
+    const which = `S12: the mod's boot contacted ${x}${names.length ? ` (${names.join(", ")})` : ""}, which the baseline didn't, isn't the recorder (${c.recorder})`;
+    if (!names.length) {
+      reasons.push(`${which}, and has no DNS name`);
+      continue;
+    }
+    const shared = names.filter((n) => baselineByName.has(`${n}:${port}`));
+    if (!shared.length) {
+      reasons.push(`${which}, and none of its names was contacted in the baseline`);
+      continue;
+    }
+    for (const n of shared) byName.push(`${x} as ${n} (baseline ${baselineByName.get(`${n}:${port}`)!.join(", ")})`);
   }
 
   // Same save
@@ -134,7 +173,9 @@ export function evaluate(e: CoreEvidence): Verdict {
     pass: true,
     reasons: [
       `tick median ${base} without the mod, ${withMod} with it (${c.baseline!.samples.length} and ${c.withMod!.samples.length} samples); ` +
-        `S12: ${added.length} new endpoint(s), all the recorder's (${c.outboundSamples.baseline.ok} and ${c.outboundSamples.withMod.ok} outbound samples); ` +
+        `S12: ${added.length} new endpoint(s), ` +
+        (byName.length ? `the recorder's and, matched by DNS name: ${byName.join("; ")}` : "all the recorder's") +
+        ` (${c.outboundSamples.baseline.ok} and ${c.outboundSamples.withMod.ok} outbound samples); ` +
         `${memoryText} (${c.memoryBaseline.length} and ${c.memoryWithMod.length} memory samples); ` +
         `same save in both boots (session ${c.sessionWithMod}); ${groups}`,
     ],

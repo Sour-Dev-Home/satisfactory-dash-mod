@@ -48,10 +48,10 @@ export function parseConnections(json: string, listening: number[]): string[] {
 
 /**
  * The script: the process tree from rootPid by ParentProcessId (Win32_Process), the ports it listens on, its TCP
- * connections other than Listen, TimeWait, Bound and Closed, and the DNS client cache's A/AAAA rows (evidence only), as
- * JSON `{ listening, connections, dns, dnsFailed }`. It throws (pwsh exits non-zero) when rootPid is not running or the
- * process or TCP read fails: a failed read is a failed sample, never an empty one (review I1). Only the DNS read may
- * fail without failing the sample, since no pass condition uses it.
+ * connections other than Listen, TimeWait, Bound and Closed, and the DNS client cache's A/AAAA rows, as JSON
+ * `{ listening, connections, dns, dnsFailed }`. It throws (pwsh exits non-zero) when rootPid is not running or the
+ * process or TCP read fails: a failed read is a failed sample, never an empty one (review I1). A failed DNS read keeps
+ * the sample's endpoints and sets dnsFailed, which the tick-cost judge counts and fails S12 on (owner, 2026-10-21).
  */
 export function outboundScript(rootPid: number): string {
   if (!Number.isInteger(rootPid) || rootPid <= 0) throw new Error(`not a pid: ${rootPid}`);
@@ -85,7 +85,7 @@ const DnsRowSchema = z.object({ Entry: z.string(), Data: z.string().nullable() }
 export interface OutboundSample {
   /** Sorted `remote:port` (parseConnections). */
   endpoints: string[];
-  /** For each endpoint address the DNS cache names, the names that resolve to it, sorted (evidence only). */
+  /** For each endpoint address the DNS cache names, the names that resolve to it, sorted (S12 matches by them). */
   names: Record<string, string[]>;
   /** The DNS cache couldn't be read; the endpoints are still good. */
   dnsFailed: boolean;

@@ -19,14 +19,15 @@ function capture(over: Partial<TickCost> = {}): TickCost {
     withMod: series([22, 21.9, 22, 22]),
     outboundBaseline: ["203.0.113.7:443"],
     outboundWithMod: ["203.0.113.7:443", RECORDER],
-    outboundSamples: { baseline: { ok: 21, failed: 0 }, withMod: { ok: 21, failed: 0 } },
+    outboundSamples: { baseline: { ok: 21, failed: 0, dnsFailed: 0 }, withMod: { ok: 21, failed: 0, dnsFailed: 0 } },
     memoryBaseline: mem([6000, 6005, 6010]),
     memoryWithMod: mem([6040, 6050, 6060]),
     recorder: RECORDER,
     circuitGroups: 3,
     sessionBaseline: "a1b2c3d4e5f6",
     sessionWithMod: "a1b2c3d4e5f6",
-    outboundNames: { "203.0.113.7": ["api.example.com"] },
+    outboundNamesBaseline: { "203.0.113.7": ["api.example.com"] },
+    outboundNamesWithMod: { "203.0.113.7": ["api.example.com"] },
     ...over,
   };
 }
@@ -67,27 +68,64 @@ describe("tick-cost pass", () => {
   });
 
   describe("S12", () => {
-    it("fails on a new endpoint that is not the recorder", () => {
-      expect(reasons({ outboundWithMod: ["203.0.113.7:443", RECORDER, "198.51.100.4:443"] })).toContain("S12: the mod's boot contacted 198.51.100.4:443, which the baseline didn't and isn't the recorder (127.0.0.1:13105)");
+    // Run 39538061390's shape: the game's public-IP lookup (api.ipify.org) on rotating Cloudflare addresses.
+    const RUN_RECORDER = "127.0.0.1:65118";
+    const run39538061390: Partial<TickCost> = {
+      recorder: RUN_RECORDER,
+      outboundBaseline: ["104.26.12.205:443"],
+      outboundWithMod: [RUN_RECORDER, "172.67.74.152:443"],
+      outboundNamesBaseline: { "104.26.12.205": ["api.ipify.org"] },
+      outboundNamesWithMod: { "127.0.0.1": ["kubernetes.docker.internal"], "172.67.74.152": ["api.ipify.org"] },
+      outboundSamples: { baseline: { ok: 28, failed: 0, dnsFailed: 0 }, withMod: { ok: 28, failed: 0, dnsFailed: 0 } },
+    };
+
+    it("passes run 39538061390's shape, matching the new address by its DNS name (owner, 2026-10-21), and says so", () => {
+      const v = evaluate(ev(capture(run39538061390)));
+      expect(v.pass).toBe(true);
+      expect(v.reasons[0]).toContain("matched by DNS name: 172.67.74.152:443 as api.ipify.org (baseline 104.26.12.205:443)");
+    });
+    it("fails on a new address whose name the baseline didn't contact", () => {
+      expect(reasons({ ...run39538061390, outboundNamesWithMod: { "172.67.74.152": ["telemetry.example.com"] } }))
+        .toContain(`S12: the mod's boot contacted 172.67.74.152:443 (telemetry.example.com), which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and none of its names was contacted in the baseline`);
+    });
+    it("fails on a new address with no DNS name", () => {
+      expect(reasons({ outboundWithMod: ["203.0.113.7:443", RECORDER, "198.51.100.4:443"] }))
+        .toContain("S12: the mod's boot contacted 198.51.100.4:443, which the baseline didn't, isn't the recorder (127.0.0.1:13105), and has no DNS name");
+    });
+    it("fails when a DNS read failed in either boot", () => {
+      expect(reasons({ ...run39538061390, outboundSamples: { baseline: { ok: 28, failed: 0, dnsFailed: 0 }, withMod: { ok: 28, failed: 0, dnsFailed: 1 } } }))
+        .toContain("S12: 1 DNS read(s) of the with-mod window failed");
+      expect(reasons({ outboundSamples: { baseline: { ok: 21, failed: 0, dnsFailed: 2 }, withMod: { ok: 21, failed: 0, dnsFailed: 0 } } }))
+        .toContain("S12: 2 DNS read(s) of the baseline window failed");
+    });
+    it("fails when the name is shared only within the with-mod boot (baseline names come from the baseline boot only)", () => {
+      const v = reasons({
+        ...run39538061390,
+        outboundBaseline: ["104.26.12.205:443"],
+        outboundNamesBaseline: {},
+        outboundWithMod: [RUN_RECORDER, "172.67.74.152:443", "104.21.0.1:443"],
+        outboundNamesWithMod: { "172.67.74.152": ["api.ipify.org"], "104.21.0.1": ["api.ipify.org"], "104.26.12.205": ["api.ipify.org"] },
+      });
+      expect(v).toContain(`S12: the mod's boot contacted 172.67.74.152:443 (api.ipify.org), which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and none of its names was contacted in the baseline`);
+    });
+    it("a baseline name counts only for an endpoint the baseline contacted, on the same port", () => {
+      expect(reasons({ ...run39538061390, outboundBaseline: ["198.51.100.9:443"], outboundNamesBaseline: { "104.26.12.205": ["api.ipify.org"] } }))
+        .toContain(`S12: the mod's boot contacted 172.67.74.152:443 (api.ipify.org), which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and none of its names was contacted in the baseline`);
+      expect(reasons({ ...run39538061390, outboundWithMod: [RUN_RECORDER, "172.67.74.152:80"] }))
+        .toContain(`S12: the mod's boot contacted 172.67.74.152:80 (api.ipify.org), which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and none of its names was contacted in the baseline`);
     });
     it("fails when the sampler never saw the mod's connection to the recorder (review I1: no vacuous pass)", () => {
       expect(reasons({ outboundWithMod: ["203.0.113.7:443"] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");
       expect(reasons({ outboundBaseline: [], outboundWithMod: [] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");
-    });
-    it("does not judge by the DNS names: they are evidence only", () => {
-      const v = evaluate(ev(capture({
-        outboundWithMod: ["198.51.100.4:443", RECORDER],
-        outboundNames: { "198.51.100.4": ["api.example.com"], "203.0.113.7": ["api.example.com"] },
-      })));
-      expect(v.reasons).toContain("S12: the mod's boot contacted 198.51.100.4:443, which the baseline didn't and isn't the recorder (127.0.0.1:13105)");
+      expect(reasons({ ...run39538061390, outboundWithMod: ["172.67.74.152:443"] })).toContain(`S12: the sampler never saw the mod's connection to the recorder (${RUN_RECORDER})`);
     });
     it("fails when the recorder is not a loopback host:port", () => {
       expect(reasons({ recorder: "" })).toContain("S12: the recorder's endpoint is not 127.0.0.1:<port> ()");
       expect(reasons({ recorder: "10.0.0.1:13105" })).toContain("S12: the recorder's endpoint is not 127.0.0.1:<port> (10.0.0.1:13105)");
     });
     it("fails closed on a failed outbound sample or fewer than 2 per window", () => {
-      expect(reasons({ outboundSamples: { baseline: { ok: 21, failed: 1 }, withMod: { ok: 21, failed: 0 } } })).toContain("S12: 1 outbound sample(s) of the baseline window failed");
-      expect(reasons({ outboundSamples: { baseline: { ok: 21, failed: 0 }, withMod: { ok: 1, failed: 0 } } })).toContain("S12: the with-mod window has 1 outbound sample(s), fewer than 2");
+      expect(reasons({ outboundSamples: { baseline: { ok: 21, failed: 1, dnsFailed: 0 }, withMod: { ok: 21, failed: 0, dnsFailed: 0 } } })).toContain("S12: 1 outbound sample(s) of the baseline window failed");
+      expect(reasons({ outboundSamples: { baseline: { ok: 21, failed: 0, dnsFailed: 0 }, withMod: { ok: 1, failed: 0, dnsFailed: 0 } } })).toContain("S12: the with-mod window has 1 outbound sample(s), fewer than 2");
     });
   });
 
