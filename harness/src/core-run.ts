@@ -12,7 +12,7 @@ import { createServerApi } from "./server-api";
 import { readApiStatus } from "./status";
 import { type ProcessMemory, readProcessMemory, removeMod, type ServerProcess, whileRunning } from "./server-control";
 import { readTickRate, sampleTicks, TICK_INTERVAL_MS, type TickSeries } from "./ticks";
-import { sampleOutbound } from "./outbound";
+import { type OutboundSample, sampleOutbound } from "./outbound";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
@@ -102,9 +102,9 @@ export type CoreDeps = Pick<RunDeps,
   /** Whether a game is running and its session hash, from QueryServerState now; null when the API doesn't answer. */
   gameState?: () => Promise<{ running: boolean; session: string } | null>;
   /** sampleTicks (ticks.ts) over QueryServerState's tick rate every TICK_INTERVAL_MS, with the run's own window. */
-  sampleTickWindow?: (opts: { warmupMs: number; durationMs: number }) => Promise<TickSeries>;
+  sampleTickWindow?: (opts: { warmupMs: number; durationMs: number; stopped?: () => boolean }) => Promise<TickSeries>;
   /** S12: the outbound endpoints of the process tree under pid now (outbound.ts); rejects when they can't be read. */
-  sampleOutbound?: (pid: number) => Promise<string[]>;
+  sampleOutbound?: (pid: number) => Promise<OutboundSample>;
 };
 
 const ResultSchema = z.strictObject({

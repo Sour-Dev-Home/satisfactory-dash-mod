@@ -14,57 +14,82 @@ export const TICK_COST_SAMPLE_MS = 30_000;
 export interface Measured {
   ticks: TickSeries | null;
   outbound: string[];
+  /** DNS cache names per endpoint address (evidence only). */
+  outboundNames: Record<string, string[]>;
   outboundSamples: Pass.OutboundCount;
   /** From the end of the warmup to the end of the window. */
   memory: Pass.MemoryPoint[];
+  /** The session hash QueryServerState gave when the measurement started; null when unread. */
+  session: string | null;
 }
 
 /**
  * Ticks for TICK_WARMUP_MS + TICK_COST_WINDOW_MS, and every TICK_COST_SAMPLE_MS (on a fixed schedule from the start)
  * the outbound endpoints and the working set of the process tree under pid: the server's launcher, never the harness.
  * One more sample is taken when the window ends, so the last memory point is the end of the window. No FRM poller.
+ * When `exited` settles (the server died), the samplers stop and the measurement rejects, so nothing keeps measuring
+ * into the next boot (review M1).
  */
-export async function measureWindow(deps: CoreDeps, pid: number): Promise<Measured> {
+export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promise<unknown>): Promise<Measured> {
   if (!deps.sampleTickWindow) throw new Error("no tick sampler (sampleTickWindow)");
-  const startedMs = Date.now();
+  let gone = false;
+  void exited?.then(() => void (gone = true), () => void (gone = true));
+  const now = () => deps.now().getTime();
+  const startedMs = now();
   const settledMs = startedMs + TICK_WARMUP_MS;
+  const state = deps.gameState ? await deps.gameState().catch(() => null) : null;
   const endpoints = new Set<string>();
+  const names = new Map<string, Set<string>>();
   const outboundSamples = { ok: 0, failed: 0 };
   const memory: Pass.MemoryPoint[] = [];
   const sampleOnce = async () => {
-    const now = Date.now();
-    const inWindow = now >= settledMs;
+    const at = now();
+    const inWindow = at >= settledMs;
     const [out, mem] = await Promise.all([
       deps.sampleOutbound ? deps.sampleOutbound(pid).catch(() => null) : Promise.resolve(null),
       inWindow && deps.processMemory ? deps.processMemory(pid).catch(() => null) : Promise.resolve(null),
     ]);
     if (out) {
       outboundSamples.ok++;
-      for (const x of out) endpoints.add(x);
+      for (const x of out.endpoints) endpoints.add(x);
+      for (const [address, ns] of Object.entries(out.names)) {
+        if (!names.has(address)) names.set(address, new Set());
+        for (const n of ns) names.get(address)!.add(n);
+      }
     } else {
       outboundSamples.failed++;
     }
     // A missing reader or a failed read is a null point: the judge fails closed on it.
-    if (inWindow) memory.push({ at: new Date(now).toISOString(), workingSetBytes: mem?.totalWorkingSetBytes ?? null });
+    if (inWindow) memory.push({ at: new Date(at).toISOString(), workingSetBytes: mem?.totalWorkingSetBytes ?? null, processes: mem?.processes ?? null });
   };
   let done = false;
   const loop = (async () => {
-    for (let k = 1; !done; k++) {
+    for (let k = 1; !done && !gone; k++) {
       await sampleOnce();
       const next = startedMs + k * TICK_COST_SAMPLE_MS;
-      while (!done && Date.now() < next) await deps.sleep(Math.min(1000, next - Date.now()));
+      while (!done && !gone && now() < next) await deps.sleep(Math.min(1000, next - now()));
     }
   })();
   let ticks: TickSeries;
   try {
-    ticks = await deps.sampleTickWindow({ warmupMs: TICK_WARMUP_MS, durationMs: TICK_COST_WINDOW_MS });
+    ticks = await deps.sampleTickWindow({ warmupMs: TICK_WARMUP_MS, durationMs: TICK_COST_WINDOW_MS, stopped: () => gone });
   } finally {
     done = true;
     await loop;
   }
+  if (gone) throw new Error("the server exited during the measurement");
   await sampleOnce();
-  return { ticks, outbound: [...endpoints].sort(), outboundSamples, memory };
+  const outboundNames: Record<string, string[]> = {};
+  for (const a of [...names.keys()].sort()) outboundNames[a] = [...names.get(a)!].sort();
+  // No game running is no save: null, so the judge's same-save guard can't pass on two empty sessions.
+  return { ticks, outbound: [...endpoints].sort(), outboundNames, outboundSamples, memory, session: state?.running ? state.session : null };
 }
+
+const mergeNames = (...all: Array<Record<string, string[]> | undefined>) => {
+  const out: Record<string, string[]> = {};
+  for (const m of all) for (const [a, ns] of Object.entries(m ?? {})) out[a] = [...new Set([...(out[a] ?? []), ...ns])].sort();
+  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
+};
 
 /** Circuit groups in the mod's last accepted snapshot (evidence on the reader's circuit scan). */
 function circuitGroups(snapshot: unknown): number | null {
@@ -81,7 +106,7 @@ export const tickCost: CoreRunSpec = {
   backend: true,
   world: true,
   baseline: true,
-  measureBaseline: ({ deps, proc }) => measureWindow(deps, proc.pid),
+  measureBaseline: ({ deps, proc }) => measureWindow(deps, proc.pid, proc.exited),
   evaluate: Pass.evaluate,
   async drive(ctx) {
     const base = ctx.baseline as Measured | undefined;
@@ -97,6 +122,9 @@ export const tickCost: CoreRunSpec = {
       memoryWithMod: [],
       recorder: new URL(recorder.url).host,
       circuitGroups: null,
+      sessionBaseline: base?.session ?? null,
+      sessionWithMod: null,
+      outboundNames: mergeNames(base?.outboundNames),
     };
     try {
       await enrolPhase(ctx, host, recorder);
@@ -104,11 +132,14 @@ export const tickCost: CoreRunSpec = {
       await ctx.deps.waitHealthy();
       ctx.rememberAutoPause(await ctx.deps.readAutoPause!());
       await ctx.deps.setAutoPause!(false);
-      const w = await measureWindow(ctx.deps, ctx.proc.pid);
+      // The same staged world as the baseline boot (loadWorld uploads s3World each time); the session hash checks it.
+      const w = await measureWindow(ctx.deps, ctx.proc.pid, ctx.proc.exited);
       capture.withMod = w.ticks;
       capture.outboundWithMod = w.outbound;
       capture.outboundSamples.withMod = w.outboundSamples;
       capture.memoryWithMod = w.memory;
+      capture.sessionWithMod = w.session;
+      capture.outboundNames = mergeNames(base?.outboundNames, w.outboundNames);
     } finally {
       const last = accepted(recorder).at(-1);
       capture.circuitGroups = last ? circuitGroups(last.snapshot) : null;

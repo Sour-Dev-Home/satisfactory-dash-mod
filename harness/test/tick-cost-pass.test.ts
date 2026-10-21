@@ -24,6 +24,9 @@ function capture(over: Partial<TickCost> = {}): TickCost {
     memoryWithMod: mem([6040, 6050, 6060]),
     recorder: RECORDER,
     circuitGroups: 3,
+    sessionBaseline: "a1b2c3d4e5f6",
+    sessionWithMod: "a1b2c3d4e5f6",
+    outboundNames: { "203.0.113.7": ["api.example.com"] },
     ...over,
   };
 }
@@ -67,8 +70,16 @@ describe("tick-cost pass", () => {
     it("fails on a new endpoint that is not the recorder", () => {
       expect(reasons({ outboundWithMod: ["203.0.113.7:443", RECORDER, "198.51.100.4:443"] })).toContain("S12: the mod's boot contacted 198.51.100.4:443, which the baseline didn't and isn't the recorder (127.0.0.1:13105)");
     });
-    it("passes when the mod's boot contacted nothing new", () => {
-      expect(evaluate(ev(capture({ outboundWithMod: ["203.0.113.7:443"] }))).pass).toBe(true);
+    it("fails when the sampler never saw the mod's connection to the recorder (review I1: no vacuous pass)", () => {
+      expect(reasons({ outboundWithMod: ["203.0.113.7:443"] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");
+      expect(reasons({ outboundBaseline: [], outboundWithMod: [] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");
+    });
+    it("does not judge by the DNS names: they are evidence only", () => {
+      const v = evaluate(ev(capture({
+        outboundWithMod: ["198.51.100.4:443", RECORDER],
+        outboundNames: { "198.51.100.4": ["api.example.com"], "203.0.113.7": ["api.example.com"] },
+      })));
+      expect(v.reasons).toContain("S12: the mod's boot contacted 198.51.100.4:443, which the baseline didn't and isn't the recorder (127.0.0.1:13105)");
     });
     it("fails when the recorder is not a loopback host:port", () => {
       expect(reasons({ recorder: "" })).toContain("S12: the recorder's endpoint is not 127.0.0.1:<port> ()");
@@ -97,6 +108,24 @@ describe("tick-cost pass", () => {
       expect(reasons({ memoryWithMod: mem([6040]) })).toContain("memory: the with-mod window has 1 sample(s), fewer than 2");
       expect(reasons({ memoryBaseline: [] })).toContain("memory: the baseline window has 0 sample(s), fewer than 2");
     });
+  });
+
+  describe("same save (controller ruling, review of 1ca0065)", () => {
+    it("fails when the two boots ran different sessions", () => {
+      expect(reasons({ sessionWithMod: "ffffffffffff" })).toContain("the two boots ran different saves (session a1b2c3d4e5f6 without the mod, ffffffffffff with it): the comparison is valid only on the same save");
+    });
+    it("fails when a boot's session was not recorded", () => {
+      expect(reasons({ sessionBaseline: null })).toContain("the session of the baseline boot was not recorded");
+      expect(reasons({ sessionWithMod: null })).toContain("the session of the with-mod boot was not recorded");
+    });
+    it("states the session in the pass reason", () => {
+      expect(evaluate(ev(capture())).reasons[0]).toContain("same save in both boots (session a1b2c3d4e5f6)");
+    });
+  });
+
+  it("keeps each memory point's per-process breakdown in the capture's type", () => {
+    const point: MemoryPoint = { at: T0, workingSetBytes: 2, processes: [{ name: "FactoryServer.exe", workingSetBytes: 1, peakWorkingSetBytes: 1 }] };
+    expect(evaluate(ev(capture({ memoryWithMod: [point, point], memoryBaseline: [point, point] }))).pass).toBe(true);
   });
 
   it("says when the circuit groups are unknown, without failing on it", () => {

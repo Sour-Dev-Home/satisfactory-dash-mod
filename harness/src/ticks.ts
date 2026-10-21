@@ -44,14 +44,18 @@ export function halfMedians(samples: TickSample[]): { first: number; second: num
 
 export async function sampleTicks(
   read: () => Promise<number>,
-  opts: { warmupMs?: number; durationMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; now: () => number },
+  opts: {
+    warmupMs?: number; durationMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; now: () => number;
+    /** Checked before each reading: true ends the window early (its server exited). */
+    stopped?: () => boolean;
+  },
 ): Promise<TickSeries> {
   const warmup: TickSample[] = [];
   const samples: TickSample[] = [];
   let errors = 0;
   const settled = opts.now() + (opts.warmupMs ?? 0);
   const end = settled + opts.durationMs;
-  while (opts.now() < end) {
+  while (opts.now() < end && !opts.stopped?.()) {
     const now = opts.now();
     const at = new Date(now).toISOString();
     try {

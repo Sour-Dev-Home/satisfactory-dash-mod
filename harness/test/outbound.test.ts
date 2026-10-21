@@ -51,6 +51,11 @@ describe("parseConnections", () => {
     expect(parseConnections(JSON.stringify(row({ RemoteAddress: "::1", RemotePort: 13105 })), [])).toEqual(["[::1]:13105"]);
   });
 
+  it("writes an IPv4-mapped IPv6 remote as the IPv4 address (review M4)", () => {
+    const json = JSON.stringify([row({ RemoteAddress: "::ffff:127.0.0.1", RemotePort: 13105 }), row({ LocalPort: 50001, RemoteAddress: "::FFFF:203.0.113.7" })]);
+    expect(parseConnections(json, [])).toEqual(["127.0.0.1:13105", "203.0.113.7:443"]);
+  });
+
   it("reads no output as no connections, and throws on output that is not rows", () => {
     expect(parseConnections("", [])).toEqual([]);
     expect(parseConnections("null", [])).toEqual([]);
@@ -66,14 +71,41 @@ describe("sampleOutbound", () => {
       seen.push(args);
       return JSON.stringify({ listening: [7777], connections: [row({ LocalPort: 7777 }), row({ RemoteAddress: "127.0.0.1", RemotePort: 13105 })] });
     };
-    expect(await sampleOutbound(4242, exec)).toEqual(["127.0.0.1:13105"]);
+    expect(await sampleOutbound(4242, exec)).toEqual({ endpoints: ["127.0.0.1:13105"], names: {}, dnsFailed: false });
     expect(seen[0]!.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-Command"]);
     expect(seen[0]![3]).toBe(outboundScript(4242));
   });
 
   it("accepts a single listening port printed as a number, and none printed as null", async () => {
-    expect(await sampleOutbound(1, async () => JSON.stringify({ listening: 7777, connections: row({ LocalPort: 7777 }) }))).toEqual([]);
-    expect(await sampleOutbound(1, async () => JSON.stringify({ listening: null, connections: null }))).toEqual([]);
+    expect((await sampleOutbound(1, async () => JSON.stringify({ listening: 7777, connections: row({ LocalPort: 7777 }) }))).endpoints).toEqual([]);
+    expect((await sampleOutbound(1, async () => JSON.stringify({ listening: null, connections: null }))).endpoints).toEqual([]);
+  });
+
+  it("names each endpoint's address from the DNS cache where it can (evidence only; controller ruling on I2)", async () => {
+    const out = JSON.stringify({
+      listening: [],
+      connections: [row({ RemoteAddress: "203.0.113.7" }), row({ LocalPort: 50001, RemoteAddress: "::ffff:198.51.100.2" }), row({ LocalPort: 50002, RemoteAddress: "192.0.2.9" })],
+      dns: [
+        { Entry: "api.example.com", Data: "203.0.113.7" },
+        { Entry: "cdn.example.com", Data: "203.0.113.7" },
+        { Entry: "api.example.com", Data: "203.0.113.7" },
+        { Entry: "other.example.com", Data: "198.51.100.2" },
+        { Entry: "unrelated.example.com", Data: "192.0.2.200" },
+        { Entry: "nodata.example.com", Data: null },
+      ],
+    });
+    expect(await sampleOutbound(1, async () => out)).toEqual({
+      endpoints: ["192.0.2.9:443", "198.51.100.2:443", "203.0.113.7:443"],
+      names: { "198.51.100.2": ["other.example.com"], "203.0.113.7": ["api.example.com", "cdn.example.com"] },
+      dnsFailed: false,
+    });
+  });
+
+  it("a single DNS row parses, and a failed DNS read is recorded without failing the sample", async () => {
+    const one = JSON.stringify({ listening: [], connections: row({}), dns: { Entry: "api.example.com", Data: "203.0.113.7" } });
+    expect((await sampleOutbound(1, async () => one)).names).toEqual({ "203.0.113.7": ["api.example.com"] });
+    const failed = JSON.stringify({ listening: [], connections: row({}), dns: null, dnsFailed: true });
+    expect(await sampleOutbound(1, async () => failed)).toEqual({ endpoints: ["203.0.113.7:443"], names: {}, dnsFailed: true });
   });
 
   it("the script walks the tree by ParentProcessId from the root pid and collects TCP rows by OwningProcess", () => {
@@ -83,6 +115,10 @@ describe("sampleOutbound", () => {
     expect(s).toContain("ParentProcessId");
     expect(s).toContain("Get-NetTCPConnection");
     expect(s).toContain("OwningProcess");
+    expect(s).toContain("Get-DnsClientCache");
+    expect(s).toContain("$ErrorActionPreference = 'Stop'");
+    // A failing TCP read is a failed sample, never an empty one (review I1).
+    expect(s).not.toContain("SilentlyContinue");
     expect(() => outboundScript(Number.NaN)).toThrow();
     expect(() => outboundScript(-1)).toThrow();
   });

@@ -15,7 +15,12 @@ import type { Verdict } from "../../harness/src/verdict";
 
 export const requirements = ["outage", "C4"];
 export const OUTAGE_MS = 180_000;
-const STATUS_CADENCE_MS = 5000;
+/**
+ * The status cadence the expectation assumes. The mod takes it from the backend's answer (Responses.cpp), and both the
+ * backend's value and the mod's default are 5 s today (FCadence::StatusSeconds, Responses.h:35). Kept hard-coded by the
+ * controller's ruling (review M3 of 1ca0065); if the backend's cadence changes, this changes with it.
+ */
+export const STATUS_CADENCE_MS = 5000;
 export const OUTAGE_EXPECTED_SNAPSHOTS = OUTAGE_MS / STATUS_CADENCE_MS;
 export const OUTAGE_DELIVERED_SHARE = 0.8;
 
