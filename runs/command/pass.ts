@@ -5,7 +5,8 @@
 // the mod refuses a non-boolean (Commands.cpp, CommandFailed("unsupported")).
 // apiAfter is GetServerOptions' auto-pause read once the command left pending/sent (null: it didn't answer);
 // resultStatuses are the answers to every POST /agent/v1/commands/<id>/result the recorder saw for that command over the
-// whole run. Controller ruling (2026-10-20, review of 9b23fd1): exactly one result per command ID is accepted (2xx); a
+// whole run. Controller rulings below ratified by the owner (2026-10-21, final review of Plan 2B).
+// Controller ruling (2026-10-20, review of 9b23fd1): exactly one result per command ID is accepted (2xx); a
 // correct mod retries a result refused transiently (DriverCommands.cpp), so extra posts refused with 5xx or 429 are
 // allowed and counted in the pass reason. Any other refusal, or a second accepted post, fails.
 // Re-review of 9e0f811 (controller ruling, 2026-10-20): a post that got no answer (status 0) is transient too, as

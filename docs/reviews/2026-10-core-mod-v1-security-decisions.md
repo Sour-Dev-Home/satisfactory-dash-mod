@@ -23,6 +23,22 @@ done with each finding, and the owner's decisions on the accepted risks (2026-10
 | Ledger eviction after 1,000 IDs lets a hostile backend replay an ID | A backend can always issue a fresh ID; at-most-once only guards against honest retries |
 | The harness backend host's control API, the recorder's redaction, PercentEncode keeping `.`, the circuit scan's 10,000-ID bound | Ruled on in the review's "Known open items"; harness-only or not a security issue |
 
+## The final review of Plan 2B (2026-10-21)
+
+- Blocking: enrol, revoke and command re-run on this branch after F1, F3 and F4 (see PR #42's evidence table).
+- The enrol run now requires auto-pause to be compared in at least 10 rounds.
+- The owner ratified the two controller rulings in `runs/revoke/pass.ts` (the 401 grace) and `runs/command/pass.ts`
+  (transient result retries).
+- Follow-ups, owner's choice, to start sub-project 3 or 5, the first one first:
+  1. The transport's 0 s ticker runs `curl_multi_perform` and rebuilds its arrays every frame for the whole uptime,
+     even when idle (footprint).
+  2. `ApplyAutoPause` ignores the game's pending server options, so a deferred change reports `upstream_error` and
+     still applies later.
+  3. Joined circuit groups are never exercised in the game, and the 10,000-ID scan could miss groups on a long-running
+     server.
+  4. The `0.1.0` version is hard-coded in 7 places, and the old HTTP-module transport left a lock and two
+     api-sources rows behind.
+
 ## Deferred to sub-project 4 (Linux builds and distribution)
 
 - S11: the credential file's `0600` mode on Linux, and F2's fix (create the temp file with mode `0600` before the

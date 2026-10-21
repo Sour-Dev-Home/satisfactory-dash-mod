@@ -14,7 +14,8 @@
 // The halt line is Agent.cpp's Halted entry ("The backend rejected the credential (401): ..."). "Within one cycle":
 // one status cycle is 5 s, plus the one request in flight, so at most 15 s from the revoke. The halt's time is when the
 // harness first saw the line (it reads the log every second), which is never earlier than the line itself.
-// Controller ruling (2026-10-20, review of 9b23fd1): "after the first 401" is judged from when that 401 was delivered
+// Controller ruling (2026-10-20, review of 9b23fd1), ratified by the owner (2026-10-21, final review of Plan 2B):
+// "after the first 401" is judged from when that 401 was delivered
 // (the recorder's doneAt), not from when it was sent. The mod learns of a 401 only when the transport's answer is
 // dispatched on the core ticker (CurlTransport.cpp), and the push and the poll/report run independently, so a second
 // request with the revoked credential can already be on its way. HALT_DISPATCH_GRACE_MS (one ticker dispatch, with
