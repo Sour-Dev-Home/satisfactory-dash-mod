@@ -376,6 +376,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | curl_multi_cleanup | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:230 | header only |
 | curl_multi_info_read | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/multi.h:260 | header only |
 | CURLOPT_URL | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1121 | header only |
+| CURLOPT_PROXY | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1127 | header only (CURLOPTTYPE_STRINGPOINT, "Name of proxy to use"; set to "" for plain-http loopback only, security review F3. The header doesn't say that "" turns off environment proxies too; that is libcurl's CURLOPT_PROXY man page, not captured here) |
 | CURLOPT_FOLLOWLOCATION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1294 | header only (set to 0: UE's request sets 1, CurlHttp.cpp:127) |
 | CURLOPT_MAXREDIRS | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:1349 | header only (0, a second line) |
 | CURLOPT_PROTOCOLS_STR | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:2205 | header only ("https") |
