@@ -25,7 +25,7 @@ export interface BackendHost { controlUrl: string; relayUrl: string; close(): Pr
 
 const MAX_BODY = 4096;
 const Server = z.enum(["mod", "node"]);
-const Code = z.string().regex(/^[A-Z2-7]{4}-[A-Z2-7]{4}$/);
+const Code = z.string().regex(/^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$/);
 const SeedBody = z.strictObject({ server: Server, code: Code });
 const ServerBody = z.strictObject({ server: Server });
 const CommandBody = z.strictObject({ server: Server, params: z.strictObject({ enabled: z.unknown() }) });

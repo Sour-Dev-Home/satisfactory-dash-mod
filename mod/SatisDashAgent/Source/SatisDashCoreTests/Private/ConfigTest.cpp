@@ -47,10 +47,28 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigParseTest, "SatisDash.Core.Config.Parse"
 
 bool FConfigParseTest::RunTest(const FString& Parameters)
 {
-	const FConfigResult Ok = ParseConfig(TEXT("{\"backendUrl\":\"https://example.com/\",\"enrollmentCode\":\" ab3d-7xq2 \"}"));
+	const FConfigResult Ok = ParseConfig(TEXT("{\"backendUrl\":\"https://example.com/\",\"enrollmentCode\":\" ab3d-7xq2-k5mn \"}"));
 	TestTrue(TEXT("valid"), Ok.Status == EConfigStatus::Valid);
 	SatisDash::Test::SameText(*this, TEXT("trailing slash dropped"), Ok.Config.BackendUrl, TEXT("https://example.com"));
-	SatisDash::Test::SameText(*this, TEXT("code trimmed and upper-cased"), Ok.Config.EnrollmentCode, TEXT("AB3D-7XQ2"));
+	SatisDash::Test::SameText(*this, TEXT("code trimmed and upper-cased"), Ok.Config.EnrollmentCode, TEXT("AB3D-7XQ2-K5MN"));
+
+	// The backend issues and accepts only ^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$ (dash #524, ADR-0046).
+	TestTrue(TEXT("code: 12 base32 characters"), IsEnrollmentCode(TEXT("AB3D-7XQ2-K5MN")));
+	TestTrue(TEXT("code: every base32 digit"), IsEnrollmentCode(TEXT("ZZ22-3456-7777")));
+	TestFalse(TEXT("code: the old 8-character form"), IsEnrollmentCode(TEXT("AB3D-7XQ2")));
+	TestFalse(TEXT("code: 11 characters"), IsEnrollmentCode(TEXT("AB3D-7XQ2-K5M")));
+	TestFalse(TEXT("code: 13 characters"), IsEnrollmentCode(TEXT("AB3D-7XQ2-K5MNA")));
+	TestFalse(TEXT("code: lower case"), IsEnrollmentCode(TEXT("ab3d-7xq2-k5mn")));
+	TestFalse(TEXT("code: a 0"), IsEnrollmentCode(TEXT("AB3D-7XQ2-K5M0")));
+	TestFalse(TEXT("code: a 1"), IsEnrollmentCode(TEXT("AB3D-7XQ2-K5M1")));
+	TestFalse(TEXT("code: an 8"), IsEnrollmentCode(TEXT("AB3D-7XQ2-K5M8")));
+	TestFalse(TEXT("code: a 9"), IsEnrollmentCode(TEXT("AB3D-7XQ2-K5M9")));
+	TestFalse(TEXT("code: no dashes"), IsEnrollmentCode(TEXT("AB3D7XQ2K5MN")));
+	TestFalse(TEXT("code: dashes in the wrong places"), IsEnrollmentCode(TEXT("AB3-D7XQ-2K5MN")));
+	TestFalse(TEXT("code: a dash in place of a character"), IsEnrollmentCode(TEXT("AB3D-7XQ2-K5M-")));
+	TestFalse(TEXT("code: empty"), IsEnrollmentCode(FString()));
+	TestFalse(TEXT("code: the old form still fails in a config file"),
+		ParseConfig(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB3D-7XQ2\"}")).Status == EConfigStatus::Valid);
 
 	TestTrue(TEXT("no code field is an empty code"),
 		ParseConfig(TEXT("{\"backendUrl\":\"https://example.com\"}")).Config.EnrollmentCode.IsEmpty());
@@ -68,8 +86,9 @@ bool FConfigParseTest::RunTest(const FString& Parameters)
 	expectBroken(TEXT("{}"), TEXT("backendUrl"));
 	expectBroken(TEXT("{\"backendUrl\":5}"), TEXT("backendUrl"));
 	expectBroken(TEXT("{\"backendUrl\":\"http://example.com\"}"), TEXT("backendUrl"));
-	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB3D7XQ2\"}"), TEXT("enrollmentCode"));
-	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB1D-7XQ2\"}"), TEXT("enrollmentCode"));
+	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB3D7XQ2K5MN\"}"), TEXT("enrollmentCode"));
+	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB1D-7XQ2-K5MN\"}"), TEXT("enrollmentCode"));
+	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB3D-7XQ2\"}"), TEXT("enrollmentCode"));
 	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":12}"), TEXT("enrollmentCode"));
 	return true;
 }
@@ -93,7 +112,7 @@ bool FConfigFileTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("a broken file is left as it is"), SatisDash::Test::ReadText(Path), TEXT("{ broken"));
 
 	// Notepad: a UTF-8 BOM and CRLF line ends.
-	FFileHelper::SaveStringToFile(TEXT("{\r\n  \"backendUrl\": \"https://example.com\",\r\n  \"enrollmentCode\": \"AB3D-7XQ2\"\r\n}\r\n"),
+	FFileHelper::SaveStringToFile(TEXT("{\r\n  \"backendUrl\": \"https://example.com\",\r\n  \"enrollmentCode\": \"AB3D-7XQ2-K5MN\"\r\n}\r\n"),
 		*Path, FFileHelper::EEncodingOptions::ForceUTF8);
 	const FConfigResult Edited = LoadConfigFile(Path);
 	TestTrue(TEXT("BOM and CRLF are read"), Edited.Status == EConfigStatus::Valid);

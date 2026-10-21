@@ -6,7 +6,7 @@ const ok = { code: 0, stdout: "{}", stderr: "" };
 
 describe("throwaway backend", () => {
   it("makes codes the backend accepts (agent.ts EnrollmentCodeSchema)", () => {
-    expect(randomCode()).toMatch(/^[A-Z2-7]{4}-[A-Z2-7]{4}$/);
+    expect(randomCode()).toMatch(/^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$/);
   });
 
   it("makes env values the backend's checks accept: a scrypt hash and a long random session secret", async () => {
@@ -31,7 +31,7 @@ describe("throwaway backend", () => {
     };
     const backend = await startBackend({ checkout: "D:/dash", relayFile: "D:/mod/harness/compose/s5-relay.yaml", port: 13101, exec });
     expect(backend.url).toBe("http://127.0.0.1:13101");
-    await backend.seedCode("s5", "AB3D-7XQ2");
+    await backend.seedCode("s5", "AB3D-7XQ2-K5MN");
     expect(await backend.state("s5")).toEqual({ codeConsumed: true, agentVersion: "spike-s5", lastSeen: true, revoked: false });
     expect(seen.find((s) => s.includes("INSERT INTO servers.servers"))).toContain("'spike-s5'");
     await backend.down();
@@ -90,11 +90,11 @@ describe("throwaway backend", () => {
 
   it("seeds a code for the node agent's server, adding the server only if it isn't there (public_id is UNIQUE)", async () => {
     const { backend, sql } = await started();
-    await backend.seedCode("node", "AB3D-7XQ2");
+    await backend.seedCode("node", "AB3D-7XQ2-K5MN");
     expect(sql).toHaveLength(1);
     expect(sql[0]).toMatch(/INSERT INTO servers\.servers \(public_id, display_name\) VALUES \('core-node', '[^']+'\) ON CONFLICT \(public_id\) DO NOTHING;/);
     expect(sql[0]).toMatch(/INSERT INTO agents\.enrollment_codes .* WHERE public_id = 'core-node';/);
-    expect(sql[0]).not.toContain("AB3D-7XQ2"); // only the hash reaches the database
+    expect(sql[0]).not.toContain("AB3D-7XQ2-K5MN"); // only the hash reaches the database
   });
 
   it("revokes the mod's credential (agent_credentials.revoked_at)", async () => {

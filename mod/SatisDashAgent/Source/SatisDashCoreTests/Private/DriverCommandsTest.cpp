@@ -38,7 +38,7 @@ namespace
 	 */
 	bool commandsMoveToSecondBackend(FDriverFixture& F, FDriver& Driver, const FString& Secret)
 	{
-		F.writeConfig(TEXT("http://localhost:2"), TEXT("ZZZZ-2222"));
+		F.writeConfig(TEXT("http://localhost:2"), TEXT("ZZZZ-2222-2222"));
 		F.run(Driver, 61);
 		if (F.Net.pending(CommandsEnroll) != 1)
 		{
@@ -232,7 +232,7 @@ bool FCommandsHaltTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("the waiting command is dropped, not run"), F.Game.Applied.Num(), 1);
 	TestEqual(TEXT("and nothing is polled"), F.Net.pending(CommandsPoll), 0);
 	// Re-enrolled: the same ID handed out again is reported from the ledger, not run again.
-	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222"));
+	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222-2222"));
 	F.run(Driver, 61);
 	F.Net.answer(CommandsEnroll, SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()));
 	F.run(Driver, 1);

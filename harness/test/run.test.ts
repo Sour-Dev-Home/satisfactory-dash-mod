@@ -413,11 +413,11 @@ describe("runSpike", () => {
       writeModConfig: (_m, v) => void (order.push("cfg"), written.push(v)),
       removeModConfig: () => void order.push("rm cfg"),
       startBackend: fakeBackend(order),
-      randomCode: () => "AB3D-7XQ2",
+      randomCode: () => "AB3D-7XQ2-K5MN",
     }, "LogSatisMod: Display: satis-mod s5 enroll=201 snapshot=200\n");
     const { result } = await runSpike("S5", deps);
     expect(order).toEqual(["up", "seed", "cfg", "rm cfg", "down"]);
-    expect(written).toEqual([{ code: "AB3D-7XQ2", backendUrl: "http://127.0.0.1:13101" }]);
+    expect(written).toEqual([{ code: "AB3D-7XQ2-K5MN", backendUrl: "http://127.0.0.1:13101" }]);
     expect(result.pass).toBe(true);
   });
 
@@ -427,7 +427,7 @@ describe("runSpike", () => {
       writeModConfig: () => void order.push("cfg"),
       removeModConfig: () => void order.push("rm cfg"),
       startBackend: fakeBackend(order),
-      randomCode: () => "AB3D-7XQ2",
+      randomCode: () => "AB3D-7XQ2-K5MN",
       install: () => { throw new Error("wrong plugin name"); },
     });
     await expect(runSpike("S5", deps)).rejects.toThrow(/wrong plugin name/);

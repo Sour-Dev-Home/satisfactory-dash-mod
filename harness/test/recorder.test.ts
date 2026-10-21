@@ -6,7 +6,7 @@ import { startRecorder, type Recorder } from "../src/recorder";
 import { sessionHash } from "../src/status";
 
 const SECRET = "sec_" + "x".repeat(40);
-const CODE = "AB3D-7XQ2";
+const CODE = "AB3D-7XQ2-K5MN";
 const MOD_UA = "satisfactory-dash-mod/0.1.0";
 
 interface Seen { method: string; url: string; headers: IncomingMessage["headers"]; body: Buffer }

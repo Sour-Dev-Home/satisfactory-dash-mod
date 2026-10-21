@@ -19,7 +19,7 @@ bool FDriverEnrollThenPushTest::RunTest(const FString& Parameters)
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
-	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2"));
+	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"));
 	Driver.Boot();
 	Driver.Tick();
 	TestEqual(TEXT("one enrol request"), F.Net.pending(DriverEnroll), 1);
@@ -161,7 +161,7 @@ bool FDriverReenrolTest::RunTest(const FString& Parameters)
 	F.Net.answer(DriverSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
 	F.run(Driver, 10);
 	// A new code from the dashboard: the next config check enrols again, with a new secret.
-	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222"));
+	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222-2222"));
 	F.run(Driver, 61);
 	TestEqual(TEXT("a second enrolment"), F.Net.pending(DriverEnroll), 1);
 	const FString Second = FString::ChrN(42, TEXT('b')) + TEXT("_");
@@ -206,7 +206,7 @@ namespace
 	{
 		F.enrol(Driver, SatisDash::Test::FakeSecret());
 		F.run(Driver, 20);
-		F.writeConfig(TEXT("http://localhost:2"), TEXT("ZZZZ-2222"));
+		F.writeConfig(TEXT("http://localhost:2"), TEXT("ZZZZ-2222-2222"));
 		F.run(Driver, 61);
 		if (F.Net.pending(DriverSnapshots) != 1 || F.Net.pending(DriverEnroll) != 1)
 		{

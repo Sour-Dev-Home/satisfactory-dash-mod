@@ -116,7 +116,7 @@ describe("backend host (ruling 10)", () => {
 
   it("serves the fixed operations", async () => {
     const { call, calls } = await serve();
-    expect((await call("POST", "/seed", { server: "node", code: "AB3D-7XQ2" })).status).toBe(204);
+    expect((await call("POST", "/seed", { server: "node", code: "AB3D-7XQ2-K5MN" })).status).toBe(204);
     expect((await call("POST", "/revoke", { server: "mod" })).status).toBe(204);
     const queued = await call("POST", "/command", { server: "mod", params: { enabled: false } });
     expect(await queued.json()).toEqual({ id: ID });
@@ -124,15 +124,16 @@ describe("backend host (ruling 10)", () => {
     expect(await (await call("GET", "/state/mod")).json()).toEqual({ codeConsumed: true, agentVersion: "mod/0.1.0", lastSeen: true, revoked: false });
     expect((await call("POST", "/relay/stop")).status).toBe(204);
     expect((await call("POST", "/relay/start")).status).toBe(204);
-    expect(calls).toEqual(["seed node AB3D-7XQ2", "revoke mod", 'queue mod {"enabled":false}', `command ${ID}`, "state mod", "relay stop", "relay start"]);
+    expect(calls).toEqual(["seed node AB3D-7XQ2-K5MN", "revoke mod", 'queue mod {"enabled":false}', `command ${ID}`, "state mod", "relay stop", "relay start"]);
   });
 
   it("refuses loose bodies, other servers and unknown routes, touching nothing", async () => {
     const { call, calls } = await serve();
-    expect((await call("POST", "/seed", { server: "mod", code: "ab3d-7xq2" })).status).toBe(400);
-    expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ1" })).status).toBe(400);
-    expect((await call("POST", "/seed", { server: "s5", code: "AB3D-7XQ2" })).status).toBe(400);
-    expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ2", sql: "x" })).status).toBe(400);
+    expect((await call("POST", "/seed", { server: "mod", code: "ab3d-7xq2-k5mn" })).status).toBe(400);
+    expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ2-K5M1" })).status).toBe(400);
+    expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ2" })).status).toBe(400);
+    expect((await call("POST", "/seed", { server: "s5", code: "AB3D-7XQ2-K5MN" })).status).toBe(400);
+    expect((await call("POST", "/seed", { server: "mod", code: "AB3D-7XQ2-K5MN", sql: "x" })).status).toBe(400);
     expect((await call("POST", "/revoke", "not json")).status).toBe(400);
     expect((await call("POST", "/command", { server: "mod", params: { enabled: true, extra: 1 } })).status).toBe(400);
     expect((await call("GET", "/command/1' OR 1=1")).status).toBe(404);
@@ -163,14 +164,14 @@ describe("backend host (ruling 10)", () => {
     const { file, calls } = await serve();
     const client = await connectBackendHost(file);
     expect(client.relayUrl).toBe("http://127.0.0.1:13101");
-    await client.seedCode("mod", "AB3D-7XQ2");
+    await client.seedCode("mod", "AB3D-7XQ2-K5MN");
     expect(await client.queueCommand("mod", { enabled: true })).toBe(ID);
     expect(await client.command(ID)).toEqual({ status: "succeeded", resultCode: null });
     expect(await client.state("mod")).toEqual({ codeConsumed: true, agentVersion: "mod/0.1.0", lastSeen: true, revoked: false });
     await client.revoke("mod");
     await client.stopRelay();
     await client.startRelay();
-    expect(calls).toEqual(["seed mod AB3D-7XQ2", 'queue mod {"enabled":true}', `command ${ID}`, "state mod", "revoke mod", "relay stop", "relay start"]);
+    expect(calls).toEqual(["seed mod AB3D-7XQ2-K5MN", 'queue mod {"enabled":true}', `command ${ID}`, "state mod", "revoke mod", "relay stop", "relay start"]);
   });
 
   it("connectBackendHost refuses a host file that points beyond loopback, and a client call that fails throws", async () => {

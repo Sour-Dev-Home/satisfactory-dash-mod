@@ -39,7 +39,8 @@ v1 is the smallest mod that can replace the Node agent for status, power and aut
 Unchanged from the Node agent's, in satisfactory-dash `packages/shared/src/agent.ts` at a commit the plan pins:
 
 - `POST /agent/v1/enroll` with `{code, agentVersion}` returns 201 `{agentSecret, serverId, cadence}`. Codes match
-  `^[A-Z2-7]{4}-[A-Z2-7]{4}$`.
+  `^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$` (12 characters, 60 bits; changed from 8 by satisfactory-dash #524/PR #538,
+  2026-10-20, on the owner's ADR-0046 decision; the contract is now vendored at satisfactory-dash `81f22ae`, which has it).
 - `POST /agent/v1/snapshots` with `Authorization: Bearer <agentSecret>`; the body may be gzipped. It requires
   `agentVersion`, `observedAt`, `reachable` and `paused`; parts are optional. The response carries the current cadence.
 - `GET /agent/v1/commands?waitSeconds=25`, then `POST /agent/v1/commands/:id/result` with `{ok, code?}`. Codes are

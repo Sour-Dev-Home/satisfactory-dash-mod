@@ -44,10 +44,10 @@ function paramsLiteral(params: Record<string, unknown>): string {
 const PROJECT = "satis-s5";
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-/** XXXX-XXXX in base32 (agent.ts EnrollmentCodeSchema). */
+/** XXXX-XXXX-XXXX in base32, 60 bits (agent.ts EnrollmentCodeSchema since dash #524, ADR-0046). */
 export function randomCode(): string {
-  const c = [...randomBytes(8)].map((b) => BASE32[b % 32]).join("");
-  return `${c.slice(0, 4)}-${c.slice(4)}`;
+  const c = [...randomBytes(12)].map((b) => BASE32[b % 32]).join("");
+  return `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8)}`;
 }
 
 const scryptAsync = promisify(scrypt) as (p: string, s: Buffer, k: number, o: object) => Promise<Buffer>;
