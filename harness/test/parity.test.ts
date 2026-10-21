@@ -1,7 +1,9 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
-import { captureWindow, NODE_MARGIN_MS } from "../src/core-runs/parity";
-import type { RecordedCall } from "../src/recorder";
-import { PARITY_NEIGHBOUR_GAP_MS } from "../../runs/parity/pass";
+import { captureWindow, NODE_MARGIN_MS, PARITY_RECORDER_OPTIONS } from "../src/core-runs/parity";
+import { type RecordedCall, startRecorder } from "../src/recorder";
+import { evaluate, PARITY_NEIGHBOUR_GAP_MS } from "../../runs/parity/pass";
 
 const T0 = Date.parse("2026-10-21T12:00:00.000Z");
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -35,6 +37,37 @@ describe("captureWindow (the parity run's capture of the recorder)", () => {
     expect(c.oversizedAccepted).toEqual({ mod: 0, node: 1 });
     expect(c.unrecordedAccepted).toEqual({ mod: 0, node: 1 });
     expect(c.node).toHaveLength(1);
+  });
+
+  it("through the parity recorder, a Node post over 2 MB is trimmed and counted, and a mod post over 2 MB fails the run", async () => {
+    const up = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => res.writeHead(200, { "content-type": "application/json" }).end("{}"));
+    });
+    await new Promise<void>((r) => up.listen(0, "127.0.0.1", () => r()));
+    const rec = await startRecorder(`http://127.0.0.1:${(up.address() as AddressInfo).port}`, PARITY_RECORDER_OPTIONS);
+    try {
+      const body = (o: number) => JSON.stringify({
+        agentVersion: "x", observedAt: iso(T0 + o), reachable: true, paused: false, status: { sessionName: "s" }, power: { circuits: [] },
+        factory: { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, pad: "p".repeat(70) })) },
+      });
+      const postTo = (ua: string, b: string) => fetch(`${rec.url}/agent/v1/snapshots`, { method: "POST", headers: { "user-agent": ua, "content-type": "application/json" }, body: b });
+      await postTo("satisfactory-dash-agent/0.1.0", body(1000));
+      await postTo("satisfactory-dash-mod/0.1.0", body(2000));
+      const c = captureWindow(rec.entries, iso(T0 - 60_000), iso(Date.now() + 60_000));
+      expect(c.accepted).toEqual({ mod: 1, node: 1 });
+      expect(c.oversizedAccepted).toEqual({ mod: 0, node: 1 });
+      expect(c.unrecordedAccepted).toEqual({ mod: 1, node: 0 });
+      expect(c.node).toHaveLength(1);
+      const v = evaluate({ lines: [], errorLines: [], leaks: { code: false, secret: null, bearer: false }, captures: { "parity.json": {
+        windowStartedAt: null, windowEndedAt: null, state: { mod: null, node: null }, tokensInvalidated: true, nodeAgent: null, cleanup: null, ...c,
+      } } });
+      expect(v.pass).toBe(false);
+      expect(v.reasons).toContain("1 of the mod's accepted snapshots couldn't be read by the recorder, so they weren't judged");
+    } finally {
+      await rec.close();
+      await new Promise<void>((r) => up.close(() => r()));
+    }
   });
 
   it("lists refused posts inside the window only (a post cut by the Node agent's stop after it isn't the backend's refusal)", () => {

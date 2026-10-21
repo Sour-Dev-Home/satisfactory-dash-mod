@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import * as Pass from "../../../runs/parity/pass";
 import { contractPin, randomCode } from "../backend";
 import type { CoreRunSpec } from "../core-run";
-import { type RecordedCall, startRecorder } from "../recorder";
+import { type RecordedCall, type RecorderOptions, startRecorder } from "../recorder";
 import { createServerApi } from "../server-api";
 import { enrolPhase } from "./enrol";
 import { agentPorts, generateApiToken, invalidateApiTokens, type NodeAgent, startNodeAgent } from "./node-agent";
@@ -15,6 +15,9 @@ const SNAPSHOTS = "/agent/v1/snapshots";
  * their power neighbours (Pass.PARITY_NEIGHBOUR_GAP_MS by observedAt; a post arrives a little after its observedAt).
  */
 export const NODE_MARGIN_MS = Pass.PARITY_NEIGHBOUR_GAP_MS + 5000;
+
+/** Only the Node agent's oversized posts are trimmed and counted; the mod's stay unrecorded and fail (review of 9b60268). */
+export const PARITY_RECORDER_OPTIONS: RecorderOptions = { trimOversizedFor: ["node"] };
 
 type Who = "mod" | "node";
 type Captured = Pick<Pass.Parity, "mod" | "node" | "accepted" | "oversizedAccepted" | "unrecordedAccepted" | "refused">;
@@ -80,7 +83,7 @@ export const parity: CoreRunSpec = {
     const agentCjs = config.parity!.agentCjs;
     const api = createServerApi(config.apiBaseUrl);
     const host = await ctx.deps.backendHost!();
-    const recorder = await startRecorder(host.relayUrl);
+    const recorder = await startRecorder(host.relayUrl, PARITY_RECORDER_OPTIONS);
     const capture: Pass.Parity = {
       windowStartedAt: null, windowEndedAt: null, mod: [], node: [], accepted: { mod: 0, node: 0 },
       oversizedAccepted: { mod: 0, node: 0 }, unrecordedAccepted: { mod: 0, node: 0 }, refused: { mod: [], node: [] },
@@ -88,7 +91,8 @@ export const parity: CoreRunSpec = {
       nodeAgent: { agentCjsSha256: sha256File(agentCjs), pin: contractPin() }, cleanup: null,
     };
     const acceptedBy = (who: Who) => recorder.entries.filter((e) => e.agent === who && e.path === SNAPSHOTS && e.status === 200);
-    const observed = (e: RecordedCall) => String((e.snapshot as { observedAt?: unknown } | undefined)?.observedAt ?? "");
+    // As times, never as text: the contract's IsoTimeSchema allows an offset (review of 9b60268, minor).
+    const observed = (e: RecordedCall) => Date.parse(String((e.snapshot as { observedAt?: unknown } | undefined)?.observedAt ?? ""));
     let agent: NodeAgent | null = null;
     let tokenAsked = false;
     try {
@@ -118,8 +122,10 @@ export const parity: CoreRunSpec = {
       }
       capture.windowEndedAt = now();
       // The last mod sample's power neighbour after it: wait for the Node agent's next reading before stopping it.
-      const lastMod = acceptedBy("mod").map(observed).filter((o) => o <= capture.windowEndedAt!).sort().at(-1);
-      if (lastMod) {
+      const end = Date.parse(capture.windowEndedAt);
+      const modTimes = acceptedBy("mod").map(observed).filter((o) => Number.isFinite(o) && o <= end);
+      const lastMod = modTimes.length ? Math.max(...modTimes) : undefined;
+      if (lastMod !== undefined) {
         await ctx.waitFor("the Node agent's reading after the mod's last sample", () => (acceptedBy("node").some((e) => observed(e) >= lastMod) ? true : undefined), 20_000)
           .catch(() => undefined); // the judge fails that round if it never came
       }

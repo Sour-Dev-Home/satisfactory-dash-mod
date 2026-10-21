@@ -38,9 +38,11 @@
 //    the neighbour(s) whose group ids match bracket the values. A group's several rows (a joined group) are one row,
 //    which they must all agree on;
 //  - power must be compared in at least NEED_PAIRS rounds; a round where both sides have no circuit group doesn't count.
+// Controller ruling (2026-10-21, re-review of 9b60268): the neighbours are the nearest Node snapshots that carry power.
 //
-// Also: every snapshot either agent posted in the window was accepted, and every accepted one was readable (a post over
-// the recorder's 2 MB cap is kept without its bulky parts and counted, never dropped); both servers enrolled (code
+// Also: every snapshot either agent posted in the window was accepted, and every accepted one was readable. Only the
+// Node agent's posts over the recorder's 2 MB cap are kept without their bulky parts, and counted (oversizedAccepted);
+// the mod's are not recorded, so an oversized mod snapshot fails the run (review of 9b60268). Both servers enrolled (code
 // consumed, seen), the mod as mod/0.1.0; a window of at least 30 minutes; the run's game API token invalidated; the
 // Node agent stopped and its SD_AGENT_HOME deleted.
 import type { CoreEvidence } from "../../harness/src/core-run";

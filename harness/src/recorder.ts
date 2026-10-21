@@ -20,8 +20,10 @@ export interface RecordedCall {
   status: number;
   authorization: boolean;
   snapshot?: unknown;
-  /** The snapshot was over MAX_RECORDED: `snapshot` keeps only its small parts (OVERSIZED_KEPT). */
+  /** The snapshot was over MAX_RECORDED and trimming was opted in: `snapshot` keeps only its small parts (OVERSIZED_KEPT). */
   oversized?: true;
+  /** With `oversized`: the top-level keys that were dropped. */
+  droppedKeys?: string[];
   commandIds?: string[];
   result?: unknown;
 }
@@ -33,7 +35,7 @@ const MAX_RECORDED = 2 * 1024 * 1024;
  * backend/src/modules/agents/config.ts SNAPSHOT_MAX_BYTES, 5 MB), so every snapshot the backend accepted can be read.
  */
 const SNAPSHOT_READ_LIMIT = 8 * 1024 * 1024;
-/** What an oversized snapshot keeps: everything but the bulky parts (factory, players, mapLive). */
+/** What an oversized snapshot keeps when trimming is opted in: everything but the bulky parts (factory, players, mapLive). */
 const OVERSIZED_KEPT = ["agentVersion", "observedAt", "reachable", "paused", "settings", "status", "power"];
 const SNAPSHOTS = "/agent/v1/snapshots";
 const COMMANDS = "/agent/v1/commands";
@@ -83,9 +85,19 @@ function commandIds(body: unknown): string[] | undefined {
   return list.map((c) => (c as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string");
 }
 
+export interface RecorderOptions {
+  /**
+   * The agents whose snapshot posts over MAX_RECORDED are kept trimmed to OVERSIZED_KEPT instead of not recorded. Off by
+   * default: a run that judges a whole snapshot (enrol's S13) must see an oversized one fail. Only parity opts in, and
+   * only for the Node agent (review of 9b60268).
+   */
+  trimOversizedFor?: ReadonlyArray<RecordedCall["agent"]>;
+}
+
 /** Starts the recorder on 127.0.0.1 in front of upstream (the relay's URL). */
-export async function startRecorder(upstream: string): Promise<Recorder> {
+export async function startRecorder(upstream: string, opts: RecorderOptions = {}): Promise<Recorder> {
   const target = new URL(upstream);
+  const trimFor = new Set(opts.trimOversizedFor ?? []);
   const entries: RecordedCall[] = [];
 
   const handle = (req: IncomingMessage, res: ServerResponse) => {
@@ -112,11 +124,15 @@ export async function startRecorder(upstream: string): Promise<Recorder> {
       if (entry.status !== 0) {
         if (method === "POST" && path === SNAPSHOTS) {
           const s = sent.read(req.headers);
-          if (s !== undefined && s.size > MAX_RECORDED && s.value !== null && typeof s.value === "object" && !Array.isArray(s.value)) {
-            const kept = Object.fromEntries(Object.entries(s.value).filter(([k]) => OVERSIZED_KEPT.includes(k)));
-            entry.snapshot = hashSession(kept);
-            entry.oversized = true;
-          } else if (s !== undefined && s.size <= MAX_RECORDED) {
+          if (s !== undefined && s.size > MAX_RECORDED) {
+            // Over the cap: not recorded (the judge fails it), unless trimming was opted in for this agent.
+            if (trimFor.has(entry.agent) && s.value !== null && typeof s.value === "object" && !Array.isArray(s.value)) {
+              const all = Object.entries(s.value);
+              entry.snapshot = hashSession(Object.fromEntries(all.filter(([k]) => OVERSIZED_KEPT.includes(k))));
+              entry.oversized = true;
+              entry.droppedKeys = all.map(([k]) => k).filter((k) => !OVERSIZED_KEPT.includes(k));
+            }
+          } else if (s !== undefined) {
             entry.snapshot = hashSession(s.value);
           }
         } else if (method === "GET" && path === COMMANDS) {

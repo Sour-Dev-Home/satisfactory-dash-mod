@@ -4,6 +4,7 @@ import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import { startRecorder, type Recorder } from "../src/recorder";
 import { sessionHash } from "../src/status";
+import { compareRound } from "../../runs/enrol/pass";
 
 const SECRET = "sec_" + "x".repeat(40);
 const CODE = "AB3D-7XQ2-K5MN";
@@ -112,24 +113,43 @@ describe("recorder (ruling 11)", () => {
     expect(rec.entries[0]!.snapshot).toEqual({ ...snapshot, status: { sessionName: sessionHash("Owner's Session"), tickRate: 30 } });
   });
 
-  it("keeps a snapshot over 2 MB without its bulky parts, marked oversized (review of 0dee72a, Important 1)", async () => {
-    const up = await upstream(() => ({ status: 200, body: "{}" }));
-    const rec = await recorderFor(up.url);
-    const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
-    const factory = { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, name: "Constructor", className: "Build_ConstructorMk1_C", pad: "p".repeat(60) })) };
-    const big = JSON.stringify({ ...snapshot, ...parts, factory, players: { available: true, players: [{ name: "Someone", online: true }] } });
+  const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
+  const factory = { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, name: "Constructor", className: "Build_ConstructorMk1_C", pad: "p".repeat(60) })) };
+  const big = JSON.stringify({ ...snapshot, ...parts, factory, players: { available: true, players: [{ name: "Someone", online: true }] } });
+
+  it("with trimming opted in for an agent, keeps that agent's snapshot over 2 MB without its bulky parts, naming what it dropped", async () => {
     expect(Buffer.byteLength(big)).toBeGreaterThan(2 * 1024 * 1024);
+    const up = await upstream(() => ({ status: 200, body: "{}" }));
+    const rec = await startRecorder(up.url, { trimOversizedFor: ["node"] });
+    closers.push(() => rec.close());
     for (const gzip of [false, true]) {
       await send(rec.url, "POST", "/agent/v1/snapshots", {
         headers: { "user-agent": "satisfactory-dash-agent/0.1.0", "content-type": "application/json", ...(gzip ? { "content-encoding": "gzip" } : {}) },
         body: gzip ? gzipSync(big) : big,
       });
     }
+    // The mod's oversized post is never trimmed, even on that recorder.
+    await send(rec.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: big });
     expect(up.seen[0]!.body.length).toBe(Buffer.byteLength(big)); // forwarded whole
-    for (const e of rec.entries) {
-      expect(e).toMatchObject({ status: 200, oversized: true });
+    const [plain, zipped, mod] = rec.entries;
+    for (const e of [plain!, zipped!]) {
+      expect(e).toMatchObject({ agent: "node", status: 200, oversized: true, droppedKeys: ["factory", "players"] });
       expect(e.snapshot).toEqual({ ...snapshot, ...parts, status: { sessionName: sessionHash("Owner's Session"), tickRate: 30 } });
     }
+    expect(mod).toMatchObject({ agent: "mod", status: 200 });
+    expect(mod!.snapshot).toBeUndefined();
+    expect(mod!.oversized).toBeUndefined();
+  });
+
+  it("by default records no snapshot over 2 MB, so enrol's judge fails a mod snapshot carrying factory (review of 9b60268)", async () => {
+    const up = await upstream(() => ({ status: 200, body: "{}" }));
+    const rec = await recorderFor(up.url);
+    await send(rec.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: big });
+    const e = rec.entries[0]!;
+    expect(e.snapshot).toBeUndefined();
+    expect(e.oversized).toBeUndefined();
+    const round = { at: e.at, world: true, snapshot: e.snapshot as Record<string, unknown>, api: null, autoPause: null, frmBefore: null, frmAfter: null, frmBeforeEndedAt: null, frmAfterStartedAt: null };
+    expect(compareRound(round)).toEqual([`${e.at}: the snapshot body was not recorded`]);
   });
 
   it("forwards a body over 8 MB (more than the backend's 5 MB limit) but doesn't record it", async () => {

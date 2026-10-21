@@ -178,8 +178,8 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   (the tokens on its stdin, never on a command line), `check`, `enroll` with the `node` server's code (seeded just
   before) against the same recorder, then `run`. Both agents run side by side for 30 minutes and are judged against
   each other (`parity.json`): status and auto-pause by nearest pair, power against the Node agent's readings just
-  before and just after each mod sample (the owner's bracket). A snapshot over the recorder's 2 MB cap is kept without
-  its factory, players and map parts and counted. At the end it stops the Node agent, deletes its folder (a failed stop
+  before and just after each mod sample (the owner's bracket). A Node agent snapshot over the recorder's 2 MB cap is kept
+  without its factory, players and map parts and counted; a mod snapshot that large fails the run, as in every other run. At the end it stops the Node agent, deletes its folder (a failed stop
   or a folder left behind fails the run) and prunes the test server's application tokens
   (`server.InvalidateAPITokens`). `parity.json` also records `agent.cjs`'s sha256 and the contract pin. It takes about
   45 minutes plus the build.
