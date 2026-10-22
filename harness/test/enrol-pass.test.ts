@@ -59,10 +59,9 @@ describe("enrol pass conditions", () => {
     });
   });
 
-  it("says so in the pass reason when the autoPause check was skipped, and when no circuit group was compared", () => {
+  it("says so in the pass reason when no circuit group was compared", () => {
     const d = enrol();
     for (const r of d.rounds) {
-      r.autoPause = null;
       if (r.world) {
         r.frmBefore = [];
         r.frmAfter = [];
@@ -71,8 +70,16 @@ describe("enrol pass conditions", () => {
     }
     expect(evaluate(evidence(d))).toEqual({
       pass: true,
-      reasons: ["enrolled; 4 rounds with no game and 12 with the world match the game's APIs; the autoPause check was skipped (GetServerOptions never answered); power compared for 0 circuit group(s)"],
+      reasons: ["enrolled; 4 rounds with no game and 12 with the world match the game's APIs; autoPause compared in 16 of 16 rounds; power compared for 0 circuit group(s)"],
     });
+  });
+
+  it("fails when autoPause was compared in fewer than 10 rounds (final review of Plan 2B)", () => {
+    const d = enrol();
+    d.rounds.forEach((r, i) => void (i >= 9 && (r.autoPause = null)));
+    expect(evaluate(evidence(d)).reasons).toContain("autoPause compared in only 9 rounds, need 10 (GetServerOptions didn't answer)");
+    d.rounds[9]!.autoPause = d.rounds[0]!.autoPause;
+    expect(evaluate(evidence(d)).pass).toBe(true);
   });
 
   it("fails, without throwing, a round whose 200 snapshot wasn't recorded", () => {

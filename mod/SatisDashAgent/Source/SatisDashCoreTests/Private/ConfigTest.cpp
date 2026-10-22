@@ -1,4 +1,5 @@
 #include "SatisDash/Config.h"
+#include "SatisDash/JsonUtil.h"
 #include "TestUtil.h"
 
 using namespace SatisDash;
@@ -90,6 +91,20 @@ bool FConfigParseTest::RunTest(const FString& Parameters)
 	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB1D-7XQ2-K5MN\"}"), TEXT("enrollmentCode"));
 	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":\"AB3D-7XQ2\"}"), TEXT("enrollmentCode"));
 	expectBroken(TEXT("{\"backendUrl\":\"https://example.com\",\"enrollmentCode\":12}"), TEXT("enrollmentCode"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigNestingTest, "SatisDash.Core.Config.Nesting", SatisDash::Test::Flags)
+
+bool FConfigNestingTest::RunTest(const FString& Parameters)
+{
+	// Security review F1: a config nested past Json::MaxDepth is broken JSON, like any other unparseable file.
+	const FString Head = TEXT("{\"backendUrl\":\"https://example.com\",\"x\":");
+	TestTrue(TEXT("an extra field at the cap"),
+		ParseConfig(Head + SatisDash::Test::NestedObjects(SatisDash::Json::MaxDepth - 1) + TEXT("}")).Status == EConfigStatus::Valid);
+	const FConfigResult Deep = ParseConfig(Head + SatisDash::Test::NestedObjects(SatisDash::Json::MaxDepth) + TEXT("}"));
+	TestTrue(TEXT("one over the cap is broken"), Deep.Status == EConfigStatus::Broken);
+	SatisDash::Test::SameText(*this, TEXT("bad field"), Deep.BadField, TEXT("json"));
 	return true;
 }
 

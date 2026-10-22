@@ -218,8 +218,16 @@ bool SatisDash::FCurlTransport::Start(FPending& Pending, const FRequestSpec& Spe
 	const long TimeoutMs = long(Seconds * 1000.0);
 
 	// Every option must take; any refusal fails the request closed. Never CURLOPT_VERBOSE or CURLOPT_DEBUGFUNCTION: they
-	// would print the Authorization header. No proxy options of the mod's own.
+	// would print the Authorization header.
 	bool bSet = setOption(Easy, CURLOPT_URL, TCHAR_TO_UTF8(*Spec.Url));
+	// Proxies, chosen deliberately (security review F3). Plain http (loopback only): an empty CURLOPT_PROXY turns every
+	// proxy off, the environment's included, so the Bearer header never goes to a proxy in clear. https: the
+	// environment's proxy variables are still honoured (a host may need them); that is a CONNECT tunnel, and TLS still
+	// runs end to end with the backend, so the proxy never sees the secret or the body.
+	if (bPlainHttp)
+	{
+		bSet = bSet && setOption(Easy, CURLOPT_PROXY, "");
+	}
 	// S3: a redirect is never followed. The protocol is https, or http only for a loopback URL (S1 allows it for the
 	// harness; IsAllowedRequestUrl checked the host above); a redirect could only ever be to https, and none is followed.
 	bSet = bSet && setOption(Easy, CURLOPT_FOLLOWLOCATION, 0L);

@@ -1,5 +1,6 @@
 #include "HAL/FileManager.h"
 #include "SatisDash/Credential.h"
+#include "SatisDash/JsonUtil.h"
 #include "TestUtil.h"
 
 using namespace SatisDash;
@@ -52,6 +53,17 @@ bool FCredentialFieldsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("backendUrl of the wrong type"), ParseCredential(Head + TEXT(",\"backendUrl\":5}")).IsSet());
 	TestFalse(TEXT("backendUrl empty"), ParseCredential(Head + TEXT(",\"backendUrl\":\"\"}")).IsSet());
 	TestFalse(TEXT("backendUrl not allowed (plain http, not local)"), ParseCredential(Head + TEXT(",\"backendUrl\":\"http://example.com\"}")).IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCredentialNestingTest, "SatisDash.Core.Credential.Nesting", SatisDash::Test::Flags)
+
+bool FCredentialNestingTest::RunTest(const FString& Parameters)
+{
+	// Security review F1: a credential file nested past Json::MaxDepth is refused like malformed JSON.
+	const FString Head = FString::Printf(TEXT("{\"agentSecret\":\"%s\",\"serverId\":\"srv-1\",\"backendUrl\":\"https://example.com\",\"x\":"), *FakeSecret);
+	TestTrue(TEXT("an extra field at the cap"), ParseCredential(Head + SatisDash::Test::NestedObjects(SatisDash::Json::MaxDepth - 1) + TEXT("}")).IsSet());
+	TestFalse(TEXT("one over the cap"), ParseCredential(Head + SatisDash::Test::NestedObjects(SatisDash::Json::MaxDepth) + TEXT("}")).IsSet());
 	return true;
 }
 

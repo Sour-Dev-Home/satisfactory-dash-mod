@@ -126,6 +126,9 @@ export function evaluate(e: CoreEvidence): Verdict {
   if (empty.length < NEED_EMPTY) reasons.push(`only ${empty.length} rounds with no game, need ${NEED_EMPTY}`);
   if (world.length < NEED_WORLD) reasons.push(`only ${world.length} rounds with the world, need ${NEED_WORLD}`);
   for (const r of d.rounds) reasons.push(...compareRound(r));
+  // C9 must actually be compared, not skipped in every round (final review of Plan 2B): at least NEED_WORLD rounds.
+  const comparedAutoPause = d.rounds.filter((r) => r.autoPause !== null).length;
+  if (comparedAutoPause < NEED_WORLD) reasons.push(`autoPause compared in only ${comparedAutoPause} rounds, need ${NEED_WORLD} (GetServerOptions didn't answer)`);
   if (!e.lines.some((l) => /Enrolled; reporting to the backend/.test(l))) reasons.push("S9: no enrolment line");
   if (reasons.length) return { pass: false, reasons };
   // Said in the pass reason, never skipped silently (review of 66e1f0d): how many rounds compared auto-pause, and how

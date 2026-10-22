@@ -3,6 +3,25 @@
 #include "Dom/JsonValue.h"
 #include "SatisDash/JsonUtil.h"
 
+namespace
+{
+	/**
+	 * Security review F4: ".", ".." and so on would be dot segments in the result URL, which libcurl removes, so the
+	 * result would go to another path. A dot inside a real ID stays allowed (Node parity: encodeURIComponent keeps it).
+	 */
+	bool isAllDots(const FString& Id)
+	{
+		for (const TCHAR C : Id)
+		{
+			if (C != TEXT('.'))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+}
+
 SatisDash::EReplyKind SatisDash::ClassifyReply(int32 Code, bool bAuthenticated)
 {
 	if (Code >= 200 && Code < 300)
@@ -143,7 +162,7 @@ TOptional<TArray<SatisDash::FAgentCommand>> SatisDash::ParseCommandsResponse(con
 			return {};
 		}
 		Command.Id = Id->AsString();
-		if (Command.Id.IsEmpty() || Command.Id.Len() > MaxCommandIdLength)
+		if (Command.Id.IsEmpty() || Command.Id.Len() > MaxCommandIdLength || isAllDots(Command.Id))
 		{
 			return {};
 		}
