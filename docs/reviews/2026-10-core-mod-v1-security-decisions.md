@@ -56,7 +56,8 @@ done with each finding, and the owner's decisions on the accepted risks (2026-10
     group's consumption and capacity, read from the circuit with no load of its own. It failed on production: FRM's
     `PowerProduction` is only the game's base production (FRM `Power.cpp:47`). The owner chose satisfactory-dash #620
     option A ("production" is the total), and ruled that the enrol judge compares groups without batteries against
-    max(FRM production, consumption) (PR #44). The 10,000-ID scan on a long-running server is still open.
+    max(FRM production, consumption) (PR #44). The 10,000-ID scan on a long-running server: dropped by the owner
+    (2026-10-23), to be fixed only if someone reports a missing circuit group.
   - 2, deferred auto-pause: the owner decided (satisfactory-dash #621) that the command reports ok and snapshots carry
     an optional `settings.pending`. The mod change waits for #621 to merge.
 
