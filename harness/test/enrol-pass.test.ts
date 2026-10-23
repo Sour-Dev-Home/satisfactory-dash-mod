@@ -227,4 +227,42 @@ describe("enrol pass conditions", () => {
       expect(evaluate(evidence(withRound(f))).reasons).toEqual([`${f.at}: group 1 fuse false vs FRM true`]);
     });
   });
+
+  // Enrol run 40038539365: two biomass burners powering a 4 MW Constructor. FRM's PowerProduction is base production
+  // only (0); the mod sends the game's total (4). See the header of runs/enrol/pass.ts.
+  describe("production against FRM's base production (proposed ruling, 2026-10-24)", () => {
+    const burners = (mod: { productionMW: number; batteryCapacityMWh?: number }, frm: { PowerProduction: number; BatteryCapacity?: number }) => {
+      const battery = mod.batteryCapacityMWh ?? 0;
+      const c = { ...circuit, productionMW: mod.productionMW, consumptionMW: 4, capacityMW: 60, maxConsumptionMW: 4, batteryCapacityMWh: battery, batteryPercent: 0, batteryDifferentialMW: 0 };
+      const row = { ...frmRow, PowerProduction: frm.PowerProduction, PowerConsumed: 4, PowerCapacity: 60, PowerMaxConsumed: 4, BatteryCapacity: frm.BatteryCapacity ?? 0, BatteryPercent: 0, BatteryDifferential: 0 };
+      const rounds = [...Array.from({ length: 4 }, (_, i) => round(i, false)),
+        ...Array.from({ length: 12 }, (_, i) => round(10 + i, true, { snapshot: { power: { circuits: [c] } }, frm: parseGetPowerFull([row]) }))];
+      return enrol({}, rounds);
+    };
+
+    it("passes the burners: no batteries, so production is judged against max(FRM production, consumption), and the reason says so", () => {
+      const v = evaluate(evidence(burners({ productionMW: 4 }, { PowerProduction: 0 })));
+      expect(v.pass).toBe(true);
+      expect(v.reasons[0]).toContain("power compared for 1 circuit group(s) (production against max(FRM production, consumption) for 1: no batteries)");
+    });
+
+    it("still fails a production above the derived total, by the same 1% bracket", () => {
+      const d = burners({ productionMW: 4.1 }, { PowerProduction: 0 });
+      const r = d.rounds[d.rounds.length - 1]!;
+      expect(evaluate(evidence(d)).reasons).toContain(`${r.at}: group 1 production 4.1 vs FRM 4`);
+    });
+
+    it("keeps the raw FRM figure for a group with batteries, so the same mismatch fails there", () => {
+      const d = burners({ productionMW: 4, batteryCapacityMWh: 100 }, { PowerProduction: 0, BatteryCapacity: 100 });
+      const r = d.rounds[d.rounds.length - 1]!;
+      expect(evaluate(evidence(d)).reasons).toContain(`${r.at}: group 1 production 4 vs FRM 0`);
+    });
+
+    it("is FRM's own figure where base covers the load, as on the owner's factory group", () => {
+      expect(evaluate(evidence(burners({ productionMW: 3633.3 }, { PowerProduction: 3633.3 }))).pass).toBe(true);
+      const d = burners({ productionMW: 4 }, { PowerProduction: 3633.3 });
+      const r = d.rounds[d.rounds.length - 1]!;
+      expect(evaluate(evidence(d)).reasons).toContain(`${r.at}: group 1 production 4 vs FRM 3633.3`);
+    });
+  });
 });
