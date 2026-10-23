@@ -78,16 +78,18 @@ describe("measureWindow", () => {
 
   it("stops and rejects when the server exits, instead of measuring on (review M1)", async () => {
     let ticksStopped = false;
+    let exit!: () => void;
+    const exited = new Promise<void>((r) => (exit = r));
     const deps = fakeDeps();
     const inner = deps.sampleTickWindow!;
     deps.sampleTickWindow = async (opts) => {
+      // The server exits once the window has started. A timer here raced the fake clock, which passes no real time: on
+      // a fast runner the whole window finished first and the measurement resolved (flaky in CI).
+      exit();
       const r = await inner(opts);
       ticksStopped = opts.stopped?.() ?? false;
       return r;
     };
-    let exit!: () => void;
-    const exited = new Promise<void>((r) => (exit = r));
-    setTimeout(() => exit(), 0);
     await expect(measureWindow(deps, 100, exited)).rejects.toThrow(/exited/);
     expect(ticksStopped).toBe(true);
   });
