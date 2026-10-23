@@ -39,6 +39,16 @@ done with each finding, and the owner's decisions on the accepted risks (2026-10
   4. The `0.1.0` version is hard-coded in 7 places, and the old HTTP-module transport left a lock and two
      api-sources rows behind.
 
+  Done on `feat/core-mod-followups` (2026-10-23), pending the owner's mod-test and core runs:
+  - 1: the transport's ticker stops when no request is out and restarts on the next Send. The multi handle and its
+    connection cache stay. The arrays are rebuilt only on a tick where a request finished.
+  - 4: `AgentVersion()` reads the `.uplugin`'s `VersionName`, so the `.uplugin` is the one place the version is
+    written. The run judges keep their literals (pass conditions are untouched), and `harness/test/mod-version.test.ts`
+    fails if they drift from the `.uplugin`. `FCappedBody`'s lock is gone, because libcurl writes the body on the game
+    thread. The 12 api-sources rows only the old transport used, and `HAL/CriticalSection.h`, are removed.
+  - 2 and 3 are still open: 2 changes what a deferred auto-pause command reports, and 3 needs a save with joined
+    circuits.
+
 ## Deferred to sub-project 4 (Linux builds and distribution)
 
 - S11: the credential file's `0600` mode on Linux, and F2's fix (create the temp file with mode `0600` before the

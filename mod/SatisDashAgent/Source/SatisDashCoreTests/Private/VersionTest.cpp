@@ -1,3 +1,4 @@
+#include "Interfaces/IPluginManager.h"
 #include "SatisDash/Log.h"
 #include "SatisDash/Version.h"
 #include "TestUtil.h"
@@ -6,8 +7,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSatisDashVersionTest, "SatisDash.Core.Version"
 
 bool FSatisDashVersionTest::RunTest(const FString& Parameters)
 {
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("SatisDashAgent"));
+	if (!TestTrue(TEXT("the plugin is found"), Plugin.IsValid()))
+	{
+		return true;
+	}
+	const FString VersionName = Plugin->GetDescriptor().VersionName;
+	TestFalse(TEXT("the .uplugin has a VersionName"), VersionName.IsEmpty());
 	const FString Version = SatisDash::AgentVersion();
-	SatisDash::Test::SameText(*this, TEXT("agentVersion"), Version, TEXT("mod/0.1.0"));
+	SatisDash::Test::SameText(*this, TEXT("agentVersion"), Version, TEXT("mod/") + VersionName);
 	TestTrue(TEXT("at most 32 characters"), Version.Len() <= 32);
 	return true;
 }

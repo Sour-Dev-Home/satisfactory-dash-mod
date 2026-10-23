@@ -8,5 +8,7 @@ public class SatisDashCore : ModuleRules
 		CppStandard = CppStandardVersion.Cpp20;
 		// Pure logic only (spec "Portability"): no FactoryGame, SML or HTTP here. Plan 2B's module reads the game.
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "Json" });
+		// Projects: the plugin manager, for the .uplugin's VersionName (Version.cpp).
+		PrivateDependencyModuleNames.AddRange(new string[] { "Projects" });
 	}
 }
