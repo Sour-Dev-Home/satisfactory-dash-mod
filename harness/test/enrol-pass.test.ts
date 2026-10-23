@@ -230,7 +230,7 @@ describe("enrol pass conditions", () => {
 
   // Enrol run 40038539365: two biomass burners powering a 4 MW Constructor. FRM's PowerProduction is base production
   // only (0); the mod sends the game's total (4). See the header of runs/enrol/pass.ts.
-  describe("production against FRM's base production (proposed ruling, 2026-10-23)", () => {
+  describe("production against FRM's base production (owner ruling, 2026-10-23)", () => {
     const burners = (mod: { productionMW: number; batteryCapacityMWh?: number }, frm: { PowerProduction: number; BatteryCapacity?: number }) => {
       const battery = mod.batteryCapacityMWh ?? 0;
       const c = { ...circuit, productionMW: mod.productionMW, consumptionMW: 4, capacityMW: 60, maxConsumptionMW: 4, batteryCapacityMWh: battery, batteryPercent: 0, batteryDifferentialMW: 0 };

@@ -9,7 +9,7 @@
 // the "before" read ended at most FRM_BRACKET_GAP_MS before the snapshot's observedAt, the "after" read started at most
 // that long after it, checked here from the recorded times, so a rejudge sees the same rule. The harness collects reads
 // with the same limit (it imports this constant) and polls about every 250 ms, so one failed read still leaves one.
-// PROPOSED, awaiting the owner's ruling (2026-10-23), after enrol run 40038539365 failed every world round on
+// Owner ruling (2026-10-23; PR #44, and satisfactory-dash #620 option A: "production" is the total produced), after enrol run 40038539365 failed every world round on
 // "group 1 production 4 vs FRM 0" (two biomass burners powering a 4 MW Constructor): FRM 1.5.4's PowerProduction is
 // the group's mBaseProduction (FRM Power.cpp:47), only the base part of the game's split (FGPowerCircuit.h:426-433),
 // while the mod sends PowerProduced, the total (FGPowerCircuit.h:104). Demand-following generators make up whatever
