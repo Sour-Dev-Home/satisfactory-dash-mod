@@ -324,28 +324,39 @@ bool SatisDash::FCurlTransport::Tick()
 		}
 	}
 
-	// Handlers run last, on requests already taken out of InFlight: one may Send again, or CancelAll.
-	TArray<TUniquePtr<FPending>> Done;
-	TArray<TUniquePtr<FPending>> Open;
-	for (TUniquePtr<FPending>& Each : InFlight)
+	// Most ticks finish nothing; then nothing is moved (follow-up 1: footprint).
+	bool bAnyDone = false;
+	for (const TUniquePtr<FPending>& Each : InFlight)
 	{
-		(Each->bDone ? Done : Open).Add(MoveTemp(Each));
+		bAnyDone = bAnyDone || Each->bDone;
 	}
-	InFlight = MoveTemp(Open);
-	const uint32 Started = Generation;
-	for (const TUniquePtr<FPending>& Each : Done)
+	if (bAnyDone)
 	{
+		// Handlers run last, on requests already taken out of InFlight: one may Send again, or CancelAll.
+		TArray<TUniquePtr<FPending>> Done;
+		TArray<TUniquePtr<FPending>> Open;
+		for (TUniquePtr<FPending>& Each : InFlight)
+		{
+			(Each->bDone ? Done : Open).Add(MoveTemp(Each));
+		}
+		InFlight = MoveTemp(Open);
+		const uint32 Started = Generation;
+		for (const TUniquePtr<FPending>& Each : Done)
+		{
+			if (Generation != Started)
+			{
+				break; // CancelAll ran in a handler: nothing more is delivered.
+			}
+			Deliver(*Each);
+		}
 		if (Generation != Started)
 		{
-			break; // CancelAll ran in a handler: nothing more is delivered.
+			return false;
 		}
-		Deliver(*Each);
 	}
-	if (Generation != Started)
-	{
-		return false;
-	}
-	if (Multi == nullptr && InFlight.Num() == 0)
+	// Idle: the ticker stops until the next Send (follow-up 1: it used to run every frame for the whole uptime). The multi
+	// handle stays, with its connection cache, for the next request; nothing in it needs pumping while no request is out.
+	if (InFlight.Num() == 0)
 	{
 		bTicking = false;
 		return false;

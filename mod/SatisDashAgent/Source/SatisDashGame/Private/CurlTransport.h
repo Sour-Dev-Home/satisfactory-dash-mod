@@ -12,8 +12,9 @@ namespace SatisDash
 {
 	/**
 	 * ITransport over the mod's own libcurl easy handles (Plan 2B Task 1e): redirects are never followed, only https, a TLS 1.2
-	 * minimum. One multi handle, pumped by a core-ticker delegate on the game thread; replies are delivered only from that
-	 * tick, so they always arrive later, on the game thread, and never inside Send (Ports.h). No threads of its own.
+	 * minimum. One multi handle, pumped by a core-ticker delegate on the game thread only while a request is out; replies
+	 * are delivered only from that tick, so they always arrive later, on the game thread, and never inside Send (Ports.h).
+	 * No threads of its own.
 	 * libcurl must be globally initialised before the first Send (the module does it, SatisDashGameModule.cpp).
 	 */
 	class FCurlTransport : public ITransport

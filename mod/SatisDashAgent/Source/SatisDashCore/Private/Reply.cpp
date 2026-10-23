@@ -1,7 +1,5 @@
 #include "SatisDash/Reply.h"
 
-#include "Misc/ScopeLock.h"
-
 namespace
 {
 	/** Where the path starts: after scheme://authority, or the end when there is no path. */
@@ -29,7 +27,6 @@ SatisDash::FCappedBody::FCappedBody()
 
 void SatisDash::FCappedBody::Serialize(void* Data, int64 Length)
 {
-	FScopeLock Lock(&Guard);
 	if (bOverflowed || Length < 0 || Bytes.Num() + Length > MaxResponseBytes)
 	{
 		bOverflowed = true;
@@ -41,13 +38,11 @@ void SatisDash::FCappedBody::Serialize(void* Data, int64 Length)
 
 bool SatisDash::FCappedBody::Overflowed() const
 {
-	FScopeLock Lock(&Guard);
 	return bOverflowed;
 }
 
 TArray<uint8> SatisDash::FCappedBody::Take()
 {
-	FScopeLock Lock(&Guard);
 	return MoveTemp(Bytes);
 }
 

@@ -1,15 +1,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "HAL/CriticalSection.h"
 #include "Serialization/Archive.h"
 #include "SatisDash/Responses.h"
 
 namespace SatisDash
 {
 	/**
-	 * The response body as the transport streams it in (libcurl's write callback, on the game thread). Past
-	 * MaxResponseBytes it keeps nothing more and sets an error, which ends the request while it downloads (S4).
+	 * The response body as the transport streams it in (libcurl's write callback, inside curl_multi_perform on the game
+	 * thread, so it needs no lock). Past MaxResponseBytes it keeps nothing more and sets an error, which ends the request
+	 * while it downloads (S4).
 	 */
 	class SATISDASHCORE_API FCappedBody final : public FArchive
 	{
@@ -20,7 +20,6 @@ namespace SatisDash
 		TArray<uint8> Take();
 
 	private:
-		mutable FCriticalSection Guard;
 		TArray<uint8> Bytes;
 		bool bOverflowed = false;
 	};
