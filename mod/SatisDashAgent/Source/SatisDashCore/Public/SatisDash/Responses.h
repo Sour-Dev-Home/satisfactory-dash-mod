@@ -24,6 +24,8 @@ namespace SatisDash
 	SATISDASHCORE_API EReplyKind ClassifyReply(int32 Code, bool bAuthenticated);
 
 	inline constexpr int32 MaxResponseBytes = 64 * 1024;
+	/** The largest cap any one request may ask for: FRM's large endpoints (FRM bridge spec "Memory"). */
+	inline constexpr int64 MaxRequestResponseBytes = 16 * 1024 * 1024;
 	inline constexpr int32 MinCadenceSeconds = 1;
 	inline constexpr int32 MaxCadenceSeconds = 3600;
 	inline constexpr int32 MaxCommandIdLength = 100;

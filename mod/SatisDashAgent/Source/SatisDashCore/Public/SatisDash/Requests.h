@@ -4,6 +4,7 @@
 #include "SatisDash/Commands.h"
 #include "SatisDash/Config.h"
 #include "SatisDash/Credential.h"
+#include "SatisDash/Responses.h"
 
 namespace SatisDash
 {
@@ -15,6 +16,8 @@ namespace SatisDash
 		TArray<TPair<FString, FString>> Headers;
 		TArray<uint8> Body;
 		float TimeoutSeconds = 15.f;
+		/** The reply body's cap, enforced while it downloads (S4); the backend's 64 KB unless an FRM read asks for more. */
+		int64 ResponseCapBytes = MaxResponseBytes;
 	};
 
 	// backendClient.ts: REQUEST_TIMEOUT_MS, LONG_POLL_GRACE_MS, GZIP_OVER_BYTES; the contract's longest wait (25 s).

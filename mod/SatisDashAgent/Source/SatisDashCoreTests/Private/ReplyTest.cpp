@@ -1,4 +1,5 @@
 #include "SatisDash/Reply.h"
+#include "SatisDash/Requests.h"
 #include "TestUtil.h"
 
 using namespace SatisDash;
@@ -24,7 +25,36 @@ namespace
 	}
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FReplyCappedBodyTest, "SatisDash.Core.Reply.CappedBody", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FReplyLimitTest, "SatisDash.Core.Reply.Limit", SatisDash::Test::Flags)
+
+bool FReplyLimitTest::RunTest(const FString& Parameters)
+{
+	{
+		FCappedBody CappedBody;
+		TestEqual(TEXT("the default is the backend's 64 KB"), CappedBody.Limit(), int64(MaxResponseBytes));
+	}
+	{
+		FCappedBody CappedBody;
+		CappedBody.SetLimit(10);
+		feed(CappedBody, 10);
+		TestFalse(TEXT("exactly the limit is kept"), CappedBody.Overflowed());
+		feed(CappedBody, 1);
+		TestTrue(TEXT("one byte more overflows"), CappedBody.Overflowed());
+		TestTrue(TEXT("and sets the archive error that ends the transfer (S4)"), CappedBody.IsError());
+	}
+	{
+		FCappedBody CappedBody;
+		CappedBody.SetLimit(int64(1) << 40);
+		TestEqual(TEXT("a limit above 16 MB is held to 16 MB"), CappedBody.Limit(), MaxRequestResponseBytes);
+		CappedBody.SetLimit(-5);
+		TestEqual(TEXT("a negative limit is 0"), CappedBody.Limit(), int64(0));
+	}
+	FRequestSpec Spec;
+	TestEqual(TEXT("a request's cap defaults to 64 KB"), Spec.ResponseCapBytes, int64(MaxResponseBytes));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FReplyCappedBodyTest,"SatisDash.Core.Reply.CappedBody", SatisDash::Test::Flags)
 
 bool FReplyCappedBodyTest::RunTest(const FString& Parameters)
 {

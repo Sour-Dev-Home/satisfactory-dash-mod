@@ -158,6 +158,7 @@ void SatisDash::FCurlTransport::Send(const FRequestSpec& Spec, FReplyHandler OnR
 	TUniquePtr<FPending> Owned = MakeUnique<FPending>();
 	FPending& Pending = *Owned;
 	Pending.Url = Spec.Url;
+	Pending.CappedBody.SetLimit(Spec.ResponseCapBytes);
 	Pending.OnReply = MoveTemp(OnReply);
 	InFlight.Add(MoveTemp(Owned));
 	if (!bTicking)
@@ -424,7 +425,7 @@ void SatisDash::FCurlTransport::Deliver(FPending& Pending)
 	}
 	else if (Refusal == EReplyRefusal::Oversized && RefusalLog.ShouldLog(TEXT("oversized"), Now))
 	{
-		UE_LOG(LogSatisDash, Warning, TEXT("A backend response was over %d bytes; refused it"), MaxResponseBytes);
+		UE_LOG(LogSatisDash, Warning, TEXT("A response from %s was over %lld bytes; refused it"), *originOf(Pending.Url), Pending.CappedBody.Limit());
 	}
 	else if (Refusal == EReplyRefusal::NoAnswer)
 	{
