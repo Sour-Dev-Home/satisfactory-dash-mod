@@ -113,19 +113,34 @@ void SatisDash::FDriver::RunNext(double Now)
 	case ECommandAction::Report:
 		break;
 	case ECommandAction::SetAutoPause:
-		if (Game.ApplyAutoPause(Plan.bEnabled))
+	{
+		// S10: the result follows the read-back. A change the server defers (it sits in the pending options) is ok too
+		// (owner, satisfactory-dash #621): the next snapshot says pending.
+		const TOptional<FAutoPauseReading> ReadBack = Game.ApplyAutoPause(Plan.bEnabled);
+		const TCHAR* State = Plan.bEnabled ? TEXT("on") : TEXT("off");
+		if (ReadBack.IsSet() && EffectiveAutoPause(ReadBack.GetValue()) == Plan.bEnabled)
 		{
 			Result = CommandOk();
-			UE_LOG(LogSatisDash, Display, TEXT("Applied set_auto_pause from the dashboard: auto-pause is now %s"), Plan.bEnabled ? TEXT("on") : TEXT("off"));
+			if (ReadBack->PendingValue.IsSet())
+			{
+				UE_LOG(LogSatisDash, Display, TEXT("Accepted set_auto_pause from the dashboard: auto-pause will be %s once the server applies it (pending)"), State);
+			}
+			else
+			{
+				UE_LOG(LogSatisDash, Display, TEXT("Applied set_auto_pause from the dashboard: auto-pause is now %s"), State);
+			}
+			// The dashboard shows the confirmed value without pending until the next snapshot: take it now.
+			NextStatusAt = 0;
 		}
 		else
 		{
-			// S10: the read-back didn't agree, so nothing is claimed; the ledger still records the ID.
+			// The read-back didn't agree, so nothing is claimed; the ledger still records the ID.
 			Result = CommandFailed(TEXT("upstream_error"));
 			UE_LOG(LogSatisDash, Warning, TEXT("Couldn't apply set_auto_pause; reporting upstream_error"));
 		}
 		Ledger.Finish(Command.Id, Result);
 		break;
+	}
 	}
 	FReport Next;
 	Next.Id = Command.Id;

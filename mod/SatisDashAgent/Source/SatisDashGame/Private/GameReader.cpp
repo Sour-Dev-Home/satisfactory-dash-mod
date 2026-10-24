@@ -39,7 +39,7 @@ TOptional<SatisDash::FStatusReading> SatisDash::FGameReader::ReadStatus()
 	return Out;
 }
 
-TOptional<bool> SatisDash::FGameReader::ReadAutoPause()
+TOptional<SatisDash::FAutoPauseReading> SatisDash::FGameReader::ReadAutoPause()
 {
 	UFGServerSubsystem* Subsystem = Server();
 	UFGServerAPIManager* Manager = Subsystem != nullptr ? Subsystem->GetServerAPIManager() : nullptr;
@@ -51,23 +51,33 @@ TOptional<bool> SatisDash::FGameReader::ReadAutoPause()
 	TMap<FString, FString> Options;
 	TMap<FString, FString> Pending;
 	NewObject<UFGServerStateController>(Manager)->Handler_GetServerOptions(Options, Pending);
-	return ParseAutoPauseOption(Options.Find(AutoPauseOption));
+	const TOptional<bool> Applied = ParseAutoPauseOption(Options.Find(AutoPauseOption));
+	if (!Applied.IsSet())
+	{
+		return {};
+	}
+	FAutoPauseReading Out;
+	Out.bEnabled = Applied.GetValue();
+	// A change the server defers sits in the pending options (satisfactory-dash #621). An unreadable pending value
+	// counts as none: only a value the mod can name is ever reported as pending.
+	Out.PendingValue = ParseAutoPauseOption(Pending.Find(AutoPauseOption));
+	return Out;
 }
 
-bool SatisDash::FGameReader::ApplyAutoPause(bool bEnabled)
+TOptional<SatisDash::FAutoPauseReading> SatisDash::FGameReader::ApplyAutoPause(bool bEnabled)
 {
 	UFGServerSubsystem* Subsystem = Server();
 	UFGServerAPIManager* Manager = Subsystem != nullptr ? Subsystem->GetServerAPIManager() : nullptr;
 	if (Manager == nullptr)
 	{
-		return false;
+		return {};
 	}
 	TMap<FString, FString> Updated;
 	Updated.Add(AutoPauseOption, AutoPauseOptionValue(bEnabled));
 	NewObject<UFGServerManagementController>(Manager)->Handler_ApplyServerOptions(Updated);
-	// Handler_ApplyServerOptions returns nothing (FGServerManagementController.h:60): reading back is the only check.
-	const TOptional<bool> Now = ReadAutoPause();
-	return Now.IsSet() && Now.GetValue() == bEnabled;
+	// Handler_ApplyServerOptions returns nothing (FGServerManagementController.h:60): reading back is the only check,
+	// and the driver judges it (applied or pending).
+	return ReadAutoPause();
 }
 
 TOptional<TArray<SatisDash::FCircuitReading>> SatisDash::FGameReader::ReadPower()

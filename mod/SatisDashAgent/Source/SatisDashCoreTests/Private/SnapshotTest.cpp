@@ -26,7 +26,9 @@ namespace
 		FSnapshot Snapshot;
 		Snapshot.AgentVersion = TEXT("mod/0.1.0");
 		Snapshot.ObservedAt = FDateTime(2026, 10, 20, 13, 26, 42, 134);
-		Snapshot.AutoPause = true;
+		FAutoPauseReading AutoPause;
+		AutoPause.bEnabled = true;
+		Snapshot.AutoPause = AutoPause;
 		return Snapshot;
 	}
 

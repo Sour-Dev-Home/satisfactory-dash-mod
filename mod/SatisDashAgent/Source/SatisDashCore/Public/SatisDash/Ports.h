@@ -28,11 +28,11 @@ namespace SatisDash
 		virtual ~IGameReader() = default;
 		/** Unset when the server's state can't be read (no game world, or no server subsystem in it yet). */
 		virtual TOptional<FStatusReading> ReadStatus() = 0;
-		/** FG.DSAutoPause; unset when it can't be read. */
-		virtual TOptional<bool> ReadAutoPause() = 0;
+		/** FG.DSAutoPause, applied and pending; unset when it can't be read. */
+		virtual TOptional<FAutoPauseReading> ReadAutoPause() = 0;
 		/** One reading per power circuit group; unset when there is no circuit subsystem. */
 		virtual TOptional<TArray<FCircuitReading>> ReadPower() = 0;
-		/** Sets FG.DSAutoPause and reads it back: true only when the game now reports bEnabled. */
-		virtual bool ApplyAutoPause(bool bEnabled) = 0;
+		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
+		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectPowerPairs, pairReadings, parseGetPower, parseGetPowerFull, parseS3Lines, pickBracket, readAutoPause, startFrmPoller } from "../src/frm";
+import { collectPowerPairs, pairReadings, parseGetPower, parseGetPowerFull, parseS3Lines, pickBracket, readAutoPause, readAutoPauseOptions, startFrmPoller } from "../src/frm";
 
 // Shape from satisfactory-dash raw-sources/captured-responses/frm-getPower-2026-09-22-F-panel.json (FRM 1.5.3).
 const frmBody = [
@@ -119,6 +119,15 @@ describe("FRM pairing", () => {
     expect(await readAutoPause(options("False"))).toBe(false);
     await expect(readAutoPause({ call: async () => ({ status: 403, body: null }) })).rejects.toThrow(/GetServerOptions returned 403/);
     await expect(readAutoPause({ call: async () => ({ status: 200, body: { data: {} } }) })).rejects.toThrow(/no FG.DSAutoPause/);
+  });
+
+  it("reads FG.DSAutoPause's pending value too, as the mod does: none, True, False, or unreadable as none (2026-10-24)", async () => {
+    const options = (pending: Record<string, unknown> | undefined) => ({ call: async () => ({ status: 200, body: { data: { serverOptions: { "FG.DSAutoPause": "False" }, pendingServerOptions: pending } } }) });
+    expect(await readAutoPauseOptions(options({}))).toEqual({ applied: false, pending: null });
+    expect(await readAutoPauseOptions(options({ "FG.DSAutoPause": "True" }))).toEqual({ applied: false, pending: true });
+    expect(await readAutoPauseOptions(options({ "FG.DSAutoPause": "False" }))).toEqual({ applied: false, pending: false });
+    expect(await readAutoPauseOptions(options({ "FG.DSAutoPause": "yes" }))).toEqual({ applied: false, pending: null });
+    expect(await readAutoPauseOptions(options(undefined))).toEqual({ applied: false, pending: null });
   });
 
   it("lists every FRM circuit, including those in multi-circuit groups, so the circuit check sees them (final review, finding 3)", async () => {

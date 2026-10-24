@@ -17,6 +17,10 @@
 // Where base covers the load (every run before this one), that is FRM's own figure, so the same bracket and 1% apply
 // unchanged. A group with batteries (whose charging is demand too) keeps the raw FRM figure; the pass reason says how
 // many groups the derived total judged.
+// Owner ruling (2026-10-24, the settings.pending change after satisfactory-dash #621): every round also checks pending.
+// GetServerOptions' pendingServerOptions gives the expected values: settings.autoPause is the pending value when one
+// waits, else the applied one, and settings.pending (absent counts as false, as the contract says) is whether one
+// waits. A round recorded before this change has no autoPausePending and is judged as having none.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { Verdict } from "../../harness/src/verdict";
 
@@ -43,6 +47,8 @@ export interface FrmGroup { groupId: number; production: number; consumption: nu
 /** frmBefore and frmAfter: FRM read just before and just after the mod's sample (null: no such read); when they ran. */
 export interface Round {
   at: string; world: boolean; snapshot: Record<string, unknown>; api: ApiStatus | null; autoPause: boolean | null;
+  /** FG.DSAutoPause's pending value from GetServerOptions: null when none waits; absent in rounds recorded before 2026-10-24. */
+  autoPausePending?: boolean | null;
   frmBefore: FrmGroup[] | null; frmAfter: FrmGroup[] | null; frmBeforeEndedAt: string | null; frmAfterStartedAt: string | null;
 }
 /** How FRM was polled during the world rounds (evidence: the tick and memory figures were taken under this load). */
@@ -67,8 +73,14 @@ export function compareRound(r: Round): string[] {
   if (!tickClose(s.tickRate, a.tickRate)) out.push(`${r.at}: tick rate ${s.tickRate} vs API ${a.tickRate}`);
   if (s.tickHealth !== a.health) out.push(`${r.at}: tick health ${s.tickHealth} vs API ${a.health}`);
   if (s.sessionName !== a.session) out.push(`${r.at}: session hash differs`);
-  const settings = r.snapshot.settings as { autoPause?: boolean } | undefined;
-  if (r.autoPause !== null && settings?.autoPause !== r.autoPause) out.push(`${r.at}: autoPause ${settings?.autoPause} vs GetServerOptions ${r.autoPause}`);
+  const settings = r.snapshot.settings as { autoPause?: boolean; pending?: boolean } | undefined;
+  if (r.autoPause !== null) {
+    const waiting = r.autoPausePending ?? null;
+    const expected = waiting ?? r.autoPause;
+    if (settings?.autoPause !== expected) out.push(`${r.at}: autoPause ${settings?.autoPause} vs GetServerOptions ${expected}${waiting === null ? "" : " (pending)"}`);
+    const pending = settings?.pending ?? false;
+    if (pending !== (waiting !== null)) out.push(`${r.at}: pending ${pending} vs GetServerOptions ${waiting !== null}`);
+  }
   const power = (r.snapshot.power as { circuits?: Circuit[] } | undefined)?.circuits;
   if (!r.world) {
     if (power !== undefined) out.push(`${r.at}: power sent with no game running`);

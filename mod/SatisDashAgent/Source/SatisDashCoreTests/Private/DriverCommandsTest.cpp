@@ -116,6 +116,27 @@ bool FCommandsApplyFailsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// satisfactory-dash #621 (owner, 2026-10-23): a change the server defers is ok, and the next snapshot, taken at once,
+// says pending with the new value.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsPendingTest, "SatisDash.Core.Commands.Pending", SatisDash::Test::Flags)
+
+bool FCommandsPendingTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	F.Game.bApplyDefers = true;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	commandsReady(F, Driver);
+	TestTrue(TEXT("before: applied, nothing pending"), F.Net.lastBody(CommandsSnapshots).Contains(TEXT("\"settings\":{\"autoPause\":false,\"pending\":false}")));
+	const int32 Before = F.Net.sent(CommandsSnapshots);
+	const FDateTime Expires = F.Utc + FTimespan::FromMinutes(5);
+	F.Net.answer(CommandsPoll, commandsReply(commandsItem(TEXT("c-9"), TEXT("set_auto_pause"), TEXT("{\"enabled\":true}"), Expires)));
+	F.run(Driver, 1);
+	SatisDash::Test::SameText(*this, TEXT("a deferred change is ok"), F.Net.lastBody(*commandsResultPath(TEXT("c-9"))), TEXT("{\"ok\":true}"));
+	TestEqual(TEXT("a snapshot follows at once, not at the next 5 s slot"), F.Net.sent(CommandsSnapshots), Before + 1);
+	TestTrue(TEXT("it carries the new value, pending"), F.Net.lastBody(CommandsSnapshots).Contains(TEXT("\"settings\":{\"autoPause\":true,\"pending\":true}")));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsResultRetriesTest, "SatisDash.Core.Commands.ResultRetries", SatisDash::Test::Flags)
 
 bool FCommandsResultRetriesTest::RunTest(const FString& Parameters)

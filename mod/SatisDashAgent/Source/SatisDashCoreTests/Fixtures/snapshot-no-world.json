@@ -3,7 +3,7 @@
   "observedAt": "2026-10-20T13:26:42.134Z",
   "reachable": true,
   "paused": false,
-  "settings": { "autoPause": true },
+  "settings": { "autoPause": true, "pending": false },
   "status": {
     "tickHealth": "healthy",
     "isGameRunning": false,
