@@ -440,3 +440,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TJsonWriter::WriteValue | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:243 | header only (named; doubles with 17 significant digits, :438-443) |
 | TJsonWriter::WriteNull | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:305 | header only (the named overload) |
 | TJsonWriter::Close | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:334 | header only |
+| FMath::Fmod | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:517 | header only (the double overload; Fmod(-2.8, 2) is -0.8, as JavaScript's %, :509) |
+| FString::Empty | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:327 | header only |
+| FString::LeftChop | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1171 | header only (the const& overload; test only) |
+| FJsonObject::GetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:271 | header only (the FStringView overload; test only) |

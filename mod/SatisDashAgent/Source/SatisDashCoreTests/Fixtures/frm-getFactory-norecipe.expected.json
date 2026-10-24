@@ -1,0 +1,87 @@
+{
+  "buildings": [
+    {
+      "id": "Build_OilRefinery_C_2147458064",
+      "name": "Refinery",
+      "className": "Build_OilRefinery_C",
+      "recipe": null,
+      "isProducing": false,
+      "isPaused": false,
+      "isBackedUp": false,
+      "inputsFull": false,
+      "circuitGroupId": 1,
+      "location": {
+        "xM": -1849,
+        "yM": -1133,
+        "zM": 48.00008437196724,
+        "rotationDeg": 0
+      },
+      "clockSpeedPercent": 100,
+      "production": [],
+      "ingredients": []
+    },
+    {
+      "id": "Build_ConstructorMk1_C_2147456649",
+      "name": "Constructor",
+      "className": "Build_ConstructorMk1_C",
+      "recipe": null,
+      "isProducing": false,
+      "isPaused": false,
+      "isBackedUp": false,
+      "inputsFull": false,
+      "circuitGroupId": -1,
+      "location": {
+        "xM": -1834,
+        "yM": -1143,
+        "zM": 48.000070718452335,
+        "rotationDeg": 180
+      },
+      "clockSpeedPercent": 100,
+      "production": [],
+      "ingredients": []
+    },
+    {
+      "id": "Build_OilRefinery_C_2146846128",
+      "name": "Refinery",
+      "className": "Build_OilRefinery_C",
+      "recipe": "Plastic",
+      "isProducing": true,
+      "isPaused": false,
+      "isBackedUp": false,
+      "inputsFull": true,
+      "circuitGroupId": 0,
+      "location": {
+        "xM": -389,
+        "yM": -1894,
+        "zM": 48.000126953125,
+        "rotationDeg": 90
+      },
+      "clockSpeedPercent": 100,
+      "production": [
+        {
+          "name": "Plastic",
+          "className": "Desc_Plastic_C",
+          "currentPerMinute": 20,
+          "maxPerMinute": 20,
+          "percent": 100
+        },
+        {
+          "name": "Heavy Oil Residue",
+          "className": "Desc_HeavyOilResidue_C",
+          "currentPerMinute": 10,
+          "maxPerMinute": 10,
+          "percent": 100
+        }
+      ],
+      "ingredients": [
+        {
+          "name": "Crude Oil",
+          "className": "Desc_LiquidOil_C",
+          "currentPerMinute": 30,
+          "maxPerMinute": 30,
+          "percent": 100
+        }
+      ]
+    }
+  ]
+}
