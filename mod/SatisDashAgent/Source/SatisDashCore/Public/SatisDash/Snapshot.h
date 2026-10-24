@@ -35,13 +35,28 @@ namespace SatisDash
 		double BatteryDifferentialMW = 0;
 	};
 
+	/** FG.DSAutoPause as the game's server options report it (GetServerOptions: the options and the pending ones). */
+	struct FAutoPauseReading
+	{
+		/** The applied value. */
+		bool bEnabled = false;
+		/** Set when FG.DSAutoPause is also among the pending options: a change the server applies later. */
+		TOptional<bool> PendingValue;
+	};
+
+	/** What the contract's settings.autoPause carries: the pending value when one waits (agent.ts), else the applied one. */
+	inline bool EffectiveAutoPause(const FAutoPauseReading& Reading)
+	{
+		return Reading.PendingValue.IsSet() ? Reading.PendingValue.GetValue() : Reading.bEnabled;
+	}
+
 	/** One pass's readings (spec "Data flow"). A part is unset when it wasn't due or its reader failed. */
 	struct FSnapshot
 	{
 		FString AgentVersion;
 		/** Must be UTC (FDateTime::UtcNow()), not local time: the wire format and expiresAt are both UTC. */
 		FDateTime ObservedAt;
-		TOptional<bool> AutoPause;
+		TOptional<FAutoPauseReading> AutoPause;
 		TOptional<FStatusReading> Status;
 		TOptional<TArray<FCircuitReading>> Power;
 	};

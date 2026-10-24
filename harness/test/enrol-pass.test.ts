@@ -228,6 +228,31 @@ describe("enrol pass conditions", () => {
     });
   });
 
+  // Owner ruling, 2026-10-24 (satisfactory-dash #621): pending is checked every round against GetServerOptions.
+  describe("settings.pending against GetServerOptions' pending options", () => {
+    const pendingRound = (settings: Record<string, unknown>, autoPausePending: boolean | null | undefined) =>
+      ({ ...round(30, true, { snapshot: { settings } }), autoPausePending });
+
+    it("passes a pending change: autoPause shows the pending value, and pending is true", () => {
+      expect(evaluate(evidence(withRound(pendingRound({ autoPause: true, pending: true }, true)))).pass).toBe(true);
+    });
+
+    it("fails a mod that sends the applied value without pending while a change waits", () => {
+      const r = pendingRound({ autoPause: false, pending: false }, true);
+      expect(evaluate(evidence(withRound(r))).reasons).toEqual([`${r.at}: autoPause false vs GetServerOptions true (pending)`, `${r.at}: pending false vs GetServerOptions true`]);
+    });
+
+    it("fails pending: true when nothing waits, and counts an absent pending as false", () => {
+      const r = pendingRound({ autoPause: false, pending: true }, null);
+      expect(evaluate(evidence(withRound(r))).reasons).toEqual([`${r.at}: pending true vs GetServerOptions false`]);
+      expect(evaluate(evidence(withRound(pendingRound({ autoPause: false }, null)))).pass).toBe(true);
+    });
+
+    it("judges a round recorded before the change (no autoPausePending) as having nothing pending", () => {
+      expect(evaluate(evidence(withRound(pendingRound({ autoPause: false }, undefined)))).pass).toBe(true);
+    });
+  });
+
   // Enrol run 40038539365: two biomass burners powering a 4 MW Constructor. FRM's PowerProduction is base production
   // only (0); the mod sends the game's total (4). See the header of runs/enrol/pass.ts.
   describe("production against FRM's base production (owner ruling, 2026-10-23)", () => {

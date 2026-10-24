@@ -102,9 +102,11 @@ namespace SatisDash::Test
 	struct FFakeGame : public SatisDash::IGameReader
 	{
 		TOptional<SatisDash::FStatusReading> Status;
-		TOptional<bool> AutoPause = false;
+		TOptional<SatisDash::FAutoPauseReading> AutoPause = SatisDash::FAutoPauseReading();
 		TOptional<TArray<SatisDash::FCircuitReading>> Power;
 		bool bApplyWorks = true;
+		/** The server defers the change: it lands in the pending options, the applied value stays. */
+		bool bApplyDefers = false;
 		TArray<bool> Applied;
 		int32 PowerReads = 0;
 
@@ -117,16 +119,30 @@ namespace SatisDash::Test
 			Power = TArray<SatisDash::FCircuitReading>{ SatisDash::FCircuitReading() };
 		}
 		virtual TOptional<SatisDash::FStatusReading> ReadStatus() override { return Status; }
-		virtual TOptional<bool> ReadAutoPause() override { return AutoPause; }
+		virtual TOptional<SatisDash::FAutoPauseReading> ReadAutoPause() override { return AutoPause; }
 		virtual TOptional<TArray<SatisDash::FCircuitReading>> ReadPower() override { ++PowerReads; return Power; }
-		virtual bool ApplyAutoPause(bool bEnabled) override
+		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);
-			if (bApplyWorks)
+			if (!bApplyWorks)
 			{
-				AutoPause = bEnabled;
+				// The game kept the other value: the read-back disagrees, whatever the fake held before.
+				SatisDash::FAutoPauseReading Kept;
+				Kept.bEnabled = !bEnabled;
+				return Kept;
 			}
-			return bApplyWorks;
+			if (AutoPause.IsSet())
+			{
+				if (bApplyDefers)
+				{
+					AutoPause->PendingValue = bEnabled;
+				}
+				else
+				{
+					AutoPause->bEnabled = bEnabled;
+				}
+			}
+			return AutoPause;
 		}
 	};
 

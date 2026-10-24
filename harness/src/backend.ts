@@ -114,6 +114,19 @@ const COMMIT = /^[0-9a-f]{40}$/;
  * checkout's own git (`merge-base --is-ancestor`, exit 0: the pin is the commit or an ancestor of it; 1: it isn't), so
  * nothing here needs the network. Refuses before anything boots.
  */
+/**
+ * Whether `revision` is `pin` or a descendant of it, asked of the satisfactory-dash checkout: null when it can't tell
+ * (the commit isn't fetched), "no-git" when git couldn't be run. The checkout is the owner's; a core run asks as
+ * satis-runner, so it's named safe on the command line (git honours safe.directory there), changing no git config.
+ */
+export async function imageDescends(opts: { checkout: string; exec: Exec }, pin: string, revision: string): Promise<boolean | null | "no-git"> {
+  const git = await opts.exec("git", ["-c", `safe.directory=${opts.checkout}`, "merge-base", "--is-ancestor", pin, revision], { cwd: opts.checkout });
+  if (git.code === EXEC_NOT_STARTED) return "no-git";
+  if (git.code === 0) return true;
+  if (git.code === 1) return false;
+  return null;
+}
+
 async function checkImages(config: ComposeConfig, opts: { checkout: string; exec: Exec; pin: string }): Promise<BackendImages> {
   const one = async (service: string, role: string): Promise<ImageRevision> => {
     const image = config.services?.[service]?.image;
@@ -130,14 +143,14 @@ async function checkImages(config: ComposeConfig, opts: { checkout: string; exec
     if (typeof revision !== "string" || !COMMIT.test(revision)) {
       throw new RefusalError(`the ${role} image ${image} has no ${REVISION_LABEL} label naming a full commit: docker pull ${image}, then start again`);
     }
-    const git = await opts.exec("git", ["merge-base", "--is-ancestor", opts.pin, revision], { cwd: opts.checkout });
-    if (git.code === EXEC_NOT_STARTED) {
+    const descends = await imageDescends(opts, opts.pin, revision);
+    if (descends === "no-git") {
       throw new RefusalError("git could not be run in the satisfactory-dash checkout (is it installed and on PATH?): the image guard can't check the images' commits");
     }
-    if (git.code === 1) {
+    if (descends === false) {
       throw new RefusalError(`the ${role} image ${image} was built from ${revision}, not ${opts.pin} or a descendant of it (the contract pin): docker pull ${image}, then start again`);
     }
-    if (git.code !== 0) {
+    if (descends === null) {
       throw new RefusalError(`the satisfactory-dash checkout can't tell whether ${revision} (the ${role} image ${image}) descends from ${opts.pin}: git fetch in the checkout, then start again`);
     }
     return { image, revision };

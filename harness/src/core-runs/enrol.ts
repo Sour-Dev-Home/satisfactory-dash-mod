@@ -5,7 +5,7 @@ import type { CoreContext, CoreRunSpec } from "../core-run";
 import { MOD } from "../core-run";
 import { randomCode } from "../backend";
 import type { HostClient } from "../backend-host";
-import { parseGetPowerFull, pickBracket, readAutoPause, startFrmPoller } from "../frm";
+import { parseGetPowerFull, pickBracket, readAutoPauseOptions, startFrmPoller } from "../frm";
 import { modConfigPath } from "../mod-config";
 import { startRecorder, type Recorder } from "../recorder";
 import { createServerApi } from "../server-api";
@@ -53,7 +53,7 @@ async function collect(ctx: CoreContext, recorder: Recorder, world: boolean, wan
       await ctx.waitFor("the next accepted snapshot", () => (accepted(recorder).length > seen ? true : undefined), MIN);
       const entry = accepted(recorder)[seen]!;
       seen = accepted(recorder).length;
-      const [status, autoPause] = await Promise.all([readApiStatus(api).catch(() => null), readAutoPause(api).catch(() => null)]);
+      const [status, options] = await Promise.all([readApiStatus(api).catch(() => null), readAutoPauseOptions(api).catch(() => null)]);
       let bracket: ReturnType<typeof pickBracket> = { before: null, after: null };
       const observed = Date.parse(String((entry.snapshot as { observedAt?: unknown } | undefined)?.observedAt ?? ""));
       if (world && poller && Number.isFinite(observed)) {
@@ -63,7 +63,8 @@ async function collect(ctx: CoreContext, recorder: Recorder, world: boolean, wan
       }
       const iso = (ms: number | undefined) => (ms === undefined ? null : new Date(ms).toISOString());
       rounds.push({
-        at: entry.at, world, snapshot: entry.snapshot as Record<string, unknown>, api: status, autoPause,
+        at: entry.at, world, snapshot: entry.snapshot as Record<string, unknown>, api: status,
+        autoPause: options?.applied ?? null, autoPausePending: options?.pending ?? null,
         frmBefore: bracket.before?.groups ?? null,
         frmAfter: bracket.after?.groups ?? null,
         frmBeforeEndedAt: iso(bracket.before?.endedAt),

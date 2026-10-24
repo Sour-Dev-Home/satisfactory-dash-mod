@@ -7,7 +7,7 @@ import { redact, writeBundle } from "./evidence";
 import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
 import { lastLines, RefusalError, type RunDeps, realDeps } from "./run";
-import { contractPin } from "./backend";
+import { type BackendImages, contractPin, imageDescends, realExec } from "./backend";
 import { connectBackendHost, type HostClient } from "./backend-host";
 import { createServerApi } from "./server-api";
 import { readApiStatus } from "./status";
@@ -103,6 +103,8 @@ export type CoreDeps = Pick<RunDeps,
   sleep(ms: number): Promise<void>;
   /** Present when the runner config names the backend host's file (ruling 10). */
   backendHost?: () => Promise<HostClient>;
+  /** Whether an image's commit is this run's contract pin or a descendant (backend.ts imageDescends); present with s5's checkout. */
+  imageDescends?: (pin: string, revision: string) => Promise<boolean | null | "no-git">;
   /** The spawned server's process tree's memory; null when it can't be read. */
   processMemory?: (pid: number) => Promise<ProcessMemory | null>;
   /** Whether a game is running and its session hash, from QueryServerState now; null when the API doesn't answer. */
@@ -167,6 +169,26 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     throw new RefusalError(message(e));
   }
   if (await deps.serverAnswering()) throw new RefusalError(`something already answers at ${deps.config.apiBaseUrl}: stop the other server first`);
+  if (spec.backend && deps.backendHost && deps.imageDescends) {
+    // The host guarded its images against its own checkout's contract pin, which can be older than this run's. Run
+    // 40123626401's backend was 58 commits older and refused every snapshot. So refuse here, before anything boots.
+    const pin = contractPin();
+    let images: BackendImages;
+    try {
+      images = await (await deps.backendHost()).images();
+    } catch (e) {
+      throw new RefusalError(`reading the backend's images: ${message(e)}`);
+    }
+    for (const [role, img] of [["APP_IMAGE", images.app], ["OPS_IMAGE", images.ops]] as const) {
+      const descends = await deps.imageDescends(pin, img.revision);
+      if (descends === false) {
+        throw new RefusalError(`the backend's ${role} image ${img.image} was built from ${img.revision}, older than this run's contract pin ${pin}: docker pull it, restart the backend host, then run again`);
+      }
+      if (descends !== true) {
+        throw new RefusalError(`can't tell whether the backend's ${role} image ${img.image} (${img.revision}) descends from this run's contract pin ${pin}: git fetch in the satisfactory-dash checkout, then run again`);
+      }
+    }
+  }
 
   const startedAt = deps.now().toISOString();
   let pluginDir: string;
@@ -423,6 +445,7 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
     ...(d.loadWorld ? { loadWorld: d.loadWorld } : {}),
     ...(d.readAutoLoad && d.setAutoLoad ? { readAutoLoad: d.readAutoLoad, setAutoLoad: d.setAutoLoad } : {}),
     ...(config.backendHost ? { backendHost: () => connectBackendHost(config.backendHost!.file) } : {}),
+    ...(config.s5 ? { imageDescends: (pin: string, revision: string) => imageDescends({ checkout: config.s5!.checkout, exec: realExec }, pin, revision) } : {}),
     processMemory: readProcessMemory,
     gameState: async () => {
       const s = await readApiStatus(createServerApi(config.apiBaseUrl));

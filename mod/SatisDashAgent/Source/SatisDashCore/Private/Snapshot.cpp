@@ -102,7 +102,9 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 	if (Snapshot.AutoPause.IsSet())
 	{
 		const TSharedRef<FJsonObject> Settings = MakeShared<FJsonObject>();
-		Settings->SetBoolField(TEXT("autoPause"), Snapshot.AutoPause.GetValue());
+		// satisfactory-dash #621: when a change waits, autoPause already shows the new value and pending is true.
+		Settings->SetBoolField(TEXT("autoPause"), EffectiveAutoPause(Snapshot.AutoPause.GetValue()));
+		Settings->SetBoolField(TEXT("pending"), Snapshot.AutoPause->PendingValue.IsSet());
 		Root->SetObjectField(TEXT("settings"), Settings);
 	}
 	if (Snapshot.Status.IsSet())

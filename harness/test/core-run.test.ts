@@ -191,6 +191,26 @@ describe("runCore", () => {
     expect(existsSync(join(none.dir, "backend.json"))).toBe(false);
   });
 
+  it("refuses a backend run, before building the mod, whose images predate this run's contract pin (run 40123626401)", async () => {
+    const images = {
+      app: { image: "ghcr.io/sour-dev-home/satisfactory-dash-backend:main", revision: "26e4c72ea9e28de3839fc67d42d8077c584b4a92" },
+      ops: { image: "ghcr.io/sour-dev-home/satisfactory-dash-ops:main", revision: "26e4c72ea9e28de3839fc67d42d8077c584b4a92" },
+    };
+    const host = { relayUrl: "http://127.0.0.1:13101", images: async () => images } as unknown as HostClient;
+    const asked: string[] = [];
+    const run = (answer: boolean | null | "no-git") => {
+      const f = fakeDeps({ backendHost: async () => host, imageDescends: async (pin, revision) => (asked.push(`${pin} ${revision}`), answer) });
+      return { f, run: runCore("enrol", spec({ backend: true }), f.deps) };
+    };
+    const old = run(false);
+    await expect(old.run).rejects.toThrow(`the backend's APP_IMAGE image ${images.app.image} was built from ${images.app.revision}, older than this run's contract pin ${contractPin()}: docker pull it, restart the backend host, then run again`);
+    expect(asked[0]).toBe(`${contractPin()} ${images.app.revision}`);
+    expect(old.f.calls).not.toContain("build");
+    await expect(run(null).run).rejects.toThrow(/can't tell whether the backend's APP_IMAGE image .* git fetch in the satisfactory-dash checkout/);
+    await expect(run("no-git").run).rejects.toThrow(/can't tell whether/);
+    expect((await run(true).run).result.pass).toBe(true);
+  });
+
   it("fails a run whose log has an Error line from the mod, or the string Bearer anywhere", async () => {
     const errored = await runCore("http-probe", spec(), fakeDeps({}, () => "[x][1]LogSatisDash: Error: x\n").deps);
     expect(errored.result.pass).toBe(false);

@@ -16,9 +16,9 @@ namespace SatisDash
 		void SetWorld(UWorld* InWorld) { World = InWorld; }
 
 		virtual TOptional<FStatusReading> ReadStatus() override;
-		virtual TOptional<bool> ReadAutoPause() override;
+		virtual TOptional<FAutoPauseReading> ReadAutoPause() override;
 		virtual TOptional<TArray<FCircuitReading>> ReadPower() override;
-		virtual bool ApplyAutoPause(bool bEnabled) override;
+		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) override;
 
 	private:
 		UFGServerSubsystem* Server() const;
