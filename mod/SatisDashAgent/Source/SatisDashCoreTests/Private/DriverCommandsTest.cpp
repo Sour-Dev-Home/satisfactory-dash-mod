@@ -247,6 +247,10 @@ bool FCommandsHaltTest::RunTest(const FString& Parameters)
 	F.Net.answer(CommandsPoll, commandsReply(commandsItem(TEXT("c-6"), TEXT("set_auto_pause"), TEXT("{\"enabled\":true}"), Expires)
 		+ TEXT(",") + commandsItem(TEXT("c-7"), TEXT("set_auto_pause"), TEXT("{\"enabled\":false}"), Expires)));
 	F.run(Driver, 1);
+	// An applied set_auto_pause takes the next snapshot at once (satisfactory-dash #621); answer it, so the halt below
+	// leaves no snapshot of the old credential in flight.
+	TestEqual(TEXT("the ok's snapshot went out at once"), F.Net.pending(CommandsSnapshots), 1);
+	while (F.Net.answer(CommandsSnapshots, SatisDash::Test::SnapshotOk(false))) {}
 	F.Net.answer(*commandsResultPath(TEXT("c-6")), SatisDash::Test::Reply(401, TEXT("{}")));
 	TestTrue(TEXT("a 401 on a result halts"), Agent.GetState() == EAgentState::Halted);
 	F.run(Driver, 60);
