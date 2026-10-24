@@ -1,6 +1,7 @@
 # G3, sub-project 3: the FRM bridge
 
-Status: design approved by the owner section by section on 2026-10-23; this written spec is in review. Sub-project 2's
+Status: approved by the owner 2026-10-23 (design section by section, then this written spec, with the queue revised in
+review; mod PR #45). Sub-project 2's
 spec is `2026-10-20-core-mod-v1-design.md`; the build decision is ADR-0042 (satisfactory-dash).
 
 ## What this is for
