@@ -1,0 +1,126 @@
+#include "DriverFakes.h"
+#include "SatisDash/FrmBridge.h"
+
+using namespace SatisDash;
+
+namespace
+{
+	const TCHAR* FrmBridgeOnePlayer = TEXT("[{\"Name\":\"Player One\",\"Online\":true}]");
+	const TCHAR* FrmBridgeOneBuilding = TEXT("[{\"ID\":\"B_1\",\"Name\":\"n\",\"ClassName\":\"c\",\"IsProducing\":true,\"IsPaused\":false}]");
+
+	struct FFrmBridgeFixture
+	{
+		SatisDash::Test::FFakeTransport Net;
+		SatisDash::Test::FFakeWorker Worker;
+		FFrmBridge Bridge{ Net, Worker };
+		double T = 100;
+		void tick(int32 Times = 1)
+		{
+			for (int32 I = 0; I < Times; ++I)
+			{
+				T += 0.5;
+				Bridge.Tick(T, 8080, FString());
+			}
+		}
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgePlayersTest, "SatisDash.Core.FrmBridge.Players", SatisDash::Test::Flags)
+
+bool FFrmBridgePlayersTest::RunTest(const FString& Parameters)
+{
+	FFrmBridgeFixture F;
+	F.Bridge.RequestPass(false);
+	F.tick();
+	TestEqual(TEXT("getPlayer asked"), F.Net.pending(TEXT("/getPlayer")), 1);
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	TestFalse(TEXT("not ready before the worker parsed it"), F.Bridge.TakePlayers(F.T, 10).IsSet());
+	F.tick(2);
+	TestEqual(TEXT("parsed on the worker"), F.Worker.Launched, 1);
+	const TOptional<FString> Players = F.Bridge.TakePlayers(F.T, 10);
+	TestTrue(TEXT("ready"), Players.IsSet() && Players->Contains(TEXT("Player One")));
+	TestFalse(TEXT("taken once"), F.Bridge.TakePlayers(F.T, 10).IsSet());
+
+	F.Bridge.RequestPass(false);
+	F.tick();
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(0, FString()));
+	F.tick();
+	SatisDash::Test::SameText(*this, TEXT("FRM down: unavailable, without the worker"), F.Bridge.TakePlayers(F.T, 10).Get(FString()), TEXT("{\"available\":false,\"players\":[]}"));
+	TestEqual(TEXT("nothing parsed for it"), F.Worker.Launched, 1);
+
+	F.Bridge.RequestPass(false);
+	F.tick();
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, TEXT("[{\"Name\":1}]")));
+	F.tick(2);
+	TestFalse(TEXT("an invalid body: no part"), F.Bridge.TakePlayers(F.T, 10).IsSet());
+
+	F.Bridge.RequestPass(false);
+	F.tick();
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.tick(2);
+	TestFalse(TEXT("a part older than its age is dropped"), F.Bridge.TakePlayers(F.T + 11, 10).IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeFactoryTest, "SatisDash.Core.FrmBridge.Factory", SatisDash::Test::Flags)
+
+bool FFrmBridgeFactoryTest::RunTest(const FString& Parameters)
+{
+	FFrmBridgeFixture F;
+	F.Worker.bHold = true;
+	F.Bridge.RequestPass(true);
+	F.tick();
+	TestEqual(TEXT("one FRM request in flight: players first"), F.Net.Open.Num(), 1);
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.tick();
+	TestEqual(TEXT("then the factory"), F.Net.pending(TEXT("/getFactory")), 1);
+	F.Net.answer(TEXT("/getFactory"), SatisDash::Test::Reply(200, FrmBridgeOneBuilding));
+	F.tick();
+	TestEqual(TEXT("one worker task at a time: the players parse"), F.Worker.Launched, 1);
+	F.Bridge.RequestPass(true);
+	F.tick();
+	TestEqual(TEXT("getPlayer passes the large body"), F.Net.pending(TEXT("/getPlayer")), 1);
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.tick();
+	TestEqual(TEXT("but no second factory read while one is parsing"), F.Net.pending(TEXT("/getFactory")), 0);
+	TestEqual(TEXT("and still one task"), F.Worker.Launched, 1);
+	for (int32 I = 0; I < 6; ++I)
+	{
+		F.Worker.release();
+		F.tick();
+	}
+	TestTrue(TEXT("the factory part is ready"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT("\"B_1\"")));
+	F.tick(2);
+	TestEqual(TEXT("then the next factory read may start"), F.Net.pending(TEXT("/getFactory")), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeStopTest, "SatisDash.Core.FrmBridge.Stop", SatisDash::Test::Flags)
+
+bool FFrmBridgeStopTest::RunTest(const FString& Parameters)
+{
+	FFrmBridgeFixture F;
+	F.Bridge.RequestPass(true);
+	F.tick();
+	F.Bridge.Stop();
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.tick(3);
+	TestFalse(TEXT("a reply after Stop is never used"), F.Bridge.TakePlayers(F.T, 10).IsSet());
+	TestEqual(TEXT("and the queued factory read was dropped"), F.Net.sent(TEXT("/getFactory")), 0);
+
+	FSnapshot Snapshot;
+	Snapshot.AgentVersion = TEXT("mod/0.1.0");
+	Snapshot.ObservedAt = FDateTime(2026, 10, 23, 12, 0, 0);
+	Snapshot.FactoryJson = TEXT("{\"buildings\":[]}");
+	Snapshot.PlayersJson = PlayersToJson(PlayersUnavailable());
+	F.Bridge.EncodeSnapshot(Snapshot);
+	TestTrue(TEXT("encoding is pending"), F.Bridge.EncodePending());
+	F.tick(2);
+	const TOptional<FEncodedBody> Body = F.Bridge.TakeEncoded();
+	TestTrue(TEXT("encoded on the worker"), Body.IsSet() && Body->Bytes.Num() > 0);
+	TestFalse(TEXT("no longer pending"), F.Bridge.EncodePending());
+	const FString Json = SnapshotToJson(Snapshot);
+	TestTrue(TEXT("the parts are spliced into the snapshot"), Json.Contains(TEXT(",\"players\":{\"available\":false,\"players\":[]}")) && Json.Contains(TEXT(",\"factory\":{\"buildings\":[]}}")));
+	TestTrue(TEXT("and it is one valid object"), SatisDash::Json::ParseObject(Json).IsValid());
+	return true;
+}

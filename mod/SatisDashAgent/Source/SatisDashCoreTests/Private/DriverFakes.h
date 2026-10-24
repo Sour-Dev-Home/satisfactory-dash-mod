@@ -146,6 +146,35 @@ namespace SatisDash::Test
 		}
 	};
 
+	/** Runs work inline when launched, or holds it until release() when bHold (to test one task at a time). */
+	struct FFakeWorker : public SatisDash::IWorker
+	{
+		bool bHold = false;
+		int32 Launched = 0;
+		SatisDash::FWorkFn Held;
+
+		virtual void Launch(SatisDash::FWorkFn job) override
+		{
+			++Launched;
+			if (bHold)
+			{
+				Held = MoveTemp(job);
+				return;
+			}
+			job();
+		}
+		virtual bool IsIdle() const override { return !Held; }
+		void release()
+		{
+			SatisDash::FWorkFn job = MoveTemp(Held);
+			Held = SatisDash::FWorkFn();
+			if (job)
+			{
+				job();
+			}
+		}
+	};
+
 	/** A config, a fake clock (monotonic and UTC move together), a fake network and a fake game. */
 	struct FDriverFixture
 	{

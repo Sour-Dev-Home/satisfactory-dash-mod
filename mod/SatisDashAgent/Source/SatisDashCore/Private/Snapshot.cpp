@@ -123,5 +123,20 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 		Power->SetArrayField(TEXT("circuits"), Circuits);
 		Root->SetObjectField(TEXT("power"), Power);
 	}
-	return SatisDash::Json::Write(Root);
+	FString Json = SatisDash::Json::Write(Root);
+	if (Snapshot.PlayersJson.IsSet() || Snapshot.FactoryJson.IsSet())
+	{
+		// The parts arrive as finished JSON; the root always has fields, so its closing brace is replaced.
+		Json.LeftChopInline(1);
+		if (Snapshot.PlayersJson.IsSet())
+		{
+			Json += TEXT(",\"players\":") + Snapshot.PlayersJson.GetValue();
+		}
+		if (Snapshot.FactoryJson.IsSet())
+		{
+			Json += TEXT(",\"factory\":") + Snapshot.FactoryJson.GetValue();
+		}
+		Json.AppendChar(TEXT('}'));
+	}
+	return Json;
 }

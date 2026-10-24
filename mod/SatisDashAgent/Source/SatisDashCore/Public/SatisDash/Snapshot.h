@@ -59,6 +59,10 @@ namespace SatisDash
 		TOptional<FAutoPauseReading> AutoPause;
 		TOptional<FStatusReading> Status;
 		TOptional<TArray<FCircuitReading>> Power;
+		/** The players part (AgentPlayersSchema) as JSON, made by FFrmBridge; spliced in as is. */
+		TOptional<FString> PlayersJson;
+		/** The factory part (AgentFactorySchema) as JSON, made off the game thread by FFactoryParse. */
+		TOptional<FString> FactoryJson;
 	};
 
 	/** At most 200 UTF-16 code units (the contract's string length, as JavaScript counts it), never splitting a pair. */

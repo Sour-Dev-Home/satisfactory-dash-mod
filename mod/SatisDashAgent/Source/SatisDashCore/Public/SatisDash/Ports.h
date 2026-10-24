@@ -35,4 +35,19 @@ namespace SatisDash
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};
+
+	/**
+	 * Runs pure work off the game thread (FRM bridge spec "Threading"): UE::Tasks in the game (SatisDashGame's
+	 * FTaskWorker), inline in the tests. One task at a time: Launch is only called while IsIdle().
+	 */
+	using FWorkFn = TUniqueFunction<void()>;
+
+	class IWorker
+	{
+	public:
+		virtual ~IWorker() = default;
+		virtual void Launch(FWorkFn Work) = 0;
+		/** True when nothing launched is still running; what it wrote is then safe to read on the game thread. */
+		virtual bool IsIdle() const = 0;
+	};
 }
