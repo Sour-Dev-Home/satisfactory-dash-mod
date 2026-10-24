@@ -1,0 +1,13 @@
+{
+  "available": true,
+  "players": [
+    {
+      "name": "Player One",
+      "online": false
+    },
+    {
+      "name": "Zoë Ünïcode",
+      "online": true
+    }
+  ]
+}

@@ -413,3 +413,30 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | UFGPowerCircuit::GetBatterySumPowerStoreCapacity | Source/FactoryGame/Public/FGPowerCircuit.h:219 | header only |
 | UFGPowerCircuit::GetBatterySumPowerInput | Source/FactoryGame/Public/FGPowerCircuit.h:227 | header only (clamped at 0, the charge half) |
 | UFGPowerCircuit::GetBatterySumPowerOutput | Source/FactoryGame/Public/FGPowerCircuit.h:231 | header only (clamped at 0, the discharge half) |
+| TJsonReaderFactory::CreateFromView | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:1085 | header only (TJsonStringViewReader, :1020; the engine's own UTF8CHAR use is Json/Private/Tests/JsonTests.cpp:752) |
+| TJsonReader::ReadNext | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:57 | header only (true with EJsonNotation::Error on bad input; false at a clean end or after an error, :59-91) |
+| TJsonReader::GetIdentifier | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:164 | header only |
+| TJsonReader::GetValueAsString | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:166 | header only (check()s the token: called only after a String notation) |
+| TJsonReader::GetValueAsNumber | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:192 | header only (called only after a Number notation) |
+| TJsonReader::GetValueAsBoolean | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:204 | header only (called only after a Boolean notation) |
+| TJsonReader::GetErrorMessage | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:210 | header only |
+| EJsonNotation | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:59 | header only |
+| EJsonNotation::ObjectStart | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:61 | header only |
+| EJsonNotation::ObjectEnd | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:62 | header only |
+| EJsonNotation::ArrayStart | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:63 | header only |
+| EJsonNotation::ArrayEnd | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:64 | header only |
+| EJsonNotation::Boolean | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:65 | header only |
+| EJsonNotation::String | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:66 | header only |
+| EJsonNotation::Number | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:67 | header only |
+| EJsonNotation::Null | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:68 | header only |
+| EJsonNotation::Error | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:69 | header only |
+| TStringView | Engine/Source/Runtime/Core/Public/Containers/StringView.h:93 | header only (the pointer-and-size constructor, :111; the brief said :143) |
+| UTF8CHAR | Engine/Source/Runtime/Core/Public/HAL/Platform.h:1087 | header only |
+| TJsonWriterFactory::Create | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:697 | header only (the StringType* overload) |
+| TJsonWriter::WriteObjectStart | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:109 | header only (the named overload is :127) |
+| TJsonWriter::WriteObjectEnd | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:140 | header only |
+| TJsonWriter::WriteArrayStart | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:153 | header only (the named overload is :171) |
+| TJsonWriter::WriteArrayEnd | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:183 | header only |
+| TJsonWriter::WriteValue | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:243 | header only (named; doubles with 17 significant digits, :438-443) |
+| TJsonWriter::WriteNull | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:305 | header only (the named overload) |
+| TJsonWriter::Close | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:334 | header only |

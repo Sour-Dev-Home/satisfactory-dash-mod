@@ -1,5 +1,3 @@
-#include "Interfaces/IPluginManager.h"
-#include "Misc/FileHelper.h"
 #include "SatisDash/JsonUtil.h"
 #include "SatisDash/Snapshot.h"
 #include "TestUtil.h"
@@ -10,17 +8,6 @@ using namespace SatisDash;
 
 namespace
 {
-	FString Fixture(const TCHAR* Name)
-	{
-		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("SatisDashAgent"));
-		FString Text;
-		if (Plugin.IsValid())
-		{
-			FFileHelper::LoadFileToString(Text, *(Plugin->GetBaseDir() / TEXT("Source/SatisDashCoreTests/Fixtures") / Name));
-		}
-		return Text;
-	}
-
 	FSnapshot Base()
 	{
 		FSnapshot Snapshot;
@@ -30,15 +17,6 @@ namespace
 		AutoPause.bEnabled = true;
 		Snapshot.AutoPause = AutoPause;
 		return Snapshot;
-	}
-
-	/** Same JSON value, compared as data: field order and 5 vs 5.0 don't matter. */
-	bool SameJson(const FString& A, const FString& B)
-	{
-		const TSharedPtr<FJsonObject> Left = SatisDash::Json::ParseObject(A);
-		const TSharedPtr<FJsonObject> Right = SatisDash::Json::ParseObject(B);
-		return Left.IsValid() && Right.IsValid() &&
-			FJsonValue::CompareEqual(FJsonValueObject(Left), FJsonValueObject(Right));
 	}
 }
 
@@ -105,18 +83,18 @@ bool FSnapshotFixturesTest::RunTest(const FString& Parameters)
 	Circuit.BatteryPercent = 100.0000001; // float noise: conformed to 100
 	Circuit.BatteryDifferentialMW = -12.5;
 	World.Power = TArray<FCircuitReading>{ Circuit };
-	const FString WorldFixture = Fixture(TEXT("snapshot-world.json"));
+	const FString WorldFixture = SatisDash::Test::Fixture(TEXT("snapshot-world.json"));
 	TestFalse(TEXT("the world fixture was found"), WorldFixture.IsEmpty());
-	TestTrue(TEXT("matches snapshot-world.json"), SameJson(SnapshotToJson(World), WorldFixture));
+	TestTrue(TEXT("matches snapshot-world.json"), SatisDash::Test::SameJson(SnapshotToJson(World), WorldFixture));
 
 	FSnapshot NoWorld = Base();
 	FStatusReading Idle;
 	Idle.PlayerLimit = 4;
 	Idle.TickRate = 30;
 	NoWorld.Status = Idle;
-	const FString NoWorldFixture = Fixture(TEXT("snapshot-no-world.json"));
+	const FString NoWorldFixture = SatisDash::Test::Fixture(TEXT("snapshot-no-world.json"));
 	TestFalse(TEXT("the no-world fixture was found"), NoWorldFixture.IsEmpty());
-	TestTrue(TEXT("matches snapshot-no-world.json"), SameJson(SnapshotToJson(NoWorld), NoWorldFixture));
+	TestTrue(TEXT("matches snapshot-no-world.json"), SatisDash::Test::SameJson(SnapshotToJson(NoWorld), NoWorldFixture));
 	return true;
 }
 
