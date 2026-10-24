@@ -64,7 +64,7 @@ All new logic is in `SatisDashCore` (pure, unit-tested). `SatisDashGame` changes
 | Unit | Module | Job |
 | --- | --- | --- |
 | `FFrmClient` | Core | Builds `GET http://127.0.0.1:<frmPort>/<endpoint>` with an optional `X-FRM-Authorization` header, and sends it through `ITransport` with that endpoint's response cap and timeout |
-| `FFrmQueue` | Core | Every FRM read in one queue, at most one in flight (below) |
+| `FFrmQueue` | Core | Every FRM read, in two priority lanes, at most one request in flight (below) |
 | Mappers: factory, players, mapLive, rails, resourceNodes, conveyors | Core | FRM JSON to compact structs to contract JSON, ported field by field from the Node agent |
 | `FWorldSender` | Core | The world-layer schedule, hashing, sending, retries and backoff |
 | Driver | Core | The sample pass adds `factory` and `mapLive` (factory cadence) and `players` (every pass), each optional |
@@ -84,16 +84,46 @@ Status, power and auto-pause stay native and unchanged.
 
 ### Load spreading
 
-- **One FRM request at a time.** FRM builds its answers on the game's thread, so two large reads at once would land
-  in the same frames. The next request starts only after the previous one's parse has finished, so at most one raw
-  body is held.
+**Where FRM does its work** (FRM 1.5.4, `Source/FicsitRemoteMonitoring/Private/FicsitRemoteMonitoring.cpp` at tag
+`1.5.4-515`):
+
+- FRM serves its HTTP API on **one thread of its own**, a uWS event loop (`:253`), with a default port of 8080 (`:258`).
+- An endpoint runs on the game thread only when it is registered with `RequiresGameThread()`:
+
+| On the game thread | On FRM's own server thread |
+| --- | --- |
+| `getPlayer` (small, every 5 s), `getResourceNode` (about 288 KB, every 30 min) | `getFactory`, `getBelts`, `getLifts`, `getPipes`, `getTrains`, `getTrainStation`, `getTrainRails` (`:796-896`) |
+
+So the largest reads don't cost the game's frames. What the queue protects is the mod's memory, FRM's single server
+thread, and the latency of the small live reads.
+
+**The queue (`FFrmQueue`):**
+
+- **At most one FRM request in flight.** FRM answers on one thread, so parallel requests would only wait inside FRM
+  while holding more bodies in the mod's memory.
+- **Two priority lanes:**
+  - The **live lane** (`players`, `factory`, `mapLive`) always goes first.
+  - The **world lane** (`rails`, `conveyors`, `resourceNodes`) starts only when the live lane has nothing due.
+- **Large and small reads:**
+  - The next large read starts only after the previous large body's parse has finished, so at most one large raw body
+    is held.
+  - While a large body parses in the background, only `getPlayer` (tiny) may still be fetched, so players never wait
+    behind a 3 MB parse.
+- **Unchanged world layers skip their parse.** The raw FRM body of each world-layer read is hashed first. When it
+  matches the last raw hash, the parse is skipped and the layer is not re-sent. Rails and resource nodes rarely
+  change, so most world reads cost only the download.
+
+**Timing:**
+
 - **Cadences match the Node agent's:** the mod never asks FRM for more than the Node agent does.
-- **Staggered start:** after boot, the world layers start at about 2 min (rails), 5 min (conveyors) and 8 min
-  (resource nodes), each with jitter. A world-layer read due inside a factory read's 30 s window waits for the next
-  gap.
-- **The three conveyor endpoints** are read one after another with a short gap, and each body is parsed and released
-  before the next request.
+- **Staggered start:** after boot, the world layers start at about 2 min (rails), 5 min (conveyors) and 8 min (resource
+  nodes), each with jitter.
+- **The three conveyor endpoints** are read one after another, each body parsed and released before the next request.
 - **World-layer sends** are gzipped, and go one at a time behind snapshots, so they never delay a status snapshot.
+
+**Not added, by design:** adaptive pacing (slowing an endpoint when its reads are slow), and FRM's WebSocket push (FRM
+pushes on its own timer, giving less control over timing and size). Either can come later if the measurements below
+show a need.
 
 ### Memory
 
@@ -105,7 +135,7 @@ Status, power and auto-pause stay native and unchanged.
 - **Caps are applied while reading:** records past a cap are counted and dropped as they are read. The exception is
   conveyors: past 50,000 edges the reader stops and the layer is sent as `skipped: "tooManyEdges"`, as the Node agent
   does.
-- **Peak per read:** one raw body plus its compact output. For example, a conveyor edge is about 200 bytes, so the
+- **Peak per read:** one large raw body plus its compact output, and at most one small `getPlayer` body passing it. For example, a conveyor edge is about 200 bytes, so the
   owner's roughly 2,400 edges come to about 0.5 MB.
 - **Steady state:** each world layer keeps only its last hash (32 bytes). Snapshot parts live until serialised, then
   in the existing queue (120 snapshots, 2 MiB, gzipped, oldest dropped first).
@@ -116,8 +146,8 @@ Status, power and auto-pause stay native and unchanged.
 
 `SatisDashAgent.cfg` gains:
 
-- **`frmPort`:** FRM's HTTP port, default 8080 (the Node agent's default, `agent/src/store.ts:29`), checked to be
-  1-65535. The host is always `127.0.0.1`, because the mod
+- **`frmPort`:** FRM's HTTP port, default 8080 (FRM's own default, `FicsitRemoteMonitoring.cpp:258`, and the Node
+  agent's, `agent/src/store.ts:29`), checked to be 1-65535. The host is always `127.0.0.1`, because the mod
   and FRM are in the same game process.
 - **`frmToken`, optional:** sent only as `X-FRM-Authorization`, never logged. A value with a line break is refused
   before any request.
@@ -157,7 +187,9 @@ If FRM answers 401 or 403, the mod logs once: "FRM requires a token: set frmToke
   - open conveyor ends, and an FRM older than 1.5.4 (`skipped: "unsupportedFrm"`);
   - lists over their caps.
 - **The queue and scheduler,** with a fake clock:
-  - one request in flight, the boot offsets, no heavy read in the factory window, and jitter;
+  - one request in flight, the live lane ahead of the world lane, and `getPlayer` passing a large parse but no other
+    read doing so;
+  - the raw-hash skip (no parse and no send for an unchanged body), the boot offsets and jitter;
   - backoff, a 401 halt, and no reads while idle.
 - **The token reader:**
   - skipped fields are never stored, and a capped list stops at its cap;
@@ -167,8 +199,10 @@ If FRM answers 401 or 403, the mod logs once: "FRM requires a token: set frmToke
 
 - **`parity`** adds `factory`, `players` and `mapLive` in every round, and each world layer once. The mod and the Node
   agent run side by side on the staged world.
-- **`tick-cost`'s window** includes a factory read and a conveyor read. The evidence records peak memory around the
-  largest read. The pass limits for these are the owner's ruling: the plan proposes numbers, and no existing limit
+- **`tick-cost`'s window** includes a factory read, a conveyor read and a `getResourceNode` read. The evidence
+  records peak memory around the largest read, and each endpoint's response time with the game's tick around it.
+  `getResourceNode` is the one large endpoint FRM runs on the game thread; if its read hitches, the fix is a longer
+  cadence, since resource nodes rarely change. The pass limits for these are the owner's ruling: the plan proposes numbers, and no existing limit
   changes without the owner.
 - **New `frm-down`:** FRM stops mid-run. The parts are left out, players show `available: false`, status and power
   keep flowing, and the mod recovers when FRM returns.
