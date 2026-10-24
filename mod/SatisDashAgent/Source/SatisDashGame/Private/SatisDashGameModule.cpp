@@ -9,6 +9,7 @@
 #include "SatisDash/Driver.h"
 #include "SatisDash/Log.h"
 #include "SatisDashCurl.h"
+#include "TaskWorker.h"
 
 namespace
 {
@@ -21,14 +22,6 @@ namespace
 		return Clock;
 	}
 }
-
-/** Stopgap until FRM bridge Task 9 gives the game a real worker: it drops every job, so no FRM body is ever parsed on the game thread. */
-class FDroppingWorker : public SatisDash::IWorker
-{
-public:
-	virtual void Launch(SatisDash::FWorkFn Work) override {}
-	virtual bool IsIdle() const override { return true; }
-};
 
 /** Plan 2B Task 6: the game ticks the driver, which owns enrolment, sampling, pushing and commands (Driver.h). */
 class FSatisDashGameModule : public IModuleInterface
@@ -75,6 +68,8 @@ public:
 		// together with the module (Driver.h: never cancel and keep ticking).
 		FTSTicker::RemoveTicker(TickHandle);
 		FWorldDelegates::OnPostWorldInitialization.Remove(WorldInitHandle);
+		// A parse or encode still running finishes here: its job is shared with the task, never freed under it.
+		Worker.Wait();
 		// Every easy handle and the multi handle are released here, before the mod's libcurl copy is cleaned up.
 		Transport.CancelAll();
 		if (bCurlReady)
@@ -87,7 +82,8 @@ public:
 private:
 	SatisDash::FCurlTransport Transport;
 	SatisDash::FGameReader Reader;
-	FDroppingWorker Worker;
+	// Declared before the driver, so the driver (and its bridge) go first and the worker last, after its task.
+	SatisDash::FTaskWorker Worker;
 	// Held by value (check-api excuses calls only on receivers declared with the plugin's own type, not a TUniquePtr), and
 	// declared after the transport and the reader it holds references to, so it is destroyed before them. Its constructor
 	// only stores its arguments; nothing reads or writes a file before Boot, which only a dedicated server reaches.

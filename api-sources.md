@@ -445,3 +445,10 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FString::Empty | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:327 | header only |
 | FString::LeftChop | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1171 | header only (the const& overload; test only) |
 | FJsonObject::GetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:271 | header only (the FStringView overload; test only) |
+| Tasks/Task.h | Engine/Source/Runtime/Core/Public/Tasks/Task.h:1 | header only |
+| UE::Tasks::Launch | Engine/Source/Runtime/Core/Public/Tasks/Task.h:299 | header only (the overload without prerequisites) |
+| UE::Tasks::FTask | Engine/Source/Runtime/Core/Public/Tasks/Task.h:392 | header only (alias of Private::FTaskHandle, :33) |
+| FTaskHandle::IsCompleted | Engine/Source/Runtime/Core/Public/Tasks/Task.h:75 | header only (true when not valid, :77; reads an atomic bIsClosed with seq_cst order, TaskPrivate.h:816-818, stored after the body ran, :812) |
+| FTaskHandle::IsValid | Engine/Source/Runtime/Core/Public/Tasks/Task.h:69 | header only |
+| FTaskHandle::Wait | Engine/Source/Runtime/Core/Public/Tasks/Task.h:91 | header only (the overload without a timeout) |
+| UE::Tasks::ETaskPriority::BackgroundLow | Engine/Source/Runtime/Core/Public/Async/Fundamental/Task.h:25 | header only (LowLevelTasks::ETaskPriority, aliased into UE::Tasks at Tasks/TaskPrivate.h:54) |
