@@ -142,3 +142,44 @@ bool FConfigFileTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("an existing file's time"), ConfigModTime(Path) > FDateTime::MinValue());
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigFrmTest, "SatisDash.Core.Config.Frm", SatisDash::Test::Flags)
+
+bool FConfigFrmTest::RunTest(const FString& Parameters)
+{
+	const FConfigResult Plain = ParseConfig(TEXT("{\"backendUrl\":\"https://api.example.com\"}"));
+	TestTrue(TEXT("valid without the FRM fields"), Plain.Status == EConfigStatus::Valid);
+	TestEqual(TEXT("FRM's default port"), Plain.Config.GetFrmPort(), 8080);
+	TestTrue(TEXT("no token"), Plain.Config.FrmToken.IsEmpty());
+
+	const FConfigResult Set = ParseConfig(TEXT("{\"backendUrl\":\"https://api.example.com\",\"frmPort\":18081,\"frmToken\":\"  tok-123  \"}"));
+	TestTrue(TEXT("valid with both"), Set.Status == EConfigStatus::Valid);
+	TestEqual(TEXT("the port"), Set.Config.GetFrmPort(), 18081);
+	SatisDash::Test::SameText(*this, TEXT("the token, trimmed"), Set.Config.FrmToken, TEXT("tok-123"));
+
+	for (const TCHAR* Bad : { TEXT("0"), TEXT("65536"), TEXT("80.5"), TEXT("\"8080\""), TEXT("true"), TEXT("null"), TEXT("-1") })
+	{
+		const FConfigResult R = ParseConfig(FString::Printf(TEXT("{\"backendUrl\":\"https://api.example.com\",\"frmPort\":%s}"), Bad));
+		TestTrue(FString::Printf(TEXT("frmPort %s is broken"), Bad), R.Status == EConfigStatus::Broken);
+		SatisDash::Test::SameText(*this, TEXT("and names frmPort"), R.BadField, TEXT("frmPort"));
+	}
+	for (const TCHAR* Bad : { TEXT("\"a\\nb\""), TEXT("\"a\\rb\""), TEXT("\"a\\u0007b\""), TEXT("42") })
+	{
+		const FConfigResult R = ParseConfig(FString::Printf(TEXT("{\"backendUrl\":\"https://api.example.com\",\"frmToken\":%s}"), Bad));
+		SatisDash::Test::SameText(*this, TEXT("a bad token names frmToken"), R.BadField, TEXT("frmToken"));
+	}
+	TestTrue(TEXT("a trailing newline is trimmed, not refused"),
+		ParseConfig(TEXT("{\"backendUrl\":\"https://api.example.com\",\"frmToken\":\"tok\\n\"}")).Status == EConfigStatus::Valid);
+
+	SatisDash::Test::FTempDir Dir;
+	const FString Path = Dir.File(TEXT("SatisDashAgent.cfg"));
+	FAgentConfig Config = Set.Config;
+	Config.EnrollmentCode = TEXT("AB3D-7XQ2-K5MN");
+	TestTrue(TEXT("blanking writes"), BlankConfigCode(Path, Config));
+	const FConfigResult Back = LoadConfigFile(Path);
+	TestEqual(TEXT("blanking keeps the port"), Back.Config.GetFrmPort(), 18081);
+	SatisDash::Test::SameText(*this, TEXT("and the token"), Back.Config.FrmToken, TEXT("tok-123"));
+	TestTrue(TEXT("and blanks the code"), Back.Config.EnrollmentCode.IsEmpty());
+	TestFalse(TEXT("a default port isn't written"), ConfigToJson(Plain.Config).Contains(TEXT("frmPort")));
+	return true;
+}

@@ -24,6 +24,8 @@ dashboard, pushes a snapshot every 5 s, and long-polls for commands (only `set_a
 - **Config:** `FactoryGame/Configs/SatisDashAgent.cfg`, written with defaults on first start:
   `{"backendUrl": "https://api.satis-manager.com", "enrollmentCode": ""}`. Put the dashboard's code in
   `enrollmentCode`; the mod blanks it once enrolled. Without a valid config the mod stays idle.
+  Optional: `frmPort` (FRM's HTTP port on this server, default 8080) and `frmToken` (only if this server's FRM
+  requires one; sent only to FRM on 127.0.0.1). The mod logs "FRM requires a token" when FRM refuses it.
 - **Credential:** `FactoryGame/Saved/SatisDash/credential.json`, the per-server secret. Revoke it from the dashboard.
 - **Logs:** `LogSatisDash`, Display and Warning only; never the secret or the code.
 - **Evidence:** every harness run's verdict, the security review and its decisions are listed in Plan 2B's final PR;

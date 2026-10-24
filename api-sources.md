@@ -248,6 +248,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | EJson::Boolean | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:28 | header only |
 | EJson::Array | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:29 | header only |
 | TOptional::GetValue | Engine/Source/Runtime/Core/Public/Misc/Optional.h:365 | header only (the const overload; non-const at :360) |
+| TOptional::Get | Engine/Source/Runtime/Core/Public/Misc/Optional.h:389 | header only (the default-value overload) |
 | TArray | Engine/Source/Runtime/Core/Public/Containers/Array.h:651 | header only |
 | TArray::Num | Engine/Source/Runtime/Core/Public/Containers/Array.h:1116 | header only |
 | TArray::SetNum | Engine/Source/Runtime/Core/Public/Containers/Array.h:2320 | header only |
