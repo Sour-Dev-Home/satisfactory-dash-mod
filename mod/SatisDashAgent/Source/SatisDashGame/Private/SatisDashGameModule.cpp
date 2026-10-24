@@ -22,6 +22,14 @@ namespace
 	}
 }
 
+/** Stopgap until FRM bridge Task 9 gives the game a real worker: it drops every job, so no FRM body is ever parsed on the game thread. */
+class FDroppingWorker : public SatisDash::IWorker
+{
+public:
+	virtual void Launch(SatisDash::FWorkFn Work) override {}
+	virtual bool IsIdle() const override { return true; }
+};
+
 /** Plan 2B Task 6: the game ticks the driver, which owns enrolment, sampling, pushing and commands (Driver.h). */
 class FSatisDashGameModule : public IModuleInterface
 {
@@ -79,11 +87,12 @@ public:
 private:
 	SatisDash::FCurlTransport Transport;
 	SatisDash::FGameReader Reader;
+	FDroppingWorker Worker;
 	// Held by value (check-api excuses calls only on receivers declared with the plugin's own type, not a TUniquePtr), and
 	// declared after the transport and the reader it holds references to, so it is destroyed before them. Its constructor
 	// only stores its arguments; nothing reads or writes a file before Boot, which only a dedicated server reaches.
 	SatisDash::FDriver Driver = SatisDash::FDriver(FPaths::ProjectDir() / TEXT("Configs/SatisDashAgent.cfg"),
-		FPaths::ProjectSavedDir() / TEXT("SatisDash/credential.json"), Transport, Reader, gameClock());
+		FPaths::ProjectSavedDir() / TEXT("SatisDash/credential.json"), Transport, Reader, Worker, gameClock());
 	FDelegateHandle WorldInitHandle;
 	FTSTicker::FDelegateHandle TickHandle;
 	bool bCurlReady = false;

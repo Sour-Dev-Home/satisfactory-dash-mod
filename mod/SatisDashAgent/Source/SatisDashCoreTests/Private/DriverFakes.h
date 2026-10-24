@@ -185,6 +185,7 @@ namespace SatisDash::Test
 		FDateTime Utc = FDateTime(2026, 10, 20, 12, 0, 0);
 		FFakeTransport Net;
 		FFakeGame Game;
+		FFakeWorker Worker;
 
 		void writeConfig(const TCHAR* Url, const TCHAR* Code) const
 		{
