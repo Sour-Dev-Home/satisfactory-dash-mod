@@ -206,7 +206,8 @@ describe("the backend image guard (enrol run 39609914480: a stale local image)",
       `docker image inspect --format {{json .Config.Labels}} ${OPS}`,
     ]);
     const git = seen.filter((s) => s.line.startsWith("git "));
-    expect(git.map((s) => s.line)).toEqual([`git merge-base --is-ancestor ${PIN} ${NEWER}`, `git merge-base --is-ancestor ${PIN} ${NEWER}`]);
+    const mergeBase = `git -c safe.directory=D:/dash merge-base --is-ancestor ${PIN} ${NEWER}`;
+    expect(git.map((s) => s.line)).toEqual([mergeBase, mergeBase]);
     expect(git.every((s) => s.cwd === "D:/dash")).toBe(true);
     // All of it before the stack boots.
     const up = seen.findIndex((s) => / up -d --wait/.test(s.line));
