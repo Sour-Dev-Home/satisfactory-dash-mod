@@ -55,9 +55,9 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 	}
 	if (Players.IsValid() && Players->bRan)
 	{
-		if (Players->Result.IsSet())
+		if (Players->Json.IsSet())
 		{
-			PlayersReady = FReady{ PlayersToJson(Players->Result.GetValue()), Now };
+			PlayersReady = FReady{ MoveTemp(Players->Json.GetValue()), Now };
 		}
 		else
 		{
@@ -95,7 +95,11 @@ void SatisDash::FFrmBridge::LaunchNext()
 	{
 		Worker.Launch([Job = Players]
 		{
-			Job->Result = ParsePlayers(Job->Body);
+			const TOptional<FPlayersPart> Part = ParsePlayers(Job->Body);
+			if (Part.IsSet())
+			{
+				Job->Json = PlayersToJson(Part.GetValue());
+			}
 			Job->Body.Empty();
 			Job->bRan = true;
 		});

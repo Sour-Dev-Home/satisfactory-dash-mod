@@ -124,3 +124,101 @@ bool FFrmBridgeStopTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("and it is one valid object"), SatisDash::Json::ParseObject(Json).IsValid());
 	return true;
 }
+
+namespace
+{
+	/** Players and factory parts ready and an encoded body waiting, none taken yet. */
+	void FrmBridgeMakeParts(FFrmBridgeFixture& F)
+	{
+		F.Bridge.RequestPass(true);
+		F.tick();
+		F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+		F.tick(2);
+		F.Net.answer(TEXT("/getFactory"), SatisDash::Test::Reply(200, FrmBridgeOneBuilding));
+		F.tick(3);
+		FSnapshot Snapshot;
+		Snapshot.AgentVersion = TEXT("mod/0.1.0");
+		Snapshot.ObservedAt = FDateTime(2026, 10, 23, 12, 0, 0);
+		F.Bridge.EncodeSnapshot(Snapshot);
+		F.tick(2);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeStopReadyTest, "SatisDash.Core.FrmBridge.StopReady", SatisDash::Test::Flags)
+
+bool FFrmBridgeStopReadyTest::RunTest(const FString& Parameters)
+{
+	{
+		FFrmBridgeFixture Control;
+		FrmBridgeMakeParts(Control);
+		TestTrue(TEXT("control: players ready"), Control.Bridge.TakePlayers(Control.T, 1e9).IsSet());
+		TestTrue(TEXT("control: factory ready"), Control.Bridge.TakeFactory(Control.T, 1e9).IsSet());
+		TestTrue(TEXT("control: encoded ready"), Control.Bridge.TakeEncoded().IsSet());
+	}
+	FFrmBridgeFixture F;
+	FrmBridgeMakeParts(F);
+	F.Bridge.Stop();
+	TestFalse(TEXT("a ready players part is gone after Stop"), F.Bridge.TakePlayers(F.T, 1e9).IsSet());
+	TestFalse(TEXT("a ready factory part is gone after Stop"), F.Bridge.TakeFactory(F.T, 1e9).IsSet());
+	TestFalse(TEXT("an encoded body is gone after Stop"), F.Bridge.TakeEncoded().IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeStopRunningTest, "SatisDash.Core.FrmBridge.StopRunning", SatisDash::Test::Flags)
+
+bool FFrmBridgeStopRunningTest::RunTest(const FString& Parameters)
+{
+	{
+		// A players job held on the worker when Stop comes.
+		FFrmBridgeFixture F;
+		F.Worker.bHold = true;
+		F.Bridge.RequestPass(true);
+		F.tick();
+		F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+		F.tick();
+		TestEqual(TEXT("the players parse is held"), F.Worker.Launched, 1);
+		const int32 SentBefore = F.Net.sent(TEXT("/getFactory"));
+		F.Bridge.Stop();
+		F.Worker.release();
+		F.tick(3);
+		TestFalse(TEXT("a players job running at Stop is never harvested"), F.Bridge.TakePlayers(F.T, 1e9).IsSet());
+		TestEqual(TEXT("and nothing more is launched"), F.Worker.Launched, 1);
+		TestEqual(TEXT("and no new read is sent"), F.Net.sent(TEXT("/getFactory")), SentBefore);
+	}
+	{
+		// A factory slice held on the worker when Stop comes.
+		FFrmBridgeFixture F;
+		F.Worker.bHold = true;
+		F.Bridge.RequestPass(true);
+		F.tick();
+		F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+		F.tick();
+		F.Worker.release();
+		F.tick();
+		F.Net.answer(TEXT("/getFactory"), SatisDash::Test::Reply(200, FrmBridgeOneBuilding));
+		F.tick();
+		TestEqual(TEXT("the factory slice is held"), F.Worker.Launched, 2);
+		F.Bridge.Stop();
+		F.Worker.release();
+		F.tick(3);
+		TestFalse(TEXT("a factory job running at Stop is never harvested"), F.Bridge.TakeFactory(F.T, 1e9).IsSet());
+		TestEqual(TEXT("and no further slice is launched"), F.Worker.Launched, 2);
+	}
+	{
+		// An encode job held on the worker when Stop comes.
+		FFrmBridgeFixture F;
+		F.Worker.bHold = true;
+		FSnapshot Snapshot;
+		Snapshot.AgentVersion = TEXT("mod/0.1.0");
+		Snapshot.ObservedAt = FDateTime(2026, 10, 23, 12, 0, 0);
+		F.Bridge.EncodeSnapshot(Snapshot);
+		F.tick();
+		TestEqual(TEXT("the encode is held"), F.Worker.Launched, 1);
+		F.Bridge.Stop();
+		F.Worker.release();
+		F.tick(3);
+		TestFalse(TEXT("an encode running at Stop is never harvested"), F.Bridge.TakeEncoded().IsSet());
+		TestFalse(TEXT("and it is no longer pending"), F.Bridge.EncodePending());
+	}
+	return true;
+}

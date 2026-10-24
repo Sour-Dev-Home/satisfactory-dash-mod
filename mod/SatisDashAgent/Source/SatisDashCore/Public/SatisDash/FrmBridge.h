@@ -46,7 +46,7 @@ namespace SatisDash
 		void Stop();
 
 	private:
-		struct FPlayersJob { TArray<uint8> Body; TOptional<FPlayersPart> Result; bool bRan = false; };
+		struct FPlayersJob { TArray<uint8> Body; TOptional<FString> Json; bool bRan = false; };
 		struct FFactoryJob
 		{
 			explicit FFactoryJob(TArray<uint8> InBody) : Parse{MoveTemp(InBody)} {}

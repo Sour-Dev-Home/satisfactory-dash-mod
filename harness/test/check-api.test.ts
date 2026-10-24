@@ -43,6 +43,11 @@ describe("extractUses", () => {
     expect(names).toEqual(["IModuleInterface"]);
   });
 
+  it("treats a name the code declares with 'using Name =' as its own, and still checks the aliased engine type", () => {
+    const names = [...new Set(extractUses([cpp("using FWorkFn = TUniqueFunction<void()>;\nFWorkFn Held;")]).map((u) => u.name))].sort();
+    expect(names).toEqual(["TUniqueFunction"]);
+  });
+
   it("does not treat a forward declaration as local", () => {
     const names = [...new Set(extractUses([cpp("class IHttpRequest;\nTSharedPtr<IHttpRequest> R;")]).map((u) => u.name))].sort();
     expect(names).toEqual(["IHttpRequest", "TSharedPtr"]);
