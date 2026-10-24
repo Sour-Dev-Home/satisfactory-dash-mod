@@ -9,6 +9,14 @@
 // the "before" read ended at most FRM_BRACKET_GAP_MS before the snapshot's observedAt, the "after" read started at most
 // that long after it, checked here from the recorded times, so a rejudge sees the same rule. The harness collects reads
 // with the same limit (it imports this constant) and polls about every 250 ms, so one failed read still leaves one.
+// Owner ruling (2026-10-23; PR #44, and satisfactory-dash #620 option A: "production" is the total produced), after enrol run 40038539365 failed every world round on
+// "group 1 production 4 vs FRM 0" (two biomass burners powering a 4 MW Constructor): FRM 1.5.4's PowerProduction is
+// the group's mBaseProduction (FRM Power.cpp:47), only the base part of the game's split (FGPowerCircuit.h:426-433),
+// while the mod sends PowerProduced, the total (FGPowerCircuit.h:104). Demand-following generators make up whatever
+// base leaves of the load, so for a group without batteries the reference is max(FRM production, FRM consumption).
+// Where base covers the load (every run before this one), that is FRM's own figure, so the same bracket and 1% apply
+// unchanged. A group with batteries (whose charging is demand too) keeps the raw FRM figure; the pass reason says how
+// many groups the derived total judged.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { Verdict } from "../../harness/src/verdict";
 
@@ -23,6 +31,9 @@ const inBracket = (mod: number, lo: number, hi: number) => {
   const tol = 0.01 * Math.max(Math.abs(lo), Math.abs(hi), 1);
   return lo - tol <= mod && mod <= hi + tol;
 };
+/** FRM's production as the game's total (see the header): base plus what demand-following generators add. */
+const derivesProduction = (g: FrmGroup) => g.batteryCapacity === 0;
+const frmProduction = (g: FrmGroup) => (derivesProduction(g) ? Math.max(g.production, g.consumption) : g.production);
 const SNAPSHOT_KEYS = new Set(["agentVersion", "observedAt", "reachable", "paused", "status", "power", "settings"]);
 
 export interface ApiStatus { running: boolean; paused: boolean; players: number; limit: number; duration: number; tickRate: number; health: string; session: string }
@@ -92,7 +103,7 @@ export function compareRound(r: Round): string[] {
     return [...out, `${r.at}: circuit groups ${modIds} vs FRM ${frmIds}`];
   }
   const fields: Array<[string, (c: Circuit) => number, (g: FrmGroup) => number]> = [
-    ["production", (c) => c.productionMW, (g) => g.production], ["consumption", (c) => c.consumptionMW, (g) => g.consumption],
+    ["production", (c) => c.productionMW, frmProduction], ["consumption", (c) => c.consumptionMW, (g) => g.consumption],
     ["capacity", (c) => c.capacityMW, (g) => g.capacity], ["maxConsumption", (c) => c.maxConsumptionMW, (g) => g.maxConsumption],
     ["batteryCapacity", (c) => c.batteryCapacityMWh, (g) => g.batteryCapacity], ["batteryPercent", (c) => c.batteryPercent, (g) => g.batteryPercent],
     ["batteryDifferential", (c) => c.batteryDifferentialMW, (g) => g.batteryDifferential],
@@ -140,5 +151,7 @@ export function evaluate(e: CoreEvidence): Verdict {
   const p = d.frmPolling;
   const polling = p ? `; FRM was polled every ${p.intervalMs} ms during the world rounds (${p.reads} reads, ${p.failed} failed)` : "";
   const groups = new Set(world.flatMap((r) => (r.frmBefore ?? []).map((g) => g.groupId))).size;
-  return { pass: true, reasons: [`enrolled; ${empty.length} rounds with no game and ${world.length} with the world match the game's APIs; ${autoPause}; power compared for ${groups} circuit group(s)${polling}`] };
+  const derived = new Set(world.flatMap((r) => (r.frmBefore ?? []).filter(derivesProduction).map((g) => g.groupId))).size;
+  const derivedNote = derived ? ` (production against max(FRM production, consumption) for ${derived}: no batteries)` : "";
+  return { pass: true, reasons: [`enrolled; ${empty.length} rounds with no game and ${world.length} with the world match the game's APIs; ${autoPause}; power compared for ${groups} circuit group(s)${derivedNote}${polling}`] };
 }

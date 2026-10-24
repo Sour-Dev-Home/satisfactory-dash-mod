@@ -49,6 +49,18 @@ done with each finding, and the owner's decisions on the accepted risks (2026-10
   - 2 and 3 are still open: 2 changes what a deferred auto-pause command reports, and 3 needs a save with joined
     circuits.
 
+  Later on 2026-10-23:
+  - 3, joined groups: exercised in game. The owner's factory group already joins circuits `[0,3]`, and every earlier
+    enrol run matched FRM on it. In manual session 40032710777, a power switch split and rejoined two biomass-burner
+    circuits at each flip, as FRM saw it. Enrol run 40038539365 on that world (`circuitTest`) matched FRM on the joined
+    group's consumption and capacity, read from the circuit with no load of its own. It failed on production: FRM's
+    `PowerProduction` is only the game's base production (FRM `Power.cpp:47`). The owner chose satisfactory-dash #620
+    option A ("production" is the total), and ruled that the enrol judge compares groups without batteries against
+    max(FRM production, consumption) (PR #44). The 10,000-ID scan on a long-running server: dropped by the owner
+    (2026-10-23), to be fixed only if someone reports a missing circuit group.
+  - 2, deferred auto-pause: the owner decided (satisfactory-dash #621) that the command reports ok and snapshots carry
+    an optional `settings.pending`. The mod change waits for #621 to merge.
+
 ## Deferred to sub-project 4 (Linux builds and distribution)
 
 - S11: the credential file's `0600` mode on Linux, and F2's fix (create the temp file with mode `0600` before the
