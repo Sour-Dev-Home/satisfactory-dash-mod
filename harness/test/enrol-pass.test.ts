@@ -132,6 +132,13 @@ describe("enrol pass conditions", () => {
     expect(evaluate(evidence(withRound(r))).reasons).toContain(`${r.at}: S13: unexpected snapshot field extra`);
   });
 
+  it("accepts players and factory in a snapshot (S13, owner ruling 2026-10-24) but not mapLive", () => {
+    const ok = round(30, true, { snapshot: { players: { available: true, players: [] }, factory: { available: true, buildings: [] } } });
+    expect(evaluate(evidence(withRound(ok))).reasons.filter((x) => x.includes("S13"))).toEqual([]);
+    const bad = round(30, true, { snapshot: { players: { available: true, players: [] }, mapLive: {} } });
+    expect(evaluate(evidence(withRound(bad))).reasons).toContain(`${bad.at}: S13: unexpected snapshot field mapLive`);
+  });
+
   it("fails a tick rate off by 20%", () => {
     const r = round(30, true, { status: { tickRate: 24 } });
     expect(evaluate(evidence(withRound(r))).reasons).toContain(`${r.at}: tick rate 24 vs API 30`);

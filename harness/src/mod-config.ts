@@ -8,7 +8,7 @@ export function modConfigPath(serverDir: string, modReference: string): string {
 }
 
 /** A root section serialises as a JSON object keyed by property name (ConfigPropertySection.cpp:18-24). */
-export function writeModConfig(serverDir: string, modReference: string, values: Record<string, string>): string {
+export function writeModConfig(serverDir: string, modReference: string, values: Record<string, string | number>): string {
   const path = modConfigPath(serverDir, modReference);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(values, null, 2)}\n`);

@@ -21,6 +21,9 @@
 // GetServerOptions' pendingServerOptions gives the expected values: settings.autoPause is the pending value when one
 // waits, else the applied one, and settings.pending (absent counts as false, as the contract says) is whether one
 // waits. A round recorded before this change has no autoPausePending and is judged as having none.
+// Owner ruling (2026-10-24, FRM bridge Plan 3A Task 10; S13 snapshot fields): the FRM bridge adds players and factory to
+// the snapshot (spec "What the Node agent sends"), so both join SNAPSHOT_KEYS. Any other field still fails; mapLive is
+// added with Plan 3B.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { Verdict } from "../../harness/src/verdict";
 
@@ -38,7 +41,7 @@ const inBracket = (mod: number, lo: number, hi: number) => {
 /** FRM's production as the game's total (see the header): base plus what demand-following generators add. */
 const derivesProduction = (g: FrmGroup) => g.batteryCapacity === 0;
 const frmProduction = (g: FrmGroup) => (derivesProduction(g) ? Math.max(g.production, g.consumption) : g.production);
-const SNAPSHOT_KEYS = new Set(["agentVersion", "observedAt", "reachable", "paused", "status", "power", "settings"]);
+const SNAPSHOT_KEYS = new Set(["agentVersion", "observedAt", "reachable", "paused", "status", "power", "settings", "players", "factory"]);
 
 export interface ApiStatus { running: boolean; paused: boolean; players: number; limit: number; duration: number; tickRate: number; health: string; session: string }
 export interface ModStatus { isGameRunning: boolean; gamePaused: boolean; connectedPlayers: number; playerLimit: number; totalGameDurationSeconds: number; tickRate: number; tickHealth: string; sessionName: string }

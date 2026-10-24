@@ -73,6 +73,15 @@ class Capped {
   }
 }
 
+/** ADR-0029: player names are personal data about third parties; evidence keeps a hash of each, never the name. */
+function hashPlayers(snapshot: unknown): unknown {
+  const players = (snapshot as { players?: { players?: unknown } } | null)?.players;
+  const list = players?.players;
+  if (!Array.isArray(list)) return snapshot;
+  const hashed = list.map((p) => (p && typeof p === "object" && typeof (p as { name?: unknown }).name === "string" ? { ...p, name: sessionHash((p as { name: string }).name) } : p));
+  return { ...(snapshot as object), players: { ...players, players: hashed } };
+}
+
 function hashSession(snapshot: unknown): unknown {
   const status = (snapshot as { status?: Record<string, unknown> } | null)?.status;
   if (!status || typeof status !== "object" || typeof status.sessionName !== "string") return snapshot;
@@ -128,12 +137,12 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
             // Over the cap: not recorded (the judge fails it), unless trimming was opted in for this agent.
             if (trimFor.has(entry.agent) && s.value !== null && typeof s.value === "object" && !Array.isArray(s.value)) {
               const all = Object.entries(s.value);
-              entry.snapshot = hashSession(Object.fromEntries(all.filter(([k]) => OVERSIZED_KEPT.includes(k))));
+              entry.snapshot = hashSession(hashPlayers(Object.fromEntries(all.filter(([k]) => OVERSIZED_KEPT.includes(k)))));
               entry.oversized = true;
               entry.droppedKeys = all.map(([k]) => k).filter((k) => !OVERSIZED_KEPT.includes(k));
             }
           } else if (s !== undefined) {
-            entry.snapshot = hashSession(s.value);
+            entry.snapshot = hashSession(hashPlayers(s.value));
           }
         } else if (method === "GET" && path === COMMANDS) {
           const ids = commandIds(got.json(upRes?.headers ?? {}));
