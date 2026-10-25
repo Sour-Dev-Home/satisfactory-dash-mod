@@ -12,8 +12,11 @@ namespace
 	const TCHAR* DriverWorldRails = TEXT("[{\"ID\":\"R1\",\"SplineData\":[{\"x\":0,\"y\":0},{\"x\":300,\"y\":0}]}]");
 	const TCHAR* DriverWorldAccepted = TEXT("{\"accepted\":true,\"unchanged\":false}");
 
-	/** The routine traffic: snapshots accepted (unless the test wants one open), live and node FRM reads failing fast. */
-	void DriverWorldRoutine(FDriverFixture& F, bool bSnapshots)
+	const TCHAR* DriverWorldTrains = TEXT("[{\"ID\":\"T1\",\"Name\":\"A\",\"Status\":\"s\",\"location\":{\"x\":150,\"y\":-150,\"z\":0}}]");
+	const TCHAR* DriverWorldStations = TEXT("[{\"ID\":\"S1\",\"Name\":\"B\",\"location\":{\"x\":5049,\"y\":-5051,\"z\":0}}]");
+
+	/** The routine traffic: snapshots accepted (unless the test wants one open), live and node FRM reads failing fast (bMapLive: trains and stations answered, so a snapshot carries mapLive). */
+	void DriverWorldRoutine(FDriverFixture& F, bool bSnapshots, bool bMapLive = false)
 	{
 		while (bSnapshots && F.Net.pending(DriverWorldSnapshots) > 0)
 		{
@@ -21,7 +24,9 @@ namespace
 		}
 		for (const TCHAR* Path : { TEXT("/getPlayer"), TEXT("/getFactory"), TEXT("/getTrains"), TEXT("/getTrainStation"), TEXT("/getResourceNode") })
 		{
-			F.Net.answer(Path, SatisDash::Test::Reply(0, FString()));
+			const bool bTrains = bMapLive && FString(Path) == TEXT("/getTrains");
+			const bool bStations = bMapLive && FString(Path) == TEXT("/getTrainStation");
+			F.Net.answer(Path, bTrains ? SatisDash::Test::Reply(200, DriverWorldTrains) : bStations ? SatisDash::Test::Reply(200, DriverWorldStations) : SatisDash::Test::Reply(0, FString()));
 		}
 	}
 
@@ -65,13 +70,34 @@ bool FDriverWorldTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("no world post while a snapshot is in flight"), F.Net.sent(DriverWorldRailsPost), 0);
 	// The send fails and backs off (Retry-After 20 s): nothing in flight, but snapshots are queued.
 	FHttpReply Unwell = SatisDash::Test::Reply(503, FString());
-	Unwell.RetryAfter = TEXT("20");
+	Unwell.RetryAfter = TEXT("120");
 	F.Net.answer(DriverWorldSnapshots, Unwell);
 	DriverWorldRun(F, Driver, []() { return false; }, 15, false);
 	TestEqual(TEXT("nothing in flight"), F.Net.pending(DriverWorldSnapshots), 0);
 	TestTrue(TEXT("snapshots are queued"), Driver.Queued() > 0);
 	TestEqual(TEXT("no world post while snapshots are queued, even with none in flight"), F.Net.sent(DriverWorldRailsPost), 0);
-	// Once the snapshot side drains, the ready body goes.
+	// A snapshot carrying mapLive is being encoded (the worker is held), still in the backoff: the encode is queued work too.
+	F.Worker.bHold = true;
+	bool bEncoding = false;
+	for (double Spent = 0; Spent < 100 && !bEncoding; Spent += 0.5)
+	{
+		DriverWorldRoutine(F, false, true);
+		F.run(Driver, 0.5);
+		bEncoding = Driver.EncodePending();
+		if (!bEncoding)
+		{
+			F.Worker.release(); // a parse job: let it finish
+		}
+	}
+	TestTrue(TEXT("a snapshot with mapLive is held in its encode"), bEncoding);
+	// The backoff ends and the queue drains; the encode is still held (no new snapshot is taken while it is).
+	TestTrue(TEXT("the queued snapshots are all sent"), DriverWorldRun(F, Driver, [&F, &Driver] { return Driver.Queued() == 0 && F.Net.pending(DriverWorldSnapshots) == 0; }, 150));
+	DriverWorldRun(F, Driver, []() { return false; }, 15);
+	TestTrue(TEXT("still encoding"), Driver.EncodePending());
+	TestEqual(TEXT("no world post while a snapshot is being encoded, with nothing queued or in flight"), F.Net.sent(DriverWorldRailsPost), 0);
+	F.Worker.bHold = false;
+	F.Worker.release();
+	// Once the snapshot side is idle again, the ready body goes.
 	TestTrue(TEXT("the layer is posted"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsPost) > 0; }, 30));
 	TestTrue(TEXT("with the layer's data"), F.Net.lastBody(DriverWorldRailsPost).Contains(TEXT("\"data\":[{\"id\":\"R1\",\"points\":[[0,0],[3,0]]}]")));
 	SatisDash::Test::SameText(*this, TEXT("and the credential"), F.Net.lastAuth(DriverWorldRailsPost), TEXT("Bearer ") + SatisDash::Test::FakeSecret());
