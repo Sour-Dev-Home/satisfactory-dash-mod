@@ -79,6 +79,8 @@ namespace SatisDash
 		TOptional<double> LastPowerAt;
 		TOptional<double> LastFactoryAt;
 		bool bRunning = false;
+		/** The last status pass said a game is running (the native node scan waits for it, as the native players do). */
+		bool bGameRunning = false;
 		bool bSendInFlight = false;
 		/** Leaving Running asks for a Clear; it happens once no send is in flight (Pusher.h). */
 		bool bClearPending = false;

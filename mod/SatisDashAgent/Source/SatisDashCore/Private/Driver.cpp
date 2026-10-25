@@ -56,6 +56,12 @@ void SatisDash::FDriver::Tick()
 		NextPollAt = Now;
 		PollFailures = 0;
 		WorldLayers.Start(Now);
+		bGameRunning = false;
+		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
+		const FAgentConfig& Sources = Agent.GetConfig();
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s"),
+			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -77,7 +83,7 @@ void SatisDash::FDriver::Tick()
 	// World layers (spec "Timing"): posted one at a time, and only while no snapshot is queued, in flight or being encoded.
 	if (const FCredential* Credential = Agent.GetCredential())
 	{
-		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game });
+		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning });
 	}
 	if (WorldLayers.TakeAuthRejected())
 	{
@@ -116,6 +122,7 @@ void SatisDash::FDriver::TickSample(double Now)
 	Snapshot.AgentVersion = AgentVersion();
 	Snapshot.ObservedAt = Clock.UtcNow();
 	Snapshot.Status = Game.ReadStatus();
+	bGameRunning = Snapshot.Status.IsSet() && Snapshot.Status->bIsGameRunning;
 	if (!Snapshot.Status.IsSet())
 	{
 		NoteFailedPart(TEXT("status"), Now);

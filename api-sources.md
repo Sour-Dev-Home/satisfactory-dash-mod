@@ -472,7 +472,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGGameState::GetOfflineCachedPlayerInfosInSession | Source/FactoryGame/Public/FGGameState.h:519 | header only (public; returns a copy of the players not online in the session; the S1 survey did not find it) |
 | Online/PlayerInfoCache.h | Source/FactoryGame/Public/Online/PlayerInfoCache.h:1 | header only |
 | FCachedPlayerInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:49 | header only |
-| FCachedPlayerInfo::PerPlatformInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:54 | header only |
+| FCachedPlayerInfo::PerPlatformInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:55 | header only (the UPROPERTY comment is on :53, the declaration `TArray<FCachedPlayerPlatformInfo> PerPlatformInfo;` on :55) |
 | FCachedPlayerInfo::GetLastSeenServicesType | Source/FactoryGame/Public/Online/PlayerInfoCache.h:62 | header only |
 | FCachedPlayerInfo::GetForPlatform | Source/FactoryGame/Public/Online/PlayerInfoCache.h:73 | header only (returns `const FCachedPlayerPlatformInfo*`, null when none) |
 | FCachedPlayerPlatformInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:10 | header only |
@@ -494,6 +494,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | EResourceNodeType::Node | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:26 | header only |
 | EResourceNodeType::FrackingSatellite | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:27 | header only |
 | EResourceNodeType::Geyser | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:29 | header only |
+| AFGResourceNodeBase | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:93 | header only (the class declaration; its UCLASS macro is on :92) |
 | AFGResourceNodeBase::GetResourceNodeType | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:176 | header only |
 | AFGResourceNodeBase::GetResourceName | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:180 | header only (FText, "Localized name") |
 | AFGResourceNodeBase::IsOccupied | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:140 | header only |

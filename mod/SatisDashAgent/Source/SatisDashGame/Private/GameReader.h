@@ -30,6 +30,8 @@ namespace SatisDash
 
 		/** The node scan (R4): the levels to look through, where it is, what it found, and its cost (counts and times only). */
 		TArray<TWeakObjectPtr<ULevel>> ScanLevels;
+		/** The world the scan began in: a scan that ends in a different world read a mix, and is "cannot read". */
+		TWeakObjectPtr<UWorld> ScanWorld;
 		int32 ScanLevel = 0;
 		int32 ScanIndex = 0;
 		int32 ScanActors = 0;

@@ -30,6 +30,8 @@ namespace SatisDash
 		bool bSnapshotsIdle;
 		/** The native readers, when a layer's source is native. */
 		IGameReader* NativeReaders = nullptr;
+			/** A game is running (the last status pass said so): a native scan starts only then, as the native players are read. */
+			bool bGameRunning = true;
 	};
 
 	/**

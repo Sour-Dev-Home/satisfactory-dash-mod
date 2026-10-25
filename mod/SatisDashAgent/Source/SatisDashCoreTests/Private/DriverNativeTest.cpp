@@ -41,6 +41,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativePlayersTest, "SatisDash.Core.Drive
 
 bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 {
+	SatisDash::Test::FLogCapture Log;
 	FDriverFixture F;
 	F.Game.Players = TArray<FPlayerReading>{ { TEXT("player-a"), true }, { TEXT("player-b"), false } };
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
@@ -83,6 +84,17 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	G.run(Bridge, 2);
 	TestEqual(TEXT("default: FRM is asked"), G.Net.pending(TEXT("/getPlayer")), 1);
 	TestEqual(TEXT("default: the game's list is not read"), G.Game.PlayerReads, 0);
+
+	// The evidence runs tell a native reader from the bridge by one line per Running entry, naming each reader's source.
+	int32 NativeLines = 0;
+	int32 BridgeLines = 0;
+	for (const FString& Line : Log.Take())
+	{
+		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=bridge")) ? 1 : 0;
+		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=bridge")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one Readers line for the native-players driver"), NativeLines, 1);
+	TestEqual(TEXT("one Readers line for the default driver"), BridgeLines, 1);
 	return true;
 }
 
@@ -127,6 +139,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeNodesTest, "SatisDash.Core.Driver.
 
 bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 {
+	SatisDash::Test::FLogCapture Log;
 	FDriverFixture F;
 	FResourceNodeReading Iron;
 	Iron.Resource = TEXT("Iron Ore");
@@ -140,8 +153,27 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\""));
 
-	// The first read is due at 480 s x jitter (the fake clock's Random01 is 1.0, so 528 s). With no world it retries each 30 s.
-	TestTrue(TEXT("the scan is attempted"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.ScanBegins >= 1; }, 600));
+	// Ruling F18: no game running (an idle server) means no scan starts, past the first read's due time (528 s) and the log
+	// stays quiet; it starts once a game runs.
+	FStatusReading IdleStatus = F.Game.Status.GetValue();
+	IdleStatus.bIsGameRunning = false;
+	F.Game.Status = IdleStatus;
+	DriverNativeRunUntil(F, Driver, []() { return false; }, 600);
+	TestEqual(TEXT("an idle server starts no scan"), F.Game.ScanBegins, 0);
+	int32 ScanLines = 0;
+	int32 ReadersLines = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ScanLines += Line.Contains(TEXT("Resource node scan")) || Line.Contains(TEXT("found no nodes")) ? 1 : 0;
+		ReadersLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native")) ? 1 : 0;
+	}
+	TestEqual(TEXT("and logs nothing about a scan"), ScanLines, 0);
+	TestEqual(TEXT("one Readers line for the native-nodes driver"), ReadersLines, 1);
+	IdleStatus.bIsGameRunning = true;
+	F.Game.Status = IdleStatus;
+
+	// The first read was due at 480 s x jitter (the fake clock's Random01 is 1.0, so 528 s). With no world it retries each 30 s.
+	TestTrue(TEXT("the scan is attempted once a game runs"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.ScanBegins >= 1; }, 60));
 	TestTrue(TEXT("and retried while there is no world"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.ScanBegins >= 3; }, 90));
 	TestEqual(TEXT("nothing posted without a world"), F.Net.sent(DriverNativeNodesPost), 0);
 

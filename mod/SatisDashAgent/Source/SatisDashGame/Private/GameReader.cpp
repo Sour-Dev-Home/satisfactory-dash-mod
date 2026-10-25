@@ -167,6 +167,7 @@ bool SatisDash::FGameReader::BeginResourceNodeScan()
 		return false;
 	}
 	ScanLevels.Reset();
+	ScanWorld = Current;
 	for (ULevel* Level : Current->GetLevels())
 	{
 		ScanLevels.Add(Level);
@@ -237,6 +238,13 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 		return {};
 	}
 	ScanLevels.Reset();
+	// A different save was loaded while the slices ran (the newest world is the one SetWorld holds): what was found is the old
+	// world's or a mix, so it is "cannot read" (empty: nothing posted, retried), never a partial post.
+	if (World.Get() == nullptr || World.Get() != ScanWorld.Get())
+	{
+		ScanFound.Reset();
+		return TArray<FResourceNodeReading>();
+	}
 	// Counts and times only, and only when something was found (an empty scan is the sender's rate-limited warning, and is
 	// retried every 30 s). The times are the game thread's scan alone: the sort and the JSON text are built on the worker.
 	if (ScanFound.Num() > 0)

@@ -110,7 +110,11 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 		{
 			if (WorldSenderIsNative(Layer, Context))
 			{
-				if (Context.NativeReaders->BeginResourceNodeScan())
+				if (!Context.bGameRunning)
+					{
+						return; // an idle server (no game) has no world to scan: nothing starts and nothing is logged; it starts once a game runs
+					}
+					if (Context.NativeReaders->BeginResourceNodeScan())
 				{
 					L.Phase = EPhase::Scanning;
 				}

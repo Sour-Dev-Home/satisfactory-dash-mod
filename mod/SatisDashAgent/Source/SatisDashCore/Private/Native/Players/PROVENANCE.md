@@ -3,7 +3,7 @@ Code: mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Native/Players/Na
 Code: mod/SatisDashAgent/Source/SatisDashCore/Private/Native/Players/NativePlayers.cpp
 Code: mod/SatisDashAgent/Source/SatisDashGame/Private/GameReader.cpp
 Headers: Source/FactoryGame/Public/FGGameState.h:116, :519
-Headers: Source/FactoryGame/Public/Online/PlayerInfoCache.h:10, :20, :49, :54, :62, :73
+Headers: Source/FactoryGame/Public/Online/PlayerInfoCache.h:10, :20, :49, :55, :62, :73
 Headers: Engine/Source/Runtime/Engine/Classes/GameFramework/GameStateBase.h:55
 Headers: Engine/Source/Runtime/Engine/Classes/GameFramework/PlayerState.h:41, :232
 Headers: Engine/Source/Runtime/Engine/Classes/Engine/World.h:3727
