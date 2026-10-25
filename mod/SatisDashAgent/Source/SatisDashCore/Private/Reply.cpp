@@ -25,9 +25,14 @@ SatisDash::FCappedBody::FCappedBody()
 	SetIsSaving(true);
 }
 
+void SatisDash::FCappedBody::SetLimit(int64 InMaxBytes)
+{
+	MaxBytes = InMaxBytes < 0 ? 0 : (InMaxBytes > MaxRequestResponseBytes ? MaxRequestResponseBytes : InMaxBytes);
+}
+
 void SatisDash::FCappedBody::Serialize(void* Data, int64 Length)
 {
-	if (bOverflowed || Length < 0 || Bytes.Num() + Length > MaxResponseBytes)
+	if (bOverflowed || Length < 0 || Bytes.Num() + Length > MaxBytes)
 	{
 		bOverflowed = true;
 		SetError();

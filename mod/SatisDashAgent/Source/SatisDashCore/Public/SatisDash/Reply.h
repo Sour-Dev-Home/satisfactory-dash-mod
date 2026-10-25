@@ -8,19 +8,23 @@ namespace SatisDash
 {
 	/**
 	 * The response body as the transport streams it in (libcurl's write callback, inside curl_multi_perform on the game
-	 * thread, so it needs no lock). Past MaxResponseBytes it keeps nothing more and sets an error, which ends the request
+	 * thread, so it needs no lock). Past its limit it keeps nothing more and sets an error, which ends the request
 	 * while it downloads (S4).
 	 */
 	class SATISDASHCORE_API FCappedBody final : public FArchive
 	{
 	public:
 		FCappedBody();
+		/** This request's cap (FRequestSpec::ResponseCapBytes), held to [0, MaxRequestResponseBytes]. Before the first Serialize. */
+		void SetLimit(int64 InMaxBytes);
+		int64 Limit() const { return MaxBytes; }
 		virtual void Serialize(void* Data, int64 Length) override;
 		bool Overflowed() const;
 		TArray<uint8> Take();
 
 	private:
 		TArray<uint8> Bytes;
+		int64 MaxBytes = MaxResponseBytes;
 		bool bOverflowed = false;
 	};
 

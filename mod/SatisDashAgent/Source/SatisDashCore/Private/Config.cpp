@@ -120,6 +120,27 @@ bool SatisDash::IsEnrollmentCode(const FString& Code)
 	return true;
 }
 
+bool SatisDash::IsFrmPort(double Value)
+{
+	return FMath::IsFinite(Value) && Value >= 1.0 && Value <= 65535.0 && double(int32(Value)) == Value;
+}
+
+bool SatisDash::IsHeaderSafe(const FString& Value)
+{
+	if (Value.Len() > 512)
+	{
+		return false;
+	}
+	for (const TCHAR C : Value)
+	{
+		if (C < TEXT(' ') || C == 127)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 {
 	FConfigResult Result;
@@ -147,9 +168,33 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 			return Result;
 		}
 	}
+	TOptional<int32> FrmPort;
+	if (Object->HasField(TEXT("frmPort")))
+	{
+		const TSharedPtr<FJsonValue> PortValue = SatisDash::Json::Field(Object, TEXT("frmPort"), EJson::Number);
+		if (!PortValue.IsValid() || !IsFrmPort(PortValue->AsNumber()))
+		{
+			Result.BadField = TEXT("frmPort");
+			return Result;
+		}
+		FrmPort = int32(PortValue->AsNumber());
+	}
+	FString FrmToken;
+	if (Object->HasField(TEXT("frmToken")))
+	{
+		const TSharedPtr<FJsonValue> TokenValue = SatisDash::Json::Field(Object, TEXT("frmToken"), EJson::String);
+		FrmToken = TokenValue.IsValid() ? TokenValue->AsString().TrimStartAndEnd() : FString();
+		if (!TokenValue.IsValid() || !IsHeaderSafe(FrmToken))
+		{
+			Result.BadField = TEXT("frmToken");
+			return Result;
+		}
+	}
 	Result.Status = EConfigStatus::Valid;
 	Result.Config.BackendUrl = Url;
 	Result.Config.EnrollmentCode = Code;
+	Result.Config.FrmPort = FrmPort;
+	Result.Config.FrmToken = FrmToken;
 	return Result;
 }
 
@@ -158,6 +203,14 @@ FString SatisDash::ConfigToJson(const FAgentConfig& Config)
 	const TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
 	Object->SetStringField(TEXT("backendUrl"), Config.BackendUrl);
 	Object->SetStringField(TEXT("enrollmentCode"), Config.EnrollmentCode);
+	if (Config.FrmPort.IsSet())
+	{
+		Object->SetNumberField(TEXT("frmPort"), Config.FrmPort.GetValue());
+	}
+	if (!Config.FrmToken.IsEmpty())
+	{
+		Object->SetStringField(TEXT("frmToken"), Config.FrmToken);
+	}
 	return SatisDash::Json::WritePretty(Object);
 }
 

@@ -22,11 +22,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLogRateLimitTest, "SatisDash.Core.Log.RateLimi
 
 bool FLogRateLimitTest::RunTest(const FString& Parameters)
 {
-	FRateLimitedLog Limit{600.0};
-	TestTrue(TEXT("first"), Limit.ShouldLog(TEXT("power"), 0));
-	TestFalse(TEXT("again too soon"), Limit.ShouldLog(TEXT("power"), 599));
-	TestTrue(TEXT("another part"), Limit.ShouldLog(TEXT("status"), 1));
-	TestTrue(TEXT("after the interval"), Limit.ShouldLog(TEXT("power"), 600));
+	FRateLimitedLog RateLimit{600.0};
+	TestTrue(TEXT("first"), RateLimit.ShouldLog(TEXT("power"), 0));
+	TestFalse(TEXT("again too soon"), RateLimit.ShouldLog(TEXT("power"), 599));
+	TestTrue(TEXT("another part"), RateLimit.ShouldLog(TEXT("status"), 1));
+	TestTrue(TEXT("after the interval"), RateLimit.ShouldLog(TEXT("power"), 600));
 	return true;
 }
 
