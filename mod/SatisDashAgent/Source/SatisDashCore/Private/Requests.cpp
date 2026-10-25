@@ -105,6 +105,14 @@ SatisDash::FRequestSpec SatisDash::BuildSnapshotRequest(const FAgentConfig& Conf
 	return Spec;
 }
 
+SatisDash::FRequestSpec SatisDash::BuildWorldRequest(const FAgentConfig& Config, const FCredential& Credential, const TCHAR* Layer, FEncodedBody Body)
+{
+	FRequestSpec Spec = Start(TEXT("POST"), Config.BackendUrl + TEXT("/agent/v1/world/") + PercentEncode(FString(Layer)));
+	Authorize(Spec, Credential);
+	SetBody(Spec, MoveTemp(Body));
+	return Spec;
+}
+
 SatisDash::FRequestSpec SatisDash::BuildCommandsPoll(const FAgentConfig& Config, const FCredential& Credential)
 {
 	FRequestSpec Spec = Start(TEXT("GET"), Config.BackendUrl + FString::Printf(TEXT("/agent/v1/commands?waitSeconds=%d"), PollWaitSeconds));

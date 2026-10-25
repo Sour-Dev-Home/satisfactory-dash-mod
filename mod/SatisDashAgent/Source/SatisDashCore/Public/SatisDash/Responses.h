@@ -51,6 +51,13 @@ namespace SatisDash
 		bool bCommandsPending = false;
 	};
 
+	/** WorldIngestResponseSchema (map.ts): what POST /agent/v1/world/:layer answers on 200 or 202. */
+	struct FWorldResponse
+	{
+		bool bAccepted = false;
+		bool bUnchanged = false;
+	};
+
 	struct FAgentCommand
 	{
 		FString Id;
@@ -66,6 +73,8 @@ namespace SatisDash
 	/** 201 only (EnrollResponseSchema), with a well-formed secret and server id. */
 	SATISDASHCORE_API TOptional<FEnrollResponse> ParseEnrollResponse(const FHttpReply& Reply);
 	SATISDASHCORE_API TOptional<FSnapshotResponse> ParseSnapshotResponse(const FHttpReply& Reply);
+	/** A 2xx JSON object (S4's limits) with boolean accepted and unchanged. Unset otherwise: the sender treats that as transient, as backendClient.ts does. */
+	SATISDASHCORE_API TOptional<FWorldResponse> ParseWorldResponse(const FHttpReply& Reply);
 	/** Every command must be well formed, or the whole response is refused (S4); at most 20 are kept. */
 	SATISDASHCORE_API TOptional<TArray<FAgentCommand>> ParseCommandsResponse(const FHttpReply& Reply);
 }

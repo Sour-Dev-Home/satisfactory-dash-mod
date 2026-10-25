@@ -132,3 +132,48 @@ bool FFrmQueueLargeRuleTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("and starts once the parse is done"), Net.pending(TEXT("/getTestBoth")), 1);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmQueueWorldEndpointsTest, "SatisDash.Core.FrmQueue.WorldEndpoints", SatisDash::Test::Flags)
+
+bool FFrmQueueWorldEndpointsTest::RunTest(const FString& Parameters)
+{
+	for (const FFrmEndpoint* Large : { &FrmGetTrainRails, &FrmGetResourceNode })
+	{
+		TestTrue(FString::Printf(TEXT("%s: world lane"), Large->Name), Large->Lane == EFrmLane::World);
+		TestTrue(FString::Printf(TEXT("%s: large, and never passes a large parse"), Large->Name), Large->bLarge && !Large->bMayPassLarge);
+		TestEqual(FString::Printf(TEXT("%s: 4 MB cap"), Large->Name), Large->CapBytes, FrmSmallCapBytes);
+		TestEqual(FString::Printf(TEXT("%s: 15 s"), Large->Name), Large->TimeoutSeconds, 15.f);
+	}
+	for (const FFrmEndpoint* Small : { &FrmGetTrains, &FrmGetTrainStation })
+	{
+		TestTrue(FString::Printf(TEXT("%s: live lane, small, not passable"), Small->Name), Small->Lane == EFrmLane::Live && !Small->bLarge && !Small->bMayPassLarge);
+		TestEqual(FString::Printf(TEXT("%s: 4 MB cap"), Small->Name), Small->CapBytes, FrmSmallCapBytes);
+		TestEqual(FString::Printf(TEXT("%s: 5 s"), Small->Name), Small->TimeoutSeconds, 5.f);
+	}
+	SatisDash::Test::SameText(*this, TEXT("rails url"), BuildFrmRequest(8080, FString(), FrmGetTrainRails).Url, TEXT("http://127.0.0.1:8080/getTrainRails"));
+	SatisDash::Test::SameText(*this, TEXT("nodes url"), BuildFrmRequest(18081, FString(), FrmGetResourceNode).Url, TEXT("http://127.0.0.1:18081/getResourceNode"));
+
+	// The real endpoints in the queue: queued world first, live second, and the live lane still goes first.
+	SatisDash::Test::FFakeTransport Net;
+	FFrmQueue FrmLanes{ Net };
+	FrmLanes.Enqueue(FrmQueueRead(FrmGetTrainRails, nullptr));
+	FrmLanes.Enqueue(FrmQueueRead(FrmGetResourceNode, nullptr));
+	FrmLanes.Enqueue(FrmQueueRead(FrmGetTrains, nullptr));
+	FrmLanes.Enqueue(FrmQueueRead(FrmGetPlayer, nullptr));
+	FrmLanes.Pump(8080, FString(), false);
+	TestEqual(TEXT("live first, in order: trains"), Net.pending(TEXT("/getTrains")), 1);
+	Net.answer(TEXT("/getTrains"), SatisDash::Test::Reply(200, TEXT("[]")));
+	FrmLanes.Pump(8080, FString(), true);
+	TestEqual(TEXT("a large parse is held: getPlayer passes it"), Net.pending(TEXT("/getPlayer")), 1);
+	Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, TEXT("[]")));
+	FrmLanes.Pump(8080, FString(), true);
+	TestEqual(TEXT("and the world lane waits for the parse"), Net.Open.Num(), 0);
+	FrmLanes.Pump(8080, FString(), false);
+	TestEqual(TEXT("then rails"), Net.pending(TEXT("/getTrainRails")), 1);
+	Net.answer(TEXT("/getTrainRails"), SatisDash::Test::Reply(200, TEXT("[]")));
+	FrmLanes.Pump(8080, FString(), true);
+	TestEqual(TEXT("resource nodes wait for the rails parse: one large body at a time"), Net.Open.Num(), 0);
+	FrmLanes.Pump(8080, FString(), false);
+	TestEqual(TEXT("then resource nodes"), Net.pending(TEXT("/getResourceNode")), 1);
+	return true;
+}

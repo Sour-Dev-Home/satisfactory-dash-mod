@@ -30,6 +30,13 @@ namespace SatisDash
 	inline constexpr FFrmEndpoint FrmGetTrains{ TEXT("getTrains"), EFrmLane::Live, false, false, FrmSmallCapBytes, 5.f };
 	inline constexpr FFrmEndpoint FrmGetTrainStation{ TEXT("getTrainStation"), EFrmLane::Live, false, false, FrmSmallCapBytes, 5.f };
 
+	// Both are large (the captured world's 608 nodes are about 288 KB; a big world's rails more), so they are world-lane reads
+	// that never start while another large body is held. FRM runs getTrainRails on its own server thread and getResourceNode
+	// on the game thread (spec "Load spreading"), which is why the node read has the longest cadence. The 15 s timeout is the
+	// mod's; the Node agent uses 5 s for every FRM read (connection.ts:47). The cap is the spec's "4 MB for the rest".
+	inline constexpr FFrmEndpoint FrmGetTrainRails{ TEXT("getTrainRails"), EFrmLane::World, true, false, FrmSmallCapBytes, 15.f };
+	inline constexpr FFrmEndpoint FrmGetResourceNode{ TEXT("getResourceNode"), EFrmLane::World, true, false, FrmSmallCapBytes, 15.f };
+
 	/** GET http://127.0.0.1:<Port>/<Endpoint.Name>, with X-FRM-Authorization only when Token isn't empty. */
 	SATISDASHCORE_API FRequestSpec BuildFrmRequest(int32 Port, const FString& Token, const FFrmEndpoint& Endpoint);
 }
