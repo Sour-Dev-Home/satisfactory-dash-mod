@@ -53,6 +53,21 @@ namespace
 		return FString::Printf(TEXT("[{\"ID\":\"S\",\"Name\":\"n\",\"location\":{\"x\":150,\"y\":-150,\"z\":0}%s}]"), Extra);
 	}
 
+	/** Count valid stations S0.. with x = 100 m apart; BadFirst bad-coordinate ones (X0..) come before them. */
+	FString FrmMapLiveStations(int32 Count, int32 BadFirst = 0)
+	{
+		FString Json = TEXT("[");
+		for (int32 I = 0; I < BadFirst; ++I)
+		{
+			Json += FString::Printf(TEXT("{\"ID\":\"X%d\",\"Name\":\"n\",\"location\":{\"x\":1e12,\"y\":0,\"z\":0}},"), I);
+		}
+		for (int32 I = 0; I < Count; ++I)
+		{
+			Json += FString::Printf(TEXT("%s{\"ID\":\"S%d\",\"Name\":\"n%d\",\"location\":{\"x\":%d,\"y\":0,\"z\":0}}"), I > 0 ? TEXT(",") : TEXT(""), I, I, I * 10000);
+		}
+		return Json + TEXT("]");
+	}
+
 	/** Count valid trains T0.. with x = 100 m apart. */
 	FString FrmMapLiveTrains(int32 Count)
 	{
@@ -117,6 +132,10 @@ bool FFrmMapLiveRulesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("the bound itself is kept"), FrmMapLiveOf<FTrainsParse>(Edge).Kept, 1);
 	const FFrmMapLiveRun Past = FrmMapLiveOf<FTrainsParse>(TEXT("[{\"ID\":\"T\",\"Name\":\"n\",\"Status\":\"s\",\"location\":{\"x\":100000100,\"y\":0,\"z\":0}}]"));
 	TestTrue(TEXT("one metre past it is dropped, and the body is still valid"), Past.bOk && Past.Kept == 0 && Past.Dropped == 1);
+	// The same for a station (its own copy of the record reader).
+	TestEqual(TEXT("a station at the bound is kept"), FrmMapLiveOf<FStationsParse>(TEXT("[{\"ID\":\"S\",\"Name\":\"n\",\"location\":{\"x\":100000000,\"y\":-100000000,\"z\":0}}]")).Kept, 1);
+	const FFrmMapLiveRun StationPast = FrmMapLiveOf<FStationsParse>(TEXT("[{\"ID\":\"S\",\"Name\":\"n\",\"location\":{\"x\":0,\"y\":-100000100,\"z\":0}}]"));
+	TestTrue(TEXT("a station one metre past it is dropped, and the body is still valid"), StationPast.bOk && StationPast.Kept == 0 && StationPast.Dropped == 1);
 	return true;
 }
 
@@ -138,6 +157,15 @@ bool FFrmMapLiveCapsTest::RunTest(const FString& Parameters)
 	}
 	const FFrmMapLiveRun Mixed = FrmMapLiveOf<FTrainsParse>(TEXT("[") + Bad + FrmMapLiveTrains(500).RightChop(1));
 	TestTrue(TEXT("10 dropped then 500 valid: all 500 kept"), Mixed.bOk && Mixed.Kept == 500 && Mixed.Dropped == 10 && Mixed.Over == 0);
+
+	// Stations: the same caps, through their own record reader.
+	const FFrmMapLiveRun ManyStations = FrmMapLiveOf<FStationsParse>(FrmMapLiveStations(600));
+	TestTrue(TEXT("600 stations parse"), ManyStations.bOk);
+	TestEqual(TEXT("500 stations are kept"), ManyStations.Kept, MapLiveMaxItems);
+	TestEqual(TEXT("100 stations are valid but over the cap"), ManyStations.Over, 100);
+	TestTrue(TEXT("the 500th station (S499) is in, the 501st (S500) is not"), ManyStations.Json.Contains(TEXT("\"id\":\"S499\"")) && !ManyStations.Json.Contains(TEXT("\"id\":\"S500\"")));
+	const FFrmMapLiveRun MixedStations = FrmMapLiveOf<FStationsParse>(FrmMapLiveStations(500, 10));
+	TestTrue(TEXT("10 dropped stations then 500 valid: all 500 kept"), MixedStations.bOk && MixedStations.Kept == 500 && MixedStations.Dropped == 10 && MixedStations.Over == 0);
 
 	// zod validates the whole array before conform cuts it: a bad record past the cap still refuses the body.
 	TestFalse(TEXT("an invalid 601st record refuses the body"), FrmMapLiveOf<FTrainsParse>(FrmMapLiveTrains(600).LeftChop(1) + TEXT(",{\"ID\":\"\"}]")).bOk);
