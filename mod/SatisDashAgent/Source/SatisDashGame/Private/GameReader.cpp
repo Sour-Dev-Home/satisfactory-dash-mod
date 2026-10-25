@@ -134,18 +134,32 @@ TOptional<TArray<SatisDash::FPlayerReading>> SatisDash::FGameReader::ReadPlayers
 		return {};
 	}
 	TArray<FPlayerReading> Out;
-	// Connected: the replicated player list (GameStateBase.h:55). Offline: the players the session remembers who are not
-	// online (FGGameState.h:519), named by the platform they were last seen on, else their first identity. Names are
-	// personal data: they are copied into the reading and never logged.
+	// Connected: the replicated player list (GameStateBase.h:55). Offline: the players the save remembers (the inline
+	// getter, FGGameState.h:515) none of whose identities is a connected player's (PlayerState.h:408), named by the
+	// platform they were last seen on, else their first identity. GetOfflineCachedPlayerInfosInSession (:519) is not
+	// used: it crashed the dedicated server on its first call (access violation inside it, core run 40241942772).
+	// Names are personal data: they are copied into the reading and never logged.
+	TArray<const FUniqueNetIdRepl*> OnlineIds;
 	for (const APlayerState* Player : State->PlayerArray)
 	{
 		if (Player != nullptr)
 		{
 			Out.Add({ Player->GetPlayerName(), true });
+			OnlineIds.Add(&Player->GetUniqueId());
 		}
 	}
-	for (const FCachedPlayerInfo& Info : State->GetOfflineCachedPlayerInfosInSession())
+	for (const FCachedPlayerInfo& Info : State->GetAllPlayerInfoData())
 	{
+		// Invalid ids are skipped: two invalid ids compare equal (CoreOnline.h:671).
+		const bool bOnline = Info.PerPlatformInfo.ContainsByPredicate([&OnlineIds](const FCachedPlayerPlatformInfo& Id) {
+			return Id.UniqueNetId.IsValid() && OnlineIds.ContainsByPredicate([&Id](const FUniqueNetIdRepl* Online) {
+				return *Online == Id.UniqueNetId;
+			});
+		});
+		if (bOnline)
+		{
+			continue;
+		}
 		const FCachedPlayerPlatformInfo* Platform = Info.GetForPlatform(Info.GetLastSeenServicesType());
 		if (Platform == nullptr && !Info.PerPlatformInfo.IsEmpty())
 		{

@@ -469,7 +469,14 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FBlake3::HashBuffer | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:118 | header only (tests; the const void*, uint64 overload; the brief said :117, the header has it at :118) |
 | FGGameState.h | Source/FactoryGame/Public/FGGameState.h:1 | header only |
 | AFGGameState | Source/FactoryGame/Public/FGGameState.h:116 | header only |
-| AFGGameState::GetOfflineCachedPlayerInfosInSession | Source/FactoryGame/Public/FGGameState.h:519 | header only (public; returns a copy of the players not online in the session; the S1 survey did not find it) |
+| AFGGameState::GetOfflineCachedPlayerInfosInSession | Source/FactoryGame/Public/FGGameState.h:519 | header only (public; returns a copy of the players not online in the session; the S1 survey did not find it). No longer used: its first call crashed the dedicated server with an access violation inside it (core run 40241942772) |
+| AFGGameState::GetAllPlayerInfoData | Source/FactoryGame/Public/FGGameState.h:515 | header only (FORCEINLINE, returns `mPlayerInfoCache`, :845, by const reference) |
+| FCachedPlayerPlatformInfo::UniqueNetId | Source/FactoryGame/Public/Online/PlayerInfoCache.h:16 | header only (`FUniqueNetIdRepl`) |
+| APlayerState::GetUniqueId | Engine/Source/Runtime/Engine/Classes/GameFramework/PlayerState.h:408 | header only (returns `const FUniqueNetIdRepl&`) |
+| FUniqueNetIdRepl | Engine/Source/Runtime/Engine/Classes/GameFramework/OnlineReplStructs.h:25 | header only (derives from FUniqueNetIdWrapper) |
+| FUniqueNetIdWrapper::IsValid | Engine/Source/Runtime/CoreOnline/Public/Online/CoreOnline.h:590 | header only |
+| FUniqueNetIdWrapper operator== | Engine/Source/Runtime/CoreOnline/Public/Online/CoreOnline.h:671 | header only (two invalid ids compare equal, so callers check IsValid first) |
+| TArray::ContainsByPredicate | Engine/Source/Runtime/Core/Public/Containers/Array.h:1545 | header only |
 | Online/PlayerInfoCache.h | Source/FactoryGame/Public/Online/PlayerInfoCache.h:1 | header only |
 | FCachedPlayerInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:49 | header only |
 | FCachedPlayerInfo::PerPlatformInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:55 | header only (the UPROPERTY comment is on :53, the declaration `TArray<FCachedPlayerPlatformInfo> PerPlatformInfo;` on :55) |
