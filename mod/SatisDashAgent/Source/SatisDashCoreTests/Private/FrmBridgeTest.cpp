@@ -8,6 +8,10 @@ namespace
 	const TCHAR* FrmBridgeOnePlayer = TEXT("[{\"Name\":\"Player One\",\"Online\":true}]");
 	const TCHAR* FrmBridgeOneBuilding = TEXT("[{\"ID\":\"B_1\",\"Name\":\"n\",\"ClassName\":\"c\",\"IsProducing\":true,\"IsPaused\":false}]");
 
+	const TCHAR* FrmBridgeOneTrain = TEXT("[{\"ID\":\"T1\",\"Name\":\"Train\",\"Status\":\"Self-Driving\",\"location\":{\"x\":150,\"y\":-150,\"z\":0}}]");
+	const TCHAR* FrmBridgeOneStation = TEXT("[{\"ID\":\"S1\",\"Name\":\"Station\",\"location\":{\"x\":5049,\"y\":-5051,\"z\":0}}]");
+	const TCHAR* FrmBridgeMapLive = TEXT("{\"trains\":[{\"id\":\"T1\",\"name\":\"Train\",\"x\":2,\"y\":-1,\"status\":\"Self-Driving\"}],\"stations\":[{\"id\":\"S1\",\"name\":\"Station\",\"x\":50,\"y\":-51}]}");
+
 	struct FFrmBridgeFixture
 	{
 		SatisDash::Test::FFakeTransport Net;
@@ -21,6 +25,25 @@ namespace
 				T += 0.5;
 				Bridge.Tick(T, 8080, FString());
 			}
+		}
+		/** Ticks until FRM has been asked for Path (at most MaxTicks), then answers it. False if it was never asked. */
+		bool serve(const TCHAR* Path, const FHttpReply& Reply, int32 MaxTicks = 8)
+		{
+			for (int32 I = 0; I < MaxTicks && Net.pending(Path) == 0; ++I)
+			{
+				tick();
+			}
+			return Net.answer(Path, Reply);
+		}
+		/** One factory-cadence pass with FRM answering every read in turn (players and factory fine, the others as given). */
+		void cycle(const FHttpReply& Trains, const FHttpReply& Stations)
+		{
+			Bridge.RequestPass(true);
+			serve(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+			serve(TEXT("/getFactory"), SatisDash::Test::Reply(200, FrmBridgeOneBuilding));
+			serve(TEXT("/getTrains"), Trains);
+			serve(TEXT("/getTrainStation"), Stations);
+			tick(4);
 		}
 	};
 }
@@ -90,8 +113,127 @@ bool FFrmBridgeFactoryTest::RunTest(const FString& Parameters)
 		F.tick();
 	}
 	TestTrue(TEXT("the factory part is ready"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT("\"B_1\"")));
+	F.serve(TEXT("/getTrains"), SatisDash::Test::Reply(0, FString()));
+	F.serve(TEXT("/getTrainStation"), SatisDash::Test::Reply(0, FString()));
 	F.tick(2);
 	TestEqual(TEXT("then the next factory read may start"), F.Net.pending(TEXT("/getFactory")), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeMapLiveTest, "SatisDash.Core.FrmBridge.MapLive", SatisDash::Test::Flags)
+
+bool FFrmBridgeMapLiveTest::RunTest(const FString& Parameters)
+{
+	FFrmBridgeFixture F;
+	// getTrains isn't marked passable: it waits while the factory body parses. Only getPlayer passes a large parse.
+	F.Bridge.RequestPass(true);
+	TestTrue(TEXT("players asked"), F.serve(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer)));
+	F.tick(2); // the players parse runs and is harvested
+	F.Worker.bHold = true;
+	TestTrue(TEXT("factory asked"), F.serve(TEXT("/getFactory"), SatisDash::Test::Reply(200, FrmBridgeOneBuilding)));
+	F.tick(2);
+	TestEqual(TEXT("getTrains waits while the factory body is held"), F.Net.pending(TEXT("/getTrains")), 0);
+	F.Worker.bHold = false;
+	F.Worker.release();
+	TestTrue(TEXT("then getTrains is asked"), F.serve(TEXT("/getTrains"), SatisDash::Test::Reply(200, FrmBridgeOneTrain)));
+	TestTrue(TEXT("and getTrainStation, after it: one request at a time"), F.serve(TEXT("/getTrainStation"), SatisDash::Test::Reply(200, FrmBridgeOneStation)));
+	F.tick(4);
+	SatisDash::Test::SameText(*this, TEXT("the part is the Node agent's mapLive"), F.Bridge.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
+	TestFalse(TEXT("taken once"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+
+	// Either read failing, or invalid, leaves the whole part out (the Node agent reads both and one failure fails both).
+	F.cycle(SatisDash::Test::Reply(200, FrmBridgeOneTrain), SatisDash::Test::Reply(500, FString()));
+	TestFalse(TEXT("stations failed: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	F.cycle(SatisDash::Test::Reply(200, TEXT("[{\"ID\":\"\"}]")), SatisDash::Test::Reply(200, FrmBridgeOneStation));
+	TestFalse(TEXT("trains invalid: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	F.cycle(SatisDash::Test::Reply(0, FString()), SatisDash::Test::Reply(0, FString()));
+	TestFalse(TEXT("FRM down: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	F.cycle(SatisDash::Test::Reply(200, FrmBridgeOneTrain), SatisDash::Test::Reply(200, FrmBridgeOneStation));
+	SatisDash::Test::SameText(*this, TEXT("and it recovers when FRM returns"), F.Bridge.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
+
+	// A getTrains read left in flight by a stopped run still holds its endpoint when the run restarts: Enqueue refuses the new
+	// one, that side is Failed (not Waiting forever), the pair settles without a part, and the next cadence tick starts afresh.
+	F.Bridge.RequestPass(true);
+	F.serve(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.serve(TEXT("/getFactory"), SatisDash::Test::Reply(200, FrmBridgeOneBuilding));
+	for (int32 I = 0; I < 8 && F.Net.pending(TEXT("/getTrains")) == 0; ++I)
+	{
+		F.tick();
+	}
+	TestEqual(TEXT("getTrains is in flight"), F.Net.pending(TEXT("/getTrains")), 1);
+	F.Bridge.Stop();
+	F.Bridge.RequestPass(true);
+	TestTrue(TEXT("the stopped run's getTrains is answered; nobody uses it"), F.Net.answer(TEXT("/getTrains"), SatisDash::Test::Reply(200, FrmBridgeOneTrain)));
+	F.serve(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.serve(TEXT("/getFactory"), SatisDash::Test::Reply(200, FrmBridgeOneBuilding));
+	TestEqual(TEXT("the restarted run did not ask getTrains a second time"), F.Net.pending(TEXT("/getTrains")), 0);
+	F.serve(TEXT("/getTrainStation"), SatisDash::Test::Reply(200, FrmBridgeOneStation));
+	F.tick(4);
+	TestFalse(TEXT("the refused side failed the pair: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	F.cycle(SatisDash::Test::Reply(200, FrmBridgeOneTrain), SatisDash::Test::Reply(200, FrmBridgeOneStation));
+	SatisDash::Test::SameText(*this, TEXT("and the next cadence tick starts a fresh pair"), F.Bridge.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
+
+	// An old part is dropped: a part ages from its FRM read.
+	F.cycle(SatisDash::Test::Reply(200, FrmBridgeOneTrain), SatisDash::Test::Reply(200, FrmBridgeOneStation));
+	TestFalse(TEXT("older than the factory cadence: dropped"), F.Bridge.TakeMapLive(F.T + 31, 30).IsSet());
+	return true;
+}
+
+namespace
+{
+	/** Count records with long strings, so a train and a station each come to about 400 bytes of output. */
+	FString FrmBridgeBig(bool bTrains, int32 Count)
+	{
+		const FString Id = FString::ChrN(100, TEXT('i'));
+		const FString Name = FString::ChrN(200, TEXT('n'));
+		const FString Status = bTrains ? TEXT("\"Status\":\"") + FString::ChrN(50, TEXT('s')) + TEXT("\",") : FString();
+		FString Json = TEXT("[");
+		for (int32 I = 0; I < Count; ++I)
+		{
+			Json += FString::Printf(TEXT("%s{\"ID\":\"%s%d\",\"Name\":\"%s\",%s\"location\":{\"x\":%d,\"y\":0,\"z\":0}}"), I > 0 ? TEXT(",") : TEXT(""), *Id, I, *Name, *Status, I * 100);
+		}
+		return Json + TEXT("]");
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeMapLiveCapTest, "SatisDash.Core.FrmBridge.MapLiveCap", SatisDash::Test::Flags)
+
+bool FFrmBridgeMapLiveCapTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FFrmBridgeFixture F;
+	// 500 trains and 500 stations, each array under 256,000 bytes, together over it: the whole part is left out.
+	for (int32 Round = 0; Round < 2; ++Round)
+	{
+		F.cycle(SatisDash::Test::Reply(200, FrmBridgeBig(true, 500)), SatisDash::Test::Reply(200, FrmBridgeBig(false, 500)));
+		TestFalse(TEXT("over 256,000 bytes: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	}
+	int32 CapLines = 0;
+	for (const FString& Line : Log.Take())
+	{
+		CapLines += Line.Contains(TEXT("mapLive is over its")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one warning, not one a cycle"), CapLines, 1);
+	// Just under: a smaller pair goes through.
+	F.cycle(SatisDash::Test::Reply(200, FrmBridgeBig(true, 100)), SatisDash::Test::Reply(200, FrmBridgeBig(false, 100)));
+	TestTrue(TEXT("100 of each is under the cap"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	return SatisDash::Test::NoErrorLines(*this, Log);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeReadAgeTest, "SatisDash.Core.FrmBridge.ReadAge", SatisDash::Test::Flags)
+
+bool FFrmBridgeReadAgeTest::RunTest(const FString& Parameters)
+{
+	FFrmBridgeFixture F;
+	F.Worker.bHold = true;
+	F.Bridge.RequestPass(false);
+	F.tick();
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.tick();      // launches the parse; the fake worker holds it
+	F.tick(40);    // 20 s go by while the worker is busy
+	F.Worker.release();
+	F.tick();      // harvested now
+	TestFalse(TEXT("a part is as old as the FRM read, not as old as its harvest"), F.Bridge.TakePlayers(F.T, 10).IsSet());
 	return true;
 }
 

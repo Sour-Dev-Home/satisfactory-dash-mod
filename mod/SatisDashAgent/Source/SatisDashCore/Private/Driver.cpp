@@ -131,10 +131,11 @@ void SatisDash::FDriver::TickSample(double Now)
 		Bridge.RequestPass(bFactoryDue);
 		Snapshot.PlayersJson = Bridge.TakePlayers(Now, 2.0 * Cadence.StatusSeconds);
 		Snapshot.FactoryJson = Bridge.TakeFactory(Now, Cadence.FactorySeconds);
+		Snapshot.MapLiveJson = Bridge.TakeMapLive(Now, Cadence.FactorySeconds);
 	}
-	if (Snapshot.FactoryJson.IsSet())
+	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet())
 	{
-		Bridge.EncodeSnapshot(MoveTemp(Snapshot)); // megabytes of JSON: serialised and gzipped on the worker
+		Bridge.EncodeSnapshot(MoveTemp(Snapshot)); // up to megabytes of JSON, or up to 256 KB of mapLive: serialised and gzipped on the worker
 	}
 	else
 	{

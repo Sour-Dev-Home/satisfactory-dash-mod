@@ -33,7 +33,7 @@ namespace SatisDash
 	 * wedges enrolment or pushing).
 	 *
 	 * Memory (it lives for the server's whole uptime): the snapshot queue holds at most MaxQueuedSnapshots (120) bodies
-	 * and MaxQueuedBytes (2 MiB) of them, the part log at most three keys (status, auto-pause, power); FRM reads and parsing as FrmBridge.h bounds them; at most one
+	 * and MaxQueuedBytes (2 MiB) of them, the part log at most three keys (status, auto-pause, power); FRM reads and parsing as FrmBridge.h bounds them (mapLive's pair included); at most one
 	 * enrolment and one push in flight. Commands: the ledger at most 1000 IDs, at most 20 commands waiting, one poll or
 	 * one result in flight, never both. A tick with nothing due allocates nothing.
 	 */
@@ -50,6 +50,8 @@ namespace SatisDash
 
 		const FAgent& GetAgent() const { return Agent; }
 		int32 Queued() const { return Pusher.Num(); }
+		/** True while a snapshot is being serialised and gzipped on the worker (a seam for the driver tests). */
+		bool EncodePending() const { return Bridge.EncodePending(); }
 
 	private:
 		void TickSample(double Now);

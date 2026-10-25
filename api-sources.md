@@ -258,6 +258,11 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TArray::SetNum | Engine/Source/Runtime/Core/Public/Containers/Array.h:2320 | header only |
 | TArray::Shrink | Engine/Source/Runtime/Core/Public/Containers/Array.h:1269 | header only |
 | FString::AppendChar | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:447 | header only |
+| FString::AppendInt | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2221 | header only (int32) |
+| FString::Appendf | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1614 | header only |
+| FMath::FloorToDouble | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:295 | header only (declared in FGenericPlatformMath, which FMath inherits via FPlatformMath) |
+| FMath::IsNaN | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:576 | header only (the double overload) |
+| FMath::Abs | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:946 | header only (template) |
 | TCHAR | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatform.h:84 | header only |
 | FMath::IsFinite | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:586 | header only (FMath derives FPlatformMath, UnrealMathUtility.h:266; the double overload is :586) |
 | FMath::Max | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:960 | header only (inherited through FPlatformMath) |

@@ -1,6 +1,6 @@
 // The recorder (ruling 11): a loopback proxy between an agent and the backend host's relay. It forwards every request
 // unchanged and keeps a public record of what passed: never the Authorization value, an enrolment body (the code) or
-// its answer (the secret), and the session name only as its hash (bundles are public).
+// its answer (the secret), and the session name, player names and mapLive names only as their hash (bundles are public).
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, request, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gunzipSync } from "node:zlib";
@@ -82,6 +82,17 @@ function hashPlayers(snapshot: unknown): unknown {
   return { ...(snapshot as object), players: { ...players, players: hashed } };
 }
 
+/** Train and station names are labels a player typed, so evidence keeps a hash of each, as it does for player names and the session. */
+function hashMapLive(snapshot: unknown): unknown {
+  const live = (snapshot as { mapLive?: { trains?: unknown; stations?: unknown } } | null)?.mapLive;
+  if (!live || typeof live !== "object") return snapshot;
+  const hashNames = (list: unknown): unknown =>
+    Array.isArray(list)
+      ? list.map((item) => (item && typeof item === "object" && typeof (item as { name?: unknown }).name === "string" ? { ...item, name: sessionHash((item as { name: string }).name) } : item))
+      : list;
+  return { ...(snapshot as object), mapLive: { ...live, trains: hashNames(live.trains), stations: hashNames(live.stations) } };
+}
+
 function hashSession(snapshot: unknown): unknown {
   const status = (snapshot as { status?: Record<string, unknown> } | null)?.status;
   if (!status || typeof status !== "object" || typeof status.sessionName !== "string") return snapshot;
@@ -137,12 +148,12 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
             // Over the cap: not recorded (the judge fails it), unless trimming was opted in for this agent.
             if (trimFor.has(entry.agent) && s.value !== null && typeof s.value === "object" && !Array.isArray(s.value)) {
               const all = Object.entries(s.value);
-              entry.snapshot = hashSession(hashPlayers(Object.fromEntries(all.filter(([k]) => OVERSIZED_KEPT.includes(k)))));
+              entry.snapshot = hashSession(hashPlayers(hashMapLive(Object.fromEntries(all.filter(([k]) => OVERSIZED_KEPT.includes(k))))));
               entry.oversized = true;
               entry.droppedKeys = all.map(([k]) => k).filter((k) => !OVERSIZED_KEPT.includes(k));
             }
           } else if (s !== undefined) {
-            entry.snapshot = hashSession(hashPlayers(s.value));
+            entry.snapshot = hashSession(hashPlayers(hashMapLive(s.value)));
           }
         } else if (method === "GET" && path === COMMANDS) {
           const ids = commandIds(got.json(upRes?.headers ?? {}));

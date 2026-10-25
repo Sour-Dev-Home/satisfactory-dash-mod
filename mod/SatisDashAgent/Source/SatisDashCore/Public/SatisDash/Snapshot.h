@@ -63,6 +63,8 @@ namespace SatisDash
 		TOptional<FString> PlayersJson;
 		/** The factory part (AgentFactorySchema) as JSON, made off the game thread by FFactoryParse. */
 		TOptional<FString> FactoryJson;
+		/** The mapLive part ({"trains":[...],"stations":[...]}, FRM bridge 3B) as JSON, joined by FFrmBridge; spliced in as is. */
+		TOptional<FString> MapLiveJson;
 	};
 
 	/** At most 200 UTF-16 code units (the contract's string length, as JavaScript counts it), never splitting a pair. */

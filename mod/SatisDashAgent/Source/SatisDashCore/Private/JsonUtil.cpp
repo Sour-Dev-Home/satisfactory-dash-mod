@@ -90,3 +90,31 @@ FString SatisDash::Json::WritePretty(const TSharedRef<FJsonObject>& Object)
 	FJsonSerializer::Serialize(Object, Writer);
 	return Out;
 }
+
+void SatisDash::Json::AppendString(FString& Out, const FString& Value)
+{
+	Out.AppendChar(TEXT('"'));
+	for (const TCHAR C : Value)
+	{
+		switch (C)
+		{
+		case TEXT('"'): Out += TEXT("\\\""); break;
+		case TEXT('\\'): Out += TEXT("\\\\"); break;
+		case TEXT('\n'): Out += TEXT("\\n"); break;
+		case TEXT('\r'): Out += TEXT("\\r"); break;
+		case TEXT('\t'): Out += TEXT("\\t"); break;
+		case TEXT('\b'): Out += TEXT("\\b"); break;
+		case TEXT('\f'): Out += TEXT("\\f"); break;
+		default:
+			if (C < 0x20)
+			{
+				Out.Appendf(TEXT("\\u%04x"), uint32(C));
+			}
+			else
+			{
+				Out.AppendChar(C);
+			}
+		}
+	}
+	Out.AppendChar(TEXT('"'));
+}

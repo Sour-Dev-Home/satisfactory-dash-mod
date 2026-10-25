@@ -123,6 +123,24 @@ describe("recorder (ruling 11)", () => {
     expect(JSON.stringify(rec.entries)).not.toContain("Player One");
   });
 
+  it("records train and station names as hashes, never the names (they are labels a player typed)", async () => {
+    const up = await upstream(() => ({ status: 200, body: '{"commandsPending":false}' }));
+    const rec = await recorderFor(up.url);
+    const live = {
+      trains: [{ id: "T1", name: "Test Train A", x: 1, y: 2, status: "Self-Driving" }],
+      stations: [{ id: "S1", name: "Test Station A", x: 3, y: 4 }],
+    };
+    await send(rec.url, "POST", "/agent/v1/snapshots", {
+      headers: { "user-agent": MOD_UA, "content-type": "application/json" },
+      body: JSON.stringify({ ...snapshot, mapLive: live }),
+    });
+    const recorded = rec.entries[0]!.snapshot as { mapLive: typeof live };
+    expect(recorded.mapLive.trains[0]).toEqual({ id: "T1", name: sessionHash("Test Train A"), x: 1, y: 2, status: "Self-Driving" });
+    expect(recorded.mapLive.stations[0]).toEqual({ id: "S1", name: sessionHash("Test Station A"), x: 3, y: 4 });
+    expect(JSON.stringify(rec.entries)).not.toContain("Test Train A");
+    expect(JSON.stringify(rec.entries)).not.toContain("Test Station A");
+  });
+
   const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
   const factory = { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, name: "Constructor", className: "Build_ConstructorMk1_C", pad: "p".repeat(60) })) };
   const big = JSON.stringify({ ...snapshot, ...parts, factory, players: { available: true, players: [{ name: "Someone", online: true }] } });

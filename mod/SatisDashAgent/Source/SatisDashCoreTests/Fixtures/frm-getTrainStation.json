@@ -1,0 +1,4 @@
+[
+{"ID":"Build_TrainStation_C_1","Name":"Test Station A","ClassName":"Build_TrainStation_C","location":{"x":-100050,"y":-147350,"z":4400,"rotation":90},"CargoInventory":[],"PowerInfo":{"CircuitGroupID":1,"PowerConsumed":0}},
+{"ID":"Build_TrainStation_C_2","Name":"Test Station B","location":{"x":5049,"y":-5051,"z":0}}
+]

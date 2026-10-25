@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { AgentPowerCircuitSchema, AgentStatusSchema, SnapshotRequestSchema } from "../contract/src/agent";
+import { MapLiveSchema } from "../contract/src/map";
 
 const FIXTURES = new URL("../../mod/SatisDashAgent/Source/SatisDashCoreTests/Fixtures/", import.meta.url);
 const load = (name: string) => JSON.parse(readFileSync(fileURLToPath(new URL(name, FIXTURES)), "utf8"));
@@ -19,6 +20,10 @@ describe("the core mod's snapshot fixtures, against the pinned contract (spec S1
   }
   it("snapshot-frm.json, with players and factory, is a valid snapshot", () => {
     const r = SnapshotRequestSchema.safeParse(load("snapshot-frm.json"));
+    expect(r.success ? [] : r.error.issues).toEqual([]);
+  });
+  it("frm-mapLive.expected.json is a valid mapLive part (the contract's caps and shapes)", () => {
+    const r = MapLiveSchema.safeParse(load("frm-mapLive.expected.json"));
     expect(r.success ? [] : r.error.issues).toEqual([]);
   });
   it("a circuit has exactly the contract's circuit fields", () => {

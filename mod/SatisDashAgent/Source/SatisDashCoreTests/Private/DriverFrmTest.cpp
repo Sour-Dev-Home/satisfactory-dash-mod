@@ -19,6 +19,41 @@ namespace
 		}
 		return Bodies;
 	}
+
+	const TCHAR* DriverFrmTrain = TEXT("[{\"ID\":\"T1\",\"Name\":\"A\",\"Status\":\"s\",\"location\":{\"x\":150,\"y\":-150,\"z\":0}}]");
+	const TCHAR* DriverFrmStation = TEXT("[{\"ID\":\"S1\",\"Name\":\"B\",\"location\":{\"x\":5049,\"y\":-5051,\"z\":0}}]");
+	const TCHAR* DriverFrmMapLive = TEXT("\"mapLive\":{\"trains\":[{\"id\":\"T1\",\"name\":\"A\",\"x\":2,\"y\":-1,\"status\":\"s\"}],\"stations\":[{\"id\":\"S1\",\"name\":\"B\",\"x\":50,\"y\":-51}]}");
+
+	/**
+	 * Runs the driver until FRM has been asked for Path, then answers it. False if it never was asked within 40 s. While it
+	 * waits for any other path it answers a routine getPlayer with Code 0, because one FRM request is in flight at a time
+	 * and an unanswered one would hold up the read being waited for.
+	 */
+	bool DriverFrmServe(FDriverFixture& F, FDriver& Driver, const TCHAR* Path, const FHttpReply& Reply)
+	{
+		const bool bWantPlayers = FString(Path).Equals(TEXT("/getPlayer"), ESearchCase::CaseSensitive);
+		const bool bAsked = F.runUntil(Driver, [&F, Path, bWantPlayers]
+		{
+			if (!bWantPlayers)
+			{
+				F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(0, FString()));
+			}
+			return F.Net.pending(Path) > 0;
+		}, 40.0);
+		return bAsked && F.Net.answer(Path, Reply);
+	}
+
+	/** Answers snapshots until none is open and the driver has nothing more to send within a few ticks; returns every body seen. */
+	TArray<FString> DriverFrmRun(FDriverFixture& F, FDriver& Driver, double Seconds)
+	{
+		TArray<FString> Bodies;
+		for (double Done = 0; Done < Seconds; Done += 0.5)
+		{
+			F.run(Driver, 0.5);
+			Bodies.Append(DriverFrmDrain(F));
+		}
+		return Bodies;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverFrmPartsTest, "SatisDash.Core.Driver.FrmParts", SatisDash::Test::Flags)
@@ -76,6 +111,78 @@ bool FDriverFrmDownTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("status keeps flowing"), Body.Contains(TEXT("\"status\"")));
 	}
 	TestTrue(TEXT("players unavailable"), bUnavailable);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverFrmMapLiveTest, "SatisDash.Core.Driver.FrmMapLive", SatisDash::Test::Flags)
+
+bool FDriverFrmMapLiveTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	TestTrue(TEXT("players asked"), DriverFrmServe(F, Driver, TEXT("/getPlayer"), SatisDash::Test::Reply(200, TEXT("[{\"Name\":\"Player One\",\"Online\":true}]"))));
+	TestTrue(TEXT("factory asked"), DriverFrmServe(F, Driver, TEXT("/getFactory"), SatisDash::Test::Reply(0, FString())));
+	TestTrue(TEXT("then trains"), DriverFrmServe(F, Driver, TEXT("/getTrains"), SatisDash::Test::Reply(200, DriverFrmTrain)));
+	TestTrue(TEXT("then stations"), DriverFrmServe(F, Driver, TEXT("/getTrainStation"), SatisDash::Test::Reply(200, DriverFrmStation)));
+
+	// Spec "Threading": a snapshot that carries mapLive is serialised and gzipped on the worker, never on the game thread.
+	F.Worker.bHold = true;
+	bool bEncode = false;
+	for (int32 I = 0; I < 40 && !bEncode; ++I)
+	{
+		F.run(Driver, 0.5);
+		bEncode = Driver.EncodePending();
+		if (!bEncode)
+		{
+			F.Worker.release(); // a parse job: let it finish
+		}
+	}
+	TestTrue(TEXT("the snapshot that takes mapLive is handed to the worker to encode"), bEncode);
+	F.Worker.bHold = false;
+	F.Worker.release();
+	const TArray<FString> Bodies = DriverFrmRun(F, Driver, 6.0);
+	bool bMapLive = false;
+	for (const FString& Body : Bodies)
+	{
+		bMapLive = bMapLive || Body.Contains(DriverFrmMapLive);
+		TestTrue(TEXT("every snapshot still carries status"), Body.Contains(TEXT("\"status\"")));
+	}
+	TestTrue(TEXT("a snapshot carries mapLive, as the Node agent builds it"), bMapLive);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverFrmMapLiveDownTest, "SatisDash.Core.Driver.FrmMapLiveDown", SatisDash::Test::Flags)
+
+bool FDriverFrmMapLiveDownTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	for (const TCHAR* Path : { TEXT("/getPlayer"), TEXT("/getFactory"), TEXT("/getTrains"), TEXT("/getTrainStation") })
+	{
+		TestTrue(FString::Printf(TEXT("%s asked"), Path), DriverFrmServe(F, Driver, Path, SatisDash::Test::Reply(0, FString())));
+	}
+	TArray<FString> Bodies = DriverFrmRun(F, Driver, 8.0);
+	TestTrue(TEXT("snapshots keep flowing"), Bodies.Num() > 0);
+	for (const FString& Body : Bodies)
+	{
+		TestFalse(TEXT("FRM down: no mapLive"), Body.Contains(TEXT("\"mapLive\"")));
+		TestTrue(TEXT("status keeps flowing"), Body.Contains(TEXT("\"status\"")));
+		TestTrue(TEXT("players are unavailable, not stale"), !Body.Contains(TEXT("\"players\"")) || Body.Contains(TEXT("\"players\":{\"available\":false,\"players\":[]}")));
+	}
+	// FRM returns: the next factory pass (30 s) asks again and the part comes back.
+	TestTrue(TEXT("players asked again"), DriverFrmServe(F, Driver, TEXT("/getPlayer"), SatisDash::Test::Reply(0, FString())));
+	TestTrue(TEXT("factory asked again"), DriverFrmServe(F, Driver, TEXT("/getFactory"), SatisDash::Test::Reply(0, FString())));
+	TestTrue(TEXT("trains asked again"), DriverFrmServe(F, Driver, TEXT("/getTrains"), SatisDash::Test::Reply(200, DriverFrmTrain)));
+	TestTrue(TEXT("stations asked again"), DriverFrmServe(F, Driver, TEXT("/getTrainStation"), SatisDash::Test::Reply(200, DriverFrmStation)));
+	Bodies = DriverFrmRun(F, Driver, 12.0);
+	bool bMapLive = false;
+	for (const FString& Body : Bodies)
+	{
+		bMapLive = bMapLive || Body.Contains(DriverFrmMapLive);
+	}
+	TestTrue(TEXT("and the mod recovers"), bMapLive);
 	return true;
 }
 
