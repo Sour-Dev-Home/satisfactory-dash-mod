@@ -28,6 +28,8 @@ export interface RecordedCall {
   result?: unknown;
   /** A world-layer post (POST /agent/v1/world/:layer): which layer, how many items and how many unzipped bytes. The data itself is not kept. */
   world?: { layer: string; items: number; bytes: number };
+  /** The posted `data` array, kept only for the layers RecorderOptions.keepWorldData names (never for snapshots). */
+  worldData?: unknown[];
 }
 export interface Recorder { url: string; entries: RecordedCall[]; close(): Promise<void> }
 
@@ -115,12 +117,15 @@ export interface RecorderOptions {
    * only for the Node agent (review of 9b60268).
    */
   trimOversizedFor?: ReadonlyArray<RecordedCall["agent"]>;
+  /** World layers whose posted `data` array is kept in `worldData` (a layer so named must not carry personal data: resourceNodes carries resource names). */
+  keepWorldData?: readonly string[];
 }
 
 /** Starts the recorder on 127.0.0.1 in front of upstream (the relay's URL). */
 export async function startRecorder(upstream: string, opts: RecorderOptions = {}): Promise<Recorder> {
   const target = new URL(upstream);
   const trimFor = new Set(opts.trimOversizedFor ?? []);
+  const keepWorld = new Set(opts.keepWorldData ?? []);
   const entries: RecordedCall[] = [];
 
   const handle = (req: IncomingMessage, res: ServerResponse) => {
@@ -168,7 +173,11 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
           // A world body is at most 2,000,000 bytes (map.ts), under the 2 MiB this reads.
           const w = sent.read(req.headers);
           const data = (w?.value as { data?: unknown } | null | undefined)?.data;
-          if (w !== undefined && Array.isArray(data)) entry.world = { layer: WORLD.exec(path)![1]!, items: data.length, bytes: w.size };
+          if (w !== undefined && Array.isArray(data)) {
+            const layer = WORLD.exec(path)![1]!;
+            entry.world = { layer, items: data.length, bytes: w.size };
+            if (keepWorld.has(layer)) entry.worldData = data;
+          }
         }
       }
       entries.push(entry);

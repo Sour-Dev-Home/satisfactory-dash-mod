@@ -17,9 +17,13 @@ import { type OutboundSample, sampleOutbound } from "./outbound";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
-export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage", "tick-cost", "parity", "manual"] as const;
+export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage", "tick-cost", "parity", "manual", "native-parity"] as const;
 export type CoreRunId = (typeof CORE_RUN_IDS)[number];
 export const MOD = "SatisDashAgent";
+
+/** The sources the harness writes into the mod's config for a run (ADR-0058 Decision 4): the hidden per-reader override. */
+export interface NativeSources { playersSource: "bridge" | "native"; resourceNodesSource: "bridge" | "native" }
+export const NATIVE_SOURCES: NativeSources = { playersSource: "native", resourceNodesSource: "native" };
 
 /** The credential the mod writes (spec "Shape"; FPaths::ProjectSavedDir() on a dedicated server is FactoryGame/Saved). */
 export const credentialPath = (serverDir: string) => join(serverDir, "FactoryGame", "Saved", "SatisDash", "credential.json");
@@ -79,6 +83,8 @@ export interface CoreRunSpec {
    * server auto-loads its last save). The session is put back at the end, whatever happens.
    */
   emptyBoot?: boolean;
+  /** Keys added to every config the run writes (the mod's per-reader source override, ADR-0058). Recorded in mod-config.json. */
+  modConfig?: Partial<NativeSources>;
   /**
    * Boots once without the mod before the mod's boot, as runSpike does for S2 (run.ts, spec.ticks): the staged world
    * loaded, auto-pause off (put back before that server stops), then measureBaseline. Its result is ctx.baseline. Needs
@@ -210,6 +216,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   const codes: string[] = [];
   const secrets: string[] = [];
   const captures: Record<string, unknown> = {};
+  if (spec.modConfig) captures["mod-config.json"] = { ...spec.modConfig };
   const reasons: string[] = [];
   let autoPauseBefore: boolean | undefined;
   let log = "";
@@ -316,7 +323,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
           if (v.enrollmentCode) codes.push(v.enrollmentCode);
           // FRM bridge: the test server's FRM listens on the runner config's frmBaseUrl port, not FRM's default 8080.
           const frmPort = deps.config.frmBaseUrl ? Number(new URL(deps.config.frmBaseUrl).port) : undefined;
-          writeModConfig(deps.config.serverDir, MOD, frmPort ? { ...v, frmPort } : v);
+          writeModConfig(deps.config.serverDir, MOD, { ...v, ...(spec.modConfig ?? {}), ...(frmPort ? { frmPort } : {}) });
         },
         noteSecret,
         noteCode: (code) => void (code && !codes.includes(code) && codes.push(code)),

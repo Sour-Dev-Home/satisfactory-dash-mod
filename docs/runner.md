@@ -183,6 +183,16 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   or a folder left behind fails the run) and prunes the test server's application tokens
   (`server.InvalidateAPITokens`). `parity.json` also records `agent.cjs`'s sha256 and the contract pin. It takes about
   45 minutes plus the build.
+- `native-parity` needs the backend host, the staged world and `frmBaseUrl`. It writes `playersSource` and `resourceNodesSource`
+  as `native` into the mod's config (`modConfig`, recorded in `mod-config.json`), loads the world with auto-pause off, starts
+  reading the test server's FRM as a black box (`getPower` back to back, `getPlayer` every 2 s with names hashed before they
+  are stored, `getResourceNode` every minute and right after each mod post), then enrols the mod through the recorder. After a
+  one-minute settle it judges 30 minutes: the mod's one resource-node post (about 8 minutes after enrolment, then every 30)
+  falls inside it. Each reader is judged on its own (`runs/native-parity/pass.ts`: power within 3% of FRM's reads either side
+  of each mod sample; players equal; the resource-node layer equal and contract-valid) and the three verdicts go to
+  `readers.json`; the run is red if any reader is. Fields the world never exercised are reported as `NOT EXERCISED` and do not
+  fail (`NOT_EXERCISED_FAILS` in the pass file flips that). It takes about 45 minutes plus the build. To exercise "online"
+  players, join the test server with a game client during the window.
 
 ### The parity run's Node agent
 
