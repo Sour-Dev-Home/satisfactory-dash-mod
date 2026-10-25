@@ -36,6 +36,12 @@ export function mapNodeType(raw: string): string {
     .join("");
 }
 
+/** FRM's Purity, lowercased, with the game's own spelling slip corrected: the contract (map.ts) says its 'Inpure' typo becomes 'impure'. */
+export function mapPurity(purity: string): string {
+  const p = purity.toLowerCase();
+  return p === "inpure" ? "impure" : p;
+}
+
 /** getResourceNode's body to the contract's items (the mapper the bridge's golden pins), in FRM's order. Throws on an invalid record. */
 export function mapFrmResourceNodes(body: unknown): CanonNode[] {
   const out: CanonNode[] = [];
@@ -43,7 +49,7 @@ export function mapFrmResourceNodes(body: unknown): CanonNode[] {
     const x = metres(r.location.x);
     const y = metres(r.location.y);
     if (Math.abs(x) > LIMIT_METRES || Math.abs(y) > LIMIT_METRES) continue;
-    out.push({ type: cut(r.Name, 200), purity: cut(r.Purity.toLowerCase(), 40), nodeType: cut(mapNodeType(r.NodeType), 40), x, y, exploited: r.Exploited });
+    out.push({ type: cut(r.Name, 200), purity: cut(mapPurity(r.Purity), 40), nodeType: cut(mapNodeType(r.NodeType), 40), x, y, exploited: r.Exploited });
   }
   return out.slice(0, MAX_NODES);
 }

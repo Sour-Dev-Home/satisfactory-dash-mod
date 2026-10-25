@@ -98,6 +98,20 @@ function circuitGroups(snapshot: unknown): number | null {
  * straight away: the mod's first resource-node post comes 8 minutes (+/-10%) after the agent starts Running, which lands
  * inside the measured span [warmup, warmup + 10 minutes] = [3, 13] minutes after the measurement starts.
  */
+/** Which parts the mod's accepted snapshots carried (no body, no names): the evidence tick-cost-native's judge reads. */
+export function snapshotParts(
+  measured: { from: string; to: string } | null,
+  entries: ReadonlyArray<{ at: string; snapshot?: unknown }>,
+): { measured: { from: string; to: string } | null; snapshots: Array<{ at: string; playersAvailable: boolean }> } {
+  return {
+    measured,
+    snapshots: entries.map((e) => ({
+      at: e.at,
+      playersAvailable: (e.snapshot as { players?: { available?: unknown } } | undefined)?.players?.available === true,
+    })),
+  };
+}
+
 export type TickCostOrder = "enrol-first" | "world-first";
 
 /**
@@ -158,13 +172,7 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder): Pro
       capture.circuitGroups = last ? circuitGroups(last.snapshot) : null;
       ctx.captures["tick-cost.json"] = capture;
       // Evidence on which parts the mod's snapshots carried (no body, no names): tick-cost-native's judge reads it.
-      ctx.captures["snapshot-parts.json"] = {
-        measured,
-        snapshots: accepted(recorder).map((e) => ({
-          at: e.at,
-          playersAvailable: (e.snapshot as { players?: { available?: unknown } } | undefined)?.players?.available === true,
-        })),
-      };
+      ctx.captures["snapshot-parts.json"] = snapshotParts(measured, accepted(recorder));
       ctx.captures["recorder.json"] = recorder.entries.map(({ snapshot: _, ...rest }) => rest);
       await recorder.close();
     }

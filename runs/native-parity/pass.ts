@@ -13,11 +13,14 @@
 //  - R4 resource nodes: the layer the mod posted is valid against the pinned contract and equals, as a sorted list, FRM's
 //    getResourceNode (mapped to the contract's form by frm-native.ts) at the sample before or after the post, within
 //    NODES_GAP_MS; every difference is listed; at least one accepted post.
+// Both new readers must also be shown native by the mod's own log (reader-lines.ts): its `Readers:` line, and for the nodes a
+// completed `Resource node scan` line. With a reader on the bridge the mod's output equals FRM's and the values pass trivially.
 // Nothing here changes a pass condition of another run: the 3% bar and the round count are the parity run's own exports.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { ResourceNodesLayerDataSchema } from "../../harness/contract/src/map";
 import type { FrmCircuitGroup } from "../../harness/src/frm";
 import { canonNodes, type CanonNode } from "../../harness/src/frm-native";
+import { nodesLogProblems, playersLogProblems, withProblems } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import type { Circuit, Posted, ServerState } from "../parity/pass";
 import { inBracket, NEED_PAIRS, PARITY_POWER_TOLERANCE, WINDOW_MINUTES as PARITY_WINDOW_MINUTES } from "../parity/pass";
@@ -255,7 +258,14 @@ function runReasons(c: NativeParity, sources: unknown): string[] {
 export function evaluate(e: CoreEvidence): Verdict {
   const c = e.captures["native-parity.json"] as NativeParity | undefined;
   if (!c) return { pass: false, reasons: ["no native-parity capture"] };
-  const v = judgeReaders(c);
+  // Values alone cannot tell a native reader from the bridge (the mod's output then equals FRM's): the mod's own log must say
+  // the reader was native, and the nodes reader must have completed a scan.
+  const judged = judgeReaders(c);
+  const v: ReaderVerdicts = {
+    ...judged,
+    players: withProblems(judged.players, playersLogProblems(e.lines)),
+    resourceNodes: withProblems(judged.resourceNodes, nodesLogProblems(e.lines)),
+  };
   const run = runReasons(c, e.captures["mod-config.json"]);
   const names: Array<[string, Verdict]> = [["R0 power", v.power], ["R1 players", v.players], ["R4 resource nodes", v.resourceNodes]];
   const lines = names.flatMap(([name, x]) => x.reasons.map((r) => `${name} ${x.pass ? "PASS" : "FAIL"}: ${r}`));

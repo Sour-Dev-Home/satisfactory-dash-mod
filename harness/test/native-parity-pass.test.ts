@@ -40,8 +40,15 @@ function capture(): Pass.NativeParity {
     },
   };
 }
-const evidence = (c: Pass.NativeParity, sources: unknown = NATIVE_SOURCES): CoreEvidence =>
-  ({ lines: [], errorLines: [], leaks: { code: false, secret: false, bearer: false }, captures: { "native-parity.json": c, "mod-config.json": sources } });
+// The mod's log lines as the evidence carries them: native readers (the Readers line and one completed scan), or a bridge-mode run.
+const PREFIX = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
+const NATIVE_LINES = [
+  `${PREFIX}Readers: players=native resourceNodes=native`,
+  `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 1.75 ms, total 41.50 ms`,
+];
+const BRIDGE_LINES = [`${PREFIX}Readers: players=bridge resourceNodes=bridge`];
+const evidence = (c: Pass.NativeParity, sources: unknown = NATIVE_SOURCES, lines: string[] = NATIVE_LINES): CoreEvidence =>
+  ({ lines, errorLines: [], leaks: { code: false, secret: false, bearer: false }, captures: { "native-parity.json": c, "mod-config.json": sources } });
 
 describe("native-parity judge", () => {
   it("passes a clean capture and names each reader", () => {
@@ -51,6 +58,26 @@ describe("native-parity judge", () => {
     expect(v.reasons.some((r) => r.startsWith("R0 power PASS"))).toBe(true);
     expect(v.reasons.some((r) => r.startsWith("R1 players PASS"))).toBe(true);
     expect(v.reasons.some((r) => r.startsWith("R4 resource nodes PASS"))).toBe(true);
+  });
+
+  it("fails players and resource nodes on a bridge-mode run whose values equal FRM's, power keeps its verdict", () => {
+    const v = Pass.evaluate(evidence(capture(), NATIVE_SOURCES, BRIDGE_LINES));
+    expect(v.pass).toBe(false);
+    const text = v.reasons.join("\n");
+    expect(text).toMatch(/R1 players FAIL: .*players=bridge/);
+    expect(text).toMatch(/R4 resource nodes FAIL: .*resourceNodes=bridge/);
+    expect(text).toMatch(/R4 resource nodes FAIL: .*no "Resource node scan \(game thread only\):" line/);
+    expect(text).toMatch(/R0 power PASS/);
+  });
+
+  it("names the missing line: players need the Readers line, nodes need it and a scan line", () => {
+    const none = Pass.evaluate(evidence(capture(), NATIVE_SOURCES, []));
+    expect(none.reasons.join("\n")).toMatch(/R1 players FAIL: .*no "Readers:" line/);
+    expect(none.reasons.join("\n")).toMatch(/R4 resource nodes FAIL: .*no "Readers:" line/);
+    const noScan = Pass.evaluate(evidence(capture(), NATIVE_SOURCES, [NATIVE_LINES[0]!]));
+    expect(noScan.pass).toBe(false);
+    expect(noScan.reasons.join("\n")).toMatch(/R1 players PASS/);
+    expect(noScan.reasons.join("\n")).toMatch(/R4 resource nodes FAIL: .*no "Resource node scan \(game thread only\):" line/);
   });
 
   it("fails power alone when a value is 5% off (the other readers keep their verdicts)", () => {

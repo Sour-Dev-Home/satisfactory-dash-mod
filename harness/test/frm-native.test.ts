@@ -22,6 +22,11 @@ describe("mapFrmResourceNodes", () => {
     expect(() => mapFrmResourceNodes([{ Name: "x", Purity: "Pure", NodeType: "Node", Exploited: "no", location: { x: 0, y: 0 } }])).toThrow();
   });
 
+  it("corrects FRM's 'Inpure' to the contract's 'impure' and lowercases the rest", () => {
+    const node = (Purity: string) => ({ Name: "Iron Ore", Purity, NodeType: "Node", Exploited: false, location: { x: 0, y: 0 } });
+    expect(mapFrmResourceNodes([node("Inpure"), node("Impure"), node("Normal"), node("Pure")]).map((n) => n.purity)).toEqual(["impure", "impure", "normal", "pure"]);
+  });
+
   it("drops a node past 1,000,000 m and never yields -0", () => {
     const out = mapFrmResourceNodes([
       { Name: "far", Purity: "Pure", NodeType: "Node", Exploited: false, location: { x: 1e12, y: 0 } },

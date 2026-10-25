@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { snapshotParts } from "../src/core-runs/tick-cost";
 import { NATIVE_SOURCES } from "../src/core-run";
 import type { CoreEvidence } from "../src/core-run";
 import { TICK_WARMUP_MS, type TickSeries } from "../src/ticks";
@@ -32,9 +35,17 @@ const baseCapture = (): Base.TickCost => ({
   outboundNamesWithMod: { "203.0.113.7": ["api.example.com"] },
 });
 
-function evidence(over: { sources?: unknown; parts?: unknown; posts?: unknown[] } = {}): CoreEvidence {
+// The mod's log lines as the evidence carries them (e.lines): native readers, and a bridge-mode run that has neither line.
+const PREFIX = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
+const NATIVE_LINES = [
+  `${PREFIX}Readers: players=native resourceNodes=native`,
+  `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 1.75 ms, total 41.50 ms`,
+];
+const BRIDGE_LINES = [`${PREFIX}Readers: players=bridge resourceNodes=bridge`, `${PREFIX}Agent is running`];
+
+function evidence(over: { sources?: unknown; parts?: unknown; posts?: unknown[]; lines?: string[] } = {}): CoreEvidence {
   return {
-    lines: [], errorLines: [], leaks: { code: false, secret: false, bearer: false },
+    lines: "lines" in over ? (over.lines as string[]) : NATIVE_LINES, errorLines: [], leaks: { code: false, secret: false, bearer: false },
     captures: {
       "tick-cost.json": baseCapture(),
       "mod-config.json": "sources" in over ? over.sources : NATIVE_SOURCES,
@@ -71,6 +82,48 @@ describe("tick-cost-native judge", () => {
     const v = Native.evaluate(evidence({ posts: early }));
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/resourceNodes/);
+  });
+  it("fails a bridge-mode run whose output looks native: the Readers line says bridge and no scan line was logged", () => {
+    const v = Native.evaluate(evidence({ lines: BRIDGE_LINES }));
+    expect(v.pass).toBe(false);
+    const text = v.reasons.join("\n");
+    expect(text).toMatch(/players=bridge/);
+    expect(text).toMatch(/resourceNodes=bridge/);
+    expect(text).toMatch(/Resource node scan \(game thread only\):/);
+  });
+  it("names the missing Readers line when the log has none, and a missing scan line when only that is absent", () => {
+    expect(Native.evaluate(evidence({ lines: [] })).reasons.join("\n")).toMatch(/no "Readers:" line/);
+    const noScan = Native.evaluate(evidence({ lines: [NATIVE_LINES[0]!] }));
+    expect(noScan.pass).toBe(false);
+    expect(noScan.reasons.join("\n")).toMatch(/no "Resource node scan \(game thread only\):" line/);
+    expect(noScan.reasons.join("\n")).not.toMatch(/Readers:/);
+  });
+  it("records the scan's longest step and total time in the reasons, without judging them", () => {
+    const slow = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 480.25 ms, total 9000.50 ms`];
+    const v = Native.evaluate(evidence({ lines: slow }));
+    expect(v.pass).toBe(true);
+    expect(v.reasons.join("\n")).toMatch(/longest single step 480\.25 ms; longest total 9000\.5 ms/);
+    expect(Native.evaluate(evidence()).reasons.join("\n")).toMatch(/longest single step 1\.75 ms; longest total 41\.5 ms/);
+  });
+  it("maps recorded snapshots to parts: players.available true counts, a snapshot without players does not", () => {
+    const fixture = (name: string) => JSON.parse(readFileSync(fileURLToPath(new URL(`../../mod/SatisDashAgent/Source/SatisDashCoreTests/Fixtures/${name}`, import.meta.url)), "utf8"));
+    const withPlayers = fixture("snapshot-frm.json");
+    expect(withPlayers.players.available).toBe(true);
+    const parts = snapshotParts({ from: iso(FROM), to: iso(FROM + 1000) }, [
+      { at: iso(FROM + 1), snapshot: withPlayers },
+      { at: iso(FROM + 2), snapshot: fixture("snapshot-world.json") },
+      { at: iso(FROM + 3) },
+    ]);
+    expect(parts.snapshots.map((s) => s.playersAvailable)).toEqual([true, false, false]);
+  });
+  it("does not count a players snapshot taken during the warmup (the inWindow filter)", () => {
+    const parts = {
+      measured: { from: iso(FROM), to: iso(FROM + TICK_WARMUP_MS + 10 * 60_000) },
+      snapshots: [{ at: iso(FROM + 1000), playersAvailable: true }],
+    };
+    const v = Native.evaluate(evidence({ parts }));
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join("\n")).toMatch(/no accepted snapshot in the measured window carried an available players part/);
   });
   it("fails when the measured window was not recorded", () => {
     const v = Native.evaluate(evidence({ parts: { measured: null, snapshots: [] } }));
