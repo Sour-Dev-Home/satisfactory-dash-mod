@@ -141,6 +141,19 @@ describe("recorder (ruling 11)", () => {
     expect(JSON.stringify(rec.entries)).not.toContain("Test Station A");
   });
 
+  it("records a world-layer post as its layer, item count and unzipped size, never its data", async () => {
+    const up = await upstream(() => ({ status: 200, body: '{"accepted":true,"unchanged":false}' }));
+    const rec = await recorderFor(up.url);
+    const body = JSON.stringify({ observedAt: "2026-10-24T12:00:00.000Z", data: [{ id: "R1", points: [[0, 0], [3, 0]] }, { id: "R2", points: [[1, 1], [2, 2]] }] });
+    await send(rec.url, "POST", "/agent/v1/world/rails", {
+      headers: { "user-agent": MOD_UA, authorization: `Bearer ${SECRET}`, "content-type": "application/json", "content-encoding": "gzip" },
+      body: gzipSync(body),
+    });
+    expect(rec.entries[0]).toMatchObject({ agent: "mod", method: "POST", path: "/agent/v1/world/rails", status: 200, world: { layer: "rails", items: 2, bytes: Buffer.byteLength(body) } });
+    expect(JSON.stringify(rec.entries)).not.toContain("R1");
+    expect(JSON.stringify(rec.entries)).not.toContain(SECRET);
+  });
+
   const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
   const factory = { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, name: "Constructor", className: "Build_ConstructorMk1_C", pad: "p".repeat(60) })) };
   const big = JSON.stringify({ ...snapshot, ...parts, factory, players: { available: true, players: [{ name: "Someone", online: true }] } });
