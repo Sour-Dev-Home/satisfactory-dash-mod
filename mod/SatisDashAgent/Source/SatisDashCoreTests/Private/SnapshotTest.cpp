@@ -141,3 +141,33 @@ bool FSnapshotSpliceTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("players before factory"), Json.Find(TEXT("\"players\":")) < Json.Find(TEXT("\"factory\":")));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotMapLiveTest, "SatisDash.Core.Snapshot.MapLive", SatisDash::Test::Flags)
+
+bool FSnapshotMapLiveTest::RunTest(const FString& Parameters)
+{
+	const FString Live = SatisDash::Test::Fixture(TEXT("frm-mapLive.expected.json"));
+	if (!TestFalse(TEXT("the mapLive fixture was found"), Live.IsEmpty()))
+	{
+		return false;
+	}
+	FSnapshot Snapshot = Base();
+	Snapshot.PlayersJson = TEXT("{\"available\":false,\"players\":[]}");
+	Snapshot.FactoryJson = TEXT("{\"buildings\":[]}");
+	Snapshot.MapLiveJson = Live;
+	const FString Json = SnapshotToJson(Snapshot);
+	const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(Json);
+	if (!TestTrue(TEXT("valid JSON"), Parsed.IsValid()) || !TestTrue(TEXT("with mapLive"), Parsed->HasField(TEXT("mapLive"))))
+	{
+		return false;
+	}
+	TestEqual(TEXT("two trains"), Parsed->GetObjectField(TEXT("mapLive"))->GetArrayField(TEXT("trains")).Num(), 2);
+	TestEqual(TEXT("two stations"), Parsed->GetObjectField(TEXT("mapLive"))->GetArrayField(TEXT("stations")).Num(), 2);
+	TestTrue(TEXT("players, then factory, then mapLive"),
+		Json.Find(TEXT("\"players\":")) < Json.Find(TEXT("\"factory\":")) && Json.Find(TEXT("\"factory\":")) < Json.Find(TEXT("\"mapLive\":")));
+	TestFalse(TEXT("no mapLive without a part"), SatisDash::Json::ParseObject(SnapshotToJson(Base()))->HasField(TEXT("mapLive")));
+	FSnapshot OnlyLive = Base();
+	OnlyLive.MapLiveJson = Live;
+	TestTrue(TEXT("mapLive alone is spliced too"), SatisDash::Json::ParseObject(SnapshotToJson(OnlyLive)).IsValid());
+	return true;
+}

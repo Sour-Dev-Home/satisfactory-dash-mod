@@ -129,6 +129,7 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 	const FPart Parts[] = {
 		{ TEXT(",\"players\":"), &Snapshot.PlayersJson },
 		{ TEXT(",\"factory\":"), &Snapshot.FactoryJson },
+		{ TEXT(",\"mapLive\":"), &Snapshot.MapLiveJson },
 	};
 	constexpr int32 KeySlack = 16; // each key (",\"players\":") is shorter than this
 	int32 Extra = 0;

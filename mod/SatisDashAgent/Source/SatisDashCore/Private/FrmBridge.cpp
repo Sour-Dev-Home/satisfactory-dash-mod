@@ -45,7 +45,111 @@ void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue)
 				bFactoryFailed = true;
 			}
 		} });
+		StartMapCycle();
 	}
+}
+
+void SatisDash::FFrmBridge::StartMapCycle()
+{
+	using EState = FMapSide::EState;
+	if (MapTrains.State != EState::Idle || MapStations.State != EState::Idle)
+	{
+		return; // the last pair has not settled: this cadence tick skips mapLive
+	}
+	MapTrains.State = EState::Waiting;
+	MapStations.State = EState::Waiting;
+	// Enqueue refuses a read whose endpoint is still queued or in flight (e.g. one left by a run that was stopped and quickly
+	// restarted): that side is Failed, so the pair settles and the next cadence tick starts a fresh one.
+	if (!FrmLanes.Enqueue(FFrmRead{ &FrmGetTrains, [this](FHttpReply& Reply)
+	{
+		if (Reply.Code >= 200 && Reply.Code < 300)
+		{
+			MapTrains.Job = MakeShared<FMapJob>();
+			MapTrains.Job->Owned =MakeUnique<FTrainsParse>(MoveTemp(Reply.Body));
+			MapTrains.ReadAt = LastNow;
+			MapTrains.State = FMapSide::EState::Parsing;
+		}
+		else
+		{
+			MapTrains.State = FMapSide::EState::Failed;
+		}
+	} }))
+	{
+		MapTrains.State = EState::Failed;
+	}
+	if (!FrmLanes.Enqueue(FFrmRead{ &FrmGetTrainStation, [this](FHttpReply& Reply)
+	{
+		if (Reply.Code >= 200 && Reply.Code < 300)
+		{
+			MapStations.Job = MakeShared<FMapJob>();
+			MapStations.Job->Owned =MakeUnique<FStationsParse>(MoveTemp(Reply.Body));
+			MapStations.ReadAt = LastNow;
+			MapStations.State = FMapSide::EState::Parsing;
+		}
+		else
+		{
+			MapStations.State = FMapSide::EState::Failed;
+		}
+	} }))
+	{
+		MapStations.State = EState::Failed;
+	}
+}
+
+void SatisDash::FFrmBridge::HarvestMapSide(FMapSide& Side)
+{
+	if (!Side.Job.IsValid() || !Side.Job->bRan)
+	{
+		return;
+	}
+	Side.Job->bRan = false;
+	if (Side.Job->Last == FFrmArrayParse::EStep::Done)
+	{
+		FFrmArrayParse& Array = *Side.Job->Owned;
+		Side.Bytes = Array.Utf8Bytes();
+		Side.Json = Array.TakeJson();
+		Side.State = FMapSide::EState::Ok;
+		Side.Job.Reset();
+	}
+	else if (Side.Job->Last == FFrmArrayParse::EStep::Invalid)
+	{
+		Side.State = FMapSide::EState::Failed;
+		Side.Job.Reset();
+	}
+}
+
+void SatisDash::FFrmBridge::FinishMapLive(double Now)
+{
+	using EState = FMapSide::EState;
+	const bool bTrainsSettled = MapTrains.State == EState::Ok || MapTrains.State == EState::Failed;
+	const bool bStationsSettled = MapStations.State == EState::Ok || MapStations.State == EState::Failed;
+	if (!bTrainsSettled || !bStationsSettled)
+	{
+		return;
+	}
+	if (MapTrains.State == EState::Ok && MapStations.State == EState::Ok)
+	{
+		TOptional<FString> Joined = JoinMapLive(MapTrains.Json, MapTrains.Bytes, MapStations.Json, MapStations.Bytes);
+		if (Joined.IsSet())
+		{
+			MapLiveReady = FReady{ MoveTemp(Joined.GetValue()), FMath::Min(MapTrains.ReadAt, MapStations.ReadAt) };
+		}
+		else if (FailLog.ShouldLog(TEXT("mapLiveOverCap"), Now))
+		{
+			UE_LOG(LogSatisDash, Warning, TEXT("mapLive is over its %lld-byte cap; leaving it out of the snapshot"), MapLiveMaxBytes);
+		}
+	}
+	else
+	{
+		NoteFailed(TEXT("mapLive"), Now);
+	}
+	MapTrains = FMapSide();
+	MapStations = FMapSide();
+}
+
+TOptional<FString> SatisDash::FFrmBridge::TakeMapLive(double Now, double MaxAgeSeconds)
+{
+	return TakeFresh(MapLiveReady, Now, MaxAgeSeconds);
 }
 
 void SatisDash::FFrmBridge::Harvest(double Now)
@@ -67,6 +171,8 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 		}
 		Players.Reset();
 	}
+	HarvestMapSide(MapTrains);
+	HarvestMapSide(MapStations);
 	if (Factory.IsValid() && Factory->bRan)
 	{
 		Factory->bRan = false;
@@ -92,6 +198,7 @@ void SatisDash::FFrmBridge::LaunchNext()
 			FString Json = SnapshotToJson(Job->Snapshot);
 			Job->Snapshot.FactoryJson.Reset(); // the factory text is spliced into Json: don't hold both through the encode
 			Job->Snapshot.PlayersJson.Reset();
+			Job->Snapshot.MapLiveJson.Reset();
 			Job->Body = EncodeBody(Json);
 			Job->bRan = true;
 		});
@@ -106,6 +213,24 @@ void SatisDash::FFrmBridge::LaunchNext()
 				Job->Json = PlayersToJson(Part.GetValue());
 			}
 			Job->Body.Empty();
+			Job->bRan = true;
+		});
+	}
+	else if (MapTrains.Job.IsValid() && !MapTrains.Job->bRan)
+	{
+		Worker.Launch([Job = MapTrains.Job]
+		{
+			FFrmArrayParse& Array = *Job->Owned;
+			Job->Last = Array.Step();
+			Job->bRan = true;
+		});
+	}
+	else if (MapStations.Job.IsValid() && !MapStations.Job->bRan)
+	{
+		Worker.Launch([Job = MapStations.Job]
+		{
+			FFrmArrayParse& Array = *Job->Owned;
+			Job->Last = Array.Step();
 			Job->bRan = true;
 		});
 	}
@@ -137,6 +262,7 @@ void SatisDash::FFrmBridge::Tick(double Now, int32 Port, const FString& Token)
 		Harvest(Now);
 		LaunchNext();
 	}
+	FinishMapLive(Now);
 	FrmLanes.Pump(Port, Token, Factory.IsValid());
 }
 
@@ -182,6 +308,9 @@ void SatisDash::FFrmBridge::Stop()
 	Encode.Reset();
 	PlayersReady.Reset();
 	FactoryReady.Reset();
+	MapTrains = FMapSide();
+	MapStations = FMapSide();
+	MapLiveReady.Reset();
 	Encoded.Reset();
 	bPlayersAbsent = false;
 	bFactoryFailed = false;
