@@ -120,3 +120,24 @@ bool FSnapshotShapeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("at most 1000 circuits"), Circuits.IsValid() ? Circuits->AsArray().Num() : -1, MaxCircuits);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotSpliceTest, "SatisDash.Core.Snapshot.Splice", SatisDash::Test::Flags)
+
+bool FSnapshotSpliceTest::RunTest(const FString& Parameters)
+{
+	// SnapshotToJson splices finished part JSON before the root's closing brace, which is only right for the condensed
+	// writer's shape. Pin that shape here so a change in Json::Write fails loudly.
+	const TSharedRef<FJsonObject> One = MakeShared<FJsonObject>();
+	One->SetNumberField(TEXT("a"), 1);
+	SatisDash::Test::SameText(*this, TEXT("Json::Write is condensed and ends with the root's brace"), SatisDash::Json::Write(One), TEXT("{\"a\":1}"));
+
+	FSnapshot Snapshot = Base();
+	Snapshot.PlayersJson = TEXT("{\"available\":false,\"players\":[]}");
+	Snapshot.FactoryJson = TEXT("{\"buildings\":[]}");
+	const FString Json = SnapshotToJson(Snapshot);
+	const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(Json);
+	TestTrue(TEXT("valid JSON with both parts spliced in"), Parsed.IsValid() && Parsed->HasField(TEXT("players")) && Parsed->HasField(TEXT("factory")));
+	TestTrue(TEXT("and the root's own fields kept"), Parsed.IsValid() && Parsed->HasField(TEXT("reachable")));
+	TestTrue(TEXT("players before factory"), Json.Find(TEXT("\"players\":")) < Json.Find(TEXT("\"factory\":")));
+	return true;
+}

@@ -24,6 +24,7 @@ void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue)
 		{
 			Players = MakeShared<FPlayersJob>();
 			Players->Body = MoveTemp(Reply.Body);
+			Players->ReadAt = LastNow;
 		}
 		else
 		{
@@ -37,6 +38,7 @@ void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue)
 			if (Reply.Code >= 200 && Reply.Code < 300)
 			{
 				Factory = MakeShared<FFactoryJob>(MoveTemp(Reply.Body));
+				Factory->ReadAt = LastNow;
 			}
 			else
 			{
@@ -57,7 +59,7 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 	{
 		if (Players->Json.IsSet())
 		{
-			PlayersReady = FReady{ MoveTemp(Players->Json.GetValue()), Now };
+			PlayersReady = FReady{ MoveTemp(Players->Json.GetValue()), Players->ReadAt };
 		}
 		else
 		{
@@ -70,7 +72,7 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 		Factory->bRan = false;
 		if (Factory->Last == FFactoryParse::EStep::Done)
 		{
-			FactoryReady = FReady{ Factory->Parse.TakeJson(), Now };
+			FactoryReady = FReady{ Factory->Parse.TakeJson(), Factory->ReadAt };
 			Factory.Reset();
 		}
 		else if (Factory->Last == FFactoryParse::EStep::Invalid)

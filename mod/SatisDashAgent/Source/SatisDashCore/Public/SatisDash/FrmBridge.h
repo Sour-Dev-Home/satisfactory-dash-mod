@@ -46,13 +46,14 @@ namespace SatisDash
 		void Stop();
 
 	private:
-		struct FPlayersJob { TArray<uint8> Body; TOptional<FString> Json; bool bRan = false; };
+		struct FPlayersJob { TArray<uint8> Body; TOptional<FString> Json; bool bRan = false; double ReadAt = 0; };
 		struct FFactoryJob
 		{
 			explicit FFactoryJob(TArray<uint8> InBody) : Parse{MoveTemp(InBody)} {}
 			FFactoryParse Parse;
 			FFactoryParse::EStep Last = FFactoryParse::EStep::More;
 			bool bRan = false;
+			double ReadAt = 0;
 		};
 		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
 		struct FReady { FString Json; double At = 0; };

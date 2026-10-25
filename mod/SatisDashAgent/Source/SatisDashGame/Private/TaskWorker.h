@@ -24,6 +24,7 @@ namespace SatisDash
 
 		virtual void Launch(FWorkFn Work) override
 		{
+			Wait(); // a no-op unless a caller broke the contract (Launch only while IsIdle()): never orphan a running task
 			Current = UE::Tasks::Launch(TEXT("SatisDashFrm"), MoveTemp(Work), UE::Tasks::ETaskPriority::BackgroundLow);
 		}
 		virtual bool IsIdle() const override { return Current.IsCompleted(); }

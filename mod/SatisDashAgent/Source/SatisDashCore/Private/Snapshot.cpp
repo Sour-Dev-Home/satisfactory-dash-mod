@@ -124,26 +124,38 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 		Root->SetObjectField(TEXT("power"), Power);
 	}
 	FString Json = SatisDash::Json::Write(Root);
-	if (Snapshot.PlayersJson.IsSet() || Snapshot.FactoryJson.IsSet())
+	// Parts that arrive as finished JSON, spliced in this order before the root's closing brace.
+	struct FPart { const TCHAR* Key; const TOptional<FString>* Value; };
+	const FPart Parts[] = {
+		{ TEXT(",\"players\":"), &Snapshot.PlayersJson },
+		{ TEXT(",\"factory\":"), &Snapshot.FactoryJson },
+	};
+	constexpr int32 KeySlack = 16; // each key (",\"players\":") is shorter than this
+	int32 Extra = 0;
+	for (const FPart& Part : Parts)
 	{
-		// The parts arrive as finished JSON; the root always has fields, so its closing brace is replaced.
-		Json.LeftChopInline(1);
-		// One allocation for the whole result, and each piece appended on its own: no temporary the size of the factory.
-		constexpr int32 KeySlack = 16; // each key (",\"players\":") is shorter than this
-		Json.Reserve(Json.Len() + 1
-			+ (Snapshot.PlayersJson.IsSet() ? KeySlack + Snapshot.PlayersJson->Len() : 0)
-			+ (Snapshot.FactoryJson.IsSet() ? KeySlack + Snapshot.FactoryJson->Len() : 0));
-		if (Snapshot.PlayersJson.IsSet())
-		{
-			Json += TEXT(",\"players\":");
-			Json += Snapshot.PlayersJson.GetValue();
-		}
-		if (Snapshot.FactoryJson.IsSet())
-		{
-			Json += TEXT(",\"factory\":");
-			Json += Snapshot.FactoryJson.GetValue();
-		}
-		Json.AppendChar(TEXT('}'));
+		Extra += Part.Value->IsSet() ? KeySlack + Part.Value->GetValue().Len() : 0;
 	}
+	if (Extra == 0)
+	{
+		return Json;
+	}
+	// The root always has fields, and the condensed writer ends it with '}' (pinned by Snapshot.Splice). Anything else
+	// would be corrupted by the splice: send the snapshot without the parts instead.
+	if (!Json.EndsWith(TEXT("}"), ESearchCase::CaseSensitive))
+	{
+		return Json;
+	}
+	Json.LeftChopInline(1);
+	Json.Reserve(Json.Len() + 1 + Extra); // one allocation for the whole result, each piece appended on its own
+	for (const FPart& Part : Parts)
+	{
+		if (Part.Value->IsSet())
+		{
+			Json += Part.Key;
+			Json += Part.Value->GetValue();
+		}
+	}
+	Json.AppendChar(TEXT('}'));
 	return Json;
 }

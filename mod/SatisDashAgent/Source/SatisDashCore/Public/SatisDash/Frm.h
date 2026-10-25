@@ -16,7 +16,7 @@ namespace SatisDash
 	{
 		const TCHAR* Name;
 		EFrmLane Lane;
-		/** A large body: parsed in slices, and at most one held at a time (spec "Memory"). */
+		/** A large body: hashed and parsed in slices on the worker, and at most one held at a time; FFrmQueue never starts a large read while one is held (spec "Memory"). */
 		bool bLarge;
 		/** May start while a large body is being parsed (only getPlayer, spec "Load spreading"). */
 		bool bMayPassLarge;

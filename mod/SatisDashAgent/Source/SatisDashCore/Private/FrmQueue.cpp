@@ -66,7 +66,10 @@ void SatisDash::FFrmQueue::Pump(int32 Port, const FString& Token, bool bLargeBus
 	{
 		for (int32 I = 0; I < Lane->Num(); ++I)
 		{
-			if (bLargeBusy && !(*Lane)[I].Endpoint->bMayPassLarge)
+			const FFrmEndpoint& Endpoint = *(*Lane)[I].Endpoint;
+			// A large body is held (parsing): only a small read marked bMayPassLarge (getPlayer) may start. A large read never
+			// may, even if a table row marked it both: at most one large raw body is held (spec "Load spreading").
+			if (bLargeBusy && (!Endpoint.bMayPassLarge || Endpoint.bLarge))
 			{
 				continue;
 			}

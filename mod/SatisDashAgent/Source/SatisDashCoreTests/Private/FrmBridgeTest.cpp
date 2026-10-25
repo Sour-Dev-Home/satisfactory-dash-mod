@@ -95,6 +95,23 @@ bool FFrmBridgeFactoryTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeReadAgeTest, "SatisDash.Core.FrmBridge.ReadAge", SatisDash::Test::Flags)
+
+bool FFrmBridgeReadAgeTest::RunTest(const FString& Parameters)
+{
+	FFrmBridgeFixture F;
+	F.Worker.bHold = true;
+	F.Bridge.RequestPass(false);
+	F.tick();
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.tick();      // launches the parse; the fake worker holds it
+	F.tick(40);    // 20 s go by while the worker is busy
+	F.Worker.release();
+	F.tick();      // harvested now
+	TestFalse(TEXT("a part is as old as the FRM read, not as old as its harvest"), F.Bridge.TakePlayers(F.T, 10).IsSet());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeStopTest, "SatisDash.Core.FrmBridge.Stop", SatisDash::Test::Flags)
 
 bool FFrmBridgeStopTest::RunTest(const FString& Parameters)

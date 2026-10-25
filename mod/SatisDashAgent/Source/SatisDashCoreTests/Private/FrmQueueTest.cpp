@@ -9,6 +9,9 @@ namespace
 	// A world-lane endpoint for the tests (3B adds the real ones).
 	constexpr FFrmEndpoint FrmQueueTestWorld{ TEXT("getTestWorld"), EFrmLane::World, true, false, FrmSmallCapBytes, 5.f };
 
+	// Marked both large and passable: a mistake in an endpoint row must not let a second large body in.
+	constexpr FFrmEndpoint FrmQueueTestBoth{ TEXT("getTestBoth"), EFrmLane::Live, true, true, FrmSmallCapBytes, 5.f };
+
 	FFrmRead FrmQueueRead(const FFrmEndpoint& Endpoint, TArray<int32>* Codes)
 	{
 		return FFrmRead{ &Endpoint, [Codes](const FHttpReply& Reply) { if (Codes) Codes->Add(Reply.Code); } };
@@ -68,11 +71,12 @@ bool FFrmQueueLanesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("a large world read waits for the parse"), Net.pending(TEXT("/getTestWorld")), 0);
 	FrmLanes.Pump(8080, FString(), false);
 	TestEqual(TEXT("then goes"), Net.pending(TEXT("/getTestWorld")), 1);
-	FrmLanes.Enqueue(FrmQueueRead(FrmGetPlayer, &Codes));
 	Net.answer(TEXT("/getTestWorld"), SatisDash::Test::Reply(200, TEXT("[]")));
+	// The world read is queued first and the live read second: the live lane must still go first.
 	FrmLanes.Enqueue(FrmQueueRead(FrmQueueTestWorld, &Codes));
+	FrmLanes.Enqueue(FrmQueueRead(FrmGetPlayer, &Codes));
 	FrmLanes.Pump(8080, FString(), false);
-	TestEqual(TEXT("live before world"), Net.pending(TEXT("/getPlayer")), 1);
+	TestEqual(TEXT("live before world, though the world read was queued first"), Net.pending(TEXT("/getPlayer")), 1);
 	TestEqual(TEXT("world still queued"), FrmLanes.Queued(), 1);
 	return true;
 }
@@ -113,4 +117,18 @@ bool FFrmQueueTokenAndCancelTest::RunTest(const FString& Parameters)
 	FrmLanes.Pump(8080, FString(), false);
 	TestEqual(TEXT("then the next read starts"), Net.pending(TEXT("/getFactory")), 1);
 	return SatisDash::Test::NoErrorLines(*this, Log);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmQueueLargeRuleTest, "SatisDash.Core.FrmQueue.LargeRule", SatisDash::Test::Flags)
+
+bool FFrmQueueLargeRuleTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FFakeTransport Net;
+	FFrmQueue FrmLanes{ Net };
+	FrmLanes.Enqueue(FrmQueueRead(FrmQueueTestBoth, nullptr));
+	FrmLanes.Pump(8080, FString(), true);
+	TestEqual(TEXT("a large read never starts while a large body is held, even if marked passable"), Net.Open.Num(), 0);
+	FrmLanes.Pump(8080, FString(), false);
+	TestEqual(TEXT("and starts once the parse is done"), Net.pending(TEXT("/getTestBoth")), 1);
+	return true;
 }
