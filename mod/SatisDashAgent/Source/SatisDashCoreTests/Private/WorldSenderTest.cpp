@@ -74,7 +74,43 @@ namespace
 		}
 
 		int32 posts() const { return Net.sent(WorldRailsPost) + Net.sent(WorldNodesPost); }
+
+		/** Ticks until Path is open, and answers it with Body (200). */
+		bool cycle(const TCHAR* Path, const FString& Body)
+		{
+			const bool bOpen = until([this, Path] { return Net.pending(Path) > 0; }, 700);
+			return bOpen && Net.answer(Path, SatisDash::Test::Reply(200, Body));
+		}
 	};
+
+	/** How many captured LogSatisDash lines contain Needle. */
+	int32 countLines(SatisDash::Test::FLogCapture& Log, const TCHAR* Needle)
+	{
+		int32 Count = 0;
+		for (const FString& Line : Log.Take())
+		{
+			Count += Line.Contains(Needle) ? 1 : 0;
+		}
+		return Count;
+	}
+
+	/** Rails whose mapped body is over the 2,000,000-byte cap (135 segments of 1,000 points) but whose raw body is under FRM's 4 MB. */
+	FString bigRails()
+	{
+		FString Json = TEXT("[");
+		Json.Reserve(4000000);
+		for (int32 Segment = 0; Segment < 135; ++Segment)
+		{
+			Json += FString::Printf(TEXT("%s{\"ID\":\"R%d\",\"SplineData\":["), Segment > 0 ? TEXT(",") : TEXT(""), Segment);
+			for (int32 Point = 0; Point < 1000; ++Point)
+			{
+				// Different points (consecutive duplicates are collapsed), each 6 digits in metres: 16 bytes mapped, 28 raw.
+				Json.Appendf(TEXT("%s{\"x\":%d,\"y\":99999900}"), Point > 0 ? TEXT(",") : TEXT(""), (900000 + Point) * 100);
+			}
+			Json += TEXT("]}");
+		}
+		return Json + TEXT("]");
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderScheduleTest, "SatisDash.Core.WorldSender.Schedule", SatisDash::Test::Flags)
@@ -178,6 +214,85 @@ bool FWorldSenderSendTest::RunTest(const FString& Parameters)
 	Empty.Sender.Start(Empty.T);
 	TestTrue(TEXT("an empty layer is posted the first time"), Empty.toRailsPost(TEXT("[]")));
 	TestTrue(TEXT("with an empty data array"), Empty.Net.lastBody(WorldRailsPost).EndsWith(TEXT("\"data\":[]}")));
+
+	// An invalid body settles nothing: the same bytes next cycle are hashed and parsed again (not SameRaw). Its warning is
+	// written once per streak, and again when a clean cycle came between two bad ones.
+	{
+		SatisDash::Test::FLogCapture Log;
+		FWorldFixture S;
+		S.Sender.Start(S.T);
+		const FString NotAnArray = TEXT("{\"x\":1}");
+		TestTrue(TEXT("an invalid body is read"), S.cycle(WorldRailsRead, NotAnArray));
+		S.tick(10);
+		TestTrue(TEXT("and again"), S.until([&S] { return S.Net.pending(WorldRailsRead) > 0; }, 700));
+		const int32 Before = S.Worker.Launched;
+		S.Net.answer(WorldRailsRead, SatisDash::Test::Reply(200, NotAnArray));
+		S.tick(10);
+		TestEqual(TEXT("an invalid body is not settled: the same bytes are hashed and parsed again"), S.Worker.Launched, Before + 2);
+		TestEqual(TEXT("still no post"), S.Net.sent(WorldRailsPost), 0);
+		TestEqual(TEXT("one warning across the two bad cycles"), countLines(Log, TEXT("Couldn't read world layer rails")), 1);
+		TestTrue(TEXT("a clean cycle"), S.cycle(WorldRailsRead, WorldRailsBody));
+		TestTrue(TEXT("is posted"), S.until([&S] { return S.Net.pending(WorldRailsPost) > 0; }, 20));
+		S.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+		S.tick(10);
+		TestTrue(TEXT("then a bad one again"), S.cycle(WorldRailsRead, NotAnArray));
+		S.tick(10);
+		TestEqual(TEXT("warns again after the clean cycle"), countLines(Log, TEXT("Couldn't read world layer rails")), 2);
+	}
+
+	// Over the cap: the raw hash IS settled (the same bytes next cycle cost only the hash steps, no parse and no post);
+	// one warning per streak, again after a clean cycle.
+	{
+		SatisDash::Test::FLogCapture Log;
+		FWorldFixture O;
+		O.Sender.Start(O.T);
+		const FString Big = bigRails();
+		TestTrue(TEXT("the oversized layer is read"), O.until([&O] { return O.Net.pending(WorldRailsRead) > 0; }, 700));
+		int32 Before = O.Worker.Launched;
+		O.Net.answer(WorldRailsRead, SatisDash::Test::Reply(200, Big));
+		O.tick(60);
+		const int32 FirstCost = O.Worker.Launched - Before;
+		TestEqual(TEXT("over the cap: nothing is posted"), O.Net.sent(WorldRailsPost), 0);
+		TestEqual(TEXT("and it is warned about"), countLines(Log, TEXT("World layer rails is")), 1);
+		TestTrue(TEXT("next cycle"), O.until([&O] { return O.Net.pending(WorldRailsRead) > 0; }, 700));
+		Before = O.Worker.Launched;
+		O.Net.answer(WorldRailsRead, SatisDash::Test::Reply(200, Big));
+		O.tick(60);
+		const int32 RepeatCost = O.Worker.Launched - Before;
+		TestTrue(TEXT("an over-cap raw body is settled: the same bytes cost the hash steps only, no parse"), RepeatCost > 0 && RepeatCost < FirstCost);
+		TestEqual(TEXT("and still nothing is posted"), O.Net.sent(WorldRailsPost), 0);
+		TestEqual(TEXT("one warning across the two cycles"), countLines(Log, TEXT("World layer rails is")), 1);
+		TestTrue(TEXT("a clean cycle"), O.cycle(WorldRailsRead, WorldRailsBody));
+		TestTrue(TEXT("is posted"), O.until([&O] { return O.Net.pending(WorldRailsPost) > 0; }, 20));
+		O.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+		O.tick(10);
+		TestTrue(TEXT("then over the cap again"), O.cycle(WorldRailsRead, Big));
+		O.tick(60);
+		TestEqual(TEXT("warns again after the clean cycle"), countLines(Log, TEXT("World layer rails is")), 2);
+	}
+
+	// Items left out: one warning per streak; a parsed cycle with none left out ends it.
+	{
+		SatisDash::Test::FLogCapture Log;
+		FWorldFixture D;
+		D.Sender.Start(D.T);
+		const FString DropA = TEXT("[{\"ID\":\"R1\",\"SplineData\":[{\"x\":0,\"y\":0},{\"x\":300,\"y\":0}]},{\"ID\":\"R2\",\"SplineData\":[{\"x\":0,\"y\":0}]}]");
+		const FString DropB = TEXT("[{\"ID\":\"R1\",\"SplineData\":[{\"x\":0,\"y\":0},{\"x\":300,\"y\":0}]},{\"ID\":\"R2\",\"SplineData\":[{\"x\":5,\"y\":0}]}]");
+		TestTrue(TEXT("a layer with a rail too short to keep"), D.cycle(WorldRailsRead, DropA));
+		TestTrue(TEXT("is posted"), D.until([&D] { return D.Net.pending(WorldRailsPost) > 0; }, 20));
+		D.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+		D.tick(10);
+		TestEqual(TEXT("and warned about"), countLines(Log, TEXT("left them out")), 1);
+		TestTrue(TEXT("same data, other bytes"), D.cycle(WorldRailsRead, DropB));
+		D.tick(10);
+		TestEqual(TEXT("nothing more to send"), D.Net.sent(WorldRailsPost), 1);
+		TestEqual(TEXT("and no second warning in the same streak"), countLines(Log, TEXT("left them out")), 1);
+		TestTrue(TEXT("a cycle with nothing left out"), D.cycle(WorldRailsRead, WorldRailsBody));
+		D.tick(10);
+		TestTrue(TEXT("then a short rail again"), D.cycle(WorldRailsRead, DropA));
+		D.tick(10);
+		TestEqual(TEXT("warns again after the clean cycle"), countLines(Log, TEXT("left them out")), 2);
+	}
 	return true;
 }
 
@@ -263,6 +378,23 @@ bool FWorldSenderHaltTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("and no more posts"), F.Net.sent(WorldRailsPost), 1);
 	F.Sender.Start(F.T);
 	TestTrue(TEXT("a new Start runs it again"), F.Sender.Active() && !F.Sender.TakeAuthRejected());
+
+	// A post's reply that arrives after a Stop and a new Start belongs to the older run and changes nothing in the new one.
+	FWorldFixture H;
+	H.Sender.Start(H.T);
+	TestTrue(TEXT("a post is open"), H.toRailsPost(WorldRailsBody));
+	H.Sender.Stop();
+	H.Bridge.Stop();
+	H.Sender.Start(H.T);
+	H.Net.answer(WorldRailsPost, SatisDash::Test::Reply(401, FString()));
+	H.tick();
+	TestFalse(TEXT("a stale 401 raises nothing"), H.Sender.TakeAuthRejected());
+	TestTrue(TEXT("and the new run is still active"), H.Sender.Active());
+	TestTrue(TEXT("and posts as usual"), H.toRailsPost(WorldRailsBody));
+	TestEqual(TEXT("the new run's own post, the first it sent"), H.Net.sent(WorldRailsPost), 2);
+	H.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	H.tick(2);
+	TestEqual(TEXT("and its answer is taken"), H.Sender.Held(), 0);
 	return true;
 }
 

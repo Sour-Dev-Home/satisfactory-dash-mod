@@ -68,6 +68,10 @@ namespace SatisDash
 			/** The last settled raw body and the last accepted data (see the plan's Global Constraints). */
 			TOptional<FBlake3Hash> RawHash;
 			TOptional<FBlake3Hash> DataHash;
+			/** A warning was written in this layer's current streak of that condition (cleared when it next settles without it). */
+			bool bReadLogged = false;
+			bool bCapLogged = false;
+			bool bDroppedLogged = false;
 			FEncodedBody Body;
 			FBlake3Hash PendingRaw;
 			FBlake3Hash PendingData;

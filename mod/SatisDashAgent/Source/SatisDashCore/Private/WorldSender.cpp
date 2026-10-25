@@ -121,18 +121,40 @@ void SatisDash::FWorldSender::Settle(EWorldLayer Layer, FWorldOutcome Outcome, c
 	using EKind = FWorldOutcome::EKind;
 	FLayer& L = Layers[int32(Layer)];
 	const TCHAR* Name = WorldLayer(Layer).Name;
-	if ((Outcome.Dropped > 0 || Outcome.Over > 0) && ShouldLog(Layer, TEXT("dropped"), Context.Now))
+	// Each warning is written once per streak (the flags, as FFrmQueue's bTokenLogged), with the rate limit as a backstop.
+	// A streak ends when the layer next settles without the condition. Only a parsed body says anything about drops, so a
+	// failed read or a SameRaw (nothing parsed) leaves the dropped flag alone.
+	const bool bParsed = Outcome.Kind == EKind::SameData || Outcome.Kind == EKind::Ready;
+	if (Outcome.Dropped > 0 || Outcome.Over > 0)
 	{
-		UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: FRM sent %d items the map can't hold and %d past the cap; left them out"), Name, Outcome.Dropped, Outcome.Over);
+		if (!L.bDroppedLogged && ShouldLog(Layer, TEXT("dropped"), Context.Now))
+		{
+			UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: FRM sent %d items the map can't hold and %d past the cap; left them out"), Name, Outcome.Dropped, Outcome.Over);
+		}
+		L.bDroppedLogged = true;
+	}
+	else if (bParsed)
+	{
+		L.bDroppedLogged = false;
+	}
+	const bool bReadProblem = Outcome.Kind == EKind::ReadFailed || Outcome.Kind == EKind::Invalid;
+	if (!bReadProblem)
+	{
+		L.bReadLogged = false;
+	}
+	if (Outcome.Kind != EKind::OverCap)
+	{
+		L.bCapLogged = false;
 	}
 	switch (Outcome.Kind)
 	{
 	case EKind::ReadFailed:
 	case EKind::Invalid:
-		if (ShouldLog(Layer, TEXT("read"), Context.Now))
+		if (!L.bReadLogged && ShouldLog(Layer, TEXT("read"), Context.Now))
 		{
 			UE_LOG(LogSatisDash, Warning, TEXT("Couldn't read world layer %s from FRM; skipping this cycle"), Name);
 		}
+		L.bReadLogged = true;
 		ScheduleNext(Layer, Context.Now);
 		return;
 	case EKind::SameRaw:
@@ -143,10 +165,11 @@ void SatisDash::FWorldSender::Settle(EWorldLayer Layer, FWorldOutcome Outcome, c
 		ScheduleNext(Layer, Context.Now);
 		return;
 	case EKind::OverCap:
-		if (ShouldLog(Layer, TEXT("cap"), Context.Now))
+		if (!L.bCapLogged && ShouldLog(Layer, TEXT("cap"), Context.Now))
 		{
 			UE_LOG(LogSatisDash, Warning, TEXT("World layer %s is %lld bytes, over the %lld-byte cap; skipped it (the backend keeps its last copy)"), Name, Outcome.Bytes, WorldLayerMaxBytes);
 		}
+		L.bCapLogged = true;
 		L.RawHash = Outcome.RawHash;
 		ScheduleNext(Layer, Context.Now);
 		return;
