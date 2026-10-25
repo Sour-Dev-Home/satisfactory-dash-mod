@@ -8,7 +8,7 @@ class UFGServerSubsystem;
 
 namespace SatisDash
 {
-	/** The game's own readers, in-process, as S6 (status), S7 (auto-pause) and S3 (power) proved them. Game thread only. */
+	/** The game's own readers, in-process, as S6 (status), S7 (auto-pause), S3 (power) and ADR-0058 R1 (players) proved them. Game thread only. */
 	class FGameReader : public IGameReader
 	{
 	public:
@@ -18,6 +18,7 @@ namespace SatisDash
 		virtual TOptional<FStatusReading> ReadStatus() override;
 		virtual TOptional<FAutoPauseReading> ReadAutoPause() override;
 		virtual TOptional<TArray<FCircuitReading>> ReadPower() override;
+		virtual TOptional<TArray<FPlayerReading>> ReadPlayers() override;
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) override;
 
 	private:

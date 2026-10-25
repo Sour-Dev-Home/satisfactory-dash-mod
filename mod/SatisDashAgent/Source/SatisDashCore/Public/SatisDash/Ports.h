@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "SatisDash/FrmPlayers.h"
 #include "SatisDash/Requests.h"
 #include "SatisDash/Responses.h"
 #include "SatisDash/Snapshot.h"
@@ -32,6 +33,11 @@ namespace SatisDash
 		virtual TOptional<FAutoPauseReading> ReadAutoPause() = 0;
 		/** One reading per power circuit group; unset when there is no circuit subsystem. */
 		virtual TOptional<TArray<FCircuitReading>> ReadPower() = 0;
+		/**
+		 * R1: every player the game knows in this session, connected ones online and the rest offline (names only, ADR-0029).
+		 * Unset when the game state can't be read. Only called when the config's playersSource is "native".
+		 */
+		virtual TOptional<TArray<FPlayerReading>> ReadPlayers() { return {}; }
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

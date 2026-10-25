@@ -110,6 +110,9 @@ namespace SatisDash::Test
 		bool bApplyDefers = false;
 		TArray<bool> Applied;
 		int32 PowerReads = 0;
+		/** R1: unset = the game state can't be read. */
+		TOptional<TArray<SatisDash::FPlayerReading>> Players;
+		int32 PlayerReads = 0;
 
 		FFakeGame()
 		{
@@ -122,6 +125,7 @@ namespace SatisDash::Test
 		virtual TOptional<SatisDash::FStatusReading> ReadStatus() override { return Status; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ReadAutoPause() override { return AutoPause; }
 		virtual TOptional<TArray<SatisDash::FCircuitReading>> ReadPower() override { ++PowerReads; return Power; }
+		virtual TOptional<TArray<SatisDash::FPlayerReading>> ReadPlayers() override { ++PlayerReads; return Players; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);
@@ -188,10 +192,10 @@ namespace SatisDash::Test
 		FFakeGame Game;
 		FFakeWorker Worker;
 
-		void writeConfig(const TCHAR* Url, const TCHAR* Code) const
+		void writeConfig(const TCHAR* Url, const TCHAR* Code, const TCHAR* Extra = TEXT("")) const
 		{
 			IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
-			WriteText(ConfigPath, FString::Printf(TEXT("{\"backendUrl\":\"%s\",\"enrollmentCode\":\"%s\"}"), Url, Code));
+			WriteText(ConfigPath, FString::Printf(TEXT("{\"backendUrl\":\"%s\",\"enrollmentCode\":\"%s\"%s}"), Url, Code, Extra));
 		}
 
 		SatisDash::FDriverClock clock()
@@ -229,9 +233,9 @@ namespace SatisDash::Test
 		}
 
 		/** Boots a driver against http://127.0.0.1:1 with a code and answers its enrolment with 201. */
-		void enrol(SatisDash::FDriver& Driver, const FString& Secret)
+		void enrol(SatisDash::FDriver& Driver, const FString& Secret, const TCHAR* Extra = TEXT(""))
 		{
-			writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"));
+			writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), Extra);
 			Driver.Boot();
 			Driver.Tick();
 			Net.answer(TEXT("/agent/v1/enroll"), Reply(201, FString::Printf(

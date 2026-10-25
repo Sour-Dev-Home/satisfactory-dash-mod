@@ -11,6 +11,37 @@ namespace
 	{
 		return (C >= TEXT('A') && C <= TEXT('Z')) || (C >= TEXT('2') && C <= TEXT('7'));
 	}
+
+	/** Reads an optional "bridge" / "native" key. False when the key is there and is anything else. */
+	bool ConfigReadSource(const TSharedPtr<FJsonObject>& Object, const TCHAR* Key, TOptional<SatisDash::ESource>& Out)
+	{
+		if (!Object->HasField(Key))
+		{
+			return true;
+		}
+		const TSharedPtr<FJsonValue> Value = SatisDash::Json::Field(Object, Key, EJson::String);
+		if (!Value.IsValid())
+		{
+			return false;
+		}
+		const FString Text = Value->AsString();
+		if (Text.Equals(TEXT("bridge"), ESearchCase::CaseSensitive))
+		{
+			Out = SatisDash::ESource::Bridge;
+			return true;
+		}
+		if (Text.Equals(TEXT("native"), ESearchCase::CaseSensitive))
+		{
+			Out = SatisDash::ESource::Native;
+			return true;
+		}
+		return false;
+	}
+
+	const TCHAR* ConfigSourceName(SatisDash::ESource Source)
+	{
+		return Source == SatisDash::ESource::Native ? TEXT("native") : TEXT("bridge");
+	}
 }
 
 bool SatisDash::IsAllowedBackendUrl(const FString& Url)
@@ -190,11 +221,25 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 			return Result;
 		}
 	}
+	TOptional<ESource> PlayersSource;
+	if (!ConfigReadSource(Object, TEXT("playersSource"), PlayersSource))
+	{
+		Result.BadField = TEXT("playersSource");
+		return Result;
+	}
+	TOptional<ESource> ResourceNodesSource;
+	if (!ConfigReadSource(Object, TEXT("resourceNodesSource"), ResourceNodesSource))
+	{
+		Result.BadField = TEXT("resourceNodesSource");
+		return Result;
+	}
 	Result.Status = EConfigStatus::Valid;
 	Result.Config.BackendUrl = Url;
 	Result.Config.EnrollmentCode = Code;
 	Result.Config.FrmPort = FrmPort;
 	Result.Config.FrmToken = FrmToken;
+	Result.Config.PlayersSource = PlayersSource;
+	Result.Config.ResourceNodesSource = ResourceNodesSource;
 	return Result;
 }
 
@@ -210,6 +255,14 @@ FString SatisDash::ConfigToJson(const FAgentConfig& Config)
 	if (!Config.FrmToken.IsEmpty())
 	{
 		Object->SetStringField(TEXT("frmToken"), Config.FrmToken);
+	}
+	if (Config.PlayersSource.IsSet())
+	{
+		Object->SetStringField(TEXT("playersSource"), ConfigSourceName(Config.PlayersSource.GetValue()));
+	}
+	if (Config.ResourceNodesSource.IsSet())
+	{
+		Object->SetStringField(TEXT("resourceNodesSource"), ConfigSourceName(Config.ResourceNodesSource.GetValue()));
 	}
 	return SatisDash::Json::WritePretty(Object);
 }

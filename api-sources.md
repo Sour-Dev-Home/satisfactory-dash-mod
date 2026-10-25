@@ -467,3 +467,19 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FBlake3::Update | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:106 | header only (the const void*, uint64 overload) |
 | FBlake3::Finalize | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:114 | header only |
 | FBlake3::HashBuffer | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:118 | header only (tests; the const void*, uint64 overload; the brief said :117, the header has it at :118) |
+| FGGameState.h | Source/FactoryGame/Public/FGGameState.h:1 | header only |
+| AFGGameState | Source/FactoryGame/Public/FGGameState.h:116 | header only |
+| AFGGameState::GetOfflineCachedPlayerInfosInSession | Source/FactoryGame/Public/FGGameState.h:519 | header only (public; returns a copy of the players not online in the session; the S1 survey did not find it) |
+| Online/PlayerInfoCache.h | Source/FactoryGame/Public/Online/PlayerInfoCache.h:1 | header only |
+| FCachedPlayerInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:49 | header only |
+| FCachedPlayerInfo::PerPlatformInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:54 | header only |
+| FCachedPlayerInfo::GetLastSeenServicesType | Source/FactoryGame/Public/Online/PlayerInfoCache.h:62 | header only |
+| FCachedPlayerInfo::GetForPlatform | Source/FactoryGame/Public/Online/PlayerInfoCache.h:73 | header only (returns `const FCachedPlayerPlatformInfo*`, null when none) |
+| FCachedPlayerPlatformInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:10 | header only |
+| FCachedPlayerPlatformInfo::PlayerName | Source/FactoryGame/Public/Online/PlayerInfoCache.h:20 | header only |
+| GameFramework/GameStateBase.h | Engine/Source/Runtime/Engine/Classes/GameFramework/GameStateBase.h:1 | header only |
+| AGameStateBase::PlayerArray | Engine/Source/Runtime/Engine/Classes/GameFramework/GameStateBase.h:55 | header only (public) |
+| GameFramework/PlayerState.h | Engine/Source/Runtime/Engine/Classes/GameFramework/PlayerState.h:1 | header only |
+| APlayerState | Engine/Source/Runtime/Engine/Classes/GameFramework/PlayerState.h:41 | header only |
+| APlayerState::GetPlayerName | Engine/Source/Runtime/Engine/Classes/GameFramework/PlayerState.h:232 | header only |
+| UWorld::GetGameState | Engine/Source/Runtime/Engine/Classes/Engine/World.h:3727 | header only (template, `Cast<T>(GameState)`) |

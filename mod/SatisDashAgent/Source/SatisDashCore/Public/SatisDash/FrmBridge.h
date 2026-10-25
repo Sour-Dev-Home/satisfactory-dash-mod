@@ -38,8 +38,11 @@ namespace SatisDash
 		FFrmBridge(const FFrmBridge&) = delete;
 		FFrmBridge& operator=(const FFrmBridge&) = delete;
 
-		/** A sample pass that read the game: queues getPlayer (the status cadence), and getFactory when bFactoryDue. */
-		void RequestPass(bool bFactoryDue);
+		/**
+		 * A sample pass that read the game: queues getPlayer (the status cadence) unless bPlayers is false (the players
+		 * reader is native), and getFactory when bFactoryDue.
+		 */
+		void RequestPass(bool bFactoryDue, bool bPlayers = true);
 		/** Every driver tick: takes finished work, launches the next job and starts the next FRM read. */
 		void Tick(double Now, int32 Port, const FString& Token);
 		/** The newest players part finished within MaxAgeSeconds, once. */

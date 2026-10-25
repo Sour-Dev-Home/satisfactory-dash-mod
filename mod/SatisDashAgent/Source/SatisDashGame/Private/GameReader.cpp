@@ -4,8 +4,12 @@
 #include "Controller/FGServerStateController.h"
 #include "Engine/World.h"
 #include "FGCircuitSubsystem.h"
+#include "FGGameState.h"
 #include "FGPowerCircuit.h"
 #include "FGServerSubsystem.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
+#include "Online/PlayerInfoCache.h"
 #include "SatisDash/GameValues.h"
 
 UFGServerSubsystem* SatisDash::FGameReader::Server() const
@@ -114,4 +118,38 @@ TOptional<TArray<SatisDash::FCircuitReading>> SatisDash::FGameReader::ReadPower(
 		Samples.Add(S);
 	}
 	return GroupCircuits(Samples);
+}
+
+TOptional<TArray<SatisDash::FPlayerReading>> SatisDash::FGameReader::ReadPlayers()
+{
+	UWorld* Current = World.Get();
+	const AFGGameState* State = Current != nullptr ? Current->GetGameState<AFGGameState>() : nullptr;
+	if (State == nullptr)
+	{
+		return {};
+	}
+	TArray<FPlayerReading> Out;
+	// Connected: the replicated player list (GameStateBase.h:55). Offline: the players the session remembers who are not
+	// online (FGGameState.h:519), named by the platform they were last seen on, else their first identity. Names are
+	// personal data: they are copied into the reading and never logged.
+	for (const APlayerState* Player : State->PlayerArray)
+	{
+		if (Player != nullptr)
+		{
+			Out.Add({ Player->GetPlayerName(), true });
+		}
+	}
+	for (const FCachedPlayerInfo& Info : State->GetOfflineCachedPlayerInfosInSession())
+	{
+		const FCachedPlayerPlatformInfo* Platform = Info.GetForPlatform(Info.GetLastSeenServicesType());
+		if (Platform == nullptr && !Info.PerPlatformInfo.IsEmpty())
+		{
+			Platform = &Info.PerPlatformInfo[0];
+		}
+		if (Platform != nullptr)
+		{
+			Out.Add({ Platform->PlayerName, false });
+		}
+	}
+	return Out;
 }
