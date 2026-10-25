@@ -108,7 +108,7 @@ bool FDriverFrmDownTest::RunTest(const FString& Parameters)
 	{
 		bUnavailable = bUnavailable || Body.Contains(TEXT("\"players\":{\"available\":false,\"players\":[]}"));
 		TestFalse(TEXT("no factory part"), Body.Contains(TEXT("\"factory\"")));
-		TestTrue(TEXT("status keeps flowing"), Body.Contains(TEXT("\"status\"")));
+		TestTrue(TEXT("status keeps flowing"), Body.Contains(TEXT("\"status\":{")));
 	}
 	TestTrue(TEXT("players unavailable"), bUnavailable);
 	return true;
@@ -146,7 +146,7 @@ bool FDriverFrmMapLiveTest::RunTest(const FString& Parameters)
 	for (const FString& Body : Bodies)
 	{
 		bMapLive = bMapLive || Body.Contains(DriverFrmMapLive);
-		TestTrue(TEXT("every snapshot still carries status"), Body.Contains(TEXT("\"status\"")));
+		TestTrue(TEXT("every snapshot still carries status"), Body.Contains(TEXT("\"status\":{")));
 	}
 	TestTrue(TEXT("a snapshot carries mapLive, as the Node agent builds it"), bMapLive);
 	return true;
@@ -168,7 +168,7 @@ bool FDriverFrmMapLiveDownTest::RunTest(const FString& Parameters)
 	for (const FString& Body : Bodies)
 	{
 		TestFalse(TEXT("FRM down: no mapLive"), Body.Contains(TEXT("\"mapLive\"")));
-		TestTrue(TEXT("status keeps flowing"), Body.Contains(TEXT("\"status\"")));
+		TestTrue(TEXT("status keeps flowing"), Body.Contains(TEXT("\"status\":{")));
 		TestTrue(TEXT("players are unavailable, not stale"), !Body.Contains(TEXT("\"players\"")) || Body.Contains(TEXT("\"players\":{\"available\":false,\"players\":[]}")));
 	}
 	// FRM returns: the next factory pass (30 s) asks again and the part comes back.
