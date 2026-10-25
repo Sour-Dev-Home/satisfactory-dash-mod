@@ -17,6 +17,10 @@ describe("the core mod's snapshot fixtures, against the pinned contract (spec S1
       expect(keys(load(name).status)).toEqual(keys(AgentStatusSchema.shape));
     });
   }
+  it("snapshot-frm.json, with players and factory, is a valid snapshot", () => {
+    const r = SnapshotRequestSchema.safeParse(load("snapshot-frm.json"));
+    expect(r.success ? [] : r.error.issues).toEqual([]);
+  });
   it("a circuit has exactly the contract's circuit fields", () => {
     expect(keys(load("snapshot-world.json").power.circuits[0])).toEqual(keys(AgentPowerCircuitSchema.shape));
   });

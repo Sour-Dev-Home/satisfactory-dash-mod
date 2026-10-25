@@ -57,7 +57,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsSetAutoPauseTest, "SatisDash.Core.Comm
 bool FCommandsSetAutoPauseTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	TestEqual(TEXT("a poll is out"), F.Net.pending(CommandsPoll), 1);
 	const FDateTime Expires = F.Utc + FTimespan::FromMinutes(5);
@@ -82,7 +82,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsUnsupportedTest, "SatisDash.Core.Comma
 bool FCommandsUnsupportedTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	const FDateTime Expires = F.Utc + FTimespan::FromMinutes(5);
 	F.Net.answer(CommandsPoll, commandsReply(commandsItem(TEXT("c-2"), TEXT("SET_AUTO_PAUSE"), TEXT("{\"enabled\":true}"), Expires)
@@ -102,7 +102,7 @@ bool FCommandsApplyFailsTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
 	F.Game.bApplyWorks = false;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	const FDateTime Expires = F.Utc + FTimespan::FromMinutes(5);
 	F.Net.answer(CommandsPoll, commandsReply(commandsItem(TEXT("c-4"), TEXT("set_auto_pause"), TEXT("{\"enabled\":false}"), Expires)));
@@ -124,7 +124,7 @@ bool FCommandsPendingTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
 	F.Game.bApplyDefers = true;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	TestTrue(TEXT("before: applied, nothing pending"), F.Net.lastBody(CommandsSnapshots).Contains(TEXT("\"settings\":{\"autoPause\":false,\"pending\":false}")));
 	const int32 Before = F.Net.sent(CommandsSnapshots);
@@ -143,7 +143,7 @@ bool FCommandsResultRetriesTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	const FString Path = commandsResultPath(TEXT("c-5"));
 	F.Net.answer(CommandsPoll, commandsReply(commandsItem(TEXT("c-5"), TEXT("set_auto_pause"), TEXT("{\"enabled\":true}"), F.Utc + FTimespan::FromMinutes(5))));
@@ -167,7 +167,7 @@ bool FCommandsPollBackoffTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	commandsReady(F, Driver);
 	F.Net.answer(CommandsPoll, SatisDash::Test::Reply(0, FString()));
@@ -199,7 +199,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsSpacingTest, "SatisDash.Core.Commands.
 bool FCommandsSpacingTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	F.Net.answer(CommandsPoll, commandsReply(FString()));
 	// The next poll is sent; this time it's answered at once, the way an empty long poll can come back.
@@ -217,7 +217,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsPendingHintTest, "SatisDash.Core.Comma
 bool FCommandsPendingHintTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	for (int32 I = 0; I < 4; ++I)
 	{
@@ -240,7 +240,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsHaltTest, "SatisDash.Core.Commands.Hal
 bool FCommandsHaltTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	commandsReady(F, Driver);
 	const FDateTime Expires = F.Utc + FTimespan::FromMinutes(5);
@@ -274,7 +274,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsStalePollAuthTest, "SatisDash.Core.Com
 bool FCommandsStalePollAuthTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	const FString Second = FString::ChrN(42, TEXT('b')) + TEXT("_");
 	commandsReady(F, Driver);
@@ -295,7 +295,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsStalePollCommandTest, "SatisDash.Core.
 bool FCommandsStalePollCommandTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	const FDateTime Expires = F.Utc + FTimespan::FromMinutes(5);
 	TestTrue(TEXT("enrolled at B"), commandsMoveToSecondBackend(F, Driver, FString::ChrN(42, TEXT('b')) + TEXT("_")));
@@ -317,7 +317,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsStaleResultTest, "SatisDash.Core.Comma
 bool FCommandsStaleResultTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	const FString Second = FString::ChrN(42, TEXT('b')) + TEXT("_");
 	commandsReady(F, Driver);
@@ -341,7 +341,7 @@ bool FCommandsStalePollTransientTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	TestTrue(TEXT("enrolled at B"), commandsMoveToSecondBackend(F, Driver, FString::ChrN(42, TEXT('b')) + TEXT("_")));
 	// B's run starts while A's poll is still out, so the run's own reset of the poll timer is already behind us.
@@ -361,7 +361,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCommandsStaleResultTransientTest, "SatisDash.C
 bool FCommandsStaleResultTransientTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	commandsReady(F, Driver);
 	F.Net.answer(CommandsPoll, commandsReply(commandsItem(TEXT("c-10"), TEXT("set_auto_pause"), TEXT("{\"enabled\":true}"), F.Utc + FTimespan::FromMinutes(5))));
 	F.run(Driver, 1);

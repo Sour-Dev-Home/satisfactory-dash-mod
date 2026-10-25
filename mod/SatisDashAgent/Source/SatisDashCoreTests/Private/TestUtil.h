@@ -1,18 +1,47 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Dom/JsonValue.h"
 #include "HAL/FileManager.h"
+#include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/OutputDevice.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
+#include "SatisDash/JsonUtil.h"
 #include "SatisDash/Log.h"
 #include "SatisDash/Responses.h"
 
 namespace SatisDash::Test
 {
+	/** Same JSON value, compared as data: field order and 5 vs 5.0 don't matter. Objects or arrays. */
+	inline bool SameJson(const FString& A, const FString& B)
+	{
+		const TSharedPtr<FJsonObject> Left = SatisDash::Json::ParseObject(TEXT("{\"v\":") + A + TEXT("}"));
+		const TSharedPtr<FJsonObject> Right = SatisDash::Json::ParseObject(TEXT("{\"v\":") + B + TEXT("}"));
+		return Left.IsValid() && Right.IsValid() && FJsonValue::CompareEqual(FJsonValueObject(Left), FJsonValueObject(Right));
+	}
+
+	/** A file in Source/SatisDashCoreTests/Fixtures, as text ("" when missing). */
+	inline FString Fixture(const TCHAR* Name)
+	{
+		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("SatisDashAgent"));
+		FString Text;
+		if (Plugin.IsValid())
+		{
+			FFileHelper::LoadFileToString(Text, *(Plugin->GetBaseDir() / TEXT("Source/SatisDashCoreTests/Fixtures") / Name));
+		}
+		return Text;
+	}
+
+	inline TArray<uint8> Utf8(const FString& Text)
+	{
+		const FTCHARToUTF8 Converted(*Text);
+		return TArray<uint8>(reinterpret_cast<const uint8*>(Converted.Get()), Converted.Length());
+	}
+
 	/** A fake secret of the contract's shape. Never a real credential. */
 	inline FString FakeSecret() { return FString::ChrN(42, TEXT('a')) + TEXT("_"); }
 

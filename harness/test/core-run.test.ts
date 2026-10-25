@@ -114,6 +114,23 @@ describe("runCore", () => {
     expect(existsSync(`${cred}.tmp`)).toBe(false);
   });
 
+  it("writes frmPort into the mod config from the runner config's frmBaseUrl, and none when it is unset", async () => {
+    const written: (Record<string, unknown> | null)[] = [];
+    for (const frmBaseUrl of ["http://127.0.0.1:18081", undefined]) {
+      const { deps, serverDir } = fakeDeps();
+      if (frmBaseUrl) deps.config.frmBaseUrl = frmBaseUrl;
+      else delete (deps.config as { frmBaseUrl?: string }).frmBaseUrl;
+      await runCore("http-probe", spec({
+        drive: async (ctx) => {
+          ctx.writeConfig({ backendUrl: "http://127.0.0.1:1", enrollmentCode: "" });
+          written.push(JSON.parse(readFileSync(modConfigPath(serverDir, MOD), "utf8")));
+        },
+      }), deps);
+    }
+    expect(written[0]).toMatchObject({ backendUrl: "http://127.0.0.1:1", frmPort: 18081 });
+    expect(written[1]).not.toHaveProperty("frmPort");
+  });
+
   it("searches the log for the secret in credential.json and the code, and keeps only booleans", async () => {
     let serverDir = "";
     const made = fakeDeps({}, () => `LogSatisDash: Display: secret ${SECRET} code ${CODE}\n`);

@@ -34,6 +34,8 @@ namespace SatisDash
 		 * MaxQueuedBytes. Logs once when dropping starts. A snapshot bigger than the whole budget is dropped by itself.
 		 */
 		void Enqueue(const FString& SnapshotJson);
+		/** The same, for a body EncodeBody already made (FFrmBridge encodes a factory snapshot off the game thread). */
+		void Enqueue(FEncodedBody Body);
 		/**
 		 * The snapshot to send now: none while one is in flight, while a retry waits, or when the queue is empty.
 		 * Now (here and in FinishSend) must be monotonic seconds (FPlatformTime::Seconds()); a clock that goes backwards

@@ -56,7 +56,8 @@ namespace SatisDash::Test
 				{
 					FCall Call = MoveTemp(Open[I]);
 					Open.RemoveAt(I);
-					Call.OnReply(Reply);
+					SatisDash::FHttpReply Mutable = Reply; // handlers take a mutable reply (they may MoveTemp the body)
+					Call.OnReply(Mutable);
 					return true;
 				}
 			}
@@ -146,6 +147,35 @@ namespace SatisDash::Test
 		}
 	};
 
+	/** Runs work inline when launched, or holds it until release() when bHold (to test one task at a time). */
+	struct FFakeWorker : public SatisDash::IWorker
+	{
+		bool bHold = false;
+		int32 Launched = 0;
+		SatisDash::FWorkFn Held;
+
+		virtual void Launch(SatisDash::FWorkFn job) override
+		{
+			++Launched;
+			if (bHold)
+			{
+				Held = MoveTemp(job);
+				return;
+			}
+			job();
+		}
+		virtual bool IsIdle() const override { return !Held; }
+		void release()
+		{
+			SatisDash::FWorkFn job = MoveTemp(Held);
+			Held = SatisDash::FWorkFn();
+			if (job)
+			{
+				job();
+			}
+		}
+	};
+
 	/** A config, a fake clock (monotonic and UTC move together), a fake network and a fake game. */
 	struct FDriverFixture
 	{
@@ -156,6 +186,7 @@ namespace SatisDash::Test
 		FDateTime Utc = FDateTime(2026, 10, 20, 12, 0, 0);
 		FFakeTransport Net;
 		FFakeGame Game;
+		FFakeWorker Worker;
 
 		void writeConfig(const TCHAR* Url, const TCHAR* Code) const
 		{

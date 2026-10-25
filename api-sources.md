@@ -48,6 +48,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | IHttpResponse::GetResponseCode | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpResponse.h:120 | header only |
 | module:HTTP | Engine/Source/Runtime/Online/HTTP/HTTP.Build.cs:1 | header only |
 | TFunction | Engine/Source/Runtime/Core/Public/Templates/Function.h:707 | header only |
+| TUniqueFunction | Engine/Source/Runtime/Core/Public/Templates/Function.h:827 | header only |
 | FString | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h:11 | header only (UE_STRING_CLASS = FString, class body at UnrealString.h.inl:54) |
 | IHttpBase::GetFailureReason | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpBase.h:118 | header only |
 | LexToString | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpBase.h:73 | header only (EHttpFailureReason, line 58) |
@@ -82,6 +83,9 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FSHA1::HashBuffer | Engine/Source/Runtime/Core/Public/Misc/SecureHash.h:375 | header only |
 | FSHAHash::ToString | Engine/Source/Runtime/Core/Public/Misc/SecureHash.h:242 | header only |
 | FTCHARToUTF8 | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:1016 | header only |
+| FTCHARToUTF8_Convert | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:362 | header only (global alias of UE::Core::Private::FTCHARToUTF8_Convert, class at :226; used by EncodeBody to convert straight into the output array) |
+| FTCHARToUTF8_Convert::ConvertedLength | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:342 | header only (UTF-8 byte count, no terminator) |
+| FTCHARToUTF8_Convert::Convert | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:327 | header only (the ToType = ANSICHAR* overload; returns bytes written or -1) |
 | TDelegate::AddLambda | Engine/Source/Runtime/Core/Public/Delegates/DelegateSignatureImpl.inl:806 | header only (multicast AddLambda) |
 | CreateDefaultSubobject | Engine/Source/Runtime/CoreUObject/Public/UObject/Object.h:150 | header only (UObject member template) |
 | GetDefault | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectGlobals.h:2102 | header only |
@@ -413,3 +417,41 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | UFGPowerCircuit::GetBatterySumPowerStoreCapacity | Source/FactoryGame/Public/FGPowerCircuit.h:219 | header only |
 | UFGPowerCircuit::GetBatterySumPowerInput | Source/FactoryGame/Public/FGPowerCircuit.h:227 | header only (clamped at 0, the charge half) |
 | UFGPowerCircuit::GetBatterySumPowerOutput | Source/FactoryGame/Public/FGPowerCircuit.h:231 | header only (clamped at 0, the discharge half) |
+| TJsonReaderFactory::CreateFromView | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:1085 | header only (TJsonStringViewReader, :1020; the engine's own UTF8CHAR use is Json/Private/Tests/JsonTests.cpp:752) |
+| TJsonReader::ReadNext | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:57 | header only (true with EJsonNotation::Error on bad input; false at a clean end or after an error, :59-91) |
+| TJsonReader::GetIdentifier | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:164 | header only |
+| TJsonReader::GetValueAsString | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:166 | header only (check()s the token: called only after a String notation) |
+| TJsonReader::GetValueAsNumber | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:192 | header only (called only after a Number notation) |
+| TJsonReader::GetValueAsBoolean | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:204 | header only (called only after a Boolean notation) |
+| TJsonReader::GetErrorMessage | Engine/Source/Runtime/Json/Public/Serialization/JsonReader.h:210 | header only |
+| EJsonNotation | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:59 | header only |
+| EJsonNotation::ObjectStart | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:61 | header only |
+| EJsonNotation::ObjectEnd | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:62 | header only |
+| EJsonNotation::ArrayStart | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:63 | header only |
+| EJsonNotation::ArrayEnd | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:64 | header only |
+| EJsonNotation::Boolean | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:65 | header only |
+| EJsonNotation::String | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:66 | header only |
+| EJsonNotation::Number | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:67 | header only |
+| EJsonNotation::Null | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:68 | header only |
+| EJsonNotation::Error | Engine/Source/Runtime/Json/Public/Serialization/JsonTypes.h:69 | header only |
+| TStringView | Engine/Source/Runtime/Core/Public/Containers/StringView.h:93 | header only (the pointer-and-size constructor, :111; the brief said :143) |
+| UTF8CHAR | Engine/Source/Runtime/Core/Public/HAL/Platform.h:1087 | header only |
+| TJsonWriterFactory::Create | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:697 | header only (the StringType* overload) |
+| TJsonWriter::WriteObjectStart | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:109 | header only (the named overload is :127) |
+| TJsonWriter::WriteObjectEnd | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:140 | header only |
+| TJsonWriter::WriteArrayStart | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:153 | header only (the named overload is :171) |
+| TJsonWriter::WriteArrayEnd | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:183 | header only |
+| TJsonWriter::WriteValue | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:243 | header only (named; doubles with 17 significant digits, :438-443) |
+| TJsonWriter::WriteNull | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:305 | header only (the named overload) |
+| TJsonWriter::Close | Engine/Source/Runtime/Json/Public/Serialization/JsonWriter.h:334 | header only |
+| FMath::Fmod | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:517 | header only (the double overload; Fmod(-2.8, 2) is -0.8, as JavaScript's %, :509) |
+| FString::Empty | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:327 | header only |
+| FString::LeftChop | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1171 | header only (the const& overload; test only) |
+| FJsonObject::GetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:271 | header only (the FStringView overload; test only) |
+| Tasks/Task.h | Engine/Source/Runtime/Core/Public/Tasks/Task.h:1 | header only |
+| UE::Tasks::Launch | Engine/Source/Runtime/Core/Public/Tasks/Task.h:299 | header only (the overload without prerequisites) |
+| UE::Tasks::FTask | Engine/Source/Runtime/Core/Public/Tasks/Task.h:392 | header only (alias of Private::FTaskHandle, :33) |
+| FTaskHandle::IsCompleted | Engine/Source/Runtime/Core/Public/Tasks/Task.h:75 | header only (true when not valid, :77; reads an atomic bIsClosed with seq_cst order, TaskPrivate.h:816-818, stored after the body ran, :812) |
+| FTaskHandle::IsValid | Engine/Source/Runtime/Core/Public/Tasks/Task.h:69 | header only |
+| FTaskHandle::Wait | Engine/Source/Runtime/Core/Public/Tasks/Task.h:91 | header only (the overload without a timeout) |
+| UE::Tasks::ETaskPriority::BackgroundLow | Engine/Source/Runtime/Core/Public/Async/Fundamental/Task.h:25 | header only (LowLevelTasks::ETaskPriority, aliased into UE::Tasks at Tasks/TaskPrivate.h:54) |

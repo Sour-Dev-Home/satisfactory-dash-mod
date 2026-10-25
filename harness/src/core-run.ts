@@ -314,7 +314,9 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
         deps, proc, offset, captures,
         writeConfig: (v) => {
           if (v.enrollmentCode) codes.push(v.enrollmentCode);
-          writeModConfig(deps.config.serverDir, MOD, v);
+          // FRM bridge: the test server's FRM listens on the runner config's frmBaseUrl port, not FRM's default 8080.
+          const frmPort = deps.config.frmBaseUrl ? Number(new URL(deps.config.frmBaseUrl).port) : undefined;
+          writeModConfig(deps.config.serverDir, MOD, frmPort ? { ...v, frmPort } : v);
         },
         noteSecret,
         noteCode: (code) => void (code && !codes.includes(code) && codes.push(code)),

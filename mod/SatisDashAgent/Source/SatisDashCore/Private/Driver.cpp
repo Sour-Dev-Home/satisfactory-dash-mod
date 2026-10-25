@@ -4,12 +4,13 @@
 #include "SatisDash/Snapshot.h"
 #include "SatisDash/Version.h"
 
-SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITransport& InTransport, IGameReader& InGame, FDriverClock InClock)
+SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITransport& InTransport, IGameReader& InGame, IWorker& InWorker, FDriverClock InClock)
 	: Clock{MoveTemp(InClock)}
 	, Transport{InTransport}
 	, Game{InGame}
 	, Agent{MoveTemp(ConfigPath), MoveTemp(CredentialPath), Clock.Random01}
 	, Pusher{Clock.Random01}
+	, Bridge{InTransport, InWorker}
 {
 }
 
@@ -41,12 +42,14 @@ void SatisDash::FDriver::Tick()
 		++Generation;
 		bClearPending = true;
 		StopCommands();
+		Bridge.Stop();
 	}
 	if (!bRunning && bNowRunning)
 	{
 		++Generation;
 		NextStatusAt = Now;
 		LastPowerAt.Reset();
+		LastFactoryAt.Reset();
 		NextPollAt = Now;
 		PollFailures = 0;
 	}
@@ -60,6 +63,12 @@ void SatisDash::FDriver::Tick()
 	if (!bRunning || bClearPending)
 	{
 		return;
+	}
+	const FAgentConfig& Config = Agent.GetConfig();
+	Bridge.Tick(Now, Config.GetFrmPort(), Config.FrmToken);
+	if (TOptional<FEncodedBody> Encoded = Bridge.TakeEncoded())
+	{
+		Pusher.Enqueue(MoveTemp(Encoded.GetValue()));
 	}
 	TickSample(Now);
 	TickPush(Now);
@@ -77,6 +86,11 @@ void SatisDash::FDriver::NoteFailedPart(const TCHAR* Part, double Now)
 void SatisDash::FDriver::TickSample(double Now)
 {
 	if (Now < NextStatusAt)
+	{
+		return;
+	}
+	// A factory snapshot is still being encoded: this pass waits, so snapshots stay in order (Pusher.h).
+	if (Bridge.EncodePending())
 	{
 		return;
 	}
@@ -108,8 +122,24 @@ void SatisDash::FDriver::TickSample(double Now)
 				NoteFailedPart(TEXT("power"), Now);
 			}
 		}
+		// FRM bridge spec: players every pass, the factory on its cadence; both arrive in a later pass's snapshot.
+		const bool bFactoryDue = !LastFactoryAt.IsSet() || Now - LastFactoryAt.GetValue() >= Cadence.FactorySeconds - DueSlackSeconds;
+		if (bFactoryDue)
+		{
+			LastFactoryAt = Now;
+		}
+		Bridge.RequestPass(bFactoryDue);
+		Snapshot.PlayersJson = Bridge.TakePlayers(Now, 2.0 * Cadence.StatusSeconds);
+		Snapshot.FactoryJson = Bridge.TakeFactory(Now, Cadence.FactorySeconds);
 	}
-	Pusher.Enqueue(SnapshotToJson(Snapshot));
+	if (Snapshot.FactoryJson.IsSet())
+	{
+		Bridge.EncodeSnapshot(MoveTemp(Snapshot)); // megabytes of JSON: serialised and gzipped on the worker
+	}
+	else
+	{
+		Pusher.Enqueue(SnapshotToJson(Snapshot));
+	}
 }
 
 void SatisDash::FDriver::TickPush(double Now)

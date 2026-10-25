@@ -31,7 +31,11 @@ SatisDash::FPusher::FPusher(TFunction<double()> InRandom01)
 
 void SatisDash::FPusher::Enqueue(const FString& SnapshotJson)
 {
-	FEncodedBody Body = EncodeBody(SnapshotJson);
+	Enqueue(EncodeBody(SnapshotJson));
+}
+
+void SatisDash::FPusher::Enqueue(FEncodedBody Body)
+{
 	if (Body.Bytes.Num() > MaxQueuedBytes)
 	{
 		// Room for it would mean dropping every snapshot and still not fitting: it goes alone.

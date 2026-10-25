@@ -123,5 +123,27 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 		Power->SetArrayField(TEXT("circuits"), Circuits);
 		Root->SetObjectField(TEXT("power"), Power);
 	}
-	return SatisDash::Json::Write(Root);
+	FString Json = SatisDash::Json::Write(Root);
+	if (Snapshot.PlayersJson.IsSet() || Snapshot.FactoryJson.IsSet())
+	{
+		// The parts arrive as finished JSON; the root always has fields, so its closing brace is replaced.
+		Json.LeftChopInline(1);
+		// One allocation for the whole result, and each piece appended on its own: no temporary the size of the factory.
+		constexpr int32 KeySlack = 16; // each key (",\"players\":") is shorter than this
+		Json.Reserve(Json.Len() + 1
+			+ (Snapshot.PlayersJson.IsSet() ? KeySlack + Snapshot.PlayersJson->Len() : 0)
+			+ (Snapshot.FactoryJson.IsSet() ? KeySlack + Snapshot.FactoryJson->Len() : 0));
+		if (Snapshot.PlayersJson.IsSet())
+		{
+			Json += TEXT(",\"players\":");
+			Json += Snapshot.PlayersJson.GetValue();
+		}
+		if (Snapshot.FactoryJson.IsSet())
+		{
+			Json += TEXT(",\"factory\":");
+			Json += Snapshot.FactoryJson.GetValue();
+		}
+		Json.AppendChar(TEXT('}'));
+	}
+	return Json;
 }

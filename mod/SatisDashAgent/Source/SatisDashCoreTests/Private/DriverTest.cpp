@@ -17,7 +17,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverEnrollThenPushTest, "SatisDash.Core.Driv
 bool FDriverEnrollThenPushTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"));
 	Driver.Boot();
@@ -41,7 +41,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverOneAtATimeTest, "SatisDash.Core.Driver.O
 bool FDriverOneAtATimeTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	F.run(Driver, 30);
 	// Pusher.h: one FinishSend per StartSend; while the backend is slow, snapshots wait in the queue.
@@ -64,7 +64,7 @@ bool FDriverPartsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	auto answerAll = [&F] { while (F.Net.answer(TEXT("/agent/v1/snapshots"), SatisDash::Test::SnapshotOk(false))) {} };
 
@@ -104,7 +104,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverHaltTest, "SatisDash.Core.Driver.Halt", 
 bool FDriverHaltTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	F.run(Driver, 20);
@@ -130,7 +130,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverReboundTest, "SatisDash.Core.Driver.Rebo
 bool FDriverReboundTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	F.run(Driver, 20);
@@ -155,7 +155,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverReenrolTest, "SatisDash.Core.Driver.Reen
 bool FDriverReenrolTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	F.run(Driver, 1);
 	F.Net.answer(DriverSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
@@ -178,7 +178,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverCadenceTest, "SatisDash.Core.Driver.Cade
 bool FDriverCadenceTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	F.run(Driver, 1);
@@ -224,7 +224,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverStaleAuthTest, "SatisDash.Core.Driver.St
 bool FDriverStaleAuthTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	const FString Second = FString::ChrN(42, TEXT('b')) + TEXT("_");
 	TestTrue(TEXT("enrolled at B with A's push still out"), driverMoveToSecondBackend(F, Driver, Second));
@@ -249,7 +249,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverStaleCadenceTest, "SatisDash.Core.Driver
 bool FDriverStaleCadenceTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
-	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.clock() };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	TestTrue(TEXT("enrolled at B with A's push still out"), driverMoveToSecondBackend(F, Driver, FString::ChrN(42, TEXT('b')) + TEXT("_")));
 	F.Net.answer(DriverSnapshots, SatisDash::Test::Reply(200,

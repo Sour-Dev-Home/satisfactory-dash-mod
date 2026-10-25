@@ -66,6 +66,8 @@ function localsOf(files: SourceFile[]): Locals {
     for (const m of code.matchAll(/\b(?:class|struct|enum(?:\s+class)?)\s+(?:[A-Z0-9_]+_API\s+)?([A-Za-z_]\w*)\s*(?:final\s*)?[:{]/g)) {
       locals.types.add(m[1]!);
     }
+    // An alias the code declares ("using FName = ...;") is the code's own name for the type, not an engine symbol.
+    for (const m of code.matchAll(/\busing\s+([A-Za-z_]\w*)\s*=/g)) locals.types.add(m[1]!);
     for (const m of code.matchAll(/^\s*#\s*define\s+([A-Za-z_]\w*)/gm)) locals.defines.add(m[1]!);
     // The code's own namespaces, and the test classes that IMPLEMENT_*_AUTOMATION_TEST declares by macro.
     // Only definitions ("namespace A {", "namespace A::B {"), and only the first component: never "using namespace X;"
