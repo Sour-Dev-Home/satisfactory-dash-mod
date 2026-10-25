@@ -1,10 +1,32 @@
 {
   "trains": [
-    { "id": "BP_Train_C_1", "name": "Test Train A", "x": -1026, "y": -1473, "status": "Self-Driving" },
-    { "id": "BP_Train_C_2", "name": "Test Train B", "x": 2, "y": -1, "status": "Parked" }
+    {
+      "id": "BP_Train_C_1",
+      "name": "Test Train A",
+      "x": -1026,
+      "y": -1473,
+      "status": "Self-Driving"
+    },
+    {
+      "id": "BP_Train_C_2",
+      "name": "Test Train B",
+      "x": 2,
+      "y": -1,
+      "status": "Parked"
+    }
   ],
   "stations": [
-    { "id": "Build_TrainStation_C_1", "name": "Test Station A", "x": -1000, "y": -1473 },
-    { "id": "Build_TrainStation_C_2", "name": "Test Station B", "x": 50, "y": -51 }
+    {
+      "id": "Build_TrainStation_C_1",
+      "name": "Test Station A",
+      "x": -1000,
+      "y": -1473
+    },
+    {
+      "id": "Build_TrainStation_C_2",
+      "name": "Test Station B",
+      "x": 50,
+      "y": -51
+    }
   ]
 }
