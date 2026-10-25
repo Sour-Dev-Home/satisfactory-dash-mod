@@ -461,3 +461,9 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FTaskHandle::IsValid | Engine/Source/Runtime/Core/Public/Tasks/Task.h:69 | header only |
 | FTaskHandle::Wait | Engine/Source/Runtime/Core/Public/Tasks/Task.h:91 | header only (the overload without a timeout) |
 | UE::Tasks::ETaskPriority::BackgroundLow | Engine/Source/Runtime/Core/Public/Async/Fundamental/Task.h:25 | header only (LowLevelTasks::ETaskPriority, aliased into UE::Tasks at Tasks/TaskPrivate.h:54) |
+| Hash/Blake3.h | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:1 | header only |
+| FBlake3Hash | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:26 | header only (32 bytes; operator== at :58) |
+| FBlake3 | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:93 | header only (CORE_API members) |
+| FBlake3::Update | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:106 | header only (the const void*, uint64 overload) |
+| FBlake3::Finalize | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:114 | header only |
+| FBlake3::HashBuffer | Engine/Source/Runtime/Core/Public/Hash/Blake3.h:118 | header only (tests; the const void*, uint64 overload; the brief said :117, the header has it at :118) |

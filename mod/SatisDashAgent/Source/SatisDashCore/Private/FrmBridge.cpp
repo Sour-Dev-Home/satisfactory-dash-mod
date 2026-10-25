@@ -152,6 +152,62 @@ TOptional<FString> SatisDash::FFrmBridge::TakeMapLive(double Now, double MaxAgeS
 	return TakeFresh(MapLiveReady, Now, MaxAgeSeconds);
 }
 
+bool SatisDash::FFrmBridge::LargeBusy() const
+{
+	return Factory.IsValid() || World[0].Job.IsValid() || World[1].Job.IsValid();
+}
+
+SatisDash::FFrmBridge::FWorldSlot* SatisDash::FFrmBridge::NextWorldJob()
+{
+	for (FWorldSlot& Slot : World)
+	{
+		if (Slot.Job.IsValid() && !Slot.Job->bRan)
+		{
+			return &Slot;
+		}
+	}
+	return nullptr;
+}
+
+bool SatisDash::FFrmBridge::RequestWorld(EWorldLayer Layer, const FString& ObservedAt, TOptional<FBlake3Hash> LastRaw, TOptional<FBlake3Hash> LastData)
+{
+	FWorldSlot& Slot = World[int32(Layer)];
+	if (Slot.bRequested || Slot.Job.IsValid() || Slot.Outcome.IsSet())
+	{
+		return false;
+	}
+	Slot.bRequested = true;
+	if (!FrmLanes.Enqueue(FFrmRead{ WorldLayer(Layer).Endpoint, [this, Layer, ObservedAt, LastRaw, LastData](FHttpReply& Reply)
+	{
+		FWorldSlot& Each = World[int32(Layer)];
+		if (Reply.Code >= 200 && Reply.Code < 300)
+		{
+			Each.Job = MakeShared<FWorldJob>(Layer, MoveTemp(Reply.Body), ObservedAt, LastRaw, LastData);
+		}
+		else
+		{
+			FWorldOutcome Failed;
+			Failed.Kind = FWorldOutcome::EKind::ReadFailed;
+			Each.Outcome = MoveTemp(Failed);
+			Each.bRequested = false;
+		}
+	} }))
+	{
+		// The endpoint is still in flight from a stopped run: FRM was not asked, so the layer is not requested. The caller asks again.
+		Slot.bRequested = false;
+		return false;
+	}
+	return true;
+}
+
+TOptional<SatisDash::FWorldOutcome> SatisDash::FFrmBridge::TakeWorld(EWorldLayer Layer)
+{
+	FWorldSlot& Slot = World[int32(Layer)];
+	TOptional<FWorldOutcome> Out = MoveTemp(Slot.Outcome);
+	Slot.Outcome.Reset();
+	return Out;
+}
+
 void SatisDash::FFrmBridge::Harvest(double Now)
 {
 	if (Encode.IsValid() && Encode->bRan)
@@ -185,6 +241,20 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 		{
 			NoteFailed(TEXT("factory"), Now);
 			Factory.Reset();
+		}
+	}
+	for (FWorldSlot& Slot : World)
+	{
+		if (!Slot.Job.IsValid() || !Slot.Job->bRan)
+		{
+			continue;
+		}
+		Slot.Job->bRan = false;
+		if (Slot.Job->bFinished)
+		{
+			Slot.Outcome = Slot.Job->Work.TakeOutcome();
+			Slot.Job.Reset();
+			Slot.bRequested = false;
 		}
 	}
 }
@@ -242,6 +312,14 @@ void SatisDash::FFrmBridge::LaunchNext()
 			Job->bRan = true;
 		});
 	}
+	else if (FWorldSlot* Slot = NextWorldJob())
+	{
+		Worker.Launch([Job = Slot->Job]
+		{
+			Job->bFinished = Job->Work.Step();
+			Job->bRan = true;
+		});
+	}
 }
 
 void SatisDash::FFrmBridge::Tick(double Now, int32 Port, const FString& Token)
@@ -263,7 +341,7 @@ void SatisDash::FFrmBridge::Tick(double Now, int32 Port, const FString& Token)
 		LaunchNext();
 	}
 	FinishMapLive(Now);
-	FrmLanes.Pump(Port, Token, Factory.IsValid());
+	FrmLanes.Pump(Port, Token, LargeBusy());
 }
 
 TOptional<FString> SatisDash::FFrmBridge::TakeFresh(TOptional<FReady>& Ready, double Now, double MaxAgeSeconds)
@@ -311,6 +389,10 @@ void SatisDash::FFrmBridge::Stop()
 	MapTrains = FMapSide();
 	MapStations = FMapSide();
 	MapLiveReady.Reset();
+	for (FWorldSlot& Slot : World)
+	{
+		Slot = FWorldSlot();
+	}
 	Encoded.Reset();
 	bPlayersAbsent = false;
 	bFactoryFailed = false;
