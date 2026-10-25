@@ -57,7 +57,21 @@ bool FDriverWorldTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("rails are read once the agent has run for about 2 minutes"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsRead) > 0; }, 200));
 	const double Waited = F.T - StartedAt;
 	TestTrue(TEXT("between 120 s - 10% and 120 s + 10% (plus a tick or two)"), Waited >= 108.0 && Waited <= 140.0);
+
+	// Posts go behind snapshots (Driver.cpp's idle gate). Hold a snapshot open, then let the rails body become ready.
+	TestTrue(TEXT("a snapshot is in flight"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldSnapshots) > 0; }, 20, false));
 	F.Net.answer(DriverWorldRailsRead, SatisDash::Test::Reply(200, DriverWorldRails));
+	DriverWorldRun(F, Driver, []() { return false; }, 10, false);
+	TestEqual(TEXT("no world post while a snapshot is in flight"), F.Net.sent(DriverWorldRailsPost), 0);
+	// The send fails and backs off (Retry-After 20 s): nothing in flight, but snapshots are queued.
+	FHttpReply Unwell = SatisDash::Test::Reply(503, FString());
+	Unwell.RetryAfter = TEXT("20");
+	F.Net.answer(DriverWorldSnapshots, Unwell);
+	DriverWorldRun(F, Driver, []() { return false; }, 15, false);
+	TestEqual(TEXT("nothing in flight"), F.Net.pending(DriverWorldSnapshots), 0);
+	TestTrue(TEXT("snapshots are queued"), Driver.Queued() > 0);
+	TestEqual(TEXT("no world post while snapshots are queued, even with none in flight"), F.Net.sent(DriverWorldRailsPost), 0);
+	// Once the snapshot side drains, the ready body goes.
 	TestTrue(TEXT("the layer is posted"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsPost) > 0; }, 30));
 	TestTrue(TEXT("with the layer's data"), F.Net.lastBody(DriverWorldRailsPost).Contains(TEXT("\"data\":[{\"id\":\"R1\",\"points\":[[0,0],[3,0]]}]")));
 	SatisDash::Test::SameText(*this, TEXT("and the credential"), F.Net.lastAuth(DriverWorldRailsPost), TEXT("Bearer ") + SatisDash::Test::FakeSecret());
