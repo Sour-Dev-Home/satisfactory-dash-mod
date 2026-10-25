@@ -11,6 +11,7 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, Agent{MoveTemp(ConfigPath), MoveTemp(CredentialPath), Clock.Random01}
 	, Pusher{Clock.Random01}
 	, Bridge{InTransport, InWorker}
+	, WorldLayers{InTransport, Bridge, Clock.Random01}
 {
 }
 
@@ -43,6 +44,7 @@ void SatisDash::FDriver::Tick()
 		bClearPending = true;
 		StopCommands();
 		Bridge.Stop();
+		WorldLayers.Stop();
 	}
 	if (!bRunning && bNowRunning)
 	{
@@ -52,6 +54,7 @@ void SatisDash::FDriver::Tick()
 		LastFactoryAt.Reset();
 		NextPollAt = Now;
 		PollFailures = 0;
+		WorldLayers.Start(Now);
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -69,6 +72,17 @@ void SatisDash::FDriver::Tick()
 	if (TOptional<FEncodedBody> Encoded = Bridge.TakeEncoded())
 	{
 		Pusher.Enqueue(MoveTemp(Encoded.GetValue()));
+	}
+	// World layers (spec "Timing"): posted one at a time, and only while no snapshot is queued, in flight or being encoded.
+	if (const FCredential* Credential = Agent.GetCredential())
+	{
+		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending() });
+	}
+	if (WorldLayers.TakeAuthRejected())
+	{
+		++Generation;
+		Agent.OnAuthRejected(); // a 401 on any authenticated call while Running halts the agent (Agent.h)
+		return;
 	}
 	TickSample(Now);
 	TickPush(Now);

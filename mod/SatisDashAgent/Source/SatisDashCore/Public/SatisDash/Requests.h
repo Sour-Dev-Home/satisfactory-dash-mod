@@ -44,6 +44,8 @@ namespace SatisDash
 	SATISDASHCORE_API FRequestSpec BuildSnapshotRequest(const FAgentConfig& Config, const FCredential& Credential, const FString& SnapshotJson);
 	/** The same request from a body EncodeBody already made: byte for byte what the JSON overload sends. */
 	SATISDASHCORE_API FRequestSpec BuildSnapshotRequest(const FAgentConfig& Config, const FCredential& Credential, FEncodedBody Body);
+	/** POST /agent/v1/world/<Layer> (backendClient.ts postWorldLayer): a world layer's body, already encoded (gzipped when over 1 KB). The secret goes only in the Authorization header (S7). */
+	SATISDASHCORE_API FRequestSpec BuildWorldRequest(const FAgentConfig& Config, const FCredential& Credential, const TCHAR* Layer, FEncodedBody Body);
 	/** GET /agent/v1/commands?waitSeconds=25, with a 35 s timeout. */
 	SATISDASHCORE_API FRequestSpec BuildCommandsPoll(const FAgentConfig& Config, const FCredential& Credential);
 	/** POST /agent/v1/commands/<id>/result. */

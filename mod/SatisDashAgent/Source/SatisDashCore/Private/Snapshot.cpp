@@ -4,19 +4,28 @@
 #include "Dom/JsonValue.h"
 #include "SatisDash/JsonUtil.h"
 
-FString SatisDash::ClampString(const FString& Value)
+FString SatisDash::ClampStringTo(const FString& Value, int32 MaxChars)
 {
-	if (Value.Len() <= MaxStringLength)
+	if (MaxChars <= 0)
+	{
+		return FString();
+	}
+	if (Value.Len() <= MaxChars)
 	{
 		return Value;
 	}
-	int32 Keep = MaxStringLength;
+	int32 Keep = MaxChars;
 	const TCHAR Last = Value[Keep - 1];
 	if (Last >= 0xD800 && Last <= 0xDBFF)
 	{
 		--Keep; // a high surrogate whose pair would be cut off
 	}
 	return Value.Left(Keep);
+}
+
+FString SatisDash::ClampString(const FString& Value)
+{
+	return ClampStringTo(Value, MaxStringLength);
 }
 
 double SatisDash::ClampFinite(double Value)

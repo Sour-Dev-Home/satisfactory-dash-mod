@@ -176,3 +176,21 @@ bool FResponsesCommandIdDotsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("a UUID"), Uuid.IsSet() && Uuid->Num() == 1);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FResponsesWorldTest, "SatisDash.Core.Responses.World", SatisDash::Test::Flags)
+
+bool FResponsesWorldTest::RunTest(const FString& Parameters)
+{
+	const TOptional<FWorldResponse> Accepted = ParseWorldResponse(SatisDash::Test::Reply(200, TEXT("{\"accepted\":true,\"unchanged\":false}")));
+	TestTrue(TEXT("200 with both booleans"), Accepted.IsSet() && Accepted->bAccepted && !Accepted->bUnchanged);
+	const TOptional<FWorldResponse> Same = ParseWorldResponse(SatisDash::Test::Reply(202, TEXT("{\"accepted\":true,\"unchanged\":true}")));
+	TestTrue(TEXT("202, unchanged"), Same.IsSet() && Same->bUnchanged);
+	TestTrue(TEXT("accepted false is still a valid answer (the Node agent's schema takes it)"), ParseWorldResponse(SatisDash::Test::Reply(200, TEXT("{\"accepted\":false,\"unchanged\":false}"))).IsSet());
+	TestFalse(TEXT("a missing field"), ParseWorldResponse(SatisDash::Test::Reply(200, TEXT("{\"accepted\":true}"))).IsSet());
+	TestFalse(TEXT("a string for a boolean"), ParseWorldResponse(SatisDash::Test::Reply(200, TEXT("{\"accepted\":\"yes\",\"unchanged\":false}"))).IsSet());
+	TestFalse(TEXT("an empty body"), ParseWorldResponse(SatisDash::Test::Reply(200, FString())).IsSet());
+	TestFalse(TEXT("an array"), ParseWorldResponse(SatisDash::Test::Reply(200, TEXT("[]"))).IsSet());
+	TestFalse(TEXT("not json"), ParseWorldResponse(SatisDash::Test::Reply(200, TEXT("{\"accepted\":true,\"unchanged\":false}"), TEXT("text/html"))).IsSet());
+	TestFalse(TEXT("an error status"), ParseWorldResponse(SatisDash::Test::Reply(503, TEXT("{\"accepted\":true,\"unchanged\":false}"))).IsSet());
+	return true;
+}

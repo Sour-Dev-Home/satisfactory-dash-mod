@@ -175,3 +175,22 @@ TOptional<TArray<SatisDash::FAgentCommand>> SatisDash::ParseCommandsResponse(con
 	}
 	return Commands;
 }
+
+TOptional<SatisDash::FWorldResponse> SatisDash::ParseWorldResponse(const FHttpReply& Reply)
+{
+	if (Reply.Code < 200 || Reply.Code >= 300)
+	{
+		return {};
+	}
+	const TSharedPtr<FJsonObject> Object = ReadJsonBody(Reply);
+	const TSharedPtr<FJsonValue> Accepted = SatisDash::Json::Field(Object, TEXT("accepted"), EJson::Boolean);
+	const TSharedPtr<FJsonValue> Unchanged = SatisDash::Json::Field(Object, TEXT("unchanged"), EJson::Boolean);
+	if (!Accepted.IsValid() || !Unchanged.IsValid())
+	{
+		return {};
+	}
+	FWorldResponse Out;
+	Out.bAccepted = Accepted->AsBool();
+	Out.bUnchanged = Unchanged->AsBool();
+	return Out;
+}

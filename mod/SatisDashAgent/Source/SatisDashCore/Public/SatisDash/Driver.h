@@ -7,6 +7,7 @@
 #include "SatisDash/Ports.h"
 #include "SatisDash/Pusher.h"
 #include "SatisDash/RateLimit.h"
+#include "SatisDash/WorldSender.h"
 
 namespace SatisDash
 {
@@ -33,7 +34,7 @@ namespace SatisDash
 	 * wedges enrolment or pushing).
 	 *
 	 * Memory (it lives for the server's whole uptime): the snapshot queue holds at most MaxQueuedSnapshots (120) bodies
-	 * and MaxQueuedBytes (2 MiB) of them, the part log at most three keys (status, auto-pause, power); FRM reads and parsing as FrmBridge.h bounds them (mapLive's pair included); at most one
+	 * and MaxQueuedBytes (2 MiB) of them, the part log at most three keys (status, auto-pause, power); FRM reads and parsing as FrmBridge.h bounds them (mapLive's pair included); the world sender as WorldSender.h bounds it; at most one
 	 * enrolment and one push in flight. Commands: the ledger at most 1000 IDs, at most 20 commands waiting, one poll or
 	 * one result in flight, never both. A tick with nothing due allocates nothing.
 	 */
@@ -69,6 +70,8 @@ namespace SatisDash
 		FPusher Pusher;
 		/** Bounded: see FrmBridge.h. */
 		FFrmBridge Bridge;
+		/** Bounded: see WorldSender.h. */
+		FWorldSender WorldLayers;
 		/** Bounded: one key per snapshot part (status, auto-pause, power), each logged at most once per 600 s. */
 		FRateLimitedLog PartLog;
 		double NextConfigAt = 0;

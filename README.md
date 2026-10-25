@@ -21,7 +21,9 @@ server until the switchover (sub-project 5), and nothing here is installed on an
 is an outbound HTTPS client only: it opens no port, serves nothing and has no UI. It enrols once with a code from the
 dashboard, pushes a snapshot every 5 s, and long-polls for commands (only `set_auto_pause` in v1). Beyond status and
 power, a snapshot carries players and the factory (from FRM) and `mapLive` (trains and stations, from FRM's `getTrains`
-and `getTrainStation`) when FRM answers.
+and `getTrainStation`) when FRM answers. The mod also posts the `rails` and `resourceNodes` map layers to the backend
+(read from FRM's `getTrainRails` and `getResourceNode`, first about 2 and 8 minutes after start, then every 10 and 30
+minutes), sending a layer only when it changes.
 
 - **Config:** `FactoryGame/Configs/SatisDashAgent.cfg`, written with defaults on first start:
   `{"backendUrl": "https://api.satis-manager.com", "enrollmentCode": ""}`. Put the dashboard's code in

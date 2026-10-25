@@ -69,6 +69,8 @@ namespace SatisDash
 
 	/** At most 200 UTF-16 code units (the contract's string length, as JavaScript counts it), never splitting a pair. */
 	SATISDASHCORE_API FString ClampString(const FString& Value);
+	/** At most MaxChars UTF-16 code units, never splitting a pair; ClampString is the 200-character cut. */
+	SATISDASHCORE_API FString ClampStringTo(const FString& Value, int32 MaxChars);
 	/** NaN and infinities become 0. */
 	SATISDASHCORE_API double ClampFinite(double Value);
 	/** ClampFinite, and negatives become 0. */

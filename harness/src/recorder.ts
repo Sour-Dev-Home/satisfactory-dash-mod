@@ -26,6 +26,8 @@ export interface RecordedCall {
   droppedKeys?: string[];
   commandIds?: string[];
   result?: unknown;
+  /** A world-layer post (POST /agent/v1/world/:layer): which layer, how many items and how many unzipped bytes. The data itself is not kept. */
+  world?: { layer: string; items: number; bytes: number };
 }
 export interface Recorder { url: string; entries: RecordedCall[]; close(): Promise<void> }
 
@@ -40,6 +42,7 @@ const OVERSIZED_KEPT = ["agentVersion", "observedAt", "reachable", "paused", "se
 const SNAPSHOTS = "/agent/v1/snapshots";
 const COMMANDS = "/agent/v1/commands";
 const RESULT = /^\/agent\/v1\/commands\/[^/]+\/result$/;
+const WORLD = /^\/agent\/v1\/world\/([^/]+)$/;
 
 /** Keeps at most `limit` bytes of a stream that is forwarded whole; over that, nothing is recorded. */
 class Capped {
@@ -161,6 +164,11 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
         } else if (method === "POST" && RESULT.test(path)) {
           const r = sent.json(req.headers);
           if (r !== undefined) entry.result = r;
+        } else if (method === "POST" && WORLD.test(path)) {
+          // A world body is at most 2,000,000 bytes (map.ts), under the 2 MiB this reads.
+          const w = sent.read(req.headers);
+          const data = (w?.value as { data?: unknown } | null | undefined)?.data;
+          if (w !== undefined && Array.isArray(data)) entry.world = { layer: WORLD.exec(path)![1]!, items: data.length, bytes: w.size };
         }
       }
       entries.push(entry);

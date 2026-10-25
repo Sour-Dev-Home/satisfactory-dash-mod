@@ -5,6 +5,7 @@
 #include "SatisDash/FrmMapLive.h"
 #include "SatisDash/FrmPlayers.h"
 #include "SatisDash/FrmQueue.h"
+#include "SatisDash/FrmWorld.h"
 #include "SatisDash/Ports.h"
 #include "SatisDash/RateLimit.h"
 #include "SatisDash/Requests.h"
@@ -13,16 +14,22 @@
 namespace SatisDash
 {
 	/**
-	 * The FRM bridge's live lane (spec "Design"): asks FRM for players, the factory and mapLive through FFrmQueue, parses the
-	 * bodies on the worker, and keeps the newest finished part of each for the driver's next snapshot. It also
-	 * serialises and gzips, on the worker, a snapshot that carries the factory part.
+	 * The FRM bridge's live lane (spec "Design"): asks FRM for players, the factory, mapLive and the world layers through
+	 * FFrmQueue, parses the bodies on the worker, and keeps the newest finished part of each for the driver's next snapshot
+	 * (a world layer's outcome is taken by FWorldSender). It also serialises and gzips, on the worker, a snapshot that
+	 * carries the factory or mapLive part.
 	 *
 	 * Threading: the worker runs one job at a time, in this order: a snapshot to encode, a players body, the next slice of
-	 * the factory body. A job is shared with its task (TSharedPtr), so dropping it here never frees what the task still
-	 * reads. What a task wrote is read only once IWorker::IsIdle().
+	 * the trains body, of the stations body, of the factory body, then of a world layer (hash, parse, finish). A job is
+	 * shared with its task (TSharedPtr), so dropping it here never frees what the task still reads. What a task wrote is
+	 * read only once IWorker::IsIdle().
 	 *
 	 * Memory (it lives for the server's uptime): at most one factory body (16 MB cap) and its output, one players body (4
-	 * MB cap), one ready part of each, one mapLive pair (two arrays of at most 500 records each, under 256 KB joined or dropped, one body of at most 4 MB being parsed), one snapshot being encoded and its body; the failure log at most two keys.
+	 * MB cap), one ready part of each, one mapLive pair (two arrays of at most 500 records each, under 256 KB joined or
+	 * dropped; the trains and stations bodies, each at most 4 MB, can both be held while they parse), one world body (4 MB
+	 * cap) being hashed and parsed, and its output (at most 2,000,000 bytes, then gzipped), and for each layer its
+	 * outcome waiting to be taken; one snapshot being encoded and its body; the failure log at most four keys (players,
+	 * factory, mapLive, mapLiveOverCap). The sender owns each layer's last two hashes (32 bytes each).
 	 */
 	class SATISDASHCORE_API FFrmBridge
 	{
@@ -41,6 +48,15 @@ namespace SatisDash
 		TOptional<FString> TakeFactory(double Now, double MaxAgeSeconds);
 		/** The newest mapLive part ({"trains":[...],"stations":[...]}) finished within MaxAgeSeconds, once. */
 		TOptional<FString> TakeMapLive(double Now, double MaxAgeSeconds);
+		/**
+		 * Asks FRM for one world layer (world lane) and hashes, parses and encodes its body on the worker. LastRaw and
+		 * LastData are the layer's last settled raw hash and last accepted data hash (FWorldSender); they are copied into the
+		 * job. False while that layer is already requested, being read, or has an outcome waiting, and when the queue
+		 * refuses the read (the endpoint is still in flight from a stopped run): FRM was not asked, ask again later.
+		 */
+		bool RequestWorld(EWorldLayer Layer, const FString& ObservedAt, TOptional<FBlake3Hash> LastRaw, TOptional<FBlake3Hash> LastData);
+		/** The layer's finished outcome, once. */
+		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
 		void EncodeSnapshot(FSnapshot Snapshot);
 		bool EncodePending() const { return Encode.IsValid(); }
@@ -78,6 +94,25 @@ namespace SatisDash
 			int64 Bytes = 0;
 			double ReadAt = 0;
 		};
+		struct FWorldJob
+		{
+			FWorldJob(EWorldLayer InLayer, TArray<uint8> InBody, const FString& InObservedAt, TOptional<FBlake3Hash> InLastRaw, TOptional<FBlake3Hash> InLastData)
+				: Work{InLayer, MoveTemp(InBody), InObservedAt, InLastRaw, InLastData}
+			{
+			}
+			/** Named Work, not Read: check-api's receiver heuristic does not trust a name FFrmQueue also declares. */
+			FWorldRead Work;
+			bool bFinished = false;
+			bool bRan = false;
+		};
+		struct FWorldSlot
+		{
+			bool bRequested = false;
+			TSharedPtr<FWorldJob> Job;
+			TOptional<FWorldOutcome> Outcome;
+		};
+		bool LargeBusy() const;
+		FWorldSlot* NextWorldJob();
 		void StartMapCycle();
 		void HarvestMapSide(FMapSide& Side);
 		void FinishMapLive(double Now);
@@ -97,11 +132,12 @@ namespace SatisDash
 		FMapSide MapTrains;
 		FMapSide MapStations;
 		TOptional<FReady> MapLiveReady;
+		FWorldSlot World[WorldLayerCount];
 		TOptional<FEncodedBody> Encoded;
 		bool bPlayersAbsent = false;
 		bool bFactoryFailed = false;
 		double LastNow = 0;
-		/** Bounded: two keys ("players", "factory"), each at most once per 600 s. */
+		/** Bounded: four keys ("players", "factory", "mapLive", "mapLiveOverCap"), each at most once per 600 s. */
 		FRateLimitedLog FailLog;
 	};
 }

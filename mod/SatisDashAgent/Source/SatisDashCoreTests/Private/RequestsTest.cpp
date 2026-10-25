@@ -138,3 +138,30 @@ bool FRequestsEncodeTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("UTF-8"), PercentEncode(TEXT("é")), TEXT("%C3%A9"));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRequestsWorldTest, "SatisDash.Core.Requests.World", SatisDash::Test::Flags)
+
+bool FRequestsWorldTest::RunTest(const FString& Parameters)
+{
+	FEncodedBody Plain;
+	Plain.Bytes = SatisDash::Test::Utf8(TEXT("{\"observedAt\":\"2026-10-24T12:00:00.000Z\",\"data\":[]}"));
+	const FRequestSpec Spec = BuildWorldRequest(Config(), Credential(), TEXT("rails"), Plain);
+	SatisDash::Test::SameText(*this, TEXT("verb"), Spec.Verb, TEXT("POST"));
+	SatisDash::Test::SameText(*this, TEXT("url"), Spec.Url, TEXT("https://example.com/base/agent/v1/world/rails"));
+	SatisDash::Test::SameText(*this, TEXT("the secret only in Authorization"), Header(Spec, TEXT("Authorization")), TEXT("Bearer ") + SatisDash::Test::FakeSecret());
+	SatisDash::Test::SameText(*this, TEXT("content type"), Header(Spec, TEXT("Content-Type")), TEXT("application/json"));
+	TestTrue(TEXT("not gzipped"), Header(Spec, TEXT("Content-Encoding")).IsEmpty());
+	SatisDash::Test::SameText(*this, TEXT("the body as given"), BodyText(Spec), TEXT("{\"observedAt\":\"2026-10-24T12:00:00.000Z\",\"data\":[]}"));
+	SatisDash::Test::SameText(*this, TEXT("user agent: the mod's version only"), Header(Spec, TEXT("User-Agent")), TEXT("satisfactory-dash-") + AgentVersion());
+	TestEqual(TEXT("the backend's timeout"), Spec.TimeoutSeconds, RequestTimeoutSeconds);
+	TestEqual(TEXT("and the backend's 64 KB answer cap"), Spec.ResponseCapBytes, int64(MaxResponseBytes));
+
+	FEncodedBody Packed;
+	Packed.Bytes = TArray<uint8>{ 0x1F, 0x8B, 0x08 };
+	Packed.bGzip = true;
+	const FRequestSpec Gz = BuildWorldRequest(Config(), Credential(), TEXT("resourceNodes"), Packed);
+	SatisDash::Test::SameText(*this, TEXT("another layer's url"), Gz.Url, TEXT("https://example.com/base/agent/v1/world/resourceNodes"));
+	SatisDash::Test::SameText(*this, TEXT("gzip says so"), Header(Gz, TEXT("Content-Encoding")), TEXT("gzip"));
+	TestTrue(TEXT("and the bytes are untouched"), Gz.Body == Packed.Bytes);
+	return true;
+}

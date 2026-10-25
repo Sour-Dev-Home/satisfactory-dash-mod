@@ -1,5 +1,6 @@
 #include "DriverFakes.h"
 #include "SatisDash/FrmBridge.h"
+#include "SatisDash/FrmWorld.h"
 
 using namespace SatisDash;
 
@@ -362,5 +363,84 @@ bool FFrmBridgeStopRunningTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("an encode running at Stop is never harvested"), F.Bridge.TakeEncoded().IsSet());
 		TestFalse(TEXT("and it is no longer pending"), F.Bridge.EncodePending());
 	}
+	return true;
+}
+
+namespace
+{
+	const TCHAR* FrmBridgeRailsBody = TEXT("[{\"ID\":\"R1\",\"SplineData\":[{\"x\":0,\"y\":0},{\"x\":300,\"y\":0}]}]");
+	const TCHAR* FrmBridgeNodesBody = TEXT("[{\"Name\":\"Iron Ore\",\"Purity\":\"Normal\",\"NodeType\":\"Node\",\"Exploited\":false,\"location\":{\"x\":100,\"y\":200,\"z\":0}}]");
+	const TCHAR* FrmBridgeWorldAt = TEXT("2026-10-24T12:00:00.000Z");
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeWorldTest, "SatisDash.Core.FrmBridge.World", SatisDash::Test::Flags)
+
+bool FFrmBridgeWorldTest::RunTest(const FString& Parameters)
+{
+	using EKind = FWorldOutcome::EKind;
+	FFrmBridgeFixture F;
+	TestTrue(TEXT("rails asked for"), F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>()));
+	TestFalse(TEXT("one request per layer at a time"), F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>()));
+	TestTrue(TEXT("resource nodes asked for"), F.Bridge.RequestWorld(EWorldLayer::ResourceNodes, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>()));
+	TestTrue(TEXT("getTrainRails is read first (queued first)"), F.serve(TEXT("/getTrainRails"), SatisDash::Test::Reply(200, FrmBridgeRailsBody)));
+
+	// The rails job is held on the worker: it holds a large body, so getPlayer passes it but the nodes read waits.
+	F.Worker.bHold = true;
+	F.Bridge.RequestPass(false);
+	F.tick(2);
+	TestEqual(TEXT("getPlayer passes a large world parse"), F.Net.pending(TEXT("/getPlayer")), 1);
+	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
+	F.tick(2);
+	TestEqual(TEXT("the second large read waits for the first parse"), F.Net.pending(TEXT("/getResourceNode")), 0);
+	TestFalse(TEXT("and nothing is ready yet"), F.Bridge.TakeWorld(EWorldLayer::Rails).IsSet());
+
+	F.Worker.bHold = false;
+	F.Worker.release();
+	F.tick(8);
+	TOptional<FWorldOutcome> Rails = F.Bridge.TakeWorld(EWorldLayer::Rails);
+	TestTrue(TEXT("the rails outcome is Ready"), Rails.IsSet() && Rails->Kind == EKind::Ready && Rails->Items == 1);
+	TestFalse(TEXT("taken once"), F.Bridge.TakeWorld(EWorldLayer::Rails).IsSet());
+	TestTrue(TEXT("then the nodes read starts"), F.serve(TEXT("/getResourceNode"), SatisDash::Test::Reply(200, FrmBridgeNodesBody)));
+	F.tick(8);
+	const TOptional<FWorldOutcome> Nodes = F.Bridge.TakeWorld(EWorldLayer::ResourceNodes);
+	TestTrue(TEXT("the nodes outcome is Ready"), Nodes.IsSet() && Nodes->Kind == EKind::Ready && Nodes->Items == 1);
+
+	// The same raw body again, with the hash the first outcome gave: one worker task, no parse.
+	const int32 Launched = F.Worker.Launched;
+	F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, Rails->RawHash, Rails->DataHash);
+	F.serve(TEXT("/getTrainRails"), SatisDash::Test::Reply(200, FrmBridgeRailsBody));
+	F.tick(6);
+	const TOptional<FWorldOutcome> Again = F.Bridge.TakeWorld(EWorldLayer::Rails);
+	TestTrue(TEXT("SameRaw"), Again.IsSet() && Again->Kind == EKind::SameRaw);
+	TestEqual(TEXT("with a single task on the worker"), F.Worker.Launched, Launched + 1);
+
+	// A failed read is an outcome too, so the sender can schedule the next cycle.
+	F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>());
+	F.serve(TEXT("/getTrainRails"), SatisDash::Test::Reply(503, FString()));
+	F.tick(2);
+	const TOptional<FWorldOutcome> Failed = F.Bridge.TakeWorld(EWorldLayer::Rails);
+	TestTrue(TEXT("ReadFailed"), Failed.IsSet() && Failed->Kind == EKind::ReadFailed);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeWorldStopTest, "SatisDash.Core.FrmBridge.WorldStop", SatisDash::Test::Flags)
+
+bool FFrmBridgeWorldStopTest::RunTest(const FString& Parameters)
+{
+	FFrmBridgeFixture F;
+	F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>());
+	F.tick();
+	TestEqual(TEXT("the read is in flight"), F.Net.pending(TEXT("/getTrainRails")), 1);
+	F.Bridge.RequestWorld(EWorldLayer::ResourceNodes, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>());
+	F.Bridge.Stop();
+	// The stopped run's read is still in flight, so the queue refuses a second one: FRM is not asked, and the layer is not
+	// left "requested" (the caller asks again later).
+	TestFalse(TEXT("not asked while the stopped run's read is still in flight"), F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>()));
+	F.Net.answer(TEXT("/getTrainRails"), SatisDash::Test::Reply(200, FrmBridgeRailsBody));
+	F.tick(6);
+	TestFalse(TEXT("a reply after Stop is never used"), F.Bridge.TakeWorld(EWorldLayer::Rails).IsSet());
+	TestEqual(TEXT("and the queued read was dropped"), F.Net.sent(TEXT("/getResourceNode")), 0);
+	TestEqual(TEXT("nothing was read again"), F.Net.sent(TEXT("/getTrainRails")), 1);
+	TestTrue(TEXT("after Stop a layer can be asked for again"), F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>()));
 	return true;
 }
