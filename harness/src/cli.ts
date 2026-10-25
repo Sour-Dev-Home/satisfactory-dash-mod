@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { realExec, startBackend } from "./backend";
 import { hostUntilStopped, serveBackendHost } from "./backend-host";
 import { checkApi, scanSources } from "./check-api";
+import { checkProvenance } from "./check-provenance";
 import { loadConfig } from "./config";
 import { type CoreRunId, realCoreDeps, runCore } from "./core-run";
 import { CORE_RUNS } from "./core-runs";
@@ -29,10 +30,19 @@ export function runCheckApi(io: Io): number {
   return missing.length || badRows.length ? 1 : 0;
 }
 
+export function runCheckProvenance(io: Io): number {
+  const { readers, problems } = checkProvenance(REPO_ROOT);
+  for (const p of problems) io.error(p);
+  io.log(`check-provenance: ${readers.length} native readers, ${problems.length} problems`);
+  return problems.length ? 1 : 0;
+}
+
 export async function main(argv: string[], io: Io = consoleIo): Promise<number> {
   switch (argv[0]) {
     case "check-api":
       return runCheckApi(io);
+    case "check-provenance":
+      return runCheckProvenance(io);
     case "verify-contract": {
       const problems = verifyContract(join(HARNESS_ROOT, "contract"));
       for (const p of problems) io.error(`contract: ${p}`);
@@ -177,7 +187,7 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
       return verdict.pass ? 0 : 1;
     }
     default:
-      io.error("usage: harness <check-api|verify-contract|selftest|run|core-run|backend-host|rejudge|test-mod|judge-mod-test>");
+      io.error("usage: harness <check-api|check-provenance|verify-contract|selftest|run|core-run|backend-host|rejudge|test-mod|judge-mod-test>");
       return 2;
   }
 }
