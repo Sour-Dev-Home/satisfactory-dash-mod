@@ -38,6 +38,7 @@ minutes), sending a layer only when it changes.
 
 ## What's here
 
+- `docs/clean-room.md` — the rules for native readers (never open FicsitRemoteMonitoring's source), the `Native/<Reader>/` layout and the `PROVENANCE.md` that CI checks.
 - `mod/SatisDashAgent` — the core mod: `SatisDashCore` (pure logic and its tests) and `SatisDashGame` (transport,
   game reader, driver).
 - `harness/` and `runs/` — the harness that builds, installs and judges the mod on the test server, and each run's

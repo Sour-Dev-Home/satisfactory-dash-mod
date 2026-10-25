@@ -61,4 +61,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run harness -- check-api
+      - run: npm run harness -- check-provenance
       - run: npm run harness -- verify-contract
