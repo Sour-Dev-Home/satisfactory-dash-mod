@@ -5,6 +5,13 @@ using namespace SatisDash;
 
 namespace
 {
+	FString Quote(const FString& Value)
+	{
+		FString Out;
+		SatisDash::Json::AppendString(Out, Value);
+		return Out;
+	}
+
 	FString Arrays(int32 Levels)
 	{
 		return FString::ChrN(Levels, TEXT('[')) + FString::ChrN(Levels, TEXT(']'));
@@ -43,5 +50,23 @@ bool FJsonDepthStringsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("after an escaped backslash, out of the string"),
 		SatisDash::Json::WithinDepth(TEXT("{\"a\":\"x\\\\\",\"b\":") + Arrays(SatisDash::Json::MaxDepth) + TEXT("}")));
 	TestTrue(TEXT("the same, at the cap"), SatisDash::Json::WithinDepth(TEXT("{\"a\":\"x\\\\\",\"b\":") + Arrays(SatisDash::Json::MaxDepth - 1) + TEXT("}")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FJsonAppendStringTest, "SatisDash.Core.Json.AppendString", SatisDash::Test::Flags)
+
+bool FJsonAppendStringTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::SameText(*this, TEXT("empty"), Quote(FString()), TEXT("\"\""));
+	SatisDash::Test::SameText(*this, TEXT("plain"), Quote(TEXT("Iron Ore")), TEXT("\"Iron Ore\""));
+	SatisDash::Test::SameText(*this, TEXT("quote and backslash"), Quote(TEXT("a\"b\\c")), TEXT("\"a\\\"b\\\\c\""));
+	SatisDash::Test::SameText(*this, TEXT("named controls"), Quote(TEXT("\n\r\t\b\f")), TEXT("\"\\n\\r\\t\\b\\f\""));
+	SatisDash::Test::SameText(*this, TEXT("other controls as \\u00xx, lower case"), Quote(FString::Printf(TEXT("%c%c"), TCHAR(0x01), TCHAR(0x1F))), TEXT("\"\\u0001\\u001f\""));
+	const FString Accented = FString::Printf(TEXT("Z%cge"), TCHAR(0x00FC));
+	SatisDash::Test::SameText(*this, TEXT("non-ASCII passes through"), Quote(Accented), TEXT("\"") + Accented + TEXT("\""));
+	// Round trip through the engine's parser: what is written reads back as the same text.
+	const FString Nasty = FString::Printf(TEXT("a\"\\/\n%cz"), TCHAR(0x07));
+	const TSharedPtr<FJsonObject> Back = SatisDash::Json::ParseObject(TEXT("{\"v\":") + Quote(Nasty) + TEXT("}"));
+	SatisDash::Test::SameText(*this, TEXT("round trip"), Back.IsValid() ? Back->GetStringField(TEXT("v")) : FString(), Nasty);
 	return true;
 }

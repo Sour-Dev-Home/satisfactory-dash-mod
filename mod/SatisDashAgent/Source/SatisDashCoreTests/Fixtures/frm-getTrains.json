@@ -1,0 +1,5 @@
+[
+{"ID":"BP_Train_C_1","Name":"Test Train A","ClassName":"BP_Train_C","location":{"x":-102587.95567750931,"y":-147300,"z":4400.01318359375,"rotation":270,"pitch":0},"TotalMass":499300,"PayloadMass":139300,"ForwardSpeed":14.6462,"Status":"Self-Driving","TimeTable":[{"StationName":"Test Station A"},{"StationName":"Test Station B"}],"Cars":[{"ID":"BP_Car_1","Name":"Locomotive","location":{"x":1,"y":2,"z":3},"Inventory":[{"Name":"Iron Plate","Amount":10}]}]},
+{"ID":"BP_Train_C_2","Name":"Test Train B","ClassName":"BP_Train_C","location":{"x":150,"y":-150,"z":0},"Status":"Parked"},
+{"ID":"BP_Train_C_3","Name":"Far Away","ClassName":"BP_Train_C","location":{"x":1.0e12,"y":0,"z":0},"Status":"Manual"}
+]

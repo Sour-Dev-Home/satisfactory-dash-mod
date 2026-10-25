@@ -18,6 +18,8 @@ namespace SatisDash::Json
 	/** The named field when it exists and has exactly this type (TryGetStringField would turn a number into text). */
 	SATISDASHCORE_API TSharedPtr<FJsonValue> Field(const TSharedPtr<FJsonObject>& Object, const TCHAR* Name, EJson Type);
 	SATISDASHCORE_API FString Write(const TSharedRef<FJsonObject>& Object);
+	/** Appends Value as a quoted JSON string: " \ and the named controls escaped, other controls below 0x20 as \u00xx, the rest as is. */
+	SATISDASHCORE_API void AppendString(FString& Out, const FString& Value);
 	/** Indented, for the file an owner edits by hand. */
 	SATISDASHCORE_API FString WritePretty(const TSharedRef<FJsonObject>& Object);
 }
