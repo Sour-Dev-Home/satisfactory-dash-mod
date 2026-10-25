@@ -483,3 +483,26 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | APlayerState | Engine/Source/Runtime/Engine/Classes/GameFramework/PlayerState.h:41 | header only |
 | APlayerState::GetPlayerName | Engine/Source/Runtime/Engine/Classes/GameFramework/PlayerState.h:232 | header only |
 | UWorld::GetGameState | Engine/Source/Runtime/Engine/Classes/Engine/World.h:3727 | header only (template, `Cast<T>(GameState)`) |
+| Resources/FGResourceNode.h | Source/FactoryGame/Public/Resources/FGResourceNode.h:1 | header only |
+| AFGResourceNode | Source/FactoryGame/Public/Resources/FGResourceNode.h:66 | header only (AFGResourceDeposit, FGResourceDeposit.h:15, and AFGResourceNodeFrackingSatellite, FGResourceNodeFrackingSatellite.h:23, derive from it; fracking cores, FGResourceNodeFrackingCore.h:14, derive from AFGResourceNodeBase and are not matched) |
+| AFGResourceNode::GetResourcePurity | Source/FactoryGame/Public/Resources/FGResourceNode.h:113 | header only |
+| RP_Inpure | Source/FactoryGame/Public/Resources/FGResourceNode.h:28 | header only (EResourcePurity :26 is a plain enum; the enumerator is spelled RP_Inpure, DisplayName "Impure") |
+| RP_Normal | Source/FactoryGame/Public/Resources/FGResourceNode.h:29 | header only |
+| RP_Pure | Source/FactoryGame/Public/Resources/FGResourceNode.h:30 | header only |
+| Resources/FGResourceNodeBase.h | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:1 | header only |
+| EResourceNodeType | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:24 | header only (Node, FrackingSatellite, FrackingCore, Geyser, Deposit, Invalid: only Node, FrackingSatellite and Geyser are drawn) |
+| EResourceNodeType::Node | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:26 | header only |
+| EResourceNodeType::FrackingSatellite | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:27 | header only |
+| EResourceNodeType::Geyser | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:29 | header only |
+| AFGResourceNodeBase::GetResourceNodeType | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:176 | header only |
+| AFGResourceNodeBase::GetResourceName | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:180 | header only (FText, "Localized name") |
+| AFGResourceNodeBase::IsOccupied | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:140 | header only |
+| Engine/Level.h | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:1 | header only |
+| ULevel | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:422 | header only |
+| ULevel::Actors | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:432 | header only (public) |
+| UWorld::GetLevels | Engine/Source/Runtime/Engine/Classes/Engine/World.h:3443 | header only |
+| AActor::GetActorLocation | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:2505 | header only (the survey's :1580 is K2_GetActorLocation) |
+| FString::Compare | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1524 | header only |
+| FJsonObject::GetNumberField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:140 | header only (the FStringView overload; test only) |
+| AActor | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:253 | header only |
+| FVector | Engine/Source/Runtime/Core/Public/Math/MathFwd.h:47 | header only (a using for UE::Math::TVector<double>) |

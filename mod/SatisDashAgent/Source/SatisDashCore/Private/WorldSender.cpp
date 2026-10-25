@@ -1,8 +1,19 @@
 #include "SatisDash/WorldSender.h"
 
 #include "SatisDash/Log.h"
+#include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Pusher.h"
 #include "SatisDash/Requests.h"
+
+namespace
+{
+	/** R4: the resourceNodes layer comes from the game itself when the config says so and a reader is there. */
+	bool WorldSenderIsNative(SatisDash::EWorldLayer Layer, const SatisDash::FWorldContext& Context)
+	{
+		return Layer == SatisDash::EWorldLayer::ResourceNodes && Context.NativeReaders != nullptr && Context.Config != nullptr
+			&& Context.Config->GetResourceNodesSource() == SatisDash::ESource::Native;
+	}
+}
 
 double SatisDash::JitteredSeconds(double BaseSeconds, double Random01)
 {
@@ -91,14 +102,66 @@ void SatisDash::FWorldSender::Tick(const FWorldContext& Context)
 void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& Context)
 {
 	FLayer& L = Layers[int32(Layer)];
+	const TCHAR* Name = WorldLayer(Layer).Name;
 	switch (L.Phase)
 	{
 	case EPhase::Waiting:
-		if (Context.Now >= L.NextAt && Bridge.RequestWorld(Layer, Context.Utc.ToIso8601(), L.RawHash, L.DataHash))
+		if (Context.Now >= L.NextAt)
+		{
+			if (WorldSenderIsNative(Layer, Context))
+			{
+				if (Context.NativeReaders->BeginResourceNodeScan())
+				{
+					L.Phase = EPhase::Scanning;
+				}
+				else
+				{
+					L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet; FRM is not asked
+				}
+			}
+			else if (Bridge.RequestWorld(Layer, Context.Utc.ToIso8601(), L.RawHash, L.DataHash))
+			{
+				L.Phase = EPhase::Reading;
+			}
+		}
+		return;
+	case EPhase::Scanning:
+	{
+		if (!WorldSenderIsNative(Layer, Context))
+		{
+			ScheduleNext(Layer, Context.Now); // the source changed under a scan: drop it
+			return;
+		}
+		// The game thread's whole part: a slice of the actor scan. The sort and the JSON text are built on the worker.
+		TOptional<TArray<FResourceNodeReading>> Found = Context.NativeReaders->StepResourceNodeScan(NodeScanActorsPerStep);
+		if (!Found.IsSet())
+		{
+			return;
+		}
+		if (Found.GetValue().Num() == 0)
+		{
+			// No levels, no actors or no nodes: the world could not be read. An empty layer would replace the backend's good
+			// copy, so nothing is posted; try again soon. Counts only in the log.
+			if (!L.bScanLogged && ShouldLog(Layer, TEXT("scan"), Context.Now))
+			{
+				UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game scan found no nodes; nothing sent, will scan again in %.0f s"), Name, NodeScanRetrySeconds);
+			}
+			L.bScanLogged = true;
+			L.Phase = EPhase::Waiting;
+			L.NextAt = Context.Now + NodeScanRetrySeconds;
+			return;
+		}
+		L.bScanLogged = false;
+		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(), MoveTemp(Found.GetValue()), L.DataHash))
 		{
 			L.Phase = EPhase::Reading;
 		}
+		else
+		{
+			ScheduleNext(Layer, Context.Now);
+		}
 		return;
+	}
 	case EPhase::Reading:
 		if (TOptional<FWorldOutcome> Outcome = Bridge.TakeWorld(Layer))
 		{
@@ -129,7 +192,7 @@ void SatisDash::FWorldSender::Settle(EWorldLayer Layer, FWorldOutcome Outcome, c
 	{
 		if (!L.bDroppedLogged && ShouldLog(Layer, TEXT("dropped"), Context.Now))
 		{
-			UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: FRM sent %d items the map can't hold and %d past the cap; left them out"), Name, Outcome.Dropped, Outcome.Over);
+			UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the layer had %d items the map can't hold and %d past the cap; left them out"), Name, Outcome.Dropped, Outcome.Over);
 		}
 		L.bDroppedLogged = true;
 	}

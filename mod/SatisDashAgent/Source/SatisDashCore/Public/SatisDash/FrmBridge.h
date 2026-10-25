@@ -58,6 +58,12 @@ namespace SatisDash
 		 * refuses the read (the endpoint is still in flight from a stopped run): FRM was not asked, ask again later.
 		 */
 		bool RequestWorld(EWorldLayer Layer, const FString& ObservedAt, TOptional<FBlake3Hash> LastRaw, TOptional<FBlake3Hash> LastData);
+		/**
+		 * R4: the node readings a native scan finished on the game thread, moved into a world job. The worker sorts them,
+		 * builds the body and settles it as an FRM body is (data hash, cap, encode); then TakeWorld. FRM is not asked. False
+		 * while that layer is requested, being read, or has an outcome waiting (the readings are then dropped).
+		 */
+		bool SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, TArray<FResourceNodeReading> Readings, TOptional<FBlake3Hash> LastData);
 		/** The layer's finished outcome, once. */
 		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
@@ -101,6 +107,10 @@ namespace SatisDash
 		{
 			FWorldJob(EWorldLayer InLayer, TArray<uint8> InBody, const FString& InObservedAt, TOptional<FBlake3Hash> InLastRaw, TOptional<FBlake3Hash> InLastData)
 				: Work{InLayer, MoveTemp(InBody), InObservedAt, InLastRaw, InLastData}
+			{
+			}
+			FWorldJob(EWorldLayer InLayer, TArray<FResourceNodeReading> InReadings, const FString& InObservedAt, TOptional<FBlake3Hash> InLastData)
+				: Work{InLayer, MoveTemp(InReadings), InObservedAt, InLastData}
 			{
 			}
 			/** Named Work, not Read: check-api's receiver heuristic does not trust a name FFrmQueue also declares. */

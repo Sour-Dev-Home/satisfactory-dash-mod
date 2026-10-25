@@ -1,4 +1,5 @@
 #include "SatisDash/FrmWorld.h"
+#include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "TestUtil.h"
 
 using namespace SatisDash;
@@ -124,5 +125,43 @@ bool FFrmWorldSlicesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("the pad was skipped, not stored: the data is one rail"), Run.Outcome.Items, 1);
 	// A body under 1 MiB is a single hash step.
 	TestEqual(TEXT("a small body: one hash step and a parse"), RunWorldOf(FrmWorldRails).Steps, 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmWorldNativeTest, "SatisDash.Core.FrmWorld.Native", SatisDash::Test::Flags)
+
+bool FFrmWorldNativeTest::RunTest(const FString& Parameters)
+{
+	TArray<FResourceNodeReading> In;
+	FResourceNodeReading R;
+	R.Resource = TEXT("Iron Ore");
+	R.Purity = ENodePurity::Normal;
+	R.Kind = ENodeKind::Node;
+	R.XCm = 100;
+	R.YCm = 200;
+	In.Add(R);
+
+	const FNativeWorldBody Body = BuildNativeResourceNodes(TEXT("T"), In);
+	FBlake3 Hasher;
+	Hasher.Update(*Body.Json + Body.DataFrom, uint64(Body.DataEnd - Body.DataFrom) * sizeof(TCHAR));
+	const FBlake3Hash Expected = Hasher.Finalize();
+
+	// The readings go in and the worker builds the body: one Step does the build, the hash and the encode.
+	FWorldRead NativeRead{ EWorldLayer::ResourceNodes, In, FString(TEXT("T")), TOptional<FBlake3Hash>() };
+	TestTrue(TEXT("a native read is one step"), NativeRead.Step());
+	FWorldOutcome Ready = NativeRead.TakeOutcome();
+	TestTrue(TEXT("ready to post"), Ready.Kind == FWorldOutcome::EKind::Ready);
+	TestEqual(TEXT("one item"), Ready.Items, 1);
+	TestEqual(TEXT("the body's bytes"), Ready.Bytes, Body.Bytes);
+	TestTrue(TEXT("the data hash covers exactly the array text, as for an FRM body"), Ready.DataHash == Expected);
+	TestTrue(TEXT("a body to post"), Ready.Body.Bytes.Num() > 0);
+
+	FWorldRead NativeSameRead{ EWorldLayer::ResourceNodes, In, FString(TEXT("T2")), TOptional<FBlake3Hash>(Expected) };
+	TestTrue(TEXT("same data, one step"), NativeSameRead.Step());
+	TestTrue(TEXT("a new observedAt over the same nodes is not a change"), NativeSameRead.TakeOutcome().Kind == FWorldOutcome::EKind::SameData);
+
+	FWorldRead NativeOverRead{ EWorldLayer::ResourceNodes, In, FString(TEXT("T")), TOptional<FBlake3Hash>(), 10 };
+	TestTrue(TEXT("over the cap, one step"), NativeOverRead.Step());
+	TestTrue(TEXT("over the byte cap is skipped"), NativeOverRead.TakeOutcome().Kind == FWorldOutcome::EKind::OverCap);
 	return true;
 }

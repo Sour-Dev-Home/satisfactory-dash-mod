@@ -63,6 +63,21 @@ FString SatisDash::MapNodeType(const FString& Raw)
 	return Out;
 }
 
+void SatisDash::AppendResourceNodeRecord(FString& Out, const FString& Type, const FString& Purity, const FString& NodeType, double Mx, double My, bool bExploited)
+{
+	Out += TEXT("{\"type\":");
+	SatisDash::Json::AppendString(Out, ClampString(Type));
+	Out += TEXT(",\"purity\":");
+	SatisDash::Json::AppendString(Out, ClampStringTo(Purity.ToLower(), MaxNodeFieldChars));
+	Out += TEXT(",\"nodeType\":");
+	SatisDash::Json::AppendString(Out, ClampStringTo(NodeType, MaxNodeFieldChars));
+	Out += TEXT(",\"x\":");
+	Out.AppendInt(int32(Mx));
+	Out += TEXT(",\"y\":");
+	Out.AppendInt(int32(My));
+	Out += bExploited ? TEXT(",\"exploited\":true}") : TEXT(",\"exploited\":false}");
+}
+
 SatisDash::FResourceNodesParse::FResourceNodesParse(TArray<uint8> InBody, const FString& ObservedAt)
 	: FFrmArrayParse(MoveTemp(InBody), MaxResourceNodes, WorldBodyPrefix(ObservedAt), FString(TEXT("}")))
 {
@@ -97,17 +112,7 @@ auto SatisDash::FResourceNodesParse::ReadRecord(bool bRoom) -> ERecord
 				return ERecord::Over;
 			}
 			BeginRecord();
-			Out += TEXT("{\"type\":");
-			SatisDash::Json::AppendString(Out, ClampString(Name.GetValue()));
-			Out += TEXT(",\"purity\":");
-			SatisDash::Json::AppendString(Out, ClampStringTo(Purity->ToLower(), MaxNodeFieldChars));
-			Out += TEXT(",\"nodeType\":");
-			SatisDash::Json::AppendString(Out, ClampStringTo(MapNodeType(NodeType.GetValue()), MaxNodeFieldChars));
-			Out += TEXT(",\"x\":");
-			Out.AppendInt(int32(Mx));
-			Out += TEXT(",\"y\":");
-			Out.AppendInt(int32(My));
-			Out += Exploited.GetValue() ? TEXT(",\"exploited\":true}") : TEXT(",\"exploited\":false}");
+			AppendResourceNodeRecord(Out, Name.GetValue(), Purity.GetValue(), MapNodeType(NodeType.GetValue()), Mx, My, Exploited.GetValue());
 			return ERecord::Kept;
 		}
 		const FString Key = Reader.Name();

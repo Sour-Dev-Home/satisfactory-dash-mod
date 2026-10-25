@@ -8,7 +8,7 @@ ADR-0058 (satisfactory-dash) replaces FicsitRemoteMonitoring (FRM) reader by rea
 | Status, auto-pause | core v1 | native | proven (S6, S7) |
 | Power (R0) | S1 | native | read natively since core v1; S1 judges every field against FRM (`native-parity`) |
 | Players (R1) | S1 | `bridge` (default) | native reader built; default flips in its switch PR after `native-parity` passes |
-| Resource nodes (R4) | S1 | `bridge` (default) | same |
+| Resource nodes (R4) | S1 | `bridge` (default) | native reader built: a sliced scan of the world's actors on the game thread (2,000 per tick, once per 30 minutes), the sort and the JSON built on the worker; a scan that finds nothing posts nothing and retries after 30 s; default flips after `native-parity` passes |
 
 ## The hidden source override (a stopgap, not a setting)
 

@@ -35,10 +35,30 @@ SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, TArray<uint8> InBody, FSt
 {
 }
 
+SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, TArray<FResourceNodeReading> InReadings, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes)
+	: Layer{InLayer}
+	, Readings{MoveTemp(InReadings)}
+	, ObservedAt{MoveTemp(InObservedAt)}
+	, LastData{InLastData}
+	, MaxBodyBytes{InMaxBodyBytes}
+	, Stage{EStage::Native}
+{
+}
+
 bool SatisDash::FWorldRead::Step()
 {
 	switch (Stage)
 	{
+	case EStage::Native:
+	{
+		// On the worker: the sort and the JSON text happen here, never on the game thread. The readings are freed first.
+		const FNativeWorldBody Built = BuildNativeResourceNodes(ObservedAt, Readings);
+		Readings.Empty();
+		Settle(Built.Json, Built.DataFrom, Built.DataEnd, Built.Items, Built.Dropped, Built.Over, Built.Bytes);
+		Outcome.RawHash = Outcome.DataHash;
+		Stage = EStage::Done;
+		return true;
+	}
 	case EStage::Hashing:
 	{
 		const int64 Take = FMath::Min<int64>(WorldHashSliceBytes, int64(Body.Num()) - Hashed);
@@ -91,29 +111,31 @@ bool SatisDash::FWorldRead::Step()
 void SatisDash::FWorldRead::Finish()
 {
 	const FFrmArrayParse& Array = *Owned;
-	Outcome.Items = Array.Kept();
-	Outcome.Dropped = Array.Dropped();
-	Outcome.Over = Array.Over();
-	Outcome.Bytes = Array.Utf8Bytes();
+	Settle(Array.PeekJson(), Array.DataFrom(), Array.DataEnd(), Array.Kept(), Array.Dropped(), Array.Over(), Array.Utf8Bytes());
+	Owned.Reset();
+}
+
+void SatisDash::FWorldRead::Settle(const FString& Json, int32 DataFrom, int32 DataEnd, int32 Items, int32 Dropped, int32 Over, int64 Bytes)
+{
+	Outcome.Items = Items;
+	Outcome.Dropped = Dropped;
+	Outcome.Over = Over;
+	Outcome.Bytes = Bytes;
 
 	// worldReader.ts: the hash of the projected data comes first; equal to the last accepted one means nothing to send.
-	const FString& Json = Array.PeekJson();
 	FBlake3 DataHasher;
-	DataHasher.Update(*Json + Array.DataFrom(), uint64(Array.DataEnd() - Array.DataFrom()) * sizeof(TCHAR));
+	DataHasher.Update(*Json + DataFrom, uint64(DataEnd - DataFrom) * sizeof(TCHAR));
 	Outcome.DataHash = DataHasher.Finalize();
 	if (LastData.IsSet() && LastData.GetValue() == Outcome.DataHash)
 	{
 		Outcome.Kind = FWorldOutcome::EKind::SameData;
-		Owned.Reset();
 		return;
 	}
 	if (Outcome.Bytes > MaxBodyBytes)
 	{
 		Outcome.Kind = FWorldOutcome::EKind::OverCap;
-		Owned.Reset();
 		return;
 	}
 	Outcome.Body = EncodeBody(Json); // gzipped over 1 KB, converted straight to UTF-8
 	Outcome.Kind = FWorldOutcome::EKind::Ready;
-	Owned.Reset();
 }

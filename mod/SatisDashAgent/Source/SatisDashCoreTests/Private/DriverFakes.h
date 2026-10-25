@@ -113,6 +113,12 @@ namespace SatisDash::Test
 		/** R1: unset = the game state can't be read. */
 		TOptional<TArray<SatisDash::FPlayerReading>> Players;
 		int32 PlayerReads = 0;
+		/** R4: what a finished scan returns; bHasWorld false = no world. A scan finishes on its StepsToFinish-th step. */
+		TArray<SatisDash::FResourceNodeReading> Nodes;
+		bool bHasWorld = true;
+		int32 StepsToFinish = 3;
+		int32 ScanBegins = 0;
+		int32 ScanSteps = 0;
 
 		FFakeGame()
 		{
@@ -126,6 +132,11 @@ namespace SatisDash::Test
 		virtual TOptional<SatisDash::FAutoPauseReading> ReadAutoPause() override { return AutoPause; }
 		virtual TOptional<TArray<SatisDash::FCircuitReading>> ReadPower() override { ++PowerReads; return Power; }
 		virtual TOptional<TArray<SatisDash::FPlayerReading>> ReadPlayers() override { ++PlayerReads; return Players; }
+		virtual bool BeginResourceNodeScan() override { ++ScanBegins; ScanSteps = 0; return bHasWorld; }
+		virtual TOptional<TArray<SatisDash::FResourceNodeReading>> StepResourceNodeScan(int32 MaxActors) override
+		{
+			return ++ScanSteps >= StepsToFinish ? TOptional<TArray<SatisDash::FResourceNodeReading>>(Nodes) : TOptional<TArray<SatisDash::FResourceNodeReading>>();
+		}
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);

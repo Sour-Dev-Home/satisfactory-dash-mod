@@ -203,6 +203,18 @@ bool SatisDash::FFrmBridge::RequestWorld(EWorldLayer Layer, const FString& Obser
 	return true;
 }
 
+bool SatisDash::FFrmBridge::SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, TArray<FResourceNodeReading> Readings, TOptional<FBlake3Hash> LastData)
+{
+	FWorldSlot& Slot = World[int32(Layer)];
+	if (Slot.bRequested || Slot.Job.IsValid() || Slot.Outcome.IsSet())
+	{
+		return false;
+	}
+	Slot.bRequested = true;
+	Slot.Job = MakeShared<FWorldJob>(Layer, MoveTemp(Readings), ObservedAt, LastData);
+	return true;
+}
+
 TOptional<SatisDash::FWorldOutcome> SatisDash::FFrmBridge::TakeWorld(EWorldLayer Layer)
 {
 	FWorldSlot& Slot = World[int32(Layer)];

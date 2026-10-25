@@ -85,3 +85,93 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("default: the game's list is not read"), G.Game.PlayerReads, 0);
 	return true;
 }
+
+namespace
+{
+	const TCHAR* DriverNativeNodesPost = TEXT("/agent/v1/world/resourceNodes");
+	const TCHAR* DriverNativeAccepted = TEXT("{\"accepted\":true,\"unchanged\":false}");
+
+	/** Answers snapshots, and every FRM read (for the layers and parts still on the bridge) with a refusal, each tick. */
+	void DriverNativeRoutine(FDriverFixture& F)
+	{
+		while (F.Net.pending(DriverNativeSnapshots) > 0)
+		{
+			F.Net.answer(DriverNativeSnapshots, SatisDash::Test::SnapshotOk(false));
+		}
+		for (const TCHAR* Path : { TEXT("/getPlayer"), TEXT("/getFactory"), TEXT("/getTrains"), TEXT("/getTrainStation"), TEXT("/getTrainRails"), TEXT("/getResourceNode") })
+		{
+			F.Net.answer(Path, SatisDash::Test::Reply(0, FString()));
+		}
+	}
+
+	/** check-api's function scan can't read parentheses in a parameter list, so the predicate gets a name. */
+	using FDriverNativeReached = TFunction<bool()>;
+
+	bool DriverNativeRunUntil(FDriverFixture& F, FDriver& Driver, const FDriverNativeReached& reached, double Seconds)
+	{
+		for (double Spent = 0; Spent < Seconds; Spent += 0.5)
+		{
+			DriverNativeRoutine(F);
+			if (reached())
+			{
+				return true;
+			}
+			F.run(Driver, 0.5);
+		}
+		DriverNativeRoutine(F);
+		return reached();
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeNodesTest, "SatisDash.Core.Driver.NativeNodes", SatisDash::Test::Flags)
+
+bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FResourceNodeReading Iron;
+	Iron.Resource = TEXT("Iron Ore");
+	Iron.Purity = ENodePurity::Normal;
+	Iron.Kind = ENodeKind::Node;
+	Iron.XCm = -12345;
+	Iron.YCm = 67890;
+	Iron.bExploited = false;
+	F.Game.Nodes.Add(Iron);
+	F.Game.bHasWorld = false; // no world yet: the scan can't start
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\""));
+
+	// The first read is due at 480 s x jitter (the fake clock's Random01 is 1.0, so 528 s). With no world it retries each 30 s.
+	TestTrue(TEXT("the scan is attempted"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.ScanBegins >= 1; }, 600));
+	TestTrue(TEXT("and retried while there is no world"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.ScanBegins >= 3; }, 90));
+	TestEqual(TEXT("nothing posted without a world"), F.Net.sent(DriverNativeNodesPost), 0);
+
+	// A scan that finds no nodes is "cannot read", never an empty layer (it would replace the backend's good copy): nothing
+	// is posted and the scan is retried after NodeScanRetrySeconds.
+	F.Game.bHasWorld = true;
+	F.Game.Nodes.Reset();
+	const int32 EmptyBegins = F.Game.ScanBegins;
+	TestTrue(TEXT("an empty scan finishes"), DriverNativeRunUntil(F, Driver, [&F, EmptyBegins] { return F.Game.ScanBegins > EmptyBegins && F.Game.ScanSteps >= F.Game.StepsToFinish; }, 120));
+	TestTrue(TEXT("and is retried soon, not after a whole cycle"), DriverNativeRunUntil(F, Driver, [&F, EmptyBegins] { return F.Game.ScanBegins > EmptyBegins + 1; }, 60));
+	TestEqual(TEXT("an empty scan posts nothing"), F.Net.sent(DriverNativeNodesPost), 0);
+
+	F.Game.Nodes.Add(Iron);
+	TestTrue(TEXT("the layer is posted once the scan finds nodes"), DriverNativeRunUntil(F, Driver, [&F] { return F.Net.pending(DriverNativeNodesPost) > 0; }, 120));
+	const FString Body = F.Net.lastBody(DriverNativeNodesPost);
+	TestTrue(TEXT("the data is the mapped nodes"), Body.Contains(TEXT("\"data\":[{\"type\":\"Iron Ore\",\"purity\":\"normal\",\"nodeType\":\"node\",\"x\":-123,\"y\":679,\"exploited\":false}]")));
+	TestEqual(TEXT("FRM is never asked for resource nodes in native mode"), F.Net.sent(TEXT("/getResourceNode")), 0);
+	F.Net.answer(DriverNativeNodesPost, SatisDash::Test::Reply(200, DriverNativeAccepted));
+
+	// The next cycle (1,800 s x jitter later) scans again, finds the same nodes and posts nothing.
+	const int32 Begins = F.Game.ScanBegins;
+	TestTrue(TEXT("the next cycle scans again"), DriverNativeRunUntil(F, Driver, [&F, Begins] { return F.Game.ScanBegins > Begins; }, 2100));
+	DriverNativeRunUntil(F, Driver, []() { return false; }, 30);
+	TestEqual(TEXT("an unchanged world is not posted again"), F.Net.sent(DriverNativeNodesPost), 1);
+
+	// A changed world is.
+	FResourceNodeReading Oil = Iron;
+	Oil.Resource = TEXT("Crude Oil");
+	Oil.Kind = ENodeKind::FrackingSatellite;
+	F.Game.Nodes.Add(Oil);
+	TestTrue(TEXT("a changed layer posts"), DriverNativeRunUntil(F, Driver, [&F] { return F.Net.pending(DriverNativeNodesPost) > 0; }, 2100));
+	return true;
+}

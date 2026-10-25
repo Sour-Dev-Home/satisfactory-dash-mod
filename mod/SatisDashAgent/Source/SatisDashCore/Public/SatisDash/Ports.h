@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "SatisDash/FrmPlayers.h"
+#include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Requests.h"
 #include "SatisDash/Responses.h"
 #include "SatisDash/Snapshot.h"
@@ -38,6 +39,17 @@ namespace SatisDash
 		 * Unset when the game state can't be read. Only called when the config's playersSource is "native".
 		 */
 		virtual TOptional<TArray<FPlayerReading>> ReadPlayers() { return {}; }
+		/**
+		 * R4: starts a pass over the world's actors looking for resource nodes. False when there is no world. A pass takes many
+		 * ticks: call StepResourceNodeScan until it returns a value. Only called when resourceNodesSource is "native".
+		 */
+		virtual bool BeginResourceNodeScan() { return false; }
+		/**
+		 * Looks at up to MaxActors more actors, on the game thread, copying each node found into a plain reading. Unset until
+		 * the pass has seen every actor, then every node found (once; empty when the world held no levels, actors or nodes,
+		 * which the caller treats as "cannot read"). Sorting and building the body are not done here.
+		 */
+		virtual TOptional<TArray<FResourceNodeReading>> StepResourceNodeScan(int32 MaxActors) { return {}; }
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

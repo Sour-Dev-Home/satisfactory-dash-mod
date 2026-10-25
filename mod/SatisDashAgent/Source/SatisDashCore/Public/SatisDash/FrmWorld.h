@@ -4,6 +4,7 @@
 #include "Hash/Blake3.h"
 #include "SatisDash/Frm.h"
 #include "SatisDash/FrmRecords.h"
+#include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Requests.h"
 
 namespace SatisDash
@@ -58,6 +59,12 @@ namespace SatisDash
 	{
 	public:
 		FWorldRead(EWorldLayer InLayer, TArray<uint8> InBody, FString InObservedAt, TOptional<FBlake3Hash> InLastRaw, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes = WorldLayerMaxBytes);
+		/**
+		 * A native read (R4): the game thread's finished node readings, moved in. The first Step, on the worker, builds the
+		 * body text (sort and JSON) and settles it as an FRM body is after its parse (data hash, the byte cap, gzip), then
+		 * frees the readings. There is no raw body, so RawHash is the data hash and SameRaw does not occur.
+		 */
+		FWorldRead(EWorldLayer InLayer, TArray<FResourceNodeReading> InReadings, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes = WorldLayerMaxBytes);
 		FWorldRead(const FWorldRead&) = delete;
 		FWorldRead& operator=(const FWorldRead&) = delete;
 
@@ -66,11 +73,15 @@ namespace SatisDash
 		FWorldOutcome TakeOutcome() { return MoveTemp(Outcome); }
 
 	private:
-		enum class EStage : uint8 { Hashing, Parsing, Done };
+		enum class EStage : uint8 { Hashing, Parsing, Native, Done };
+		/** The end of an FRM read: settles the finished parse. */
 		void Finish();
+		/** Everything after the body text exists: hash the data, apply the cap, encode. Json is the whole body text. */
+		void Settle(const FString& Json, int32 DataFrom, int32 DataEnd, int32 Items, int32 Dropped, int32 Over, int64 Bytes);
 
 		EWorldLayer Layer;
 		TArray<uint8> Body;
+		TArray<FResourceNodeReading> Readings;
 		FString ObservedAt;
 		TOptional<FBlake3Hash> LastRaw;
 		TOptional<FBlake3Hash> LastData;
