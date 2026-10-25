@@ -1,0 +1,7 @@
+[
+{"ID":"BP_ResourceNode1","Name":"Iron Ore","ClassName":"BP_ResourceNode_C","Purity":"Normal","EnumPurity":"RP_Normal","NodeType":"Node","Exploited":false,"ResourceForm":"RF_SOLID","location":{"x":-12345,"y":67890,"z":100}},
+{"Name":"Crude Oil","Purity":"Impure","EnumPurity":"RP_Inpure","NodeType":"Fracking Satellite","Exploited":true,"location":{"x":50,"y":-50,"z":0}},
+{"Name":"Geothermal","Purity":"Pure","NodeType":"Geyser","Exploited":false,"location":{"x":0,"y":0,"z":0}},
+{"Name":"SAM","Purity":"Pure","NodeType":"Some New TYPE","Exploited":false,"location":{"x":1.0e12,"y":0,"z":0}},
+{"Name":"Copper Ore","Purity":"PURE","NodeType":"some  new   TYPE","Exploited":false,"location":{"x":100,"y":200,"z":0}}
+]

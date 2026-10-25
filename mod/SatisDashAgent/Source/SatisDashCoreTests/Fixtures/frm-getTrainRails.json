@@ -1,0 +1,5 @@
+[
+{"ID":"Build_RailroadTrack_C_1","ClassName":"Build_RailroadTrack_C","location":{"x":0,"y":0,"z":0},"Length":1000,"Connected0":true,"Connected1":true,"SplineData":[{"x":0,"y":0,"z":0},{"x":10,"y":10,"z":0},{"x":250,"y":0,"z":0},{"x":250.4,"y":0,"z":0},{"x":500,"y":1.0e12,"z":0},{"x":1050,"y":-50,"z":0}]},
+{"ID":"Build_RailroadTrack_C_2","SplineData":[{"x":100,"y":100},{"x":120,"y":120}]},
+{"ID":"Build_RailroadTrack_C_3","SplineData":[]}
+]
