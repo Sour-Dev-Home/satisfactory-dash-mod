@@ -414,16 +414,16 @@ void SatisDash::FCurlTransport::Release(FPending& Pending)
 void SatisDash::FCurlTransport::Deliver(FPending& Pending)
 {
 	EReplyRefusal Refusal = EReplyRefusal::None;
-	const FHttpReply Reply = MakeReply(Pending.Raw, Pending.Url, Pending.CappedBody, Refusal);
+	FHttpReply Reply = MakeReply(Pending.Raw, Pending.Url, Pending.CappedBody, Refusal);
 	const double Now = FPlatformTime::Seconds();
 	// S9: a refused response and a TLS failure are logged, once per kind per ten minutes; never a header and never more
 	// of the URL than its origin (the secret is only in the Authorization header, S7). A failure to reach a backend is
 	// keyed by its origin too, so a newly configured backend's failure is logged even if the old one's was just now.
 	if (Refusal == EReplyRefusal::Redirected && RefusalLog.ShouldLog(TEXT("redirect"), Now))
 	{
-		UE_LOG(LogSatisDash, Warning, TEXT("The backend redirected a request; its answer was refused (redirects are never accepted)"));
+		UE_LOG(LogSatisDash, Warning, TEXT("A request was redirected; its answer was refused (redirects are never accepted)"));
 	}
-	else if (Refusal == EReplyRefusal::Oversized && RefusalLog.ShouldLog(TEXT("oversized"), Now))
+	else if (Refusal == EReplyRefusal::Oversized && RefusalLog.ShouldLog(FString(TEXT("oversized ")) + originOf(Pending.Url), Now))
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("A response from %s was over %lld bytes; refused it"), *originOf(Pending.Url), Pending.CappedBody.Limit());
 	}
@@ -432,7 +432,7 @@ void SatisDash::FCurlTransport::Deliver(FPending& Pending)
 		const FString Origin = originOf(Pending.Url);
 		if (RefusalLog.ShouldLog(Pending.Raw.Failure + TEXT(" ") + Origin, Now))
 		{
-			UE_LOG(LogSatisDash, Warning, TEXT("Couldn't reach the backend at %s (%s)"), *Origin, *Pending.Raw.Failure);
+			UE_LOG(LogSatisDash, Warning, TEXT("Couldn't reach %s (%s)"), *Origin, *Pending.Raw.Failure);
 		}
 	}
 	const FReplyHandler& onReply = Pending.OnReply;

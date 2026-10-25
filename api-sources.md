@@ -83,6 +83,9 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FSHA1::HashBuffer | Engine/Source/Runtime/Core/Public/Misc/SecureHash.h:375 | header only |
 | FSHAHash::ToString | Engine/Source/Runtime/Core/Public/Misc/SecureHash.h:242 | header only |
 | FTCHARToUTF8 | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:1016 | header only |
+| FTCHARToUTF8_Convert | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:362 | header only (global alias of UE::Core::Private::FTCHARToUTF8_Convert, class at :226; used by EncodeBody to convert straight into the output array) |
+| FTCHARToUTF8_Convert::ConvertedLength | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:342 | header only (UTF-8 byte count, no terminator) |
+| FTCHARToUTF8_Convert::Convert | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:327 | header only (the ToType = ANSICHAR* overload; returns bytes written or -1) |
 | TDelegate::AddLambda | Engine/Source/Runtime/Core/Public/Delegates/DelegateSignatureImpl.inl:806 | header only (multicast AddLambda) |
 | CreateDefaultSubobject | Engine/Source/Runtime/CoreUObject/Public/UObject/Object.h:150 | header only (UObject member template) |
 | GetDefault | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectGlobals.h:2102 | header only |

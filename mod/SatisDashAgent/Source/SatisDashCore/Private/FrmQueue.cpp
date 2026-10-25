@@ -75,7 +75,7 @@ void SatisDash::FFrmQueue::Pump(int32 Port, const FString& Token, bool bLargeBus
 			Current = Read.Endpoint;
 			bInFlight = true;
 			const uint32 SentIn = Generation;
-			Transport.Send(BuildFrmRequest(Port, Token, *Read.Endpoint), [this, SentIn, deliver = MoveTemp(Read.OnReply)](const FHttpReply& Reply)
+			Transport.Send(BuildFrmRequest(Port, Token, *Read.Endpoint), [this, SentIn, deliver = MoveTemp(Read.OnReply)](FHttpReply& Reply)
 			{
 				bInFlight = false;
 				Current = nullptr;

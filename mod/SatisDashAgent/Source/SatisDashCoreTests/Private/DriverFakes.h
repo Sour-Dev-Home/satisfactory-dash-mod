@@ -56,7 +56,8 @@ namespace SatisDash::Test
 				{
 					FCall Call = MoveTemp(Open[I]);
 					Open.RemoveAt(I);
-					Call.OnReply(Reply);
+					SatisDash::FHttpReply Mutable = Reply; // handlers take a mutable reply (they may MoveTemp the body)
+					Call.OnReply(Mutable);
 					return true;
 				}
 			}

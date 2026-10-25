@@ -42,8 +42,13 @@ namespace
 SatisDash::FEncodedBody SatisDash::EncodeBody(const FString& Json)
 {
 	FEncodedBody Out;
-	const FTCHARToUTF8 Utf8(*Json);
-	Out.Bytes = TArray<uint8>(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
+	// Converted straight into the output array: FTCHARToUTF8 would hold a second full copy of a large snapshot.
+	const int32 Utf8Length = FTCHARToUTF8_Convert::ConvertedLength(*Json, Json.Len());
+	Out.Bytes.SetNumUninitialized(Utf8Length);
+	if (FTCHARToUTF8_Convert::Convert(reinterpret_cast<ANSICHAR*>(Out.Bytes.GetData()), Utf8Length, *Json, Json.Len()) != Utf8Length)
+	{
+		Out.Bytes.Reset(); // cannot happen for a length just measured; never send half a conversion
+	}
 	if (Out.Bytes.Num() > GzipOverBytes)
 	{
 		int32 Size = FCompression::CompressMemoryBound(NAME_Gzip, Out.Bytes.Num());

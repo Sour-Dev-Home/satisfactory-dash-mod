@@ -76,7 +76,7 @@ bool FFrmFactoryRulesTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("trailing input"), FrmFactoryOf(TEXT("[] 1")).IsSet());
 
 	// ManuSpeed is tolerant (.catch(undefined)): an odd value is dropped, never a failure.
-	for (const TCHAR* Odd : { TEXT("\"ManuSpeed\":\"fast\""), TEXT("\"ManuSpeed\":0") })
+	for (const TCHAR* Odd : { TEXT("\"ManuSpeed\":\"fast\""), TEXT("\"ManuSpeed\":0"), TEXT("\"ManuSpeed\":1e999") })
 	{
 		const TOptional<FString> Result = FrmFactoryOf(FrmFactoryOne(Odd));
 		if (TestTrue(FString::Printf(TEXT("%s is still a valid body"), Odd), Result.IsSet()))

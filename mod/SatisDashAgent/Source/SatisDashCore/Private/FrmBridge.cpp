@@ -18,12 +18,12 @@ void SatisDash::FFrmBridge::NoteFailed(const TCHAR* Part, double Now)
 
 void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue)
 {
-	FrmLanes.Enqueue(FFrmRead{ &FrmGetPlayer, [this](const FHttpReply& Reply)
+	FrmLanes.Enqueue(FFrmRead{ &FrmGetPlayer, [this](FHttpReply& Reply)
 	{
 		if (Reply.Code >= 200 && Reply.Code < 300)
 		{
 			Players = MakeShared<FPlayersJob>();
-			Players->Body = Reply.Body;
+			Players->Body = MoveTemp(Reply.Body);
 		}
 		else
 		{
@@ -32,11 +32,11 @@ void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue)
 	} });
 	if (bFactoryDue)
 	{
-		FrmLanes.Enqueue(FFrmRead{ &FrmGetFactory, [this](const FHttpReply& Reply)
+		FrmLanes.Enqueue(FFrmRead{ &FrmGetFactory, [this](FHttpReply& Reply)
 		{
 			if (Reply.Code >= 200 && Reply.Code < 300)
 			{
-				Factory = MakeShared<FFactoryJob>(Reply.Body);
+				Factory = MakeShared<FFactoryJob>(MoveTemp(Reply.Body));
 			}
 			else
 			{
@@ -87,7 +87,10 @@ void SatisDash::FFrmBridge::LaunchNext()
 	{
 		Worker.Launch([Job = Encode]
 		{
-			Job->Body = EncodeBody(SnapshotToJson(Job->Snapshot));
+			FString Json = SnapshotToJson(Job->Snapshot);
+			Job->Snapshot.FactoryJson.Reset(); // the factory text is spliced into Json: don't hold both through the encode
+			Job->Snapshot.PlayersJson.Reset();
+			Job->Body = EncodeBody(Json);
 			Job->bRan = true;
 		});
 	}

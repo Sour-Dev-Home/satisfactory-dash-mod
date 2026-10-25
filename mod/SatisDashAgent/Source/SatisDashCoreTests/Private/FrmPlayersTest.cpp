@@ -33,8 +33,8 @@ bool FJsonTokensWalkTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("32 deep is fine"), JsonTokensWalk(FString::ChrN(32, TEXT('[')) + FString::ChrN(32, TEXT(']'))));
 
 	{
-		// [NEEDS VERIFICATION pinned here] the reader either refuses 1e999 or reads it as infinite; both refuse the body
-		// downstream, as zod refuses Infinity.
+		// Observed: the engine reader turns 1e999 into +infinity (Atod), it does not refuse it. The players mapper then
+		// refuses the non-finite value, as zod refuses Infinity.
 		const TArray<uint8> Huge = SatisDash::Test::Utf8(TEXT("[1e999]"));
 		FTokenReader HugeReader{ Huge };
 		EJsonNotation H;
