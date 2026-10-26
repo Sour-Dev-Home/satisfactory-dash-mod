@@ -53,7 +53,7 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 		DriverNativeAny(Bodies, TEXT("\"players\":{\"available\":true,\"players\":[{\"name\":\"player-a\",\"online\":true},{\"name\":\"player-b\",\"online\":false}]}")));
 	TestTrue(TEXT("the game was read on the status cadence"), F.Game.PlayerReads >= 3);
 	TestEqual(TEXT("FRM is never asked for players in native mode"), F.Net.sent(TEXT("/getPlayer")), 0);
-	TestTrue(TEXT("the bridge still runs for what is not native yet"), F.Net.sent(TEXT("/getFactory")) > 0);
+	TestEqual(TEXT("nor for the factory, which is native by default too"), F.Net.sent(TEXT("/getFactory")), 0);
 
 	// Nobody known: an empty list is still a read list, not "FRM absent".
 	F.Game.Players = TArray<FPlayerReading>();
@@ -165,7 +165,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	F.Game.Nodes.Add(Iron);
 	F.Game.bHasWorld = false; // no world yet: the scan can't start
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\""));
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\",\"trainsSource\":\"bridge\"")); // trains on the bridge keeps trainRoutes off, so only nodes post
 
 	// Ruling F18: no game running (an idle server) means no scan starts, past the first read's due time (528 s) and the log
 	// stays quiet; it starts once a game runs.
@@ -179,7 +179,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	for (const FString& Line : Log.Take())
 	{
 		ScanLines += Line.Contains(TEXT("Resource node scan")) || Line.Contains(TEXT("found no nodes")) ? 1 : 0;
-		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native")) ? 1 : 0;
+		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("and logs nothing about a scan"), ScanLines, 0);
 	TestEqual(TEXT("one Readers line for the native-nodes driver"), ReadersLines, 1);
@@ -228,28 +228,28 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
 	const FAsked Default = DriverNativeAsk(TEXT(""));
-	TestTrue(TEXT("default: FRM is asked for the factory"), Default.Factory > 0);
-	TestTrue(TEXT("default: FRM is asked for trains"), Default.Trains > 0);
-	TestTrue(TEXT("default: FRM is asked for stations"), Default.Stations > 0);
+	TestEqual(TEXT("default: FRM is not asked for the factory"), Default.Factory, 0);
+	TestEqual(TEXT("default: FRM is not asked for trains"), Default.Trains, 0);
+	TestEqual(TEXT("default: FRM is not asked for stations"), Default.Stations, 0);
 	TestEqual(TEXT("default: players are native"), Default.Players, 0);
 
-	const FAsked FactoryNative = DriverNativeAsk(TEXT(",\"factorySource\":\"native\""));
-	TestEqual(TEXT("factory native: no getFactory"), FactoryNative.Factory, 0);
-	TestTrue(TEXT("factory native: trains still asked"), FactoryNative.Trains > 0);
-	TestTrue(TEXT("factory native: stations still asked"), FactoryNative.Stations > 0);
+	const FAsked FactoryBridge = DriverNativeAsk(TEXT(",\"factorySource\":\"bridge\""));
+	TestTrue(TEXT("factory bridge: getFactory asked"), FactoryBridge.Factory > 0);
+	TestEqual(TEXT("factory bridge: trains still native"), FactoryBridge.Trains, 0);
+	TestEqual(TEXT("factory bridge: stations still native"), FactoryBridge.Stations, 0);
 
-	const FAsked TrainsNative = DriverNativeAsk(TEXT(",\"trainsSource\":\"native\""));
-	TestTrue(TEXT("trains native: factory still asked"), TrainsNative.Factory > 0);
-	TestEqual(TEXT("trains native: no getTrains"), TrainsNative.Trains, 0);
-	TestEqual(TEXT("trains native: no getTrainStation"), TrainsNative.Stations, 0);
+	const FAsked TrainsBridge = DriverNativeAsk(TEXT(",\"trainsSource\":\"bridge\""));
+	TestEqual(TEXT("trains bridge: factory still native"), TrainsBridge.Factory, 0);
+	TestTrue(TEXT("trains bridge: getTrains asked"), TrainsBridge.Trains > 0);
+	TestTrue(TEXT("trains bridge: getTrainStation asked"), TrainsBridge.Stations > 0);
 
-	const FAsked Both = DriverNativeAsk(TEXT(",\"factorySource\":\"native\",\"trainsSource\":\"native\""));
-	TestEqual(TEXT("both native: no getFactory"), Both.Factory, 0);
-	TestEqual(TEXT("both native: no getTrains"), Both.Trains, 0);
-	TestEqual(TEXT("both native: no getTrainStation"), Both.Stations, 0);
+	const FAsked Both = DriverNativeAsk(TEXT(",\"factorySource\":\"bridge\",\"trainsSource\":\"bridge\""));
+	TestTrue(TEXT("both bridge: getFactory asked"), Both.Factory > 0);
+	TestTrue(TEXT("both bridge: getTrains asked"), Both.Trains > 0);
+	TestTrue(TEXT("both bridge: getTrainStation asked"), Both.Stations > 0);
 
 	// The players key follows its own source, whatever the others say.
-	const FAsked PlayersBridge = DriverNativeAsk(TEXT(",\"playersSource\":\"bridge\",\"factorySource\":\"native\",\"trainsSource\":\"native\""));
+	const FAsked PlayersBridge = DriverNativeAsk(TEXT(",\"playersSource\":\"bridge\""));
 	TestTrue(TEXT("players bridge: getPlayer asked"), PlayersBridge.Players > 0);
 	TestEqual(TEXT("players bridge: factory still native"), PlayersBridge.Factory, 0);
 
@@ -258,7 +258,7 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	{
 		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line shows all four native"), AllNative, 1);
+	TestEqual(TEXT("one Readers line shows all four native, the default driver's"), AllNative, 1);
 	return true;
 }
 

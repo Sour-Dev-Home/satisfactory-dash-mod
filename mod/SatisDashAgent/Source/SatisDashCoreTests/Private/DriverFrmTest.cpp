@@ -7,8 +7,8 @@ using SatisDash::Test::FDriverFixture;
 namespace
 {
 	const TCHAR* DriverFrmSnapshots = TEXT("/agent/v1/snapshots");
-	/** These tests cover the bridge's players path, which is no longer the default (ADR-0058 switch PR): the key selects it. */
-	const TCHAR* DriverFrmBridgePlayers = TEXT(",\"playersSource\":\"bridge\"");
+	/** These tests cover the bridge's players, factory and trains paths, which are no longer the default (ADR-0058 switch PRs): the keys select them. */
+	const TCHAR* DriverFrmBridgePlayers = TEXT(",\"playersSource\":\"bridge\",\"factorySource\":\"bridge\",\"trainsSource\":\"bridge\"");
 
 	/** Answers every open snapshot post with 200, and returns the bodies it answered. */
 	TArray<FString> DriverFrmDrain(FDriverFixture& F)
@@ -323,7 +323,7 @@ bool FDriverFrmStopsCleanTest::RunTest(const FString& Parameters)
 	F.run(Driver, 1);
 	TestTrue(TEXT("halted by the 401"), Agent.GetState() != EAgentState::Running);
 	// Re-enrol while the old run's encode is still on the worker.
-	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222-2222"));
+	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222-2222"), DriverFrmBridgePlayers);
 	F.run(Driver, 61);
 	F.Net.answer(TEXT("/agent/v1/enroll"), SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()));
 	F.run(Driver, 1);

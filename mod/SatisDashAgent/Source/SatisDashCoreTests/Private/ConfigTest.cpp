@@ -226,7 +226,7 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 		}
 	}
 	const FString PartsJson = ConfigToJson(Parts.Config);
-	TestTrue(TEXT("round trip keeps the part keys"), PartsJson.Contains(TEXT("\"factorySource\": \"native\"")) && PartsJson.Contains(TEXT("\"trainsSource\": \"native\"")));
+	TestTrue(TEXT("round trip keeps the part keys"), PartsJson.Contains(TEXT("\"factorySource\": \"bridge\"")) && PartsJson.Contains(TEXT("\"trainsSource\": \"bridge\"")));
 
 	// Written back only when set, and kept when the code is blanked after enrolment.
 	const FString Json = ConfigToJson(Native.Config);
