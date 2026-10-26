@@ -570,6 +570,7 @@ bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
 	FWorldFixture G;
 	G.bNativeReaders = true;
 	G.Config.ResourceNodesSource = ESource::Bridge;
+	G.Config.TrainsSource = ESource::Bridge;
 	worldTrainRoutesReadings(G.Game);
 	G.Sender.Start(G.T);
 	G.tick(2000);
