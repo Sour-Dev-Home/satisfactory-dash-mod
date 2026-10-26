@@ -91,8 +91,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	int32 BridgeLines = 0;
 	for (const FString& Line : Log.Take())
 	{
-		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=bridge")) ? 1 : 0;
-		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=bridge")) ? 1 : 0;
+		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native")) ? 1 : 0;
+		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Readers line for the default (native players) driver"), NativeLines, 1);
 	TestEqual(TEXT("one Readers line for the bridge-key driver"), BridgeLines, 1);
