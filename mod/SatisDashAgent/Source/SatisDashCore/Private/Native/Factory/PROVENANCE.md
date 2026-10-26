@@ -2,7 +2,8 @@ Reader: Factory
 Code: mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Native/Factory/NativeFactory.h
 Code: mod/SatisDashAgent/Source/SatisDashCore/Private/Native/Factory/NativeFactory.cpp
 Code: mod/SatisDashAgent/Source/SatisDashGame/Private/GameReader.cpp
-Headers: Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:27, :92, :108, :151, :184, :225
+Headers: Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:27, :92, :108, :151, :184, :213 (GetProductivity), :225, :315 (GetCurrentProductionBoost)
+Headers: Source/FactoryGame/Public/Buildables/FGBuildable.h:167 (AFGBuildable, the element type of the subsystem's list)
 Headers: Source/FactoryGame/Public/Buildables/FGBuildableManufacturer.h:85, :157, :161, :165
 Headers: Source/FactoryGame/Public/Buildables/FGBuildable.h:824 (mDisplayName)
 Headers: Source/FactoryGame/Public/FGRecipe.h:55, :59, :63

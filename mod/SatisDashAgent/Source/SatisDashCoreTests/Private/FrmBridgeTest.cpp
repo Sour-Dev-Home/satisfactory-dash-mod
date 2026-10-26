@@ -144,7 +144,7 @@ bool FFrmBridgeNativeFactoryTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeMapLiveTest,"SatisDash.Core.FrmBridge.MapLive", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeMapLiveTest, "SatisDash.Core.FrmBridge.MapLive", SatisDash::Test::Flags)
 
 bool FFrmBridgeMapLiveTest::RunTest(const FString& Parameters)
 {

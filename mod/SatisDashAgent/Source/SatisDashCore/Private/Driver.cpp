@@ -48,6 +48,7 @@ void SatisDash::FDriver::Tick()
 		Bridge.Stop();
 		WorldLayers.Stop();
 		bFactoryReadOpen = false; // an open game read is dropped: its readings are never submitted
+		Game.EndFactoryRead();
 	}
 	if (!bRunning && bNowRunning)
 	{
@@ -119,6 +120,7 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 	if (Config.GetFactorySource() != ESource::Native)
 	{
 		bFactoryReadOpen = false; // the source changed under a read: drop it
+		Game.EndFactoryRead();
 		return;
 	}
 	// The game thread's whole part: one budgeted slice of the buildables. Sorting and the JSON text are built on the worker.
@@ -128,14 +130,17 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 		return;
 	}
 	bFactoryReadOpen = false;
-	if (Found.GetValue().Num() == 0)
+	if (Game.FactoryReadAbandoned())
 	{
-		// No world, a world swapped mid-read, or no machines: the part is left out of the snapshot (one warning per 600 s) and
-		// FRM is never asked.
+		// No subsystem or a world swapped mid-read: the part is left out of the snapshot (one warning per 600 s) and FRM is never
+		// asked. A finished read with no machines is not this: it is an empty factory and is sent as {"buildings":[]}.
 		NoteFailedPart(TEXT("factory"), Now);
 		return;
 	}
-	Bridge.SubmitNativeFactory(MoveTemp(Found.GetValue()), Now);
+	if (!Bridge.SubmitNativeFactory(MoveTemp(Found.GetValue()), Now) && FactoryLog.ShouldLog(TEXT("held"), Now))
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Factory read finished while the last one is still being built: it is dropped"));
+	}
 }
 
 void SatisDash::FDriver::TickSample(double Now)

@@ -347,6 +347,7 @@ bool SatisDash::FGameReader::BeginFactoryRead()
 		return false;
 	}
 	ResetFactoryRead();
+	bFactoryAbandoned = false;
 	FactoryWorld = Current;
 	// Advisory only (a count of the manufacturers the subsystem knows, logged next to what was read).
 	FactoryExpected = Subsystem->GetBuildableCount(AFGBuildableManufacturer::StaticClass());
@@ -365,6 +366,7 @@ TOptional<TArray<SatisDash::FFactoryReading>> SatisDash::FGameReader::StepFactor
 	if (Subsystem == nullptr)
 	{
 		ResetFactoryRead();
+		bFactoryAbandoned = true;
 		return TArray<FFactoryReading>();
 	}
 	// The list is kept bounded whatever the world holds (twice the snapshot's own cap).

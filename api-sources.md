@@ -103,6 +103,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | Cast | Engine/Source/Runtime/CoreUObject/Public/Templates/Casts.h:95 | header only |
 | TStringConversion::Length | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:791 | header only (FTCHARToUTF8 is a TStringConversion) |
 | FString::Left | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1146 | header only |
+| FString::ReplaceInline | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2059 | header only (returns the number of replacements; the test counts an id's copies with it) |
 | FString::ToLower | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1565 | header only |
 | FString::Len | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1128 | header only |
 | Dom/JsonObject.h | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:1 | header only |

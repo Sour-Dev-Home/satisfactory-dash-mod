@@ -301,11 +301,51 @@ bool FDriverNativeFactoryTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("solid amount as is"), Plates.Amount, 40.0);
 	TestEqual(TEXT("solid capacity as is"), Plates.MaxAmount, 200.0);
 
+	// The world shrinks mid-read and a machine is listed twice (the real index guard is in GameReader.cpp and the parity run
+	// covers it): the part carries each id once and only what the finished read holds.
+	FFactoryReading Smelter = Machine;
+	Smelter.Id = TEXT("Build_SmelterMk1_C_5");
+	F.Game.Factory = TArray<FFactoryReading>{ Machine, Machine, Smelter };
+	int32 Begun = F.Game.FactoryBegins;
+	TestTrue(TEXT("the next cadence begins a read"), F.runUntil(Driver, [&F, Begun] { return F.Game.FactoryBegins > Begun; }, 120));
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("one step in"), F.Game.FactoryStepCalls, 1);
+	F.Game.Factory = TArray<FFactoryReading>{ Machine, Machine };
+	const TArray<FString> Shrunk = DriverNativeRun(F, Driver, 12);
+	int32 Copies = -1;
+	for (const FString& Body : Shrunk)
+	{
+		if (Body.Contains(TEXT("\"factory\":{\"buildings\":[")))
+		{
+			FString Copy = Body;
+			Copies = Copy.ReplaceInline(TEXT("\"id\":\"Build_ConstructorMk1_C_77\""), TEXT(""));
+			TestFalse(TEXT("the machine that went away is not in the part"), Body.Contains(TEXT("Build_SmelterMk1_C_5")));
+		}
+	}
+	TestEqual(TEXT("a duplicate id comes out once"), Copies, 1);
+
+	// A finished read with no machines is an empty factory, sent as such (a stale part must not stay on the backend), never FRM.
+	F.Game.Factory.Reset();
+	Begun = F.Game.FactoryBegins;
+	TestTrue(TEXT("the next read begins"), F.runUntil(Driver, [&F, Begun] { return F.Game.FactoryBegins > Begun; }, 120));
+	TestTrue(TEXT("an empty factory carries buildings:[]"), DriverNativeAny(DriverNativeRun(F, Driver, 12), TEXT("\"factory\":{\"buildings\":[]}")));
+	TestEqual(TEXT("and FRM is still not asked"), F.Net.sent(TEXT("/getFactory")), 0);
+
+	// An abandoned read (a world swap) is not an empty factory: the part is left out.
+	F.Game.bFactoryAbandon = true;
+	F.Game.Factory = TArray<FFactoryReading>{ Machine };
+	Begun = F.Game.FactoryBegins;
+	TestTrue(TEXT("the next read begins again"), F.runUntil(Driver, [&F, Begun] { return F.Game.FactoryBegins > Begun; }, 120));
+	TestFalse(TEXT("an abandoned read leaves the part out"), DriverNativeAny(DriverNativeRun(F, Driver, 12), TEXT("\"factory\":")));
+	TestEqual(TEXT("and FRM is not asked"), F.Net.sent(TEXT("/getFactory")), 0);
+	F.Game.bFactoryAbandon = false;
+
 	// A read still open at the next due time is not restarted.
 	F.Game.FactorySteps = 1000000;
-	TestTrue(TEXT("the next cadence begins another read"), F.runUntil(Driver, [&F] { return F.Game.FactoryBegins >= 2; }, 120));
+	Begun = F.Game.FactoryBegins;
+	TestTrue(TEXT("the next cadence begins another read"), F.runUntil(Driver, [&F, Begun] { return F.Game.FactoryBegins > Begun; }, 120));
 	DriverNativeRun(F, Driver, 150);
-	TestEqual(TEXT("an open read is not restarted"), F.Game.FactoryBegins, 2);
+	TestEqual(TEXT("an open read is not restarted"), F.Game.FactoryBegins, Begun + 1);
 	int32 Notes = 0;
 	for (const FString& Line : Log.Take())
 	{

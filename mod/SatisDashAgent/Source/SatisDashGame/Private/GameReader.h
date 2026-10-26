@@ -24,6 +24,8 @@ namespace SatisDash
 		virtual TOptional<TArray<FResourceNodeReading>> StepResourceNodeScan(int32 MaxActors) override;
 		virtual bool BeginFactoryRead() override;
 		virtual TOptional<TArray<FFactoryReading>> StepFactoryRead(FStepBudget& Budget) override;
+		virtual bool FactoryReadAbandoned() const override { return bFactoryAbandoned; }
+		virtual void EndFactoryRead() override { ResetFactoryRead(); }
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) override;
 
 	private:
@@ -49,6 +51,8 @@ namespace SatisDash
 		 * GetAllBuildablesRef is re-fetched for every element). The world it began in: a read that ends in another is "cannot read".
 		 */
 		TWeakObjectPtr<UWorld> FactoryWorld;
+		/** The read that just returned was abandoned (no subsystem, or a world swap), not finished. */
+		bool bFactoryAbandoned = false;
 		int32 FactoryCursor = 0;
 		int32 FactoryExpected = 0;
 		int32 FactoryBoosted = 0;

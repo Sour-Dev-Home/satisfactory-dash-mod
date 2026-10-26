@@ -59,10 +59,14 @@ namespace SatisDash
 		virtual bool BeginFactoryRead() { return false; }
 		/**
 		 * Reads machines until the budget is spent, on the game thread. Unset until every buildable has been seen, then every
-		 * machine read (once). Empty when the world changed under the read, or held no machines: the caller treats that as
-		 * "cannot read". Scaling and building the body are not done here.
+		 * machine read (once; empty for a world with no machines, which is a real, empty factory). Scaling and building the
+		 * body are not done here.
 		 */
 		virtual TOptional<TArray<FFactoryReading>> StepFactoryRead(FStepBudget& Budget) { return {}; }
+		/** True when the read StepFactoryRead just ended was abandoned (no subsystem, or the world changed): its value is then not a factory. */
+		virtual bool FactoryReadAbandoned() const { return false; }
+		/** The driver drops an open read (source changed, left Running): frees what the reader buffered. */
+		virtual void EndFactoryRead() {}
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

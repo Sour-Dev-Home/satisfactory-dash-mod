@@ -143,10 +143,15 @@ namespace SatisDash::Test
 		{
 			return ++ScanSteps >= StepsToFinish ? TOptional<TArray<SatisDash::FResourceNodeReading>>(Nodes) : TOptional<TArray<SatisDash::FResourceNodeReading>>();
 		}
+		/** The read ends abandoned (a world swap): empty and flagged, as the game reader does. */
+		bool bFactoryAbandon = false;
+		int32 FactoryEnds = 0;
+		virtual bool FactoryReadAbandoned() const override { return bFactoryAbandon; }
+		virtual void EndFactoryRead() override { ++FactoryEnds; }
 		virtual bool BeginFactoryRead() override { ++FactoryBegins; FactoryStepCalls = 0; return bFactoryWorld; }
 		virtual TOptional<TArray<SatisDash::FFactoryReading>> StepFactoryRead(SatisDash::FStepBudget& Budget) override
 		{
-			return ++FactoryStepCalls >= FactorySteps ? TOptional<TArray<SatisDash::FFactoryReading>>(Factory) : TOptional<TArray<SatisDash::FFactoryReading>>();
+			return ++FactoryStepCalls >= FactorySteps ? TOptional<TArray<SatisDash::FFactoryReading>>(bFactoryAbandon ? TArray<SatisDash::FFactoryReading>() : Factory) : TOptional<TArray<SatisDash::FFactoryReading>>();
 		}
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
