@@ -1,4 +1,7 @@
 #include "Dom/JsonObject.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
 #include "SatisDash/Snapshot.h"
 #include "TestUtil.h"
@@ -76,7 +79,7 @@ namespace
 		return Root.IsValid() ? Root->GetArrayField(TEXT("buildings")) : TArray<TSharedPtr<FJsonValue>>();
 	}
 
-	/** The nine machines of the two bridge fixtures, one reading per record, written out by hand. */
+	/** The ten machines (seven of the running fixture, three of the norecipe one) of the two bridge fixtures, one reading per record, written out by hand. */
 	TArray<FFactoryReading> NativeFactoryFixtureReadings()
 	{
 		TArray<FFactoryReading> Out;
@@ -125,7 +128,7 @@ namespace
 		R->Output = { NativeFactorySlot(TEXT("Desc_Stator_C"), 100, 100) };
 		R->Input = TArray<FSlotReading>{ NativeFactorySlot(TEXT("Desc_SteelPipe_C"), 200, 200), NativeFactorySlot(TEXT("Desc_Wire_C"), 500, 500) };
 
-		// The unconfigured assembler: no recipe, and rates the game may still report that must not be written.
+		// The unconfigured assembler: no recipe, no rates and no slots.
 		R = &add(TEXT("Build_AssemblerMk1_C_2145959128"), TEXT("Assembler"), TEXT("Build_AssemblerMk1_C"), nullptr, false, 0, -195700, -105600, 8600, 90);
 
 		R = &add(TEXT("Build_ConstructorMk1_C_2147160359"), TEXT("Constructor"), TEXT("Build_ConstructorMk1_C"), TEXT("Quickwire"), false, -1, -14200, -112800, 11200.01171875, 0);
@@ -163,6 +166,23 @@ namespace
 		});
 		return All;
 	}
+
+	/**
+	 * The part text the bridge's expected records make: each record written by the same condensed writer, joined in the
+	 * order given. Only the expected side is re-serialised; the native side's text is compared as it is.
+	 */
+	FString NativeFactoryExpectedText(const FNativeFactoryItems& Records)
+	{
+		FString Out = TEXT("{\"buildings\":[");
+		for (int32 I = 0; I < Records.Num(); ++I)
+		{
+			FString One;
+			const TSharedRef<FFactoryJsonWriter> Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&One);
+			FJsonSerializer::Serialize(Records[I]->AsObject().ToSharedRef(), Writer);
+			Out += (I > 0 ? TEXT(",") : TEXT("")) + One;
+		}
+		return Out + TEXT("]}");
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNativeFactoryGoldenTest, "SatisDash.Core.NativeFactory.Golden", SatisDash::Test::Flags)
@@ -172,18 +192,12 @@ bool FNativeFactoryGoldenTest::RunTest(const FString& Parameters)
 	int32 Dropped = 0;
 	const FString Actual = NativeFactoryPart(NativeFactoryFixtureReadings(), Dropped);
 	TestEqual(TEXT("nothing dropped"), Dropped, 0);
-	const TArray<TSharedPtr<FJsonValue>> Got = NativeFactoryBuildings(Actual);
-	// The bridge keeps the game's order and the native part sorts by id, so the expected records are put in id order;
-	// every record is the bridge's own text.
-	const TArray<TSharedPtr<FJsonValue>> Want = NativeFactoryExpected({ TEXT("frm-getFactory-running.expected.json"), TEXT("frm-getFactory-norecipe.expected.json") });
-	if (!TestEqual(TEXT("one record per machine"), Got.Num(), Want.Num()))
-	{
-		return true;
-	}
-	for (int32 I = 0; I < Want.Num(); ++I)
-	{
-		TestTrue(FString::Printf(TEXT("record %d is the bridge's; got %s"), I, *Actual), FJsonValue::CompareEqual(*Got[I], *Want[I]));
-	}
+	// The bridge keeps the game's order and the native part sorts by id, so the expected records are put in id order.
+	// The comparison is of text, byte for byte: key order and number formatting count.
+	const FNativeFactoryItems Want = NativeFactoryExpected({ TEXT("frm-getFactory-running.expected.json"), TEXT("frm-getFactory-norecipe.expected.json") });
+	TestEqual(TEXT("one record per machine"), NativeFactoryBuildings(Actual).Num(), Want.Num());
+	const FString Expected = NativeFactoryExpectedText(Want);
+	TestTrue(FString::Printf(TEXT("the bridge's bytes; got %s"), *Actual), Actual == Expected);
 	return true;
 }
 
@@ -243,6 +257,18 @@ bool FNativeFactoryMapTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("a non-finite coordinate leaves the location out"), NativeFactoryOne(Placed).Contains(TEXT("location")));
 	Placed.ClockPercent = NativeFactoryInfinity();
 	TestFalse(TEXT("a non-finite clock is not reported"), NativeFactoryOne(Placed).Contains(TEXT("clockSpeedPercent")));
+	Placed.ClockPercent = 1e307; // finite, but times 100 it overflows
+	TestFalse(TEXT("a clock that overflows when scaled is not reported"), NativeFactoryOne(Placed).Contains(TEXT("clockSpeedPercent")));
+
+	// Values the bridge would refuse are written as 0: negative, -0 and infinite rates; and slots the same way.
+	FFactoryReading Odd = NativeFactoryMachine(TEXT("A"), TEXT("Plate"));
+	Odd.Production = { NativeFactoryRate(TEXT("p"), TEXT("Desc_P_C"), -5, NativeFactoryInfinity(), -0.0) };
+	Odd.Ingredients = { NativeFactoryRate(TEXT("i"), TEXT("Desc_I_C"), 1, 1, 1) };
+	Odd.Output = { NativeFactorySlot(TEXT("Desc_P_C"), NativeFactoryInfinity(), 100), NativeFactorySlot(TEXT("Desc_Q_C"), 5, -1) };
+	Odd.Input = TArray<FSlotReading>{ NativeFactorySlot(TEXT("Desc_I_C"), 5, NativeFactoryInfinity()) };
+	const FString OddOut = NativeFactoryOne(Odd);
+	TestTrue(FString::Printf(TEXT("negative, -0 and infinite rates are 0; got %s"), *OddOut), OddOut.Contains(TEXT("\"currentPerMinute\":0,\"maxPerMinute\":0,\"percent\":0")));
+	TestTrue(TEXT("a slot amount that is infinite or a capacity that is negative or infinite is 0: not backed up, inputs not full"), OddOut.Contains(TEXT("\"isBackedUp\":false,\"inputsFull\":false")));
 	return true;
 }
 

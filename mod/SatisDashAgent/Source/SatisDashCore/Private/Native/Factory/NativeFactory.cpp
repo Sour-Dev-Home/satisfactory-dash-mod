@@ -93,9 +93,11 @@ namespace
 		}
 		if (NativeFactoryFinite(R.ClockPercent))
 		{
-			// To 0.01 by a true division, as the metres are, so 159.99999 is 160; nothing positive left is not reported.
-			const double Hundredths = FrmFactoryMetres(FMath::RoundToDouble(R.ClockPercent * 100.0));
-			if (Hundredths > 0)
+			// To 0.01 by a true division, as the metres are, so 159.99999 is 160. Anything non-finite along the way (a huge
+			// value overflows when scaled), or nothing positive left, is not reported.
+			const double Scaled = FMath::RoundToDouble(R.ClockPercent * 100.0);
+			const double Hundredths = NativeFactoryFinite(Scaled) ? FrmFactoryMetres(Scaled) : 0.0;
+			if (NativeFactoryFinite(Hundredths) && Hundredths > 0)
 			{
 				Model.ClockSpeedPercent = Hundredths;
 			}
