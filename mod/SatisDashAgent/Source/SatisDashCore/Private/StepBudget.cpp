@@ -23,8 +23,9 @@ namespace SatisDash
 
 	void FStepBudget::End()
 	{
-		const double Finish = Sampled ? LastSample : TimeSource.Read();
-		const double Took = FMath::Max(0.0, Finish - StepStart);
+		// Always read the clock: a loop that exits on its cursor short-circuits Spent() after the last element, and that
+		// element's cost must still count (the 2 ms judge reads this, so it fails closed, never under-reports).
+		const double Took = FMath::Max(0.0, TimeSource.Read() - StepStart);
 		++StepCount;
 		Total += Took;
 		Longest = FMath::Max(Longest, Took);

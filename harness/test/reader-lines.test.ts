@@ -33,6 +33,17 @@ describe("step costs", () => {
     expect(p).toHaveLength(1);
     expect(p[0]).toMatch(/no "Trains read \(game thread only\):" line/);
   });
+  it("fails closed on a malformed value, never printing NaN", () => {
+    for (const bad of [".", "1.2.3", "..5", "", "NaN"]) {
+      const p = stepProblems([line("Factory read", bad)], ["Factory read"]);
+      expect(p.length).toBeGreaterThan(0);
+      expect(p.join(" ")).toMatch(/Factory read/);
+      expect(p.join(" ")).not.toMatch(/NaN ms/);
+      expect(stepProblems([line("Trains read", bad)], [])).not.toEqual([]);
+    }
+    expect(stepCosts([line("Factory read", "1.2.3")])).toEqual([]);
+    expect(stepCosts([line("Factory read", "0.30")])).toHaveLength(1);
+  });
   it("judges every logged line even when not required", () => {
     expect(stepProblems(LINES, [])).toHaveLength(1);
   });

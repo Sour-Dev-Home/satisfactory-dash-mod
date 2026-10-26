@@ -27,6 +27,7 @@ function fakeDeps(over: Partial<RunDeps> = {}, log = "LogTemp: satis-mod loaded\
       buildCommand: ["b"],
       builtPluginDir: "D:/b/{spike}",
       installed: { engine: "5.6.1", sml: "3.12.0" },
+      s3World: "D:/satis-test/saves/s3-world.sav",
     }),
     toolchain: { engine: "5.6.1", sml: "3.12.0", source: "x" },
     outDir: out,
@@ -329,6 +330,14 @@ describe("runSpike", () => {
 
   it("S6: refuses before building without the staged world", async () => {
     const { deps, calls } = fakeDeps({ savesConflict: () => [] });
+    await expect(runSpike("S6", deps)).rejects.toThrow(/S6 needs s3World/);
+    expect(calls.some((c) => c.startsWith("build"))).toBe(false);
+  });
+
+  it("S6: refuses before building with a loader but no s3World in the config (only s2World)", async () => {
+    const { deps, calls } = fakeDeps({ savesConflict: () => [], loadWorld: async () => undefined, readAutoPause: async () => true, setAutoPause: async () => undefined });
+    delete (deps.config as { s3World?: string }).s3World;
+    deps.config.s2World = "y.sav";
     await expect(runSpike("S6", deps)).rejects.toThrow(/S6 needs s3World/);
     expect(calls.some((c) => c.startsWith("build"))).toBe(false);
   });

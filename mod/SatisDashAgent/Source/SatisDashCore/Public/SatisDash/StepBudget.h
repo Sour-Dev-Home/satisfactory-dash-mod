@@ -28,7 +28,7 @@ namespace SatisDash
 		void Begin();
 		/** True once the budget is used up. Samples the clock. */
 		bool Spent() const;
-		/** Records this step's duration: up to the last Spent() sample, or up to now when Spent() was not called. */
+		/** Records this step's duration: Begin() to now. Always reads the clock, so an element after the last Spent() still counts. */
 		void End();
 		int32 Steps() const { return StepCount; }
 		double LongestMs() const { return Longest * 1000.0; }

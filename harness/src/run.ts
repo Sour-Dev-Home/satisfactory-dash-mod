@@ -160,9 +160,9 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     const list = [...api.badRows, ...api.missing.map((u) => `${u.path}:${u.line} ${u.name}`)];
     throw new RefusalError(`check-api failed: ${list.join(", ")}`);
   }
-  if (spec.power && (!deps.collectPower || !deps.loadWorld)) throw new RefusalError("S3 needs frmBaseUrl and s3World in the runner config");
+  if (spec.power && (!deps.collectPower || !deps.loadWorld || !deps.config.s3World)) throw new RefusalError("S3 needs frmBaseUrl and s3World in the runner config");
   if (spec.world) {
-    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict) {
+    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict || !deps.config.s3World) {
       throw new RefusalError(`${spike} needs s3World in the runner config`);
     }
     if (spec.status && !deps.collectStatus) throw new RefusalError("S6 needs the status collector");

@@ -60,6 +60,13 @@ bool FFrmResourceNodesRulesTest::RunTest(const FString& Parameters)
 
 	// Tolerated: the extras FRM sends.
 	TestTrue(TEXT("extras are skipped"), FrmNodesOf(FrmNodesOne(TEXT(",\"ID\":\"BP_1\",\"ClassName\":\"c\",\"ResourceForm\":\"RF_SOLID\",\"Extra\":{\"a\":[1,null]}"))).Kept == 1);
+	// ClassName, FRM's descriptor class name, becomes className: carried, absent when empty, cut to 200, refused when not a string.
+	TestTrue(TEXT("ClassName is carried as className"), FrmNodesOf(FrmNodesOne(TEXT(",\"ClassName\":\"Desc_OreIron_C\""))).Data.Contains(TEXT("\"className\":\"Desc_OreIron_C\"")));
+	TestFalse(TEXT("an empty ClassName gives no className key"), FrmNodesOf(FrmNodesOne(TEXT(",\"ClassName\":\"\""))).Data.Contains(TEXT("className")));
+	TestFalse(TEXT("no ClassName gives no className key"), FrmNodesOf(FrmNodesOne(TEXT(""))).Data.Contains(TEXT("className")));
+	TestFalse(TEXT("a non-string ClassName makes the body invalid"), FrmNodesOf(FrmNodesOne(TEXT(",\"ClassName\":1"))).bOk);
+	TestFalse(TEXT("a null ClassName makes the body invalid"), FrmNodesOf(FrmNodesOne(TEXT(",\"ClassName\":null"))).bOk);
+	TestTrue(TEXT("className cut to 200"), FrmNodesOf(FrmNodesOne(*(TEXT(",\"ClassName\":\"") + FString::ChrN(201, TEXT('c')) + TEXT("\"")))).Data.Contains(TEXT("\"className\":\"") + FString::ChrN(200, TEXT('c')) + TEXT("\"")));
 	// Refused as zod's RawFrmResourceNodeSchema refuses them.
 	for (const TCHAR* Bad : { TEXT(",\"Name\":null"), TEXT(",\"Purity\":1"), TEXT(",\"NodeType\":null"), TEXT(",\"Exploited\":\"no\""), TEXT(",\"Exploited\":null"),
 		TEXT(",\"location\":{\"x\":1,\"y\":2}"), TEXT(",\"location\":{\"x\":1e999,\"y\":2,\"z\":0}"), TEXT(",\"location\":null") })

@@ -17,19 +17,39 @@ bool FStepBudgetSlicesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("spent after the third"), Slicer.Spent());
 	Slicer.End();
 	TestEqual(TEXT("one step"), Slicer.Steps(), 1);
-	TestTrue(TEXT("longest about 1.2 ms"), FMath::Abs(Slicer.LongestMs() - 1.2) < 0.01);
+	TestTrue(TEXT("longest about 1.6 ms (End reads the clock)"), FMath::Abs(Slicer.LongestMs() - 1.6) < 0.01);
 
 	Slicer.Begin();
 	TestFalse(TEXT("a one-element step is not spent"), Slicer.Spent());
 	Slicer.End();
 	TestEqual(TEXT("two steps"), Slicer.Steps(), 2);
-	TestTrue(TEXT("longest stays the maximum"), FMath::Abs(Slicer.LongestMs() - 1.2) < 0.01);
-	TestTrue(TEXT("total adds both"), FMath::Abs(Slicer.TotalMs() - 1.6) < 0.01);
+	TestTrue(TEXT("longest stays the maximum"), FMath::Abs(Slicer.LongestMs() - 1.6) < 0.01);
+	// End() reads the clock itself: step one is Begin + 3 samples + End = 4 ticks of 0.4 ms = 1.6 ms; step two is 2 ticks = 0.8 ms.
+	TestTrue(TEXT("total adds both, End reading the clock"), FMath::Abs(Slicer.TotalMs() - 2.4) < 0.01);
 
 	Slicer.Reset();
 	TestEqual(TEXT("reset steps"), Slicer.Steps(), 0);
 	TestEqual(TEXT("reset longest"), Slicer.LongestMs(), 0.0);
 	TestEqual(TEXT("reset total"), Slicer.TotalMs(), 0.0);
+
+	// A step whose Spent() was never called records the elapsed time (Begin to End = one 0.4 ms tick).
+	TSharedRef<double> Time2 = MakeShared<double>(0.0);
+	FStepBudget Unsampled{[Time2]() { const double Now = *Time2; *Time2 += 0.0004; return Now; }};
+	Unsampled.Begin();
+	Unsampled.End();
+	TestTrue(TEXT("a step without Spent() records the elapsed time"), FMath::Abs(Unsampled.LongestMs() - 0.4) < 0.01);
+
+	// The S2-B loop shape exits on the cursor with Spent() short-circuited after the last element: that element's cost still counts.
+	// Clock reads: Begin 0 ms, the one Spent() sample 1 ms (under the 5 ms budget), End 4 ms.
+	TSharedRef<int32> Next = MakeShared<int32>(0);
+	FStepBudget Looped{[Next]() { static const double Reads[] = { 0.0, 0.001, 0.004 }; return Reads[FMath::Min((*Next)++, 2)]; }, 0.005};
+	int32 Cursor = 0;
+	const int32 N = 2;
+	Looped.Begin();
+	do { ++Cursor; } while (Cursor < N && !Looped.Spent());
+	Looped.End();
+	TestEqual(TEXT("the loop ran both elements"), Cursor, 2);
+	TestTrue(TEXT("the last element's cost is counted (4 ms: Spent() was sampled at 1 ms only)"), FMath::Abs(Looped.LongestMs() - 4.0) < 0.01);
 	return true;
 }
 

@@ -1,6 +1,7 @@
 // What the mod's own log says about its native readers (ADR-0058 Decision 3): with a reader on the bridge the mod's output equals
-// FRM's, so a parity or tick-cost run cannot tell native from bridge by values alone. The two lines are written by the mod
+// FRM's, so a parity or tick-cost run cannot tell native from bridge by values alone. The lines are written by the mod
 // (Driver.cpp when it enters Running; GameReader.cpp when a node scan ends) and carry counts, enum names and times only.
+// Three families: the Readers: line, the S1 node-scan cost line, and the S2 step-cost lines of every sliced native read.
 import type { Verdict } from "./verdict";
 
 export const READERS_LINE = "Readers:";
@@ -10,7 +11,7 @@ export interface ReaderSources { players: string; resourceNodes: string }
 export interface ScanCost { actors: number; steps: number; nodes: number; longestStepMs: number; totalMs: number }
 
 const READERS = /\bReaders: players=(\S+) resourceNodes=(\S+)\s*$/;
-const SCAN = /Resource node scan \(game thread only\): (\d+) actors in (\d+) steps, (\d+) nodes, longest step ([\d.]+) ms, total ([\d.]+) ms/;
+const SCAN = /Resource node scan \(game thread only\): (\d+) actors in (\d+) steps, (\d+) nodes, longest step (\d+(?:\.\d+)?) ms, total (\d+(?:\.\d+)?) ms/;
 
 /** The last `Readers:` line (a later Running entry replaces an earlier one), or null when there is none. */
 export function readerSources(lines: readonly string[]): ReaderSources | null {
@@ -37,7 +38,9 @@ export const STEP_LINE_NAMES = ["Resource node scan", "Factory read", "Trains re
 export const MAX_NATIVE_STEP_MS = 2.0;
 export interface StepCost { reader: string; longestStepMs: number; totalMs: number }
 
-const STEP = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only\\): .*longest step ([\\d.]+) ms, total ([\\d.]+) ms`);
+const STEP = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only\\): .*longest step (\\d+(?:\\.\\d+)?) ms, total (\\d+(?:\\.\\d+)?) ms`);
+// A line that names a sliced reader but does not parse as a StepCost is malformed, and fails the ceiling (it never passes as "present").
+const STEP_HEAD = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only\\): `);
 
 /** One StepCost per sliced-read line in the log. */
 export function stepCosts(lines: readonly string[]): StepCost[] {
@@ -56,8 +59,13 @@ export function stepProblems(lines: readonly string[], required: readonly string
   for (const reader of required) {
     if (!costs.some((c) => c.reader === reader)) out.push(`the mod's log has no "${reader} (game thread only):" line: the reader did not run, so its step cost is unknown`);
   }
+  for (const line of lines) {
+    const head = STEP_HEAD.exec(line);
+    if (head && !STEP.test(line)) out.push(`${head[1]}: the mod's log line has a malformed step cost, so the ceiling cannot be judged`);
+  }
   for (const c of costs) {
-    if (c.longestStepMs > MAX_NATIVE_STEP_MS) out.push(`${c.reader}: longest step ${c.longestStepMs} ms exceeds the ${MAX_NATIVE_STEP_MS} ms ceiling (owner, 2026-10-26)`);
+    if (!Number.isFinite(c.longestStepMs) || !Number.isFinite(c.totalMs)) out.push(`${c.reader}: step cost is not a finite number`);
+    else if (c.longestStepMs > MAX_NATIVE_STEP_MS) out.push(`${c.reader}: longest step ${c.longestStepMs} ms exceeds the ${MAX_NATIVE_STEP_MS} ms ceiling (owner, 2026-10-26)`);
   }
   return out;
 }

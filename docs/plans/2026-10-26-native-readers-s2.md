@@ -22,7 +22,7 @@ Everything in the S1 plan's Global Constraints still holds (pure Core, test name
 - **No API from memory (rule 1).** Every game/SML/UE symbol comes from the "Lookups made" table below or from a header opened by the task, and gets its `api-sources.md` row (`path:line`) in the same task. `check-api` fails otherwise. **The header wins** over the survey; both are recorded in the row.
 - **No weakened judges (rule 3).** No existing `runs/*/pass.ts` or `spikes/*/pass.ts` condition changes. New conditions are new code. The only owner-authorised additions are the 2 ms step ceiling and the S2 judgements. A failed spike stops the work and is reported with its evidence bundle.
 - **Evidence is machine-written; loopback and the test server only** (rules 4, 5). Player, train and station names are player-chosen game text: evidence carries `sessionHash(name)` only (the recorder already does this for `mapLive` names).
-- **Contract and goldens.** The contract does not move. The goldens move only where stated: Task 3 adds `className` to the resource-node golden (both sources), nothing else changes.
+- **Contract and goldens.** The contract does not move. The goldens move only where stated: Task 3 adds `className` to the resource-node golden (both sources), nothing else changes. The vendored copy (`harness/contract/`) was re-synced to dash 48ef758 (Ruling P1), because the old copy stripped `className`; the dash contract itself did not change.
 - **Memory and cost (owner: the mod stays light).** The native factory read keeps one plain struct per machine (about 0.3 KB for an average machine; the 20,000-machine cap is a worst case of a few MB, transient, freed when the worker has built the part) and never the 16 MB FRM body; the cursor holds no copy of the 100k+ buildable pointers. Trains and stations are copied once per read (dozens of pointers). Each read logs counts and times only.
 - **The step ceiling (owner, 2026-10-26).** No single native game-thread step may take over 2 ms (`MaxNativeStepMs = 2.0`). Every sliced read stops at `NativeStepBudgetSeconds = 0.001` and logs its longest step; `tick-cost-native` fails if any logged longest step exceeds 2.0 ms or if a reader that must have run logged nothing. One-shot reads that are not sliced (status, auto-pause, players, power's circuit-id probe) are S0/S1 code outside this rule; the judge's reasons say so.
 - **Test counts.** `mod-test.yml` has `--min 149` and 149 `IMPLEMENT_SIMPLE_AUTOMATION_TEST` macros in `SatisDashCoreTests/Private` today. Running ledger: T2 +2 = 151, T3 +1 = 152, T4 +1 = 153, T5 +3 = 156, T6 +3 = 159, T7 +2 = 161, T8 +5 = 166, T9 +2 = 168. Each task's `judge-mod-test --min N` uses its ledger number; the workflow floor stays 149 until the owner raises it (proposed: 168; a higher floor cannot make a failing run pass).
@@ -154,7 +154,7 @@ public:
 	FStepBudget(TFunction<double()> InNow, double InBudgetSeconds = NativeStepBudgetSeconds);
 	void Begin();                       // starts a step
 	bool Spent() const;                 // true once the budget is used up (check after each element, never before the first)
-	void End();                         // records this step's duration
+	void End();                         // records this step's duration; reads the clock (Begin to now), so the last element counts
 	int32 Steps() const; double LongestMs() const; double TotalMs() const;
 	void Reset();
 };
@@ -169,7 +169,7 @@ The existing `scanCosts`/`describeScanCost`/`SCAN` regex keep their behaviour (S
 - [ ] **Step 4:** In `tick-cost-native/pass.ts` add, after the existing `extra` checks, `extra.push(...stepProblems(e.lines, requiredStepReaders(sources)))` where `requiredStepReaders` returns `["Resource node scan"]` plus `"Factory read"` when `factorySource` is native, `"Trains read"` and `"Train routes read"` when `trainsSource` is native, from `captures["mod-config.json"]`. With S1's capture (no S2 keys) only the scan is required, so S1's stored evidence still rejudges identically. Add tests: S1-shaped evidence unchanged; S2-shaped evidence with a 2.4 ms Factory read fails with that reason; reasons on pass list the longest step per reader.
 - [ ] **Step 5:** `check-api` (rows for `FPlatformTime::Seconds` exist; add none unless reported), `judge-mod-test --min 151`, Vitest. Commit.
 
-**Reviewer checks:** `Spent()` never checked before the first element; the ceiling comparison is `> 2.0`; the existing `Base.evaluate` limits (tick median, memory, outbound) are imported unchanged; S1's `tick-cost-native` tests still pass untouched; no `result.json` edit.
+**Reviewer checks:** `Spent()` never checked before the first element; the ceiling comparison is `> 2.0`; the existing `Base.evaluate` limits (tick median, memory, outbound) are imported unchanged; S1's `tick-cost-native` tests still pass untouched, except the one fixture moved from a 480.25 ms to a 1.99 ms scan step by ruling (the ceiling makes the old value fail by design); no `result.json` edit.
 
 ### Task 3: R4 `className` on native resource nodes (S1 leftover 1)
 

@@ -2,7 +2,8 @@
 // run's, imported and unchanged (runs/tick-cost/pass.ts: C4, S12, same save, memory). Added, because "the reader was on" is
 // part of the claim: the mod's config had playersSource and resourceNodesSource native; a snapshot in the measured window
 // carried an available players part; and a resourceNodes world post was accepted inside the measured window after the warmup
-// (so the actor scan ran while the ticks were measured). The scan's own cost is the mod's log line in result.json's modLines.
+// (so the actor scan ran while the ticks were measured). The scan's own cost is the mod's log line in result.json's modLines;
+// since the owner's decision of 2026-10-26 the longest step of every sliced native read is judged against 2 ms.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { TICK_WARMUP_MS } from "../../harness/src/ticks";
 import { MAX_NATIVE_STEP_MS, describeScanCost, nodesLogProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
@@ -40,7 +41,8 @@ export function evaluate(e: CoreEvidence): Verdict {
   const nodePosts = recorded.filter((r) => r.agent === "mod" && r.status === 200 && r.world?.layer === "resourceNodes" && inWindow(r.at));
   if (nodePosts.length === 0) extra.push("no resourceNodes world post was accepted inside the measured window: the native scan was not measured");
   // A bridge reader would also give a players part and an accepted resourceNodes post: the mod's own log must say native, and a
-  // native scan must have completed. Its cost goes into the reasons, recorded and not judged (no ceiling, Decision 3 item 3).
+  // native scan must have completed. The scan cost goes into the reasons as a record; its longest step, like every sliced
+  // native read's, is judged against the 2 ms ceiling by stepProblems below (owner, 2026-10-26).
   extra.push(...playersLogProblems(e.lines), ...nodesLogProblems(e.lines));
   const scans = scanCosts(e.lines);
   // The 2 ms step ceiling (owner, 2026-10-26): a new condition, not a change to the limits above. It covers the sliced native

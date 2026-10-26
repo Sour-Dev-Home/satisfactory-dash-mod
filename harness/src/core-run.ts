@@ -168,7 +168,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   if (spec.baseline && (!spec.world || !spec.measureBaseline)) throw new RefusalError(`${id}: a baseline boot needs the world and a measureBaseline`);
   if (spec.world) {
     const key = spec.worldKey ?? "s3";
-    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict || (key === "s2" && !deps.config.s2World)) {
+    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict || (key === "s3" ? !deps.config.s3World : !deps.config.s2World)) {
       throw new RefusalError(`${id} needs ${key}World in the runner config`);
     }
     const shared = deps.savesConflict();
