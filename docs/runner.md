@@ -240,16 +240,25 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   Evidence holds names as hashes only. The reader verdicts also need the mod's log to show the readers native
   (`factoryLogProblems`, `trainsLogProblems`) and a completed `Factory read`, `Trains read` and `Train routes read` line. S1's
   three judges are unchanged; an S1 capture is judged as before.
-- `tick-cost-native` is `tick-cost` with the players and resource-node readers set to `native` in the mod's config
-  (`mod-config.json`). It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
+- `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
+  config (`mod-config.json`, `NATIVE_SOURCES_S2`), loading the `Test2` save in both boots. It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
   by the same limits (tick median at least 95% of the baseline's, S12, same save, memory within 100 MB and no more than 25 MB
   growth) plus proof that the native readers were live in the measured window (`runs/tick-cost-native/pass.ts`). Unlike
   `tick-cost`, the mod enrols after the world is loaded and auto-pause is off, just before the measurement starts, so its first
   resource-node post (8 minutes, +/-10%, after the agent starts Running) falls 3 to 13 minutes into the measurement, which is
   after the warmup. The mod logs one line per resource-node scan (actors, steps, longest step, total, in `result.json`'s
-  `modLines`), which is the scan's cost; the owner fixes a ceiling for the longest step after the first measurement. The mod's
-  factory, mapLive and rails readers are still on the bridge, as in `tick-cost`. `snapshot-parts.json` (the measured window
-  and which parts each accepted snapshot carried; no bodies) is now written by `tick-cost` too.
+  `modLines`), which is the scan's cost. Since the owner's ruling of 2026-10-26 the longest step of every sliced native read
+  (node scan, `Factory read`, `Trains read`, `Train routes read`) is judged: over 2.0 ms fails, and so does a native reader
+  whose line is missing. With the S2 keys in the config the judge also needs `factorySource` and `trainsSource` to be
+  `native` (in the config and in the mod's `Readers:` line) and a `Factory read`, `Trains read` and `Train routes read` line
+  whose time falls inside the measured window. S1-shaped evidence (no S2 keys) is judged as before. Caution on the routes line:
+  the layer's first scan is 180 s (+/-10%) after Running and then every 600 s, while the window starts 3 minutes after the
+  measurement does and the mod enrols just before it, so the first scan lands near or before the window's start and the second
+  near its end; a run can fail on this alone, and the rule is not loosened. Readers still on the bridge after this run:
+  Factory, Rates, Trains and stations (their defaults flip only in their switch PRs, which `docs/native-readers.md` tracks),
+  plus the mapLive and rails parts as in `tick-cost`; the run forces the S2 ones native through the config. Power, status and
+  auto-pause were never on the bridge. `snapshot-parts.json` (the measured window and which parts each accepted snapshot
+  carried; no bodies) is now written by `tick-cost` too.
 
 ### The parity run's Node agent
 

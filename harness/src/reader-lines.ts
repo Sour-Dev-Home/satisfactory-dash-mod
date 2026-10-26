@@ -108,9 +108,9 @@ export function withProblems(v: Verdict, problems: string[]): Verdict {
   return problems.length === 0 ? v : { pass: false, reasons: [...v.reasons, ...problems] };
 }
 
-/** The scan cost as recorded (not judged: no ceiling, ADR-0058 Decision 3 item 3). */
+/** The scan cost as recorded: the longest single step is judged against the 2 ms ceiling (owner, 2026-10-26, by stepProblems); the total is recorded only. */
 export function describeScanCost(costs: readonly ScanCost[]): string {
   const longest = Math.max(...costs.map((c) => c.longestStepMs));
   const total = Math.max(...costs.map((c) => c.totalMs));
-  return `native node scan cost, recorded not judged: ${costs.length} scan(s); longest single step ${longest} ms; longest total ${total} ms (game thread only)`;
+  return `native node scan cost (longest step judged against the ${MAX_NATIVE_STEP_MS} ms ceiling, total recorded only): ${costs.length} scan(s); longest single step ${longest} ms; longest total ${total} ms (game thread only)`;
 }

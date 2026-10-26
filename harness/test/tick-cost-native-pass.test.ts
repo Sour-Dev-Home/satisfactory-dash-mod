@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { snapshotParts } from "../src/core-runs/tick-cost";
-import { NATIVE_SOURCES } from "../src/core-run";
+import { NATIVE_SOURCES, NATIVE_SOURCES_S2 } from "../src/core-run";
 import type { CoreEvidence } from "../src/core-run";
 import { TICK_WARMUP_MS, type TickSeries } from "../src/ticks";
 import * as Native from "../../runs/tick-cost-native/pass";
@@ -143,9 +143,17 @@ describe("tick-cost-native judge", () => {
 });
 
 describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", () => {
-  const S2_SOURCES = { ...NATIVE_SOURCES, factorySource: "native", trainsSource: "native" };
-  const stepLine = (name: string, longest: string) => `${PREFIX}${name} (game thread only): 900 items in 30 steps, longest step ${longest} ms, total 9.00 ms`;
-  const s2Lines = (factory = "1.10") => [...NATIVE_LINES, stepLine("Factory read", factory), stepLine("Trains read", "0.40"), stepLine("Train routes read", "0.60")];
+  const S2_SOURCES = NATIVE_SOURCES_S2;
+  // UE's log timestamp, UTC: [YYYY.MM.DD-HH.MM.SS:mmm]. IN is a moment inside the measured window (warmup + 5 minutes after the start).
+  const stamp = (ms: number) => {
+    const d = new Date(ms);
+    const p = (n: number, w = 2) => String(n).padStart(w, "0");
+    return `[${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())}-${p(d.getUTCHours())}.${p(d.getUTCMinutes())}.${p(d.getUTCSeconds())}:${p(d.getUTCMilliseconds(), 3)}][  0]LogSatisDash: Display: `;
+  };
+  const IN = stamp(FROM + TICK_WARMUP_MS + 5 * 60_000);
+  const stepLine = (name: string, longest: string, prefix = IN) => `${prefix}${name} (game thread only): 900 items in 30 steps, longest step ${longest} ms, total 9.00 ms`;
+  const READERS_S2 = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native`;
+  const s2Lines = (factory = "1.10", trains = "0.40", routes = "0.60") => [READERS_S2, NATIVE_LINES[1]!, stepLine("Factory read", factory), stepLine("Trains read", trains), stepLine("Train routes read", routes)];
 
   it("judges S1-shaped evidence as before: only the node scan is required", () => {
     const v = Native.evaluate(evidence());
@@ -158,25 +166,58 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/Resource node scan: longest step 2\.01 ms exceeds the 2 ms ceiling/);
   });
-  it("passes S2-shaped evidence and lists the longest step per reader", () => {
-    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines() }));
+  it("passes S2-shaped evidence at 1.9 ms or less and lists the longest step per reader", () => {
+    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("1.90", "0.40", "0.60") }));
     expect(v.pass).toBe(true);
     const text = v.reasons.join("\n");
-    expect(text).toMatch(/Factory read longest step 1\.1 ms/);
+    expect(text).toMatch(/Factory read longest step 1\.9 ms/);
     expect(text).toMatch(/Trains read longest step 0\.4 ms/);
     expect(text).toMatch(/Train routes read longest step 0\.6 ms/);
   });
-  it("fails S2-shaped evidence with a 2.4 ms Factory read", () => {
-    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("2.40") }));
-    expect(v.pass).toBe(false);
-    expect(v.reasons.join("\n")).toMatch(/Factory read: longest step 2\.4 ms exceeds the 2 ms ceiling/);
+  it("fails 2.1 ms on any one reader", () => {
+    const f = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("2.10") }));
+    expect(f.pass).toBe(false);
+    expect(f.reasons.join("\n")).toMatch(/Factory read: longest step 2\.1 ms exceeds the 2 ms ceiling/);
+    expect(Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("1.0", "2.10") })).reasons.join("\n")).toMatch(/Trains read: longest step 2\.1 ms/);
+    expect(Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("1.0", "0.4", "2.10") })).reasons.join("\n")).toMatch(/Train routes read: longest step 2\.1 ms/);
   });
   it("fails when a native S2 reader logged nothing", () => {
-    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: NATIVE_LINES }));
+    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: [READERS_S2, NATIVE_LINES[1]!] }));
     expect(v.pass).toBe(false);
     const text = v.reasons.join("\n");
     expect(text).toMatch(/no "Factory read \(game thread only\):" line/);
     expect(text).toMatch(/no "Trains read \(game thread only\):" line/);
     expect(text).toMatch(/no "Train routes read \(game thread only\):" line/);
+  });
+  it("fails a missing Train routes read line", () => {
+    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines().slice(0, 4) }));
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join("\n")).toMatch(/no "Train routes read \(game thread only\):" line/);
+  });
+  it("fails a read line outside the measured window (before the warmup ended)", () => {
+    const early = stamp(FROM + 60_000);
+    const lines = [...s2Lines().slice(0, 4), stepLine("Train routes read", "0.60", early)];
+    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines }));
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join("\n")).toMatch(/Train routes read.*inside the measured window/);
+  });
+  it("fails factorySource bridge (or trainsSource bridge) in the captured config", () => {
+    const f = Native.evaluate(evidence({ sources: { ...S2_SOURCES, factorySource: "bridge" }, lines: s2Lines() }));
+    expect(f.pass).toBe(false);
+    expect(f.reasons.join("\n")).toMatch(/factorySource/);
+    const t = Native.evaluate(evidence({ sources: { ...S2_SOURCES, trainsSource: "bridge" }, lines: s2Lines() }));
+    expect(t.pass).toBe(false);
+    expect(t.reasons.join("\n")).toMatch(/trainsSource/);
+  });
+  it("fails when the mod's Readers line says factory is bridge", () => {
+    const lines = [`${PREFIX}Readers: players=native resourceNodes=native factory=bridge trains=native`, ...s2Lines().slice(1)];
+    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines }));
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join("\n")).toMatch(/factory=bridge/);
+  });
+  it("describes the scan as judged against 2 ms, not 'recorded not judged'", () => {
+    const text = Native.evaluate(evidence()).reasons.join("\n");
+    expect(text).not.toMatch(/not judged/);
+    expect(text).toMatch(/judged against the 2 ms ceiling/);
   });
 });
