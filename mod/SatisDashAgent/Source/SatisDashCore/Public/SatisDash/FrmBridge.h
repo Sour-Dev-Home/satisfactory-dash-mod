@@ -40,9 +40,10 @@ namespace SatisDash
 
 		/**
 		 * A sample pass that read the game: queues getPlayer (the status cadence) unless bPlayers is false (the players
-		 * reader is native), and getFactory when bFactoryDue.
+		 * reader is native), and on the factory cadence (bFactoryDue) getFactory unless bFactoryFromFrm is false, and the
+		 * getTrains/getTrainStation pair (StartMapCycle) unless bTrainsFromFrm is false. A native part is never requested.
 		 */
-		void RequestPass(bool bFactoryDue, bool bPlayers = true);
+		void RequestPass(bool bFactoryDue, bool bPlayers = true, bool bFactoryFromFrm = true, bool bTrainsFromFrm = true);
 		/** Every driver tick: takes finished work, launches the next job and starts the next FRM read. */
 		void Tick(double Now, int32 Port, const FString& Token);
 		/** The newest players part finished within MaxAgeSeconds, once. */

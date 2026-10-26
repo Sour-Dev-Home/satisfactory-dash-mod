@@ -16,7 +16,7 @@ void SatisDash::FFrmBridge::NoteFailed(const TCHAR* Part, double Now)
 	}
 }
 
-void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue, bool bPlayers)
+void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue, bool bPlayers, bool bFactoryFromFrm, bool bTrainsFromFrm)
 {
 	if (bPlayers)
 	{
@@ -34,7 +34,7 @@ void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue, bool bPlayers)
 			}
 		} });
 	}
-	if (bFactoryDue)
+	if (bFactoryDue && bFactoryFromFrm)
 	{
 		FrmLanes.Enqueue(FFrmRead{ &FrmGetFactory, [this](FHttpReply& Reply)
 		{
@@ -48,7 +48,10 @@ void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue, bool bPlayers)
 				bFactoryFailed = true;
 			}
 		} });
-		StartMapCycle();
+	}
+	if (bFactoryDue && bTrainsFromFrm)
+	{
+		StartMapCycle(); // the pair starts whole or not at all: with trains native it is never entered
 	}
 }
 

@@ -7,10 +7,12 @@ import type { Verdict } from "./verdict";
 export const READERS_LINE = "Readers:";
 export const SCAN_LINE = "Resource node scan (game thread only):";
 
-export interface ReaderSources { players: string; resourceNodes: string }
+/** factory and trains are absent on the S1 two-field line. */
+export interface ReaderSources { players: string; resourceNodes: string; factory?: string; trains?: string }
 export interface ScanCost { actors: number; steps: number; nodes: number; longestStepMs: number; totalMs: number }
 
-const READERS = /\bReaders: players=(\S+) resourceNodes=(\S+)\s*$/;
+// The S1 two-field form, or the S2 four-field form.
+const READERS = /\bReaders: players=(\S+) resourceNodes=(\S+)(?: factory=(\S+) trains=(\S+))?\s*$/;
 const SCAN = /Resource node scan \(game thread only\): (\d+) actors in (\d+) steps, (\d+) nodes, longest step (\d+(?:\.\d+)?) ms, total (\d+(?:\.\d+)?) ms/;
 
 /** The last `Readers:` line (a later Running entry replaces an earlier one), or null when there is none. */
@@ -18,7 +20,7 @@ export function readerSources(lines: readonly string[]): ReaderSources | null {
   let found: ReaderSources | null = null;
   for (const line of lines) {
     const m = READERS.exec(line);
-    if (m) found = { players: m[1]!, resourceNodes: m[2]! };
+    if (m) found = m[3] === undefined ? { players: m[1]!, resourceNodes: m[2]! } : { players: m[1]!, resourceNodes: m[2]!, factory: m[3], trains: m[4]! };
   }
   return found;
 }
@@ -76,6 +78,20 @@ export function playersLogProblems(lines: readonly string[]): string[] {
   if (!s) return [`the mod's log has no "${READERS_LINE}" line: the run cannot show the players reader was native, not the bridge`];
   return s.players === "native" ? [] : [`the mod's "${READERS_LINE}" line says players=${s.players}, not native`];
 }
+
+function partLogProblems(lines: readonly string[], part: "factory" | "trains"): string[] {
+  const s = readerSources(lines);
+  if (!s) return [`the mod's log has no "${READERS_LINE}" line: the run cannot show the ${part} reader was native, not the bridge`];
+  const source = s[part];
+  if (source === undefined) return [`the mod's "${READERS_LINE}" line has no ${part}= field (an S1 line): the run cannot show the ${part} reader was native`];
+  return source === "native" ? [] : [`the mod's "${READERS_LINE}" line says ${part}=${source}, not native`];
+}
+
+/** Why the log does not show the factory reader native (empty: it does). */
+export const factoryLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "factory");
+
+/** Why the log does not show the trains reader native (empty: it does). */
+export const trainsLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "trains");
 
 /** Why the log does not show the resource-node reader native and at work (empty: it does). */
 export function nodesLogProblems(lines: readonly string[]): string[] {

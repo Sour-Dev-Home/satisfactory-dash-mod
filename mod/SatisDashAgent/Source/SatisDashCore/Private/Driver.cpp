@@ -59,9 +59,11 @@ void SatisDash::FDriver::Tick()
 		bGameRunning = false;
 		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
 		const FAgentConfig& Sources = Agent.GetConfig();
-		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s"),
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s"),
 			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
+			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetFactorySource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetTrainsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -152,7 +154,7 @@ void SatisDash::FDriver::TickSample(double Now)
 			LastFactoryAt = Now;
 		}
 		const bool bNativePlayers = Config.GetPlayersSource() == ESource::Native;
-		Bridge.RequestPass(bFactoryDue, !bNativePlayers);
+		Bridge.RequestPass(bFactoryDue, !bNativePlayers, Config.GetFactorySource() == ESource::Bridge, Config.GetTrainsSource() == ESource::Bridge);
 		if (bNativePlayers)
 		{
 			// R1 (ADR-0058): the game's own lists, small enough to serialise here. Read only while a game is running, as
