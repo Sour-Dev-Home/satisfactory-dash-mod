@@ -165,3 +165,25 @@ bool FFrmWorldNativeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("over the byte cap is skipped"), NativeOverRead.TakeOutcome().Kind == FWorldOutcome::EKind::OverCap);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmWorldLayerTableTest, "SatisDash.Core.FrmWorld.LayerTable", SatisDash::Test::Flags)
+bool FFrmWorldLayerTableTest::RunTest(const FString&)
+{
+	struct FExpected { EWorldLayer Layer; const TCHAR* Name; bool bHasEndpoint; double First; double Interval; double NativeFirst; };
+	const FExpected Table[] = {
+		{ EWorldLayer::Rails, TEXT("rails"), true, 120.0, 600.0, 480.0 },
+		{ EWorldLayer::ResourceNodes, TEXT("resourceNodes"), true, 480.0, 1800.0, 0.0 },
+		{ EWorldLayer::TrainRoutes, TEXT("trainRoutes"), false, 480.0, 600.0, 0.0 },
+	};
+	TestEqual(TEXT("three layers"), WorldLayerCount, 3);
+	for (const FExpected& E : Table)
+	{
+		const FWorldLayerSpec& Spec = WorldLayer(E.Layer);
+		TestEqual(*FString::Printf(TEXT("%s name"), E.Name), FString(Spec.Name), FString(E.Name));
+		TestEqual(*FString::Printf(TEXT("%s has an endpoint"), E.Name), Spec.Endpoint != nullptr, E.bHasEndpoint);
+		TestEqual(*FString::Printf(TEXT("%s first"), E.Name), Spec.FirstSeconds, E.First);
+		TestEqual(*FString::Printf(TEXT("%s interval"), E.Name), Spec.IntervalSeconds, E.Interval);
+		TestEqual(*FString::Printf(TEXT("%s native first"), E.Name), Spec.NativeFirstSeconds, E.NativeFirst);
+	}
+	return true;
+}
