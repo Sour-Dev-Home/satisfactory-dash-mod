@@ -33,6 +33,10 @@ export const S2_MAX_ABS = 0.001;
 /** current/percent per item class: the power bracket rule, 3% (owner; the parity run's export). Per building: 5% (owner), for at least 95% of buildings (owner). */
 export const S2_CLASS_TOLERANCE = PARITY_POWER_TOLERANCE;
 export const S2_BUILDING_TOLERANCE = 0.05;
+/**
+ * NEW: every percentage tolerance here (the owner's 3% and 5%) is applied to max(|lo|, |hi|, 1), as S1's `inBracket` does, so
+ * below 1 item/min (or 1 %) the allowance is an absolute 0.03 or 0.05 rather than a relative one: lenient for slow machines.
+ */
 export const S2_BUILDING_SHARE = 0.95;
 /** A raw productivity above this in the mod's `Factory read` line means the mod's scale is wrong (owner: an explicit "scale" reason). */
 export const S2_PRODUCTIVITY_MAX = 1.0001;
@@ -154,7 +158,7 @@ function staticDiff(a: FactoryStatic, b: FactoryStatic): string[] {
   if (a.className !== b.className) out.push(`className ${a.className} vs ${b.className}`);
   if (a.recipe !== b.recipe) out.push(`recipe ${a.recipe ?? "null"} vs ${b.recipe ?? "null"}`);
   if (a.group !== b.group) out.push(`circuitGroupId ${a.group} vs ${b.group}`);
-  if ((a.loc === null) !== (b.loc === null) || (a.loc && b.loc && a.loc.some((v, i) => !(Math.abs(v - b.loc![i]!) <= S2_LOCATION_M)))) out.push(`location ${JSON.stringify(a.loc)} vs ${JSON.stringify(b.loc)}`);
+  if ((a.loc === null) !== (b.loc === null) || (a.loc && b.loc && !(Math.hypot(a.loc[0] - b.loc[0], a.loc[1] - b.loc[1], a.loc[2] - b.loc[2]) <= S2_LOCATION_M))) out.push(`location ${JSON.stringify(a.loc)} vs ${JSON.stringify(b.loc)}`);
   if ((a.clock === null) !== (b.clock === null) || (a.clock !== null && b.clock !== null && !(Math.abs(a.clock - b.clock) <= S2_CLOCK_TOLERANCE))) out.push(`clockSpeedPercent ${a.clock} vs ${b.clock}`);
   return out;
 }
@@ -269,19 +273,23 @@ export function judgeRates(f: FactoryEvidence, raw: { min: number; max: number }
       });
       const cands = r.win.map((s) => s.machines.get(id)).filter((x): x is DMachine => x !== undefined);
       if (cands.length === 0) continue;
-      // maxPerMinute: some FRM read in the window has the same items with the same maxima.
-      const maxOk = cands.some((c) => {
-        const ck = itemKeys(c.s);
-        return ck.length === keys.length && keys.every((k, i) => ck[i] === k && maxClose(m.s.items[i]![2], c.s.items[i]![2]));
-      });
-      if (!maxOk) {
+      // maxPerMinute: some FRM read in the window has the same set of items (matched by class key, not by position: the order a
+      // reader lists them in is not a finding) with the same maxima.
+      const maxOf = (s: FactoryStatic) => new Map(itemKeys(s).map((k, i) => [k, s.items[i]![2]] as const));
+      const modMax = maxOf(m.s);
+      const sameItems = (c: FactoryStatic) => {
+        const cm = maxOf(c);
+        return cm.size === modMax.size && [...modMax].every(([k, v]) => cm.has(k) && maxClose(v, cm.get(k)!));
+      };
+      if (!cands.some((c) => sameItems(c.s))) {
         maxMisses++;
         if (maxLines.length < SHOW) {
-          const c = cands[0]!;
-          const ck = itemKeys(c.s);
-          const d = keys.length !== ck.length || keys.some((k, i) => ck[i] !== k)
-            ? `items mod [${keys.join(",")}] vs FRM [${ck.join(",")}]`
-            : keys.map((k, i) => (maxClose(m.s.items[i]![2], c.s.items[i]![2]) ? null : `${k} maxPerMinute mod ${fmt(m.s.items[i]![2])} vs FRM ${fmt(c.s.items[i]![2])}`)).filter(Boolean).join("; ");
+          const cm = maxOf(cands[0]!.s);
+          const onlyMod = [...modMax.keys()].filter((k) => !cm.has(k));
+          const onlyFrm = [...cm.keys()].filter((k) => !modMax.has(k));
+          const d = onlyMod.length || onlyFrm.length
+            ? `items differ: in the mod only [${onlyMod.join(",")}], in FRM only [${onlyFrm.join(",")}]`
+            : [...modMax].filter(([k, v]) => !maxClose(v, cm.get(k)!)).map(([k, v]) => `${k} maxPerMinute mod ${fmt(v)} vs FRM ${fmt(cm.get(k)!)}`).join("; ");
           maxLines.push(`${r.observedAt}: ${label(m.s)} ${d}`);
         }
       }
@@ -357,19 +365,28 @@ const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.
 const idsOfList = (xs: Array<{ id: string }>) => xs.map((x) => x.id);
 
 /** Does the mod's position fit FRM's reads in the window? Each consecutive pair of reads of the train is a candidate neighbour pair. */
-function positionFits(mod: { x: number; y: number }, reads: Array<{ x: number; y: number }>): { ok: boolean; excess: number; moving: boolean } {
+function positionFits(mod: { x: number; y: number }, reads: Array<{ x: number; y: number }>): { ok: boolean; excess: number; moving: boolean; offset: number | null } {
   let best = Infinity;
   let moving = false;
+  let offset: number | null = null;
   const pairs = reads.length === 1 ? [[reads[0]!, reads[0]!] as const] : reads.slice(1).map((r, i) => [reads[i]!, r] as const);
   for (const [a, b] of pairs) {
     const gap = dist(a, b);
     const allowed = gap <= S2_STATIONARY_M ? S2_STATIONARY_M : gap + S2_MOVING_EXTRA_M;
     if (gap > S2_STATIONARY_M) moving = true;
-    const excess = Math.min(dist(mod, a), dist(mod, b)) - allowed;
-    best = Math.min(best, excess);
+    const near = dist(mod, a) <= dist(mod, b) ? a : b;
+    const excess = dist(mod, near) - allowed;
+    if (excess < best) {
+      best = excess;
+      // Report only: the mod's offset from the nearer read along the direction FRM's pair moved (negative: behind the FRM track).
+      offset = gap > S2_STATIONARY_M ? ((mod.x - near.x) * (b.x - a.x) + (mod.y - near.y) * (b.y - a.y)) / gap : null;
+    }
   }
-  return { ok: best <= 0, excess: best, moving };
+  return { ok: best <= 0, excess: best, moving, offset };
 }
+
+/** The statuses FRM gives a train (owner, 2026-10-26: Self-Driving exact; the other three are reported). Any other string is a finding. */
+const KNOWN_STATUSES = ["Self-Driving", "Parked", "Manual", "Derailed"];
 
 export function judgeTrains(m: MapLiveEvidence): S2Result {
   const reasons: string[] = [];
@@ -383,6 +400,8 @@ export function judgeTrains(m: MapLiveEvidence): S2Result {
   let selfDriving = 0;
   let parked = 0;
   let moved = 0;
+  let stationary = 0;
+  const offsets: number[] = [];
   let trainsSeen = 0;
   for (const r of m.rounds) {
     if (r.trains === null) {
@@ -409,7 +428,9 @@ export function judgeTrains(m: MapLiveEvidence): S2Result {
       if (statuses.has("Self-Driving") || t.status === "Self-Driving") selfDriving++;
       if (statuses.has("Parked") || t.status === "Parked") parked++;
       if (!statuses.has(t.status)) {
-        if (statuses.has("Self-Driving") || t.status === "Self-Driving") reasons.push(`${r.observedAt}: train ${t.id} status mod ${t.status} vs FRM ${[...statuses].join("/")} (Self-Driving is compared exactly)`);
+        const unknown = [t.status, ...statuses].filter((s) => !KNOWN_STATUSES.includes(s));
+        if (unknown.length) reasons.push(`${r.observedAt}: train ${t.id} unknown status ${unknown.join("/")} (mod ${t.status} vs FRM ${[...statuses].join("/")}); the known ones are ${KNOWN_STATUSES.join(", ")}`);
+        else if (statuses.has("Self-Driving") || t.status === "Self-Driving") reasons.push(`${r.observedAt}: train ${t.id} status mod ${t.status} vs FRM ${[...statuses].join("/")} (Self-Driving is compared exactly)`);
         else {
           reported++;
           if (reportedLines.length < SHOW) reportedLines.push(`${r.observedAt}: train ${t.id} status mod ${t.status} vs FRM ${[...statuses].join("/")}`);
@@ -418,6 +439,8 @@ export function judgeTrains(m: MapLiveEvidence): S2Result {
       posChecks++;
       const fit = positionFits(t, reads);
       if (fit.moving) moved++;
+      else stationary++;
+      if (fit.offset !== null) offsets.push(fit.offset);
       if (!fit.ok) {
         posMisses++;
         misses.push(fit.excess);
@@ -429,15 +452,18 @@ export function judgeTrains(m: MapLiveEvidence): S2Result {
   if (posChecks > 0 && posMisses === posChecks && median(misses) >= LENGTH_HINT_MIN_M && median(misses) <= LENGTH_HINT_MAX_M) reasons.push("position source: try NativeTrainPositionSource LastVehicle (every position missed by about one train length)");
   if (compared < S2_NEED_ROUNDS) reasons.push(`trains compared in only ${compared} rounds (${unpaired} had no FRM getTrains read in the window), need ${S2_NEED_ROUNDS}`);
   reasons.push(...frmReasons("getTrains", m.trainsFrm));
-  if (reasons.length) return failing(reasons);
+  // Reported, never judged: a negative median means the mod's moving positions sit behind FRM's track (a position-source or staleness bias).
+  const offsetNote = offsets.length > 0 ? [`median along-path offset of ${offsets.length} moving positions: ${fmt(median(offsets))} m (negative: behind the FRM track; reported, never fails)`] : [];
+  if (reasons.length) return failing([...reasons, ...offsetNote]);
   const never = [
     trainsSeen === 0 ? "any train (neither side listed one)" : null,
     trainsSeen > 0 && selfDriving === 0 ? "status Self-Driving (no train was self-driving, so the exact status match is unchecked)" : null,
     trainsSeen > 0 && parked === 0 ? "status Parked (no parked train)" : null,
     trainsSeen > 0 && moved === 0 ? "a moving train (every train was stationary, so the moving-distance rule is unchecked)" : null,
+    trainsSeen > 0 && stationary === 0 ? "a stationary train (every train moved, so the 1 m check that exposes a position-source bias, such as LastVehicle or a stale position, never ran)" : null,
   ].filter((x): x is string => x !== null);
   const notes = reported > 0 ? [`reported, not failed (parked, manual or derailed): ${reported} status mismatches (first ${reportedLines.length}: ${reportedLines.join(" | ")})`] : [];
-  return { pass: true, reasons: [`${compared} rounds; train ids and name hashes equal FRM's; self-driving status exact; positions within FRM's own reads`, ...notes, ...frmNote("getTrains", m.trainsFrm)], never };
+  return { pass: true, reasons: [`${compared} rounds; train ids and name hashes equal FRM's; self-driving status exact; positions within FRM's own reads`, ...notes, ...offsetNote,...frmNote("getTrains", m.trainsFrm)], never };
 }
 
 export function judgeStations(m: MapLiveEvidence): S2Result {

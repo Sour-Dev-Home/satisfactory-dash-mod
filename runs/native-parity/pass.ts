@@ -34,7 +34,7 @@ import { inBracket, NEED_PAIRS, PARITY_POWER_TOLERANCE, WINDOW_MINUTES as PARITY
 
 export * from "./pass-s2";
 
-export const requirements = ["native-parity", "R0-power", "R1-players", "R4-resource-nodes"];
+export const requirements = ["native-parity", "R0-power", "R1-players", "R4-resource-nodes", "R2a-factory", "R2b-rates", "R3-trains", "R3-stations", "R3-train-routes"];
 export const WINDOW_MINUTES = PARITY_WINDOW_MINUTES;
 /** The parity run's bar: ceil(1800 / 5 x 0.8) rounds. */
 export const NEED_ROUNDS = NEED_PAIRS;
@@ -311,7 +311,7 @@ export function evaluate(e: CoreEvidence): Verdict {
     resourceNodes: withProblems(judged.resourceNodes, nodesLogProblems(e.lines)),
   };
   const run = runReasons(c, e.captures["mod-config.json"]);
-  const names: Array<[string, Verdict]> = [["R0 power", v.power], ["R1 players", v.players], ["R4 resource nodes", v.resourceNodes]];
+  const names: Array<[string, string, Verdict]> = [["R0 power", "power", v.power], ["R1 players", "players", v.players], ["R4 resource nodes", "resourceNodes", v.resourceNodes]];
   if (expectsS2(c, e.captures["mod-config.json"])) {
     // The S2 readers must be native and have completed a read; a capture that lost its S2 evidence fails each of them.
     const none: Verdict = { pass: false, reasons: ["no S2 evidence in the capture"] };
@@ -319,13 +319,16 @@ export function evaluate(e: CoreEvidence): Verdict {
     const trainsProblems = [...trainsLogProblems(e.lines), ...readLineProblems(e.lines, "Trains read")];
     const routesProblems = [...trainsLogProblems(e.lines), ...readLineProblems(e.lines, "Train routes read")];
     names.push(
-      ["R2a factory", withProblems(v.factory ?? none, factoryProblems)],
-      ["R2b rates", withProblems(v.rates ?? none, factoryProblems)],
-      ["R3 trains", withProblems(v.trains ?? none, trainsProblems)],
-      ["R3 stations", withProblems(v.stations ?? none, trainsProblems)],
-      ["R3 trainRoutes", withProblems(v.trainRoutes ?? none, routesProblems)],
+      ["R2a factory", "factory", withProblems(v.factory ?? none, factoryProblems)],
+      ["R2b rates", "rates", withProblems(v.rates ?? none, factoryProblems)],
+      ["R3 trains", "trains", withProblems(v.trains ?? none, trainsProblems)],
+      ["R3 stations", "stations", withProblems(v.stations ?? none, trainsProblems)],
+      ["R3 trainRoutes", "trainRoutes", withProblems(v.trainRoutes ?? none, routesProblems)],
     );
   }
-  const lines = names.flatMap(([name, x]) => x.reasons.map((r) => `${name} ${x.pass ? "PASS" : "FAIL"}: ${r}`));
-  return { pass: run.length === 0 && names.every(([, x]) => x.pass), reasons: [...run, ...lines] };
+  // readers.json is these same final verdicts, the ones the PASS/FAIL lines come from: the drive wrote a first version without the
+  // log, and this replaces it, so the file can only be as strict as result.json. The core run writes the captures after evaluate.
+  e.captures["readers.json"] = Object.fromEntries(names.map(([, key, x]) => [key, x]));
+  const lines = names.flatMap(([name, , x]) => x.reasons.map((r) => `${name} ${x.pass ? "PASS" : "FAIL"}: ${r}`));
+  return { pass: run.length === 0 && names.every(([, , x]) => x.pass), reasons: [...run, ...lines] };
 }

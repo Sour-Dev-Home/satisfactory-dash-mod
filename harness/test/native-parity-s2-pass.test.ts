@@ -63,6 +63,11 @@ describe("R2a factory", () => {
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/1 in the mod only[\s\S]*Build_ConstructorMk1_C_99/);
   });
+  it("location is a distance, not per axis: 0.9 m along a diagonal passes, 1.1 m fails", () => {
+    const diag = (d: number) => (_: number, ms: CanonMachine[]) => ms.map((m) => ({ ...m, location: { ...m.location!, xM: m.location!.xM + d / Math.SQRT2, yM: m.location!.yM + d / Math.SQRT2 } }));
+    expect(S2.judgeFactory(factoryEv({ mod: diag(0.9) })).pass).toBe(true);
+    expect(S2.judgeFactory(factoryEv({ mod: diag(1.1) })).pass).toBe(false);
+  });
   it("static fields: name or recipe differ fails; location within 1 m and clock within 0.01 pass", () => {
     expect(S2.judgeFactory(factoryEv({ mod: (i, ms) => (i === 5 ? ms.map((m, k) => (k === 0 ? { ...m, name: "Assembler" } : m)) : ms) })).pass).toBe(false);
     expect(S2.judgeFactory(factoryEv({ mod: (i, ms) => (i === 5 ? ms.map((m, k) => (k === 0 ? { ...m, recipe: null } : m)) : ms) })).pass).toBe(false);
@@ -134,6 +139,17 @@ describe("R2b rates", () => {
     expect(bad.reasons.join("\n")).toContain("maxPerMinute");
     expect(bad.reasons.join("\n")).not.toContain("fallback");
     expect(S2.judgeRates(factoryEv({ mod: off(1.0005) })).pass).toBe(true);
+  });
+  it("items are matched by class, not position: the same items in another order pass; a missing or extra item fails", () => {
+    const two = (ms: CanonMachine[]) => ms.map((m) => ({ ...m, production: [m.production[0]!, { ...m.production[0]!, className: "Desc_Second_C", name: "Second", maxPerMinute: 7 }] }));
+    const order = S2.judgeRates(factoryEv({ frm: (_, ms) => two(ms), mod: (_, ms) => two(ms).map((m) => ({ ...m, production: [...m.production].reverse() })) }));
+    expect(order.reasons.join("\n")).toBe(order.reasons[0]);
+    expect(order.pass).toBe(true);
+    const missing = S2.judgeRates(factoryEv({ frm: (_, ms) => two(ms), mod: (_, ms) => ms }));
+    expect(missing.pass).toBe(false);
+    expect(missing.reasons.join("\n")).toContain("Desc_Second_C");
+    const extra = S2.judgeRates(factoryEv({ frm: (_, ms) => ms, mod: (_, ms) => two(ms) }));
+    expect(extra.pass).toBe(false);
   });
   it("max within 0.001 absolute passes even where the relative error is large", () => {
     const tiny = (v: number) => (ms: CanonMachine[]) => ms.map((m) => ({ ...m, production: m.production.map((r) => ({ ...r, maxPerMinute: v })) }));
@@ -263,16 +279,42 @@ describe("R3 trains", () => {
     expect(v.pass).toBe(true);
     expect(v.reasons.join("\n")).toMatch(/reported, not failed \(parked, manual or derailed\): 1 status mismatches/);
   });
-  it("a stationary train must be within 1 m: 0.9 passes, 1.5 fails", () => {
+  it("a status string that is none of the four known values fails (it is not 'reported')", () => {
+    const odd = (status: string) => (i: number, b: Train[]) => (i === 7 ? b.map((t) => (t.id === "T-parked" ? { ...t, status } : t)) : b);
+    const v = S2.judgeTrains(liveEv({ modTrains: odd("Docked") }));
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join("\n")).toContain("unknown status Docked");
+    expect(S2.judgeTrains(liveEv({ modTrains: odd("Manual") })).pass).toBe(true);
+    expect(S2.judgeTrains(liveEv({ frmTrains: (_, b) => b.map((t) => (t.id === "T-parked" ? { ...t, status: "Docked" } : t)), modTrains: odd("Manual") })).pass).toBe(false);
+  });
+  it("a world with no stationary train says so: the 1 m rule that exposes a position-source bias was not exercised", () => {
+    expect(S2.judgeTrains(liveEv({ parkedToo: false })).never.join("\n")).toContain("a stationary train");
+    expect(S2.judgeTrains(liveEv()).never.join("\n")).not.toContain("a stationary train");
+  });
+  it("reports the median signed along-path offset of the moving positions, never failing on it", () => {
+    const behind = S2.judgeTrains(liveEv({ modTrains: (_, b) => b.map((t) => (t.id === "T-moving" ? { ...t, x: t.x - 3 } : t)) }));
+    expect(behind.pass).toBe(true);
+    expect(behind.reasons.join("\n")).toMatch(/median along-path offset of \d+ moving positions: -\d/);
+    expect(behind.reasons.join("\n")).toContain("reported, never fails");
+    const ahead = S2.judgeTrains(liveEv({ modTrains: (_, b) => b.map((t) => (t.id === "T-moving" ? { ...t, x: t.x + 3 } : t)) }));
+    expect(ahead.reasons.join("\n")).toMatch(/median along-path offset of \d+ moving positions: \d/);
+  });
+  it("a moving train off the FRM track by 8 m passes and by 10 m fails (reads 4 m apart: limit 4 + 5 m from the nearer read)", () => {
+    const side = (d: number) => (_: number, b: Train[]) => b.map((t) => (t.id === "T-moving" ? { ...t, y: t.y + d } : t));
+    expect(S2.judgeTrains(liveEv({ modTrains: side(8) })).pass).toBe(true); // hypot(2, 8) = 8.2 <= 9
+    const v = S2.judgeTrains(liveEv({ modTrains: side(10) })); // hypot(2, 10) = 10.2 > 9
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join("\n")).toContain("beyond what FRM's own reads allow");
+  });
+  it("a stationary train must be within 1 m: 1 m passes, 2 m fails", () => {
     const shift = (d: number) => (_: number, b: Train[]) => b.map((t) => (t.id === "T-parked" ? { ...t, x: t.x + d } : t));
     expect(S2.judgeTrains(liveEv({ modTrains: shift(1) })).pass).toBe(true);
     const v = S2.judgeTrains(liveEv({ modTrains: shift(2) }));
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toContain("T-parked position");
   });
-  it("a moving train is within the distance FRM's neighbours moved plus 5 m; a long jump fails", () => {
+  it("a long jump along the track fails", () => {
     const ahead = (d: number) => (_: number, b: Train[]) => b.map((t) => (t.id === "T-moving" ? { ...t, x: t.x + d } : t));
-    expect(S2.judgeTrains(liveEv({ modTrains: ahead(6) })).pass).toBe(true); // 4 m gap + 5 m, from the nearer neighbour
     const jump = S2.judgeTrains(liveEv({ modTrains: ahead(60) }));
     expect(jump.pass).toBe(false);
     expect(jump.reasons.join("\n")).toContain("beyond what FRM's own reads allow");
@@ -453,6 +495,33 @@ describe("native-parity judge with the S2 readers", () => {
     const v = Pass.evaluate(evidence(full()));
     expect(v.reasons.join("\n")).toMatch(/R2b rates PASS.*\n?.*NOT EXERCISED by this world: Somersloop/s);
     expect(Pass.NOT_EXERCISED_FAILS).toBe(false);
+  });
+  it("readers.json is evaluate's final verdicts: a bridge line, a missing read line and a scale problem fail the matching reader there too", () => {
+    const ok = evidence(full());
+    Pass.evaluate(ok);
+    const readers = ok.captures["readers.json"] as Record<string, { pass: boolean }>;
+    expect(Object.keys(readers)).toEqual(["power", "players", "resourceNodes", "factory", "rates", "trains", "stations", "trainRoutes"]);
+    expect(Object.values(readers).every((x) => x.pass)).toBe(true);
+    const bridge = evidence(full(), NATIVE_SOURCES_S2, [NATIVE_LINES[0]!.replace("factory=native trains=native", "factory=bridge trains=bridge"), ...NATIVE_LINES.slice(1)]);
+    Pass.evaluate(bridge);
+    const b = bridge.captures["readers.json"] as Record<string, { pass: boolean }>;
+    expect([b.factory!.pass, b.rates!.pass, b.trains!.pass, b.stations!.pass, b.trainRoutes!.pass]).toEqual([false, false, false, false, false]);
+    expect(b.power!.pass).toBe(true);
+    const noRead = evidence(full(), NATIVE_SOURCES_S2, NATIVE_LINES.filter((l) => !l.includes("Trains read")));
+    Pass.evaluate(noRead);
+    const n = noRead.captures["readers.json"] as Record<string, { pass: boolean }>;
+    expect([n.trains!.pass, n.stations!.pass, n.factory!.pass]).toEqual([false, false, true]);
+    const scale = evidence(full(), NATIVE_SOURCES_S2, NATIVE_LINES.map((l) => l.replace("productivity 0.100..0.900", "productivity 0.100..87.000")));
+    Pass.evaluate(scale);
+    const s = scale.captures["readers.json"] as Record<string, { pass: boolean }>;
+    expect([s.rates!.pass, s.factory!.pass]).toEqual([false, true]);
+    // S1 readers too: a bridge players line fails players in readers.json.
+    const s1 = evidence(full(), NATIVE_SOURCES_S2, [NATIVE_LINES[0]!.replace("players=native", "players=bridge"), ...NATIVE_LINES.slice(1)]);
+    Pass.evaluate(s1);
+    expect((s1.captures["readers.json"] as Record<string, { pass: boolean }>).players!.pass).toBe(false);
+  });
+  it("lists the S2 readers among the run's requirements", () => {
+    expect(Pass.requirements).toEqual(expect.arrayContaining(["native-parity", "R0-power", "R1-players", "R4-resource-nodes", "R2a-factory", "R2b-rates", "R3-trains", "R3-stations", "R3-train-routes"]));
   });
   it("the capture holds hashed names only", () => {
     expect(text(full())).not.toMatch(/Test Train|Test Station/);
