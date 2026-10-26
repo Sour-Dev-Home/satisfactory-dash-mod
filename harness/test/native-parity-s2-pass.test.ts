@@ -51,6 +51,32 @@ describe("R2a factory", () => {
     const v = S2.judgeFactory(factoryEv());
     expect(v.reasons.join("\n")).toBe(v.reasons[0]);
     expect(v.pass).toBe(true);
+    // The plain fleet is configured, running, at 100%, not backed up, inputs not full, no fluid: every other case is reported.
+    expect(v.never).toEqual([
+      "an unconfigured machine (recipe null)", "a paused machine", "a clock other than 100%", "a machine backed up (isBackedUp true)",
+      "a machine with inputs full (inputsFull true)", "a fluid machine (no item of a fluid class)",
+    ]);
+  });
+  it("an empty world reports that no machine was ever listed", () => {
+    const v = S2.judgeFactory(factoryEv({ n: 0 }));
+    expect(v.pass).toBe(true);
+    expect(v.never).toContain("any machine (neither side listed one)");
+  });
+  it("a world that showed every case reports none of the machine lines", () => {
+    const rich = (ms: CanonMachine[]): CanonMachine[] => [
+      ...ms,
+      machine(100, { recipe: null }), machine(101, { isPaused: true }), machine(102, { clockSpeedPercent: 50 }),
+      machine(103, { isBackedUp: true }), machine(104, { inputsFull: true }),
+      machine(105, { production: [{ name: "Water", className: "Desc_Water_C", currentPerMinute: 10, maxPerMinute: 20, percent: 50 }] }),
+    ];
+    const v = S2.judgeFactory(factoryEv({ mod: (_, ms) => rich(ms), frm: (_, ms) => rich(ms) }));
+    expect(v.pass).toBe(true);
+    expect(v.never).toEqual([]);
+  });
+  it("a case shown only by the two sides in the window counts, and the others stay reported", () => {
+    const v = S2.judgeFactory(factoryEv({ frm: (_, ms) => [...ms, machine(100, { recipe: null })], mod: (_, ms) => [...ms, machine(100, { recipe: null })] }));
+    expect(v.never).not.toContain("an unconfigured machine (recipe null)");
+    expect(v.never).toContain("a paused machine");
   });
   it("fails on one missing machine id, naming its className", () => {
     const v = S2.judgeFactory(factoryEv({ mod: (i, ms) => (i === 20 ? ms.slice(1) : ms) }));
@@ -125,6 +151,13 @@ describe("R2b rates", () => {
     expect(v.pass).toBe(true);
     expect(v.never.join("\n")).toContain("Somersloop");
     expect(S2.judgeRates(factoryEv({ somersloops: 2 })).never.join("\n")).not.toContain("Somersloop");
+  });
+  it("reports a missing fluid item, and stops reporting it once a fluid class is in the world", () => {
+    expect(S2.judgeRates(factoryEv()).never.join("\n")).toContain("a fluid item");
+    const water = (ms: CanonMachine[]) => [...ms, machine(100, { production: [{ name: "Water", className: "Desc_Water_C", currentPerMinute: 10, maxPerMinute: 20, percent: 50 }] })];
+    const v = S2.judgeRates(factoryEv({ mod: (_, ms) => water(ms), frm: (_, ms) => water(ms) }));
+    expect(v.pass).toBe(true);
+    expect(v.never.join("\n")).not.toContain("a fluid item");
   });
   it("reports an idle world: no current above zero", () => {
     const idle = (ms: CanonMachine[]) => ms.map((m) => ({ ...m, production: m.production.map((r) => ({ ...r, currentPerMinute: 0, percent: 0 })), ingredients: m.ingredients!.map((r) => ({ ...r, currentPerMinute: 0, percent: 0 })) }));

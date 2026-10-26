@@ -411,6 +411,9 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     verdict = spec.evaluate(evidence);
   } catch (e) {
     verdict = { pass: false, reasons: [`judging the evidence failed: ${message(e)}`] };
+    // The drive's first readers.json has no log checks (evaluate would have replaced it with final verdicts), so it must not sit
+    // in the bundle looking green beside a failing result.json: it becomes a failure marker.
+    if ("readers.json" in captures) captures["readers.json"] = { failed: verdict.reasons[0] };
   }
   const allReasons = [...reasons, ...commonReasons(evidence), ...verdict.reasons];
   const result: CoreResult = {

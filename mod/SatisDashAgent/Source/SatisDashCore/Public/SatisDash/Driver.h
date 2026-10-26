@@ -92,7 +92,7 @@ namespace SatisDash
 		bool bTrainsBeginPending = false;
 		/** Bounded: one key ("busy"). */
 		FRateLimitedLog FactoryLog{ 60.0 };
-		/** Bounded: two keys ("busy", "held"), each at most once per 60 s. */
+		/** Bounded: three keys ("busy", "held", "wait"), each at most once per 60 s. */
 		FRateLimitedLog TrainsLog{ 60.0 };
 		double NextConfigAt = 0;
 		double NextStatusAt = 0;

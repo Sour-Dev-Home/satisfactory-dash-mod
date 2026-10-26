@@ -221,7 +221,48 @@ export function judgeFactory(f: FactoryEvidence): S2Result {
   reasons.push(...frmReasons("getFactory", f.frm));
   if (reasons.length) return failing(reasons);
   const noteLines = [`${compared} rounds; machine ids equal to FRM's in the window; static fields equal; dynamic flags matched in ${(share * 100).toFixed(2)}% of ${machineRounds} machine-rounds${flagMisses ? ` (${flagMisses} within the ${((1 - S2_DYNAMIC_SHARE) * 100).toFixed(0)}% allowance, first ${Math.min(flagLines.length, SHOW)}: ${flagLines.join(" | ")})` : ""}`, ...frmNote("getFactory", f.frm)];
-  return { pass: true, reasons: noteLines, never: [] };
+  return { pass: true, reasons: noteLines, never: factoryNever(rounds) };
+}
+
+/**
+ * Fluid rule (reporting only): the canon rows carry no fluid flag, so a fluid item is one whose class is a vanilla fluid descriptor,
+ * the liquids and gases the fixtures and FRM's own outputs show (Desc_Water_C, Desc_LiquidOil_C, Desc_LiquidFuel_C, ...), listed by
+ * exact class name; a fluid machine is any machine with such an item among its rows.
+ */
+const FLUID_CLASSES: ReadonlySet<string> = new Set([
+  "Desc_Water_C", "Desc_LiquidOil_C", "Desc_HeavyOilResidue_C", "Desc_LiquidFuel_C", "Desc_LiquidTurboFuel_C", "Desc_LiquidBiofuel_C",
+  "Desc_AluminaSolution_C", "Desc_SulfuricAcid_C", "Desc_NitricAcid_C", "Desc_NitrogenGas_C", "Desc_DissolvedSilica_C",
+  "Desc_RocketFuel_C", "Desc_IonizedFuel_C", "Desc_DarkMatter_C",
+]);
+const hasFluid = (s: FactoryStatic) => s.items.some(([, cls]) => FLUID_CLASSES.has(cls));
+
+/** The cases the compared rounds never showed, from both sides' statics and flags (reported, never failing: NOT_EXERCISED_FAILS decides). */
+function factoryNever(rounds: PRound[]): string[] {
+  const seen = { any: false, unconfigured: false, paused: false, clock: false, backedUp: false, inputsFull: false, fluid: false };
+  const take = (m: DMachine) => {
+    seen.any = true;
+    if (m.s.recipe === null) seen.unconfigured = true;
+    if ((m.flags & FLAG_PAUSED) !== 0) seen.paused = true;
+    if (m.s.clock !== null && Math.abs(m.s.clock - 100) > S2_CLOCK_TOLERANCE) seen.clock = true;
+    if ((m.flags & FLAG_BACKED_UP) !== 0) seen.backedUp = true;
+    if (inputsFullOf(m.flags) === true) seen.inputsFull = true;
+    if (hasFluid(m.s)) seen.fluid = true;
+  };
+  for (const r of rounds) {
+    if (!r.mod || r.win.length === 0) continue;
+    for (const m of r.mod.values()) take(m);
+    for (const s of r.win) for (const m of s.machines.values()) take(m);
+  }
+  const lines: Array<[boolean, string]> = [
+    [seen.any, "any machine (neither side listed one)"],
+    [seen.unconfigured, "an unconfigured machine (recipe null)"],
+    [seen.paused, "a paused machine"],
+    [seen.clock, "a clock other than 100%"],
+    [seen.backedUp, "a machine backed up (isBackedUp true)"],
+    [seen.inputsFull, "a machine with inputs full (inputsFull true)"],
+    [seen.fluid, "a fluid machine (no item of a fluid class)"],
+  ];
+  return lines.filter(([shown]) => !shown).map(([, line]) => line);
 }
 
 // --------------------------------------------------------------------------------------------------------------- R2b rates
@@ -355,6 +396,8 @@ export function judgeRates(f: FactoryEvidence, raw: { min: number; max: number }
   const never = [
     f.somersloopMachines === 0 ? "Somersloop (no machine in any FRM read carried one, so the boosted maxPerMinute is unchecked)" : null,
     !sawCurrent ? "currentPerMinute above zero (every FRM read of every machine was idle)" : null,
+    // The fluid rule is the one documented at FLUID_CLASSES.
+    !rounds.some((r) => r.mod && r.win.length > 0 && ([...r.mod.values()].some((m) => hasFluid(m.s)) || r.win.some((s) => [...s.machines.values()].some((m) => hasFluid(m.s))))) ? "a fluid item (no item of a fluid class in any compared machine)" : null,
   ].filter((x): x is string => x !== null);
   return { pass: true, reasons: [`${compared} rounds; maxPerMinute within ${S2_MAX_REL * 100}% or ${S2_MAX_ABS}; current and percent within ${S2_CLASS_TOLERANCE * 100}% per item class and within ${S2_BUILDING_TOLERANCE * 100}% for ${(buildingShare * 100).toFixed(1)}% of ${buildingRounds} building-rounds; median mod/FRM current ratio ${fmt(median(ratios))}`, ...frmNote("getFactory", f.frm)], never };
 }

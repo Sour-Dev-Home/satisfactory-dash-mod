@@ -371,7 +371,8 @@ TOptional<TArray<SatisDash::FFactoryReading>> SatisDash::FGameReader::StepFactor
 {
 	UWorld* Current = World.Get();
 	// A different save was loaded while the slices ran (or the world went away): what was read is the old world's or a mix, so
-	// it is "cannot read" (empty: nothing submitted), never a partial part.
+	// the read is reported as abandoned (nothing submitted), never a partial part. A read that finishes with no machines is a
+	// different answer: it submits an empty part.
 	const AFGBuildableSubsystem* Subsystem = Current != nullptr && Current == FactoryWorld.Get() ? AFGBuildableSubsystem::Get(Current) : nullptr;
 	if (Subsystem == nullptr)
 	{
