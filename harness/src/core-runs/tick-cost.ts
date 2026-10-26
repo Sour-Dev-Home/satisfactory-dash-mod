@@ -1,5 +1,6 @@
 import * as Pass from "../../../runs/tick-cost/pass";
 import type { CoreContext, CoreDeps, CoreRunSpec } from "../core-run";
+import type { WorldKey } from "../run";
 import { startRecorder } from "../recorder";
 import { TICK_WARMUP_MS, type TickSeries } from "../ticks";
 import { accepted, enrolPhase } from "./enrol";
@@ -128,7 +129,7 @@ export const tickCost: CoreRunSpec = {
   drive: (ctx) => driveTickCost(ctx, "enrol-first"),
 };
 
-export async function driveTickCost(ctx: CoreContext, order: TickCostOrder): Promise<void> {
+export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?: WorldKey): Promise<void> {
   {
     const base = ctx.baseline as Measured | undefined;
     const host = await ctx.deps.backendHost!();
@@ -154,12 +155,12 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder): Pro
     let measured: { from: string; to: string } | null = null;
     try {
       if (order === "enrol-first") await enrolPhase(ctx, host, recorder);
-      await ctx.deps.loadWorld!();
+      await ctx.deps.loadWorld!(key);
       await ctx.deps.waitHealthy();
       ctx.rememberAutoPause(await ctx.deps.readAutoPause!());
       await ctx.deps.setAutoPause!(false);
       if (order === "world-first") await enrolPhase(ctx, host, recorder);
-      // The same staged world as the baseline boot (loadWorld uploads s3World each time); the session hash checks it.
+      // The same staged world as the baseline boot (loadWorld uploads the keyed world each time); the session hash checks it.
       const measureFrom = ctx.deps.now().toISOString();
       const w = await measureWindow(ctx.deps, ctx.proc.pid, ctx.proc.exited);
       measured = { from: measureFrom, to: ctx.deps.now().toISOString() };

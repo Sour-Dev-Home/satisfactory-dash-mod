@@ -12,7 +12,8 @@ import { driveTickCost, tickCost } from "./tick-cost";
 export const tickCostNative: CoreRunSpec = {
   ...tickCost,
   requirements: Pass.requirements,
+  worldKey: "s2",
   modConfig: NATIVE_SOURCES,
   evaluate: Pass.evaluate,
-  drive: (ctx) => driveTickCost(ctx, "world-first"),
+  drive: (ctx) => driveTickCost(ctx, "world-first", "s2"),
 };
