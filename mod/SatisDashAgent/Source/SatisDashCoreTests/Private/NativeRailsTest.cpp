@@ -1,4 +1,6 @@
 #include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "SatisDash/JsonUtil.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
 #include "TestUtil.h"
@@ -59,6 +61,15 @@ bool FNativeRailsPlanTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("99900 -> 999"), RailSampleIntervals(99900.0), 999);
 	TestEqual(TEXT("100000 -> 999"), RailSampleIntervals(100000.0), 999);
 	TestEqual(TEXT("1500000 -> 999"), RailSampleIntervals(1500000.0), 999);
+	TestEqual(TEXT("99900.0000001 (one past 999 steps) -> 999 by the cap"), RailSampleIntervals(99900.0000001), 999);
+	TestEqual(TEXT("a tiny positive length -> 1"), RailSampleIntervals(1e-9), 1);
+	int32 Wrong = 0;
+	for (int32 K = 1; K <= 999; ++K)
+	{
+		Wrong += RailSampleIntervals(double(K) * 100.0) != K ? 1 : 0;
+		Wrong += (K < 999 && RailSampleIntervals(double(K) * 100.0 + 0.001) != K + 1) ? 1 : 0;
+	}
+	TestEqual(TEXT("K * 100 cm gives exactly K intervals, and a hair over gives K + 1, for K in 1..999"), Wrong, 0);
 
 	TestEqual(TEXT("index 0 is the start"), RailSampleDistanceCm(9500.0, 95, 0), 0.0);
 	TestEqual(TEXT("the last index is the length exactly"), RailSampleDistanceCm(9500.0, 95, 95), 9500.0);
@@ -102,11 +113,27 @@ bool FNativeRailsGoldenTest::RunTest(const FString& Parameters)
 	{
 		return false;
 	}
-	// The three tracks of the fixture, read the way the game would give them (cm).
-	const FNativeWorldBody Body = BuildNativeRails(NativeRailsObserved, {
-		NativeRailsReading(TEXT("Build_RailroadTrack_C_1"), { { 0, 0 }, { 10, 10 }, { 250, 0 }, { 250.4, 0 }, { 500, 1.0e12 }, { 1050, -50 } }),
-		NativeRailsReading(TEXT("Build_RailroadTrack_C_2"), { { 100, 100 }, { 120, 120 } }),
-		NativeRailsReading(TEXT("Build_RailroadTrack_C_3"), {}) });
+	// The fixture's tracks (ID and SplineData x, y in cm) become the readings the game would give.
+	TArray<TSharedPtr<FJsonValue>> Tracks;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Source);
+	if (!TestTrue(TEXT("the fixture parses as an array"), FJsonSerializer::Deserialize(Reader, Tracks)))
+	{
+		return false;
+	}
+	TArray<FRailReading> Readings;
+	for (const TSharedPtr<FJsonValue>& Value : Tracks)
+	{
+		const TSharedPtr<FJsonObject> Object = Value->AsObject();
+		FRailReading Reading;
+		Reading.Id = Object->GetStringField(TEXT("ID"));
+		for (const TSharedPtr<FJsonValue>& Point : Object->GetArrayField(TEXT("SplineData")))
+		{
+			Reading.Points.Add({ Point->AsObject()->GetNumberField(TEXT("x")), Point->AsObject()->GetNumberField(TEXT("y")) });
+		}
+		Readings.Add(MoveTemp(Reading));
+	}
+	TestEqual(TEXT("three tracks in the fixture"), Readings.Num(), 3);
+	const FNativeWorldBody Body = BuildNativeRails(NativeRailsObserved, Readings);
 	TestEqual(TEXT("one track kept"), Body.Items, 1);
 	TestEqual(TEXT("two dropped"), Body.Dropped, 2);
 	TestTrue(FString::Printf(TEXT("is the bridge's rails layer; got %s"), *Body.Json), SatisDash::Test::SameJson(Body.Json, NativeRailsBody(Expected)));
