@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, request, type Server } from "node:h
 import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
-import { startRecorder, type Recorder } from "../src/recorder";
+import { startRecorder, type Recorder, type RecorderOptions } from "../src/recorder";
 import { sessionHash } from "../src/status";
 import { compareRound } from "../../runs/enrol/pass";
 
@@ -35,8 +35,8 @@ async function upstream(answer: (s: Seen) => { status: number; body: string | Bu
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen };
 }
 
-async function recorderFor(url: string): Promise<Recorder> {
-  const rec = await startRecorder(url);
+async function recorderFor(url: string, opts: RecorderOptions = {}): Promise<Recorder> {
+  const rec = await startRecorder(url, opts);
   closers.push(() => rec.close());
   return rec;
 }
@@ -152,6 +152,22 @@ describe("recorder (ruling 11)", () => {
     expect(rec.entries[0]).toMatchObject({ agent: "mod", method: "POST", path: "/agent/v1/world/rails", status: 200, world: { layer: "rails", items: 2, bytes: Buffer.byteLength(body) } });
     expect(JSON.stringify(rec.entries)).not.toContain("R1");
     expect(JSON.stringify(rec.entries)).not.toContain(SECRET);
+  });
+
+  it("keeps a world post's data array only for the layers keepWorldData names", async () => {
+    const up = await upstream(() => ({ status: 200, body: '{"accepted":true,"unchanged":false}' }));
+    const headers = { "user-agent": MOD_UA, "content-type": "application/json" };
+    const body = JSON.stringify({ observedAt: "t", data: [{ type: "Iron Ore" }] });
+    const kept = await recorderFor(up.url, { keepWorldData: ["resourceNodes"] });
+    await send(kept.url, "POST", "/agent/v1/world/resourceNodes", { headers, body });
+    await send(kept.url, "POST", "/agent/v1/world/rails", { headers, body });
+    expect(kept.entries[0]).toMatchObject({ world: { layer: "resourceNodes", items: 1, bytes: Buffer.byteLength(body) }, worldData: [{ type: "Iron Ore" }] });
+    expect(kept.entries[1]!.world).toMatchObject({ layer: "rails", items: 1 });
+    expect(kept.entries[1]).not.toHaveProperty("worldData");
+    const none = await recorderFor(up.url);
+    await send(none.url, "POST", "/agent/v1/world/resourceNodes", { headers, body });
+    expect(none.entries[0]!.world).toMatchObject({ layer: "resourceNodes" });
+    expect(none.entries[0]).not.toHaveProperty("worldData");
   });
 
   const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };

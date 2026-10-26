@@ -131,6 +131,26 @@ describe("runCore", () => {
     expect(written[1]).not.toHaveProperty("frmPort");
   });
 
+  it("adds the spec's modConfig to every config it writes and records it in mod-config.json; none without one", async () => {
+    const written: Record<string, unknown>[] = [];
+    const dirs: string[] = [];
+    for (const modConfig of [{ playersSource: "native" as const }, undefined]) {
+      const { deps, serverDir } = fakeDeps();
+      const { dir } = await runCore("http-probe", spec({
+        modConfig,
+        drive: async (ctx) => {
+          ctx.writeConfig({ backendUrl: "http://127.0.0.1:1", enrollmentCode: "" });
+          written.push(JSON.parse(readFileSync(modConfigPath(serverDir, MOD), "utf8")));
+        },
+      }), deps);
+      dirs.push(dir);
+      if (modConfig) expect(JSON.parse(readFileSync(join(dir, "mod-config.json"), "utf8"))).toEqual({ playersSource: "native" });
+      else expect(existsSync(join(dir, "mod-config.json"))).toBe(false);
+    }
+    expect(written[0]).toMatchObject({ backendUrl: "http://127.0.0.1:1", playersSource: "native" });
+    expect(written[1]).not.toHaveProperty("playersSource");
+  });
+
   it("searches the log for the secret in credential.json and the code, and keeps only booleans", async () => {
     let serverDir = "";
     const made = fakeDeps({}, () => `LogSatisDash: Display: secret ${SECRET} code ${CODE}\n`);

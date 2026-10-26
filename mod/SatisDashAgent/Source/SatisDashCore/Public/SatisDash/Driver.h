@@ -34,7 +34,7 @@ namespace SatisDash
 	 * wedges enrolment or pushing).
 	 *
 	 * Memory (it lives for the server's whole uptime): the snapshot queue holds at most MaxQueuedSnapshots (120) bodies
-	 * and MaxQueuedBytes (2 MiB) of them, the part log at most three keys (status, auto-pause, power); FRM reads and parsing as FrmBridge.h bounds them (mapLive's pair included); the world sender as WorldSender.h bounds it; at most one
+	 * and MaxQueuedBytes (2 MiB) of them, the part log at most four keys (status, auto-pause, power, players); FRM reads and parsing as FrmBridge.h bounds them (mapLive's pair included); the world sender as WorldSender.h bounds it; at most one
 	 * enrolment and one push in flight. Commands: the ledger at most 1000 IDs, at most 20 commands waiting, one poll or
 	 * one result in flight, never both. A tick with nothing due allocates nothing.
 	 */
@@ -72,13 +72,15 @@ namespace SatisDash
 		FFrmBridge Bridge;
 		/** Bounded: see WorldSender.h. */
 		FWorldSender WorldLayers;
-		/** Bounded: one key per snapshot part (status, auto-pause, power), each logged at most once per 600 s. */
+		/** Bounded: one key per snapshot part (status, auto-pause, power, players), each logged at most once per 600 s. */
 		FRateLimitedLog PartLog;
 		double NextConfigAt = 0;
 		double NextStatusAt = 0;
 		TOptional<double> LastPowerAt;
 		TOptional<double> LastFactoryAt;
 		bool bRunning = false;
+		/** The last status pass said a game is running (the native node scan waits for it, as the native players do). */
+		bool bGameRunning = false;
 		bool bSendInFlight = false;
 		/** Leaving Running asks for a Clear; it happens once no send is in flight (Pusher.h). */
 		bool bClearPending = false;

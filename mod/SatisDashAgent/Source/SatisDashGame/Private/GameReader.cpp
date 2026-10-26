@@ -2,11 +2,20 @@
 
 #include "Controller/FGServerManagementController.h"
 #include "Controller/FGServerStateController.h"
+#include "Engine/Level.h"
 #include "Engine/World.h"
 #include "FGCircuitSubsystem.h"
+#include "FGGameState.h"
 #include "FGPowerCircuit.h"
 #include "FGServerSubsystem.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
+#include "Online/PlayerInfoCache.h"
+#include "Resources/FGResourceNode.h"
+#include "Resources/FGResourceNodeBase.h"
+#include "SatisDash/FrmResourceNodes.h"
 #include "SatisDash/GameValues.h"
+#include "SatisDash/Log.h"
 
 UFGServerSubsystem* SatisDash::FGameReader::Server() const
 {
@@ -114,4 +123,149 @@ TOptional<TArray<SatisDash::FCircuitReading>> SatisDash::FGameReader::ReadPower(
 		Samples.Add(S);
 	}
 	return GroupCircuits(Samples);
+}
+
+TOptional<TArray<SatisDash::FPlayerReading>> SatisDash::FGameReader::ReadPlayers()
+{
+	UWorld* Current = World.Get();
+	const AFGGameState* State = Current != nullptr ? Current->GetGameState<AFGGameState>() : nullptr;
+	if (State == nullptr)
+	{
+		return {};
+	}
+	TArray<FPlayerReading> Out;
+	// Connected: the replicated player list (GameStateBase.h:55). Offline: the players the save remembers (the inline
+	// getter, FGGameState.h:515) none of whose identities is a connected player's (PlayerState.h:408), named by the
+	// platform they were last seen on, else their first identity. GetOfflineCachedPlayerInfosInSession (:519) is not
+	// used: it crashed the dedicated server on its first call (access violation inside it, core run 40241942772).
+	// Names are personal data: they are copied into the reading and never logged.
+	TArray<const FUniqueNetIdRepl*> OnlineIds;
+	for (const APlayerState* Player : State->PlayerArray)
+	{
+		if (Player != nullptr)
+		{
+			Out.Add({ Player->GetPlayerName(), true });
+			OnlineIds.Add(&Player->GetUniqueId());
+		}
+	}
+	for (const FCachedPlayerInfo& Info : State->GetAllPlayerInfoData())
+	{
+		// Invalid ids are skipped: two invalid ids compare equal (CoreOnline.h:671).
+		const bool bOnline = Info.PerPlatformInfo.ContainsByPredicate([&OnlineIds](const FCachedPlayerPlatformInfo& Id) {
+			return Id.UniqueNetId.IsValid() && OnlineIds.ContainsByPredicate([&Id](const FUniqueNetIdRepl* Online) {
+				return *Online == Id.UniqueNetId;
+			});
+		});
+		if (bOnline)
+		{
+			continue;
+		}
+		const FCachedPlayerPlatformInfo* Platform = Info.GetForPlatform(Info.GetLastSeenServicesType());
+		if (Platform == nullptr && !Info.PerPlatformInfo.IsEmpty())
+		{
+			Platform = &Info.PerPlatformInfo[0];
+		}
+		if (Platform != nullptr)
+		{
+			Out.Add({ Platform->PlayerName, false });
+		}
+	}
+	return Out;
+}
+
+bool SatisDash::FGameReader::BeginResourceNodeScan()
+{
+	UWorld* Current = World.Get();
+	if (Current == nullptr)
+	{
+		return false;
+	}
+	ScanLevels.Reset();
+	ScanWorld = Current;
+	for (ULevel* Level : Current->GetLevels())
+	{
+		ScanLevels.Add(Level);
+	}
+	ScanLevel = 0;
+	ScanIndex = 0;
+	ScanActors = 0;
+	ScanSteps = 0;
+	ScanLongestStep = 0;
+	ScanTotal = 0;
+	ScanFound.Reset();
+	return true;
+}
+
+TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepResourceNodeScan(int32 MaxActors)
+{
+	const double StepStart = FPlatformTime::Seconds();
+	// The node list is kept bounded whatever the world holds (twice the map's own cap).
+	const int32 MaxFound = 2 * MaxResourceNodes;
+	int32 Budget = MaxActors;
+	while (Budget > 0 && ScanLevel < ScanLevels.Num())
+	{
+		const ULevel* Level = ScanLevels[ScanLevel].Get();
+		if (Level == nullptr || ScanIndex >= Level->Actors.Num())
+		{
+			++ScanLevel;
+			ScanIndex = 0;
+			continue;
+		}
+		AActor* Actor = Level->Actors[ScanIndex++];
+		--Budget;
+		++ScanActors;
+		const AFGResourceNode* Node = Cast<AFGResourceNode>(Actor);
+		if (Node == nullptr || ScanFound.Num() >= MaxFound)
+		{
+			continue;
+		}
+		FResourceNodeReading Reading;
+		// Fracking cores are not AFGResourceNode (FGResourceNodeFrackingCore.h:14), deposits are but report their own type
+		// (EResourceNodeType::Deposit): the type decides what the map draws (FGResourceNodeBase.h:24).
+		switch (Node->GetResourceNodeType())
+		{
+		case EResourceNodeType::Node: Reading.Kind = ENodeKind::Node; break;
+		case EResourceNodeType::FrackingSatellite: Reading.Kind = ENodeKind::FrackingSatellite; break;
+		case EResourceNodeType::Geyser: Reading.Kind = ENodeKind::Geyser; break;
+		default: continue;
+		}
+		switch (Node->GetResourcePurity())
+		{
+		case RP_Inpure: Reading.Purity = ENodePurity::Impure; break;
+		case RP_Normal: Reading.Purity = ENodePurity::Normal; break;
+		case RP_Pure: Reading.Purity = ENodePurity::Pure; break;
+		default: continue;
+		}
+		Reading.Resource = Node->GetResourceName().ToString();
+		const FVector Location = Node->GetActorLocation();
+		Reading.XCm = Location.X;
+		Reading.YCm = Location.Y;
+		Reading.bExploited = Node->IsOccupied();
+		ScanFound.Add(MoveTemp(Reading));
+	}
+	const double Spent = FPlatformTime::Seconds() - StepStart;
+	++ScanSteps;
+	ScanTotal += Spent;
+	ScanLongestStep = FMath::Max(ScanLongestStep, Spent);
+	if (ScanLevel < ScanLevels.Num())
+	{
+		return {};
+	}
+	ScanLevels.Reset();
+	// A different save was loaded while the slices ran (the newest world is the one SetWorld holds): what was found is the old
+	// world's or a mix, so it is "cannot read" (empty: nothing posted, retried), never a partial post.
+	if (World.Get() == nullptr || World.Get() != ScanWorld.Get())
+	{
+		ScanFound.Reset();
+		return TArray<FResourceNodeReading>();
+	}
+	// Counts and times only, and only when something was found (an empty scan is the sender's rate-limited warning, and is
+	// retried every 30 s). The times are the game thread's scan alone: the sort and the JSON text are built on the worker.
+	if (ScanFound.Num() > 0)
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Resource node scan (game thread only): %d actors in %d steps, %d nodes, longest step %.2f ms, total %.2f ms"),
+			ScanActors, ScanSteps, ScanFound.Num(), ScanLongestStep * 1000.0, ScanTotal * 1000.0);
+	}
+	// A world with no levels, no actors or no nodes comes back empty, which the caller treats as "cannot read".
+	return MoveTemp(ScanFound);
 }

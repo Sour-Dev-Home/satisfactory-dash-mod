@@ -1,6 +1,7 @@
 #include "SatisDash/Driver.h"
 
 #include "SatisDash/Log.h"
+#include "SatisDash/Native/Players/NativePlayers.h"
 #include "SatisDash/Snapshot.h"
 #include "SatisDash/Version.h"
 
@@ -55,6 +56,12 @@ void SatisDash::FDriver::Tick()
 		NextPollAt = Now;
 		PollFailures = 0;
 		WorldLayers.Start(Now);
+		bGameRunning = false;
+		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
+		const FAgentConfig& Sources = Agent.GetConfig();
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s"),
+			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -76,7 +83,7 @@ void SatisDash::FDriver::Tick()
 	// World layers (spec "Timing"): posted one at a time, and only while no snapshot is queued, in flight or being encoded.
 	if (const FCredential* Credential = Agent.GetCredential())
 	{
-		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending() });
+		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning });
 	}
 	if (WorldLayers.TakeAuthRejected())
 	{
@@ -109,11 +116,13 @@ void SatisDash::FDriver::TickSample(double Now)
 		return;
 	}
 	const FCadence& Cadence = Agent.GetCadence();
+	const FAgentConfig& Config = Agent.GetConfig();
 	NextStatusAt = Now + Cadence.StatusSeconds - DueSlackSeconds;
 	FSnapshot Snapshot;
 	Snapshot.AgentVersion = AgentVersion();
 	Snapshot.ObservedAt = Clock.UtcNow();
 	Snapshot.Status = Game.ReadStatus();
+	bGameRunning = Snapshot.Status.IsSet() && Snapshot.Status->bIsGameRunning;
 	if (!Snapshot.Status.IsSet())
 	{
 		NoteFailedPart(TEXT("status"), Now);
@@ -142,8 +151,28 @@ void SatisDash::FDriver::TickSample(double Now)
 		{
 			LastFactoryAt = Now;
 		}
-		Bridge.RequestPass(bFactoryDue);
-		Snapshot.PlayersJson = Bridge.TakePlayers(Now, 2.0 * Cadence.StatusSeconds);
+		const bool bNativePlayers = Config.GetPlayersSource() == ESource::Native;
+		Bridge.RequestPass(bFactoryDue, !bNativePlayers);
+		if (bNativePlayers)
+		{
+			// R1 (ADR-0058): the game's own lists, small enough to serialise here. Read only while a game is running, as
+			// power is; an unreadable list leaves the part out.
+			if (Snapshot.Status->bIsGameRunning)
+			{
+				if (const TOptional<TArray<FPlayerReading>> Readings = Game.ReadPlayers())
+				{
+					Snapshot.PlayersJson = PlayersToJson(NativePlayersPart(Readings.GetValue()));
+				}
+				else
+				{
+					NoteFailedPart(TEXT("players"), Now);
+				}
+			}
+		}
+		else
+		{
+			Snapshot.PlayersJson = Bridge.TakePlayers(Now, 2.0 * Cadence.StatusSeconds);
+		}
 		Snapshot.FactoryJson = Bridge.TakeFactory(Now, Cadence.FactorySeconds);
 		Snapshot.MapLiveJson = Bridge.TakeMapLive(Now, Cadence.FactorySeconds);
 	}

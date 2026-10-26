@@ -28,6 +28,10 @@ namespace SatisDash
 		const FCredential* Credential;
 		/** No snapshot is queued or in flight: world posts go only then (spec "World-layer sends ... behind snapshots"). */
 		bool bSnapshotsIdle;
+		/** The native readers, when a layer's source is native. */
+		IGameReader* NativeReaders = nullptr;
+			/** A game is running (the last status pass said so): a native scan starts only then, as the native players are read. */
+			bool bGameRunning = true;
 	};
 
 	/**
@@ -58,7 +62,8 @@ namespace SatisDash
 		int32 Held() const;
 
 	private:
-		enum class EPhase : uint8 { Waiting, Reading, Pending, Posting };
+		/** Scanning: a native scan is walking the game's actors, a slice per tick (the game thread's part of a native read). */
+		enum class EPhase : uint8 { Waiting, Scanning, Reading, Pending, Posting };
 		struct FLayer
 		{
 			EPhase Phase = EPhase::Waiting;
@@ -72,6 +77,7 @@ namespace SatisDash
 			bool bReadLogged = false;
 			bool bCapLogged = false;
 			bool bDroppedLogged = false;
+			bool bScanLogged = false;
 			FEncodedBody Body;
 			FBlake3Hash PendingRaw;
 			FBlake3Hash PendingData;

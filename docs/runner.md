@@ -183,6 +183,26 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   or a folder left behind fails the run) and prunes the test server's application tokens
   (`server.InvalidateAPITokens`). `parity.json` also records `agent.cjs`'s sha256 and the contract pin. It takes about
   45 minutes plus the build.
+- `native-parity` needs the backend host, the staged world and `frmBaseUrl`. It writes `playersSource` and `resourceNodesSource`
+  as `native` into the mod's config (`modConfig`, recorded in `mod-config.json`), loads the world with auto-pause off, starts
+  reading the test server's FRM as a black box (`getPower` back to back, `getPlayer` every 2 s with names hashed before they
+  are stored, `getResourceNode` every minute and right after each mod post), then enrols the mod through the recorder. After a
+  one-minute settle it judges 30 minutes: the mod's one resource-node post (about 8 minutes after enrolment, then every 30)
+  falls inside it. Each reader is judged on its own (`runs/native-parity/pass.ts`: power within 3% of FRM's reads either side
+  of each mod sample; players equal; the resource-node layer equal and contract-valid) and the three verdicts go to
+  `readers.json`; the run is red if any reader is. Fields the world never exercised are reported as `NOT EXERCISED` and do not
+  fail (`NOT_EXERCISED_FAILS` in the pass file flips that). It takes about 45 minutes plus the build. To exercise "online"
+  players, join the test server with a game client during the window.
+- `tick-cost-native` is `tick-cost` with the players and resource-node readers set to `native` in the mod's config
+  (`mod-config.json`). It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
+  by the same limits (tick median at least 95% of the baseline's, S12, same save, memory within 100 MB and no more than 25 MB
+  growth) plus proof that the native readers were live in the measured window (`runs/tick-cost-native/pass.ts`). Unlike
+  `tick-cost`, the mod enrols after the world is loaded and auto-pause is off, just before the measurement starts, so its first
+  resource-node post (8 minutes, +/-10%, after the agent starts Running) falls 3 to 13 minutes into the measurement, which is
+  after the warmup. The mod logs one line per resource-node scan (actors, steps, longest step, total, in `result.json`'s
+  `modLines`), which is the scan's cost; the owner fixes a ceiling for the longest step after the first measurement. The mod's
+  factory, mapLive and rails readers are still on the bridge, as in `tick-cost`. `snapshot-parts.json` (the measured window
+  and which parts each accepted snapshot carried; no bodies) is now written by `tick-cost` too.
 
 ### The parity run's Node agent
 

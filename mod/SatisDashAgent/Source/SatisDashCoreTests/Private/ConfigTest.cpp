@@ -183,3 +183,34 @@ bool FConfigFrmTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("a default port isn't written"), ConfigToJson(Plain.Config).Contains(TEXT("frmPort")));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigSourcesTest, "SatisDash.Core.Config.Sources", SatisDash::Test::Flags)
+
+bool FConfigSourcesTest::RunTest(const FString& Parameters)
+{
+	const FString Base = TEXT("{\"backendUrl\":\"https://api.satis-manager.com\"");
+	const FConfigResult None = ParseConfig(Base + TEXT("}"));
+	TestTrue(TEXT("no key: valid"), None.Status == EConfigStatus::Valid);
+	TestTrue(TEXT("no key: players default"), None.Config.GetPlayersSource() == DefaultPlayersSource);
+	TestTrue(TEXT("no key: resource nodes default"), None.Config.GetResourceNodesSource() == DefaultResourceNodesSource);
+	TestFalse(TEXT("no key: nothing set"), None.Config.PlayersSource.IsSet() || None.Config.ResourceNodesSource.IsSet());
+
+	const FConfigResult Native = ParseConfig(Base + TEXT(",\"playersSource\":\"native\",\"resourceNodesSource\":\"bridge\"}"));
+	TestTrue(TEXT("both keys: valid"), Native.Status == EConfigStatus::Valid);
+	TestTrue(TEXT("players native"), Native.Config.GetPlayersSource() == ESource::Native);
+	TestTrue(TEXT("resource nodes bridge"), Native.Config.GetResourceNodesSource() == ESource::Bridge);
+
+	for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"native \""), TEXT("\"\""), TEXT("1"), TEXT("true"), TEXT("null") })
+	{
+		const FConfigResult R = ParseConfig(Base + TEXT(",\"playersSource\":") + Bad + TEXT("}"));
+		TestTrue(*FString::Printf(TEXT("%s is refused"), Bad), R.Status == EConfigStatus::Broken);
+		TestEqual(*FString::Printf(TEXT("%s names the key"), Bad), R.BadField, FString(TEXT("playersSource")));
+	}
+	TestEqual(TEXT("the other key is named too"), ParseConfig(Base + TEXT(",\"resourceNodesSource\":\"x\"}")).BadField, FString(TEXT("resourceNodesSource")));
+
+	// Written back only when set, and kept when the code is blanked after enrolment.
+	const FString Json = ConfigToJson(Native.Config);
+	TestTrue(TEXT("round trip keeps the keys"), Json.Contains(TEXT("\"playersSource\": \"native\"")) && Json.Contains(TEXT("\"resourceNodesSource\": \"bridge\"")));
+	TestFalse(TEXT("unset keys are not written"), ConfigToJson(None.Config).Contains(TEXT("Source")));
+	return true;
+}

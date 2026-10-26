@@ -1,5 +1,5 @@
 import * as Pass from "../../../runs/tick-cost/pass";
-import type { CoreDeps, CoreRunSpec } from "../core-run";
+import type { CoreContext, CoreDeps, CoreRunSpec } from "../core-run";
 import { startRecorder } from "../recorder";
 import { TICK_WARMUP_MS, type TickSeries } from "../ticks";
 import { accepted, enrolPhase } from "./enrol";
@@ -93,6 +93,28 @@ function circuitGroups(snapshot: unknown): number | null {
 }
 
 /**
+ * The with-mod boot's order. "enrol-first" is tick-cost's own (enrol, load the world, auto-pause off, measure).
+ * "world-first" (tick-cost-native, as parity does) loads the world and turns auto-pause off, then enrols, then measures
+ * straight away: the mod's first resource-node post comes 8 minutes (+/-10%) after the agent starts Running, which lands
+ * inside the measured span [warmup, warmup + 10 minutes] = [3, 13] minutes after the measurement starts.
+ */
+/** Which parts the mod's accepted snapshots carried (no body, no names): the evidence tick-cost-native's judge reads. */
+export function snapshotParts(
+  measured: { from: string; to: string } | null,
+  entries: ReadonlyArray<{ at: string; snapshot?: unknown }>,
+): { measured: { from: string; to: string } | null; snapshots: Array<{ at: string; playersAvailable: boolean }> } {
+  return {
+    measured,
+    snapshots: entries.map((e) => ({
+      at: e.at,
+      playersAvailable: (e.snapshot as { players?: { available?: unknown } } | undefined)?.players?.available === true,
+    })),
+  };
+}
+
+export type TickCostOrder = "enrol-first" | "world-first";
+
+/**
  * C4 on the finished mod, S12 and the owner's memory limits. runCore boots once without the mod and measures it
  * (baseline); then the mod's boot enrols, loads the same world, turns auto-pause off and is measured the same way.
  */
@@ -103,7 +125,11 @@ export const tickCost: CoreRunSpec = {
   baseline: true,
   measureBaseline: ({ deps, proc }) => measureWindow(deps, proc.pid, proc.exited),
   evaluate: Pass.evaluate,
-  async drive(ctx) {
+  drive: (ctx) => driveTickCost(ctx, "enrol-first"),
+};
+
+export async function driveTickCost(ctx: CoreContext, order: TickCostOrder): Promise<void> {
+  {
     const base = ctx.baseline as Measured | undefined;
     const host = await ctx.deps.backendHost!();
     const recorder = await startRecorder(host.relayUrl);
@@ -116,6 +142,8 @@ export const tickCost: CoreRunSpec = {
       memoryBaseline: base?.memory ?? [],
       memoryWithMod: [],
       recorder: new URL(recorder.url).host,
+      // The mod's FRM bridge reads FRM here (owner, 2026-10-26: S12 allows it).
+      frm: ctx.deps.config.frmBaseUrl ? new URL(ctx.deps.config.frmBaseUrl).host : null,
       circuitGroups: null,
       sessionBaseline: base?.session ?? null,
       sessionWithMod: null,
@@ -123,14 +151,18 @@ export const tickCost: CoreRunSpec = {
       outboundNamesBaseline: base?.outboundNames ?? {},
       outboundNamesWithMod: {},
     };
+    let measured: { from: string; to: string } | null = null;
     try {
-      await enrolPhase(ctx, host, recorder);
+      if (order === "enrol-first") await enrolPhase(ctx, host, recorder);
       await ctx.deps.loadWorld!();
       await ctx.deps.waitHealthy();
       ctx.rememberAutoPause(await ctx.deps.readAutoPause!());
       await ctx.deps.setAutoPause!(false);
+      if (order === "world-first") await enrolPhase(ctx, host, recorder);
       // The same staged world as the baseline boot (loadWorld uploads s3World each time); the session hash checks it.
+      const measureFrom = ctx.deps.now().toISOString();
       const w = await measureWindow(ctx.deps, ctx.proc.pid, ctx.proc.exited);
+      measured = { from: measureFrom, to: ctx.deps.now().toISOString() };
       capture.withMod = w.ticks;
       capture.outboundWithMod = w.outbound;
       capture.outboundSamples.withMod = w.outboundSamples;
@@ -141,8 +173,10 @@ export const tickCost: CoreRunSpec = {
       const last = accepted(recorder).at(-1);
       capture.circuitGroups = last ? circuitGroups(last.snapshot) : null;
       ctx.captures["tick-cost.json"] = capture;
+      // Evidence on which parts the mod's snapshots carried (no body, no names): tick-cost-native's judge reads it.
+      ctx.captures["snapshot-parts.json"] = snapshotParts(measured, accepted(recorder));
       ctx.captures["recorder.json"] = recorder.entries.map(({ snapshot: _, ...rest }) => rest);
       await recorder.close();
     }
-  },
-};
+  }
+}

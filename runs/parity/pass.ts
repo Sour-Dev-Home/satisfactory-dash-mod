@@ -66,7 +66,7 @@ const tickClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, 0.1 *
 /** How far beyond the neighbours' range a power value may be (owner, 2026-10-21, after run 39625857599; see the header). */
 export const PARITY_POWER_TOLERANCE = 0.03;
 /** PARITY_POWER_TOLERANCE around the range the two neighbours span. */
-const inBracket = (v: number, lo: number, hi: number) => {
+export const inBracket = (v: number, lo: number, hi: number) => {
   const tol = PARITY_POWER_TOLERANCE * Math.max(Math.abs(lo), Math.abs(hi), 1);
   return lo - tol <= v && v <= hi + tol;
 };

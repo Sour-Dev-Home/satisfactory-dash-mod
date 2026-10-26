@@ -10,6 +10,14 @@ namespace SatisDash
 	/** FRM's own default HTTP port (FicsitRemoteMonitoring.cpp:258) and the Node agent's (store.ts:29). */
 	inline constexpr int32 DefaultFrmPort = 8080;
 
+	/**
+	 * Where a reader gets its data (ADR-0058 Decision 4): FRM through the bridge, or the game itself. One source per reader.
+	 */
+	enum class ESource : uint8 { Bridge, Native };
+	/** What a host gets with no key set. The switch PR for a reader flips its constant here and changes nothing else. */
+	inline constexpr ESource DefaultPlayersSource = ESource::Bridge;
+	inline constexpr ESource DefaultResourceNodesSource = ESource::Bridge;
+
 	struct FAgentConfig
 	{
 		/** Checked by IsAllowedBackendUrl, with no trailing slash. */
@@ -20,15 +28,24 @@ namespace SatisDash
 		TOptional<int32> FrmPort;
 		/** Sent only as X-FRM-Authorization; empty = none. The host's own FRM secret: never logged. */
 		FString FrmToken;
+		/**
+		 * Hidden stopgap overrides, documented in docs/native-readers.md and deleted with the bridge (ADR-0058, R7): the
+		 * keys "playersSource" and "resourceNodesSource", each exactly "bridge" or "native". Unset = the default above,
+		 * and not written back.
+		 */
+		TOptional<ESource> PlayersSource;
+		TOptional<ESource> ResourceNodesSource;
 
 		int32 GetFrmPort() const { return FrmPort.Get(DefaultFrmPort); }
+		ESource GetPlayersSource() const { return PlayersSource.Get(DefaultPlayersSource); }
+		ESource GetResourceNodesSource() const { return ResourceNodesSource.Get(DefaultResourceNodesSource); }
 	};
 
 	enum class EConfigStatus : uint8
 	{
 		/** There was no file; one was written with the default URL and no code. Config holds those defaults. */
 		Missing,
-		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort" or "frmToken". */
+		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource" or "resourceNodesSource". */
 		Broken,
 		Valid,
 	};

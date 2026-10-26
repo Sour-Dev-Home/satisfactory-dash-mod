@@ -16,21 +16,24 @@ void SatisDash::FFrmBridge::NoteFailed(const TCHAR* Part, double Now)
 	}
 }
 
-void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue)
+void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue, bool bPlayers)
 {
-	FrmLanes.Enqueue(FFrmRead{ &FrmGetPlayer, [this](FHttpReply& Reply)
+	if (bPlayers)
 	{
-		if (Reply.Code >= 200 && Reply.Code < 300)
+		FrmLanes.Enqueue(FFrmRead{ &FrmGetPlayer, [this](FHttpReply& Reply)
 		{
-			Players = MakeShared<FPlayersJob>();
-			Players->Body = MoveTemp(Reply.Body);
-			Players->ReadAt = LastNow;
-		}
-		else
-		{
-			bPlayersAbsent = true; // playersMapper.ts: unreachable, timed out or an HTTP error is "FRM absent"
-		}
-	} });
+			if (Reply.Code >= 200 && Reply.Code < 300)
+			{
+				Players = MakeShared<FPlayersJob>();
+				Players->Body = MoveTemp(Reply.Body);
+				Players->ReadAt = LastNow;
+			}
+			else
+			{
+				bPlayersAbsent = true; // playersMapper.ts: unreachable, timed out or an HTTP error is "FRM absent"
+			}
+		} });
+	}
 	if (bFactoryDue)
 	{
 		FrmLanes.Enqueue(FFrmRead{ &FrmGetFactory, [this](FHttpReply& Reply)
@@ -197,6 +200,18 @@ bool SatisDash::FFrmBridge::RequestWorld(EWorldLayer Layer, const FString& Obser
 		Slot.bRequested = false;
 		return false;
 	}
+	return true;
+}
+
+bool SatisDash::FFrmBridge::SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, TArray<FResourceNodeReading> Readings, TOptional<FBlake3Hash> LastData)
+{
+	FWorldSlot& Slot = World[int32(Layer)];
+	if (Slot.bRequested || Slot.Job.IsValid() || Slot.Outcome.IsSet())
+	{
+		return false;
+	}
+	Slot.bRequested = true;
+	Slot.Job = MakeShared<FWorldJob>(Layer, MoveTemp(Readings), ObservedAt, LastData);
 	return true;
 }
 
