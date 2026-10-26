@@ -98,11 +98,11 @@ describe("tick-cost-native judge", () => {
     expect(noScan.reasons.join("\n")).toMatch(/no "Resource node scan \(game thread only\):" line/);
     expect(noScan.reasons.join("\n")).not.toMatch(/Readers:/);
   });
-  it("records the scan's longest step and total time in the reasons, without judging them", () => {
-    const slow = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 480.25 ms, total 9000.50 ms`];
+  it("records the scan's longest step and total time in the reasons; the total is not judged", () => {
+    const slow = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 1.99 ms, total 9000.50 ms`];
     const v = Native.evaluate(evidence({ lines: slow }));
     expect(v.pass).toBe(true);
-    expect(v.reasons.join("\n")).toMatch(/longest single step 480\.25 ms; longest total 9000\.5 ms/);
+    expect(v.reasons.join("\n")).toMatch(/longest single step 1\.99 ms; longest total 9000\.5 ms/);
     expect(Native.evaluate(evidence()).reasons.join("\n")).toMatch(/longest single step 1\.75 ms; longest total 41\.5 ms/);
   });
   it("maps recorded snapshots to parts: players.available true counts, a snapshot without players does not", () => {
@@ -139,5 +139,44 @@ describe("tick-cost-native judge", () => {
       { at: iso(FROM + TICK_WARMUP_MS + 11 * 60_000), status: 200, agent: "mod", world: w },
     ];
     expect(Native.evaluate(evidence({ posts })).pass).toBe(false);
+  });
+});
+
+describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", () => {
+  const S2_SOURCES = { ...NATIVE_SOURCES, factorySource: "native", trainsSource: "native" };
+  const stepLine = (name: string, longest: string) => `${PREFIX}${name} (game thread only): 900 items in 30 steps, longest step ${longest} ms, total 9.00 ms`;
+  const s2Lines = (factory = "1.10") => [...NATIVE_LINES, stepLine("Factory read", factory), stepLine("Trains read", "0.40"), stepLine("Train routes read", "0.60")];
+
+  it("judges S1-shaped evidence as before: only the node scan is required", () => {
+    const v = Native.evaluate(evidence());
+    expect(v.pass).toBe(true);
+    expect(v.reasons.join("\n")).toMatch(/step ceiling 2 ms held.*Resource node scan longest step 1\.75 ms/);
+  });
+  it("fails a node scan step over 2 ms, naming the reader and the value", () => {
+    const over = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 2.01 ms, total 41.50 ms`];
+    const v = Native.evaluate(evidence({ lines: over }));
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join("\n")).toMatch(/Resource node scan: longest step 2\.01 ms exceeds the 2 ms ceiling/);
+  });
+  it("passes S2-shaped evidence and lists the longest step per reader", () => {
+    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines() }));
+    expect(v.pass).toBe(true);
+    const text = v.reasons.join("\n");
+    expect(text).toMatch(/Factory read longest step 1\.1 ms/);
+    expect(text).toMatch(/Trains read longest step 0\.4 ms/);
+    expect(text).toMatch(/Train routes read longest step 0\.6 ms/);
+  });
+  it("fails S2-shaped evidence with a 2.4 ms Factory read", () => {
+    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("2.40") }));
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join("\n")).toMatch(/Factory read: longest step 2\.4 ms exceeds the 2 ms ceiling/);
+  });
+  it("fails when a native S2 reader logged nothing", () => {
+    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: NATIVE_LINES }));
+    expect(v.pass).toBe(false);
+    const text = v.reasons.join("\n");
+    expect(text).toMatch(/no "Factory read \(game thread only\):" line/);
+    expect(text).toMatch(/no "Trains read \(game thread only\):" line/);
+    expect(text).toMatch(/no "Train routes read \(game thread only\):" line/);
   });
 });

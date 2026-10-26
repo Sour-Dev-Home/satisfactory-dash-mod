@@ -32,6 +32,36 @@ export function scanCosts(lines: readonly string[]): ScanCost[] {
   return out;
 }
 
+// The 2 ms step ceiling (owner, 2026-10-26): every sliced native read logs `<Name> (game thread only): ... longest step X ms, total Y ms`.
+export const STEP_LINE_NAMES = ["Resource node scan", "Factory read", "Trains read", "Train routes read"] as const;
+export const MAX_NATIVE_STEP_MS = 2.0;
+export interface StepCost { reader: string; longestStepMs: number; totalMs: number }
+
+const STEP = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only\\): .*longest step ([\\d.]+) ms, total ([\\d.]+) ms`);
+
+/** One StepCost per sliced-read line in the log. */
+export function stepCosts(lines: readonly string[]): StepCost[] {
+  const out: StepCost[] = [];
+  for (const line of lines) {
+    const m = STEP.exec(line);
+    if (m) out.push({ reader: m[1]!, longestStepMs: Number(m[2]), totalMs: Number(m[3]) });
+  }
+  return out;
+}
+
+/** Reasons the step ceiling fails: a required reader with no line, or a logged longest step over 2 ms (2.00 passes). */
+export function stepProblems(lines: readonly string[], required: readonly string[]): string[] {
+  const costs = stepCosts(lines);
+  const out: string[] = [];
+  for (const reader of required) {
+    if (!costs.some((c) => c.reader === reader)) out.push(`the mod's log has no "${reader} (game thread only):" line: the reader did not run, so its step cost is unknown`);
+  }
+  for (const c of costs) {
+    if (c.longestStepMs > MAX_NATIVE_STEP_MS) out.push(`${c.reader}: longest step ${c.longestStepMs} ms exceeds the ${MAX_NATIVE_STEP_MS} ms ceiling (owner, 2026-10-26)`);
+  }
+  return out;
+}
+
 /** Why the log does not show the players reader native (empty: it does). */
 export function playersLogProblems(lines: readonly string[]): string[] {
   const s = readerSources(lines);
