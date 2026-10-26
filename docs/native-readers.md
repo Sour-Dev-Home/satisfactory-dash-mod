@@ -10,9 +10,9 @@ ADR-0058 (satisfactory-dash) replaces FicsitRemoteMonitoring (FRM) reader by rea
 | Players (R1) | S1 | `native` (default) | passed `native-parity` (runs 40244496806, 40253178598: 351 and 357 rounds equal to FRM; NOT EXERCISED: any online player) and `tick-cost-native` (run 40262414493); offline players come from the save's player cache (`GetAllPlayerInfoData`), not `GetOfflineCachedPlayerInfosInSession`, which crashed the dedicated server |
 | Resource nodes (R4) | S1 | `native` (default) | a sliced scan of the world's actors on the game thread (2,000 per tick, once per 30 minutes), the sort and the JSON built on the worker; a scan that finds nothing posts nothing and retries after 30 s. Passed `native-parity` (runs 40244496806, 40253178598: 608 items, 31 exploited, equal to FRM's) and `tick-cost-native` (run 40262414493). Scan cost measured at about 4.7 ms a scan and 0.3 ms per step on the game thread; the owner set the ceiling at 2 ms per step (2026-10-26) and `tick-cost-native` judges it. The reader now also carries `className` (`GetResourceClass()->GetName()`); R4's S1 parity pass predates className, so it is judged again in S2's `native-parity` run |
 | Rates (R2b) | S2 | `bridge` (default; follows `factorySource`) | `maxPerMinute`, `currentPerMinute` and `percent` per machine, built on the worker with the factory part; native in the same read as Factory, not yet judged. If only `current` misses parity the owner rules on `DefaultRatesMode` (Instantaneous) and the tolerance |
-| TrainRoutes | S2 | native only, off (no key; scheduled only while `trainsSource` is `native`) | a new world layer the bridge never sent; first scan 180 s (+/-10%) after Running, then every 600 s; off until Trains switches, and not yet judged |
+| TrainRoutes | S2 | native only, off (no key; scheduled only while `trainsSource` is `native`) | a new world layer the bridge never sent; first scan 480 s (+/-10%, as resource nodes) after Running, so the first post is inside tick-cost-native's window, then every 600 s; off until Trains switches, and not yet judged |
 | Factory (R2) | S2 | `bridge` (default) | the switch `factorySource` exists and the native reader is in (R2a and R2b), not yet judged: a sliced read of the buildable list on the game thread (one budgeted step per driver tick, 1 ms), one reading per manufacturer, the sort, rates and JSON built on the worker. With `native`, the bridge never sends `getFactory`; a pass that cannot read (no world, a world swapped mid-read, no machines) leaves the part out and never falls back to FRM. Its `native-parity` and `tick-cost-native` judgement is the S2 run (Task 10) |
-| Trains and stations (R3) | S2 | `bridge` (default) | the switch `trainsSource` exists and the native reader is in (R3), not yet judged: a sliced read of the railroad subsystem's trains and stations on the game thread (one budgeted step per driver tick, 1 ms), joined into the `mapLive` part on the worker at the factory cadence. The same reader also feeds a new, native-only world layer, `trainRoutes` (stations with their cargo platforms, trains with their timetable stops and cargo; first read 3 minutes after Running, then every 10 minutes), which is never requested from FRM and is not scheduled at all while `trainsSource` is `bridge`. A world with no trains and no stations sends empty arrays; only an abandoned read (world swapped, no railroad subsystem) leaves the part out. With `native`, the bridge never starts the `getTrains`/`getTrainStation` pair |
+| Trains and stations (R3) | S2 | `bridge` (default) | the switch `trainsSource` exists and the native reader is in (R3), not yet judged: a sliced read of the railroad subsystem's trains and stations on the game thread (one budgeted step per driver tick, 1 ms), joined into the `mapLive` part on the worker at the factory cadence. The same reader also feeds a new, native-only world layer, `trainRoutes` (stations with their cargo platforms, trains with their timetable stops and cargo; first read 8 minutes (+/-10%, as resource nodes) after Running, then every 10 minutes), which is never requested from FRM and is not scheduled at all while `trainsSource` is `bridge`. A world with no trains and no stations sends empty arrays; only an abandoned read (world swapped, no railroad subsystem) leaves the part out. With `native`, the bridge never starts the `getTrains`/`getTrainStation` pair |
 
 ## The hidden source override (a stopgap, not a setting)
 
@@ -31,10 +31,11 @@ bridge path.
 
 ## Where each reader stands (S2, after Task 11)
 
-Only players and resource nodes (S1) are `native` by default. Factory, Rates, Trains and TrainRoutes are built and tested but
-none has passed `native-parity` or `tick-cost-native` yet: their default stays `bridge` until each one's switch PR (after the
-owner dispatches the one S2 `native-parity` run and the one S2 `tick-cost-native` run on `Test2`). The `bridge` rows therefore
-still need FRM installed.
+Status, auto-pause and power are native. Of the readers with a bridge path, only players and resource nodes are native by
+default. Factory, Rates and Trains are built and tested but have not passed `native-parity` or `tick-cost-native` yet: their
+default stays `bridge` until each one's switch PR (after the owner dispatches the one S2 `native-parity` run and the one S2
+`tick-cost-native` run on `Test2`), so they still need FRM installed. TrainRoutes has no bridge path: it is native-only and
+runs only when `trainsSource` is `native`, so it is off until Trains switches.
 
 ## The step ceiling (owner, 2026-10-26)
 
@@ -48,8 +49,8 @@ recorded, not judged.
 ## The Test2 note
 
 The S2 runs (`native-parity`, `tick-cost-native`) load the owner's `Test2` save through the runner config's `s2World`, not S3's
-(see `docs/runner.md`). `tick-cost-native` writes all four keys (`NATIVE_SOURCES_S2`). The train-routes layer's first scan is 180
-s (+/-10%) after the agent is Running and then every 600 s, so its `Train routes read` line is not guaranteed to fall in the
-10-minute measured window (it starts 3 minutes in): the judge requires the line inside the window, and a run whose scan fell
-outside it fails rather than passing unproven. Test2 must hold the trains, stations and machines the checklist in
+(see `docs/runner.md`). `tick-cost-native` writes all four keys (`NATIVE_SOURCES_S2`). The train-routes layer's first scan is 480
+s (+/-10%, the resource-node layer's first-read rule) after the agent is Running and then every 600 s, so its first post lands
+3 to 13 minutes into `tick-cost-native`'s measurement, inside the measured window, and `native-parity`'s 30-minute window
+holds posts at about 8, 18 and 28 minutes. The judge requires the `Train routes read` line inside the window. Test2 must hold the trains, stations and machines the checklist in
 `docs/runner.md` lists.

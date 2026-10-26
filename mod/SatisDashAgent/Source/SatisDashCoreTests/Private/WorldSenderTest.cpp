@@ -15,7 +15,7 @@ namespace
 	const TCHAR* WorldNodesPost = TEXT("/agent/v1/world/resourceNodes");
 	const TCHAR* WorldAccepted = TEXT("{\"accepted\":true,\"unchanged\":false}");
 
-	/** A bridge, a sender whose jitter is the top of its range (x1.1: rails at 132 s then every 660 s, nodes at 528 s then every 1980 s), and a fake clock. */
+	/** A bridge, a sender whose jitter is the top of its range (x1.1: rails at 132 s then every 660 s, nodes and train routes at 528 s then every 1980 s and 660 s), and a fake clock. */
 	struct FWorldFixture
 	{
 		SatisDash::Test::FFakeTransport Net;
@@ -481,14 +481,16 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderTrainRoutesTest, "SatisDash.Core.Wo
 bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	// trainsSource native: the layer scans (a sliced game read), submits, and posts once; the first read is 180 s x 1.1 after Start.
+	// trainsSource native: the layer scans (a sliced game read), submits, and posts once; the first read is 480 s x 1.1 = 528 s after Start
+	// (the resource-node layer's first-read rule: 8 minutes, jitter +/-10%, so a first post inside tick-cost-native's measured span).
 	FWorldFixture F;
 	F.Config.TrainsSource = ESource::Native;
 	F.Config.ResourceNodesSource = ESource::Bridge;
 	F.bNativeReaders = true;
 	worldTrainRoutesReadings(F.Game);
 	F.Sender.Start(F.T);
-	TestTrue(TEXT("the layer is posted"), F.until([&F] { return F.Net.pending(WorldTrainRoutesPost) > 0; }, 400));
+	TestFalse(TEXT("no read before 8 minutes less the jitter (432 s)"), F.until([&F] { return F.Game.TrainsBegins > 0 || F.Net.pending(WorldTrainRoutesPost) > 0; }, 420));
+	TestTrue(TEXT("the layer is posted"), F.until([&F] { return F.Net.pending(WorldTrainRoutesPost) > 0; }, 200));
 	TestEqual(TEXT("one begin"), F.Game.TrainsBegins, 1);
 	TestEqual(TEXT("three steps, one a tick"), F.Game.TrainsStepCalls, 3);
 	const FString Body = F.Net.lastBody(WorldTrainRoutesPost);

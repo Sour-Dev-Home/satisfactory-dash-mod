@@ -235,8 +235,8 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   - `trains` and `stations` (R3): ids and name hashes equal; "Self-Driving" exact (parked, manual and derailed mismatches are
     reported); stationary trains and stations within 1 m, a moving train within the distance FRM's own neighbouring reads moved
     plus 5 m (new).
-  - `trainRoutes`: native only (the bridge never sent it), first post about 3 minutes after Running and then every 10 minutes, so
-    the 30-minute window always holds at least one; the posted layer equals the FRM-derived layer on one side of the post (120 s).
+  - `trainRoutes`: native only (the bridge never sent it), first post about 8 minutes (+/-10%) after Running and then every 10 minutes, so
+    the 30-minute window holds posts at about 8, 18 and 28 minutes and always at least one; the posted layer equals the FRM-derived layer on one side of the post (120 s).
   Evidence holds names as hashes only. The reader verdicts also need the mod's log to show the readers native
   (`factoryLogProblems`, `trainsLogProblems`) and a completed `Factory read`, `Trains read` and `Train routes read` line. S1's
   three judges are unchanged; an S1 capture is judged as before.
@@ -251,10 +251,9 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   (node scan, `Factory read`, `Trains read`, `Train routes read`) is judged: over 2.0 ms fails, and so does a native reader
   whose line is missing. With the S2 keys in the config the judge also needs `factorySource` and `trainsSource` to be
   `native` (in the config and in the mod's `Readers:` line) and a `Factory read`, `Trains read` and `Train routes read` line
-  whose time falls inside the measured window. S1-shaped evidence (no S2 keys) is judged as before. Caution on the routes line:
-  the layer's first scan is 180 s (+/-10%) after Running and then every 600 s, while the window starts 3 minutes after the
-  measurement does and the mod enrols just before it, so the first scan lands near or before the window's start and the second
-  near its end; a run can fail on this alone, and the rule is not loosened. Readers still on the bridge after this run:
+  whose time falls inside the measured window. S1-shaped evidence (no S2 keys) is judged as before. The routes layer follows the
+  resource-node layer's first-read rule (first scan 8 minutes, +/-10%, after Running, then every 10 minutes), so its first post
+  also falls 3 to 13 minutes into the measurement, inside the window. Readers still on the bridge after this run:
   Factory, Rates, Trains and stations (their defaults flip only in their switch PRs, which `docs/native-readers.md` tracks),
   plus the mapLive and rails parts as in `tick-cost`; the run forces the S2 ones native through the config. Power, status and
   auto-pause were never on the bridge. `snapshot-parts.json` (the measured window and which parts each accepted snapshot

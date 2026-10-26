@@ -320,9 +320,9 @@ bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 
 	// An abandoned read (a world swap) leaves the part out, with a warning, and FRM is not asked.
 	// Every case below runs on its own fresh driver, which begins its reads in its first 30 s: the sender's own train-routes read
-	// (first due 198 s after Running) is never in these windows, so each count here is the driver's mapLive pass alone.
-	// The first case is the empty one above (F stays under 198 s).
-	TestTrue(TEXT("the empty and basic cases ended before the sender's first read is due"), F.T < 1000.0 + 198.0);
+	// (first due 432 to 528 s after Running) is never in these windows, so each count here is the driver's mapLive pass alone.
+	// The first case is the empty one above (F stays under 432 s, the earliest the sender's read can be due).
+	TestTrue(TEXT("the empty and basic cases ended before the sender's first read is due"), F.T < 1000.0 + 432.0);
 
 	// An abandoned read (a world swap) leaves the part out, with one warning, and FRM is not asked.
 	// FLogCapture::Take is everything since the capture was made, so each case makes its own capture just before it starts.
@@ -402,8 +402,8 @@ bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("a busy cursor is not a failed read"), FalseWarnings, 0);
 
-	// The other direction: the cursor is held when the routes layer is due (198 s) and released later; the layer does not wait
-	// out a flat 30 s retry, it starts on the first free tick, and posts.
+	// The other direction: the cursor is held when the routes layer is due (432 to 528 s after Running: 480 s, jitter +/-10%) and released
+	// later; the layer does not wait out a flat 30 s retry, it starts on the first free tick, and posts.
 	SatisDash::Test::FLogCapture LLog;
 	FDriverFixture L;
 	L.Game.Trains = { Train };
@@ -411,14 +411,14 @@ bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 	L.Game.bTrainsOpen = true;
 	FDriver Starved{ L.ConfigPath, L.CredentialPath, L.Net, L.Game, L.Worker, L.clock() };
 	L.enrol(Starved, SatisDash::Test::FakeSecret(), Native);
-	DriverNativeRun(L, Starved, 215);
+	DriverNativeRun(L, Starved, 540); // past the latest due time, 528 s
 	TestEqual(TEXT("held through the routes due time: no routes post yet"), L.Net.sent(TEXT("/agent/v1/world/trainRoutes")), 0);
 	L.Game.bTrainsOpen = false;
 	TestTrue(TEXT("the routes layer posts soon after the release"), DriverNativeRunUntil(L, Starved, [&L] { return L.Net.pending(TEXT("/agent/v1/world/trainRoutes")) > 0; }, 15));
 	int32 StarvedWarnings = 0;
 	for (const FString& Line : LLog.Take())
 	{
-		StarvedWarnings += Line.Contains(TEXT("Couldn't read mapLive from the game")) || Line.Contains(TEXT("found no")) ? 1 : 0;
+		StarvedWarnings += Line.Contains(TEXT("Couldn't read mapLive from the game")) || Line.Contains(TEXT("train routes read was abandoned")) ? 1 : 0; // the node layer's own "found no nodes" (this fake game has none; its first scan now falls in the window) is not a trains warning
 	}
 	TestEqual(TEXT("no failed-read warning in either direction"), StarvedWarnings, 0);
 
