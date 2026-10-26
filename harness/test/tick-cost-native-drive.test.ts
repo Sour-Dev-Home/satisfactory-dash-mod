@@ -16,6 +16,7 @@ async function drive(spec: typeof tickCost) {
   const deps = {
     now: () => new Date(t),
     sleep: yieldTurn,
+    config: { frmBaseUrl: "http://127.0.0.1:18081" },
     backendHost: async () => ({ relayUrl: "http://127.0.0.1:9", seedCode: async () => void steps.push("seedCode") }),
     loadWorld: async () => void steps.push("loadWorld"),
     waitHealthy: async () => void steps.push("waitHealthy"),
@@ -61,5 +62,10 @@ describe("tick-cost-native: spec and drive", () => {
     expect(parts.measured.from).toBe(new Date(START).toISOString());
     expect(Date.parse(parts.measured.to) - Date.parse(parts.measured.from)).toBe(TICK_WARMUP_MS + 10 * 60_000);
     expect(parts.snapshots).toEqual([]);
+  });
+
+  it("records FRM's endpoint from the runner config for S12 (owner, 2026-10-26)", async () => {
+    const { captures } = await drive(tickCostNative);
+    expect((captures["tick-cost.json"] as { frm: string | null }).frm).toBe("127.0.0.1:18081");
   });
 });

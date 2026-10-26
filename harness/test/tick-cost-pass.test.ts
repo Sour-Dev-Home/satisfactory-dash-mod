@@ -47,7 +47,7 @@ describe("tick-cost pass", () => {
     expect(v.pass).toBe(true);
     expect(v.reasons[0]).toContain("tick median 22 without the mod, 22 with it");
     expect(v.reasons[0]).toContain("working set at the end 50.0 MB above the baseline's (limit 100)");
-    expect(v.reasons[0]).toContain("grew 20.0 MB vs 10.0 MB, 10.0 MB more (limit 25)");
+    expect(v.reasons[0]).toContain("over the last 5 minutes it grew 20.0 MB vs 10.0 MB (counted from 0 when negative), 10.0 MB more (limit 25)");
     expect(v.reasons[0]).toContain("3 circuit group(s)");
     expect(v.reasons[0]).toContain("1 new endpoint(s), all the recorder's");
   });
@@ -119,6 +119,29 @@ describe("tick-cost pass", () => {
       expect(reasons({ outboundBaseline: [], outboundWithMod: [] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");
       expect(reasons({ ...run39538061390, outboundWithMod: ["172.67.74.152:443"] })).toContain(`S12: the sampler never saw the mod's connection to the recorder (${RUN_RECORDER})`);
     });
+    describe("FRM's endpoint (owner, 2026-10-26)", () => {
+      const FRM = "127.0.0.1:18081";
+      it("allows exactly FRM's loopback endpoint and names it in the pass reason (runs 40247280125, 40256047941)", () => {
+        const v = evaluate(ev(capture({ frm: FRM, outboundWithMod: ["203.0.113.7:443", RECORDER, FRM], outboundNamesWithMod: { "127.0.0.1": ["kubernetes.docker.internal"] } })));
+        expect(v.pass).toBe(true);
+        expect(v.reasons[0]).toContain("all the recorder's, and FRM's 127.0.0.1:18081 (owner, 2026-10-26)");
+      });
+      it("doesn't require FRM to appear", () => {
+        expect(evaluate(ev(capture({ frm: FRM }))).pass).toBe(true);
+      });
+      it("fails on another loopback port, or when the capture has no FRM endpoint", () => {
+        expect(reasons({ frm: FRM, outboundWithMod: ["203.0.113.7:443", RECORDER, "127.0.0.1:18082"] }))
+          .toContain("S12: the mod's boot contacted 127.0.0.1:18082, which the baseline didn't, isn't the recorder (127.0.0.1:13105), and has no DNS name");
+        expect(reasons({ frm: null, outboundWithMod: ["203.0.113.7:443", RECORDER, FRM] }))
+          .toContain("S12: the mod's boot contacted 127.0.0.1:18081, which the baseline didn't, isn't the recorder (127.0.0.1:13105), and has no DNS name");
+        expect(reasons({ outboundWithMod: ["203.0.113.7:443", RECORDER, FRM] }))
+          .toContain("S12: the mod's boot contacted 127.0.0.1:18081, which the baseline didn't, isn't the recorder (127.0.0.1:13105), and has no DNS name");
+      });
+      it("fails when FRM's endpoint isn't 127.0.0.1:<port>", () => {
+        expect(reasons({ frm: "10.0.0.5:18081", outboundWithMod: ["203.0.113.7:443", RECORDER, "10.0.0.5:18081"] }))
+          .toContain("S12: FRM's endpoint is not 127.0.0.1:<port> (10.0.0.5:18081)");
+      });
+    });
     it("fails when the recorder is not a loopback host:port", () => {
       expect(reasons({ recorder: "" })).toContain("S12: the recorder's endpoint is not 127.0.0.1:<port> ()");
       expect(reasons({ recorder: "10.0.0.1:13105" })).toContain("S12: the recorder's endpoint is not 127.0.0.1:<port> (10.0.0.1:13105)");
@@ -136,10 +159,30 @@ describe("tick-cost pass", () => {
     });
     it("fails when it grows more than 25 MB beyond the baseline's growth", () => {
       expect(evaluate(ev(capture({ memoryWithMod: mem([6000, 6020, 6035]) }))).pass).toBe(true);
-      expect(reasons({ memoryWithMod: mem([6000, 6020, 6036]) })).toContain("memory: the with-mod working set grew 36.0 MB vs the baseline's 10.0 MB, 26.0 MB more, more than 25 MB");
+      expect(reasons({ memoryWithMod: mem([6000, 6020, 6036]) })).toContain("memory: over the last 5 minutes the with-mod working set grew 36.0 MB vs the baseline's 10.0 MB (counted from 0 when negative), 26.0 MB more, more than 25 MB");
     });
-    it("a baseline that shrinks makes the with-mod growth count against it", () => {
-      expect(reasons({ memoryBaseline: mem([6010, 6000]), memoryWithMod: mem([6000, 6016]) })).toContain("memory: the with-mod working set grew 16.0 MB vs the baseline's -10.0 MB, 26.0 MB more, more than 25 MB");
+    // Owner, 2026-10-26: the leak is the trend over each window's last 5 minutes, and a baseline release counts as 0.
+    it("counts a shrinking baseline as 0, not against the mod", () => {
+      expect(evaluate(ev(capture({ memoryBaseline: mem([6010, 6000]), memoryWithMod: mem([6000, 6016]) }))).pass).toBe(true);
+      expect(reasons({ memoryBaseline: mem([6010, 6000]), memoryWithMod: mem([6000, 6026]) }))
+        .toContain("memory: over the last 5 minutes the with-mod working set grew 26.0 MB vs the baseline's -10.0 MB (counted from 0 when negative), 26.0 MB more, more than 25 MB");
+    });
+    it("judges only the last 5 minutes: a step before them doesn't count, growth inside them does", () => {
+      // 22 samples, 30 s apart (10.5 minutes); the last 5 minutes are samples 11-21.
+      const flatAfterStep = mem([6000, 6000, 6000, 6000, 6040, ...Array(17).fill(6040)]);
+      expect(evaluate(ev(capture({ memoryBaseline: mem(Array(22).fill(6000)), memoryWithMod: flatAfterStep }))).pass).toBe(true);
+      const lateGrowth = mem([...Array(11).fill(6000), 6000, 6003, 6006, 6009, 6012, 6015, 6018, 6021, 6024, 6026, 6027]);
+      expect(reasons({ memoryBaseline: mem(Array(22).fill(6000)), memoryWithMod: lateGrowth }))
+        .toContain("memory: over the last 5 minutes the with-mod working set grew 27.0 MB vs the baseline's 0.0 MB (counted from 0 when negative), 27.0 MB more, more than 25 MB");
+    });
+    it("passes run 40256047941's shape (the same step in both boots, then a baseline release)", () => {
+      const baseline = mem([3256, 3257, 3257, 3257, 3294, 3294, 3295, 3295, 3294, 3294, 3294, 3294, 3294, 3294, 3297, 3233, 3233, 3233, 3233, 3233, 3233, 3233]);
+      const withMod = mem([3208, 3207, 3208, 3298, 3244, 3244, 3244, 3244, 3244, 3244, 3244, 3245, 3244, 3297, 3239, 3245, 3241, 3247, 3245, 3246, 3245, 3245]);
+      expect(evaluate(ev(capture({ memoryBaseline: baseline, memoryWithMod: withMod }))).pass).toBe(true);
+    });
+    it("fails closed when a window has fewer than 2 samples in its last 5 minutes", () => {
+      const sparse: MemoryPoint[] = [{ at: at(0), workingSetBytes: 6000 * MB }, { at: at(600), workingSetBytes: 6000 * MB }];
+      expect(reasons({ memoryWithMod: sparse })).toContain("memory: the with-mod window has 1 sample(s) in its last 5 minutes, fewer than 2");
     });
     it("fails closed on a missing sample or fewer than 2 per window", () => {
       expect(reasons({ memoryBaseline: mem([6000, null, 6010]) })).toContain("memory: 1 sample(s) of the baseline window could not be read");

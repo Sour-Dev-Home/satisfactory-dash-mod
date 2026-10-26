@@ -142,6 +142,8 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder): Pro
       memoryBaseline: base?.memory ?? [],
       memoryWithMod: [],
       recorder: new URL(recorder.url).host,
+      // The mod's FRM bridge reads FRM here (owner, 2026-10-26: S12 allows it).
+      frm: ctx.deps.config.frmBaseUrl ? new URL(ctx.deps.config.frmBaseUrl).host : null,
       circuitGroups: null,
       sessionBaseline: base?.session ?? null,
       sessionWithMod: null,
