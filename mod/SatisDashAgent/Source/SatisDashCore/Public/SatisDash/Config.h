@@ -15,7 +15,7 @@ namespace SatisDash
 	 */
 	enum class ESource : uint8 { Bridge, Native };
 	/** What a host gets with no key set. The switch PR for a reader flips its constant here and changes nothing else. */
-	inline constexpr ESource DefaultPlayersSource = ESource::Bridge;
+	inline constexpr ESource DefaultPlayersSource = ESource::Native;
 	inline constexpr ESource DefaultResourceNodesSource = ESource::Bridge;
 
 	struct FAgentConfig

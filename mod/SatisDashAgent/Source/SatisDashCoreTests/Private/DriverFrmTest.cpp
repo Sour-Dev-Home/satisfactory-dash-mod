@@ -7,6 +7,8 @@ using SatisDash::Test::FDriverFixture;
 namespace
 {
 	const TCHAR* DriverFrmSnapshots = TEXT("/agent/v1/snapshots");
+	/** These tests cover the bridge's players path, which is no longer the default (ADR-0058 switch PR): the key selects it. */
+	const TCHAR* DriverFrmBridgePlayers = TEXT(",\"playersSource\":\"bridge\"");
 
 	/** Answers every open snapshot post with 200, and returns the bodies it answered. */
 	TArray<FString> DriverFrmDrain(FDriverFixture& F)
@@ -63,7 +65,7 @@ bool FDriverFrmPartsTest::RunTest(const FString& Parameters)
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	TestEqual(TEXT("no FRM read before enrolling"), F.Net.sent(TEXT("/getPlayer")), 0);
-	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverFrmBridgePlayers);
 	F.run(Driver, 1);
 	TestEqual(TEXT("the first pass asks for players"), F.Net.pending(TEXT("/getPlayer")), 1);
 	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, TEXT("[{\"Name\":\"Player One\",\"Online\":true}]")));
@@ -95,7 +97,7 @@ bool FDriverFrmDownTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverFrmBridgePlayers);
 	F.run(Driver, 1);
 	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(0, FString()));
 	F.run(Driver, 1);
@@ -120,7 +122,7 @@ bool FDriverFrmMapLiveTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverFrmBridgePlayers);
 	TestTrue(TEXT("players asked"), DriverFrmServe(F, Driver, TEXT("/getPlayer"), SatisDash::Test::Reply(200, TEXT("[{\"Name\":\"Player One\",\"Online\":true}]"))));
 	TestTrue(TEXT("factory asked"), DriverFrmServe(F, Driver, TEXT("/getFactory"), SatisDash::Test::Reply(0, FString())));
 	TestTrue(TEXT("then trains"), DriverFrmServe(F, Driver, TEXT("/getTrains"), SatisDash::Test::Reply(200, DriverFrmTrain)));
@@ -158,7 +160,7 @@ bool FDriverFrmMapLiveDownTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverFrmBridgePlayers);
 	for (const TCHAR* Path : { TEXT("/getPlayer"), TEXT("/getFactory"), TEXT("/getTrains"), TEXT("/getTrainStation") })
 	{
 		TestTrue(FString::Printf(TEXT("%s asked"), Path), DriverFrmServe(F, Driver, Path, SatisDash::Test::Reply(0, FString())));
@@ -192,7 +194,7 @@ bool FDriverFrmStopsTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverFrmBridgePlayers);
 	F.run(Driver, 1);
 	const int32 Asked = F.Net.sent(TEXT("/getPlayer"));
 	F.Net.answer(DriverFrmSnapshots, SatisDash::Test::Reply(401, FString()));
@@ -216,7 +218,7 @@ namespace
 	 */
 	bool DriverFrmHoldEncode(FDriverFixture& F, FDriver& Driver)
 	{
-		F.enrol(Driver, SatisDash::Test::FakeSecret());
+		F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverFrmBridgePlayers);
 		F.run(Driver, 1);
 		F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, TEXT("[{\"Name\":\"Player One\",\"Online\":true}]")));
 		F.run(Driver, 1);
