@@ -85,7 +85,7 @@ function partLogProblems(lines: readonly string[], part: "factory" | "trains" | 
   const s = readerSources(lines);
   if (!s) return [`the mod's log has no "${READERS_LINE}" line: the run cannot show the ${part} reader was native, not the bridge`];
   const source = s[part];
-  if (source === undefined) return [`the mod's "${READERS_LINE}" line has no ${part}= field (an S1 line): the run cannot show the ${part} reader was native`];
+  if (source === undefined) return [`the mod's "${READERS_LINE}" line has no ${part}= field (an older line shape): the run cannot show the ${part} reader was native`];
   return source === "native" ? [] : [`the mod's "${READERS_LINE}" line says ${part}=${source}, not native`];
 }
 

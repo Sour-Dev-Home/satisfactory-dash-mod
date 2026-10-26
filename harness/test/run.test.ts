@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RunnerConfigSchema } from "../src/config";
 import type { Echo } from "../src/echo";
 import { sha1Prefix } from "../src/mod-config";
-import { RefusalError, type RunDeps, runSpike } from "../src/run";
+import { RefusalError, realDeps, type RunDeps, runSpike } from "../src/run";
 import type { ServerProcess } from "../src/server-control";
 import type { TickSeries } from "../src/ticks";
 import type { AutoPauseStep, StatusPair, StatusReading } from "../src/verdict";
@@ -449,5 +449,38 @@ describe("runSpike", () => {
     await runSpike("S2", deps);
     expect(procs).toHaveLength(2);
     expect(stopped).toEqual(procs);
+  });
+});
+
+const uploaded = vi.hoisted(() => [] as Buffer[]);
+vi.mock("../src/world", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/world")>()),
+  loadWorld: async (_api: unknown, _name: string, bytes: Buffer) => void uploaded.push(bytes),
+}));
+
+describe("realDeps loadWorld", () => {
+  const base = { serverDir: "D:/t", apiBaseUrl: "https://127.0.0.1:17777", buildCommand: ["b"], builtPluginDir: "D:/b/{spike}", installed: { engine: "5.6.1", sml: "3.12.0" } };
+  const toolchain = { engine: "5.6.1", sml: "3.12.0", source: "x" };
+
+  it("reads the file named by the world key's config entry", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "worlds-"));
+    try {
+      const files = { s3World: "three", s2World: "two", sprint3World: "sprint" };
+      for (const [key, text] of Object.entries(files)) writeFileSync(join(dir, `${key}.sav`), text);
+      const config = RunnerConfigSchema.parse({ ...base, ...Object.fromEntries(Object.keys(files).map((k) => [k, join(dir, `${k}.sav`)])) });
+      const deps = realDeps(config, toolchain, dir, dir);
+      uploaded.length = 0;
+      for (const key of ["sprint3", "s2", "s3"] as const) await deps.loadWorld!(key);
+      await deps.loadWorld!();
+      expect(uploaded.map((b) => b.toString())).toEqual(["sprint", "two", "three", "three"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds a loader from sprint3World alone and refuses a key with no entry", async () => {
+    const deps = realDeps(RunnerConfigSchema.parse({ ...base, sprint3World: "D:/none/sprint3-test3.sav" }), toolchain, "D:/o", "D:/r");
+    expect(deps.loadWorld).toBeDefined();
+    await expect(deps.loadWorld!("s2")).rejects.toThrow(/needs s2World/);
   });
 });
