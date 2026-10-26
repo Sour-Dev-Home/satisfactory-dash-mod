@@ -27,6 +27,8 @@ namespace SatisDash
 		double CycleSeconds = 0;
 		/** GetCurrentPotential. */
 		double Potential = 1.0;
+		/** GetCurrentProductionBoost: the Somersloop multiplier, applied to products only (FRM's output, run 40378567334). */
+		double ProductionBoost = 1.0;
 		/** GetProductivity(). */
 		double RawProductivity = 0;
 		bool bProducing = false;
@@ -34,8 +36,8 @@ namespace SatisDash
 
 	/**
 	 * R2b (ADR-0058): per-minute rates for one machine. Max is the recipe amount over the base duration, times the clock
-	 * (fluids in m3); current and percent follow the mode. A Somersloop boost is not applied. Never produces NaN or infinity:
-	 * an unusable cycle, clock or productivity gives 0.
+	 * (fluids in m3), and products also times the production boost; current and percent follow the mode. Never produces NaN
+	 * or infinity: an unusable cycle, clock, boost or productivity gives 0.
 	 */
 	SATISDASHCORE_API void NativeRates(const FRateInput& In, ERatesMode Mode, TArray<FRateReading>& OutProduction, TArray<FRateReading>& OutIngredients);
 }

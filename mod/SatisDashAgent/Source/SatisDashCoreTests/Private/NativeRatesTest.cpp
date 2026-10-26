@@ -72,6 +72,22 @@ bool FNativeRatesMaxTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("refinery: Fuel out is 40 m3 a minute"), Prod[0].Max, 40.0);
 	TestEqual(TEXT("refinery: Crude Oil in is 60 m3 a minute"), Ing[0].Max, 60.0);
 
+	// Somersloops (FRM's output, run 40378567334): products times the boost, ingredients unchanged; current follows Max.
+	FRateInput Boosted = Stator(1.0, 0.5, true);
+	Boosted.ProductionBoost = 2.0;
+	NativeRates(Boosted, ERatesMode::Averaged, Prod, Ing);
+	TestEqual(TEXT("boost 2: MaxProd 10"), Prod[0].Max, 10.0);
+	TestEqual(TEXT("boost 2: current is the boosted Max times the fraction"), Prod[0].Current, 5.0);
+	TestEqual(TEXT("boost 2: the ingredient is not boosted"), Ing[0].Max, 15.0);
+	TestEqual(TEXT("boost 2: percent is the fraction"), Prod[0].Percent, 50.0);
+	Boosted.ProductionBoost = 1.5;
+	NativeRates(Boosted, ERatesMode::Averaged, Prod, Ing);
+	TestEqual(TEXT("boost 1.5: MaxProd 7.5"), Prod[0].Max, 7.5);
+	Boosted.ProductionBoost = NativeRatesNaN();
+	NativeRates(Boosted, ERatesMode::Averaged, Prod, Ing);
+	TestEqual(TEXT("a NaN boost is 0"), Prod[0].Max, 0.0);
+	TestEqual(TEXT("a NaN boost leaves the ingredient alone"), Ing[0].Max, 15.0);
+
 	FRateInput Zero = Stator(1.0, 1.0, true);
 	Zero.CycleSeconds = 0.0;
 	NativeRates(Zero, ERatesMode::Averaged, Prod, Ing);

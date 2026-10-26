@@ -414,13 +414,14 @@ TOptional<TArray<SatisDash::FFactoryReading>> SatisDash::FGameReader::StepFactor
 			Rates.CycleSeconds = UFGRecipe::GetManufacturingDuration(Recipe);
 		}
 		Rates.Potential = Machine->GetCurrentPotential();
+		Rates.ProductionBoost = Machine->GetCurrentProductionBoost();
 		Rates.RawProductivity = Machine->GetProductivity();
 		Rates.bProducing = Reading.bProducing;
 		NativeRates(Rates, DefaultRatesMode, Reading.Production, Reading.Ingredients);
 		Reading.ClockPercent = 100.0 * Rates.Potential;
 		FactoryProductivityMin = FMath::Min(FactoryProductivityMin, Rates.RawProductivity);
 		FactoryProductivityMax = FMath::Max(FactoryProductivityMax, Rates.RawProductivity);
-		FactoryBoosted += Machine->GetCurrentProductionBoost() > 1.0f ? 1 : 0;
+		FactoryBoosted += Rates.ProductionBoost > 1.0 ? 1 : 0;
 		const FVector Location = Machine->GetActorLocation();
 		Reading.bHasLocation = true;
 		Reading.XCm = Location.X;
@@ -538,7 +539,7 @@ namespace
 		}
 	}
 
-	/** One station and its cargo platforms (a bounded walk along the chain from the station's output). */
+	/** One station and its cargo and empty platforms (a bounded walk along the chain from the station's output). */
 	void TrainsReadStation(AFGTrainStationIdentifier& Identifier, AFGBuildableRailroadStation& Building, SatisDash::FStationReading& Reading)
 	{
 		Reading.Id = Building.GetName();
@@ -564,6 +565,15 @@ namespace
 				Entry.Id = Cargo->GetName();
 				Entry.bLoad = Cargo->GetIsInLoadMode();
 				TrainsReadItems(Cargo->GetInventory(), Entry.Items);
+				Reading.Platforms.Add(MoveTemp(Entry));
+			}
+			else if (!Platform->IsA<AFGBuildableRailroadStation>())
+			{
+				// An empty platform: listed as unload with no items, as FRM's output lists Build_TrainPlatformEmpty_02_C
+				// (run 40378567334). A second station in the chain stays out: no capture shows how FRM lists one.
+				SatisDash::FPlatformReading Entry;
+				Entry.Id = Platform->GetName();
+				Entry.bLoad = false;
 				Reading.Platforms.Add(MoveTemp(Entry));
 			}
 			Output = Platform->GetConnectionInOppositeDirection(Next);

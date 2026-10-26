@@ -514,6 +514,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGResourceNodeBase::GetResourceClass | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:144 | header only (H: returns the effective class, `TSubclassOf< UFGResourceDescriptor >`; GetResourceClassOverride :146 and GetResourceClassOriginal :150 are the parts. The override's behaviour is parity's question; survey S2 says the same) |
 | TSubclassOf | Engine/Source/Runtime/CoreUObject/Public/Templates/SubclassOf.h:29 | header only (the template; :12 is a forward declaration; operator-> at :125 returns UClass*) |
 | UObjectBaseUtility::GetName | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBaseUtility.h:429 | header only (FString, the object's short name, not the path: a class's is Desc_OreIron_C) |
+| UObjectBaseUtility::IsA | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBaseUtility.h:626 | header only (template<class T> bool IsA() const: "true if this object is of the template type"; the platform walk keeps a second station out) |
 | AFGResourceNodeBase::IsOccupied | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:140 | header only |
 | Engine/Level.h | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:1 | header only |
 | ULevel | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:422 | header only |

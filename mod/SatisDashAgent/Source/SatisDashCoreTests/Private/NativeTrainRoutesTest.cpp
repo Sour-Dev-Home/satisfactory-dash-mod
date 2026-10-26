@@ -239,6 +239,19 @@ bool FNativeTrainRoutesRulesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("items sorted and distinct"), SpacedBody.Json.Contains(TEXT("\"items\":[\"Desc_A_C\",\"Desc_B_C\",\"Desc_C_C\"]"), ESearchCase::CaseSensitive));
 	TestTrue(TEXT("the trailing space stays"), SpacedBody.Json.Contains(TEXT("\"name\":\"Silica/Crstal Out \""), ESearchCase::CaseSensitive));
 
+	// An empty platform (FRM lists Build_TrainPlatformEmpty_02_C as unload with no items, run 40378567334) is kept.
+	FStationReading WithEmpty = FStationReading();
+	WithEmpty.Id = TEXT("S2");
+	WithEmpty.Name = TEXT("s");
+	WithEmpty.Platforms.Add(NativeRoutesPlatform(TEXT("Build_TrainPlatformEmpty_02_C_1"), false, {}));
+	const FNativeWorldBody EmptyBody = BuildNativeTrainRoutes(NativeRoutesObserved, { WithEmpty }, {});
+	TestTrue(TEXT("the empty platform is unload with no items"), EmptyBody.Json.Contains(TEXT("\"id\":\"Build_TrainPlatformEmpty_02_C_1\",\"mode\":\"unload\",\"items\":[]"), ESearchCase::CaseSensitive));
+	TArray<TSharedPtr<FJsonValue>> EmptyData;
+	if (TestTrue(TEXT("the layer with an empty platform parses"), NativeRoutesParse(EmptyBody, EmptyData)))
+	{
+		TestTrue(TEXT("a layer with an empty platform fits the contract"), NativeRoutesFitsSchema(EmptyData));
+	}
+
 	// The layer is cut at 4,000 records, stations first; the empty id is left out and counted.
 	TArray<FStationReading> ManyStations;
 	TArray<FTrainReading> ManyTrains;
