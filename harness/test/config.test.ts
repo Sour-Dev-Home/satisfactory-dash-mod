@@ -38,6 +38,12 @@ describe("RunnerConfigSchema", () => {
     expect(() => RunnerConfigSchema.parse({ ...valid, backendHost: { file: "x", port: 13102, token: "t" } })).toThrow();
   });
 
+  it("takes sprint3World as an optional save name and refuses an empty one", () => {
+    expect(RunnerConfigSchema.parse(valid).sprint3World).toBeUndefined();
+    expect(RunnerConfigSchema.parse({ ...valid, sprint3World: "D:/satis-test/saves/sprint3-test3.sav" }).sprint3World).toBe("D:/satis-test/saves/sprint3-test3.sav");
+    expect(() => RunnerConfigSchema.parse({ ...valid, sprint3World: "" })).toThrow();
+  });
+
   it("takes s2World as an optional save name and refuses an empty one", () => {
     expect(RunnerConfigSchema.parse(valid).s2World).toBeUndefined();
     expect(RunnerConfigSchema.parse({ ...valid, s2World: "D:/satis-test/saves/s2-world.sav" }).s2World).toBe("D:/satis-test/saves/s2-world.sav");

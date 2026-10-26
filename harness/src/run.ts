@@ -91,8 +91,8 @@ const FINAL_TIMEOUT_MS = 3 * MIN;
 
 export const modName = (spike: SpikeId) => `SatisMod${spike}`;
 
-/** Which staged save loadWorld uploads: s3World (the default) or s2World (the S2 native runs). */
-export type WorldKey = "s3" | "s2";
+/** Which staged save loadWorld uploads: s3World (the default), s2World (the S2 native runs) or sprint3World (the S3 native runs). */
+export type WorldKey = "s3" | "s2" | "sprint3";
 
 export interface RunDeps {
   config: RunnerConfig;
@@ -441,9 +441,9 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
         join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "FactoryGame", "Saved", "SaveGames"),
         Number(new URL(config.apiBaseUrl).port),
       ),
-    ...(config.s3World || config.s2World ? {
+    ...(config.s3World || config.s2World || config.sprint3World ? {
       loadWorld: async (key: WorldKey = "s3") => {
-        const file = key === "s2" ? config.s2World : config.s3World;
+        const file = key === "s2" ? config.s2World : key === "sprint3" ? config.sprint3World : config.s3World;
         if (!file) throw new RefusalError(`needs ${key}World in the runner config`);
         await loadWorld(api, `w-${Date.now()}`, readFileSync(file));
       },
