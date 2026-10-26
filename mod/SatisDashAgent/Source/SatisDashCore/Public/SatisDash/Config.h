@@ -17,8 +17,8 @@ namespace SatisDash
 	/** What a host gets with no key set. The switch PR for a reader flips its constant here and changes nothing else. */
 	inline constexpr ESource DefaultPlayersSource = ESource::Native;
 	inline constexpr ESource DefaultResourceNodesSource = ESource::Native;
-	inline constexpr ESource DefaultFactorySource = ESource::Bridge;
-	inline constexpr ESource DefaultTrainsSource = ESource::Bridge;
+	inline constexpr ESource DefaultFactorySource = ESource::Native;
+	inline constexpr ESource DefaultTrainsSource = ESource::Native;
 
 	struct FAgentConfig
 	{
