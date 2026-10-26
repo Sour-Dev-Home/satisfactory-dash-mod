@@ -570,6 +570,9 @@ Nothing else is run.
 
 ## Open questions for the owner
 
+**Answered by the owner, 2026-10-26:** question 1, accept (judge against FRM's unrounded values); question 2, yes, a
+disagreement on whether an end is open fails; plan confirmed ("Confirmed, start"). The rest (3-8) follow the plan's rulings.
+
 1. **Geometry against FRM's raw points (Ruling M3).** The rails rule and `at` are judged against FRM's unrounded positions, not against FRM's own whole-metre values: two rounded polylines can differ by 1.41 m from rounding alone. Accept, or judge the contract form (stricter, may fail on rounding)?
 2. **Open ends (Ruling M10).** I read "open ends are reported, not failed" as: an open end that both sources agree on is a normal edge, counted and listed; a disagreement (one source open, the other connected) is a `from`/`to` mismatch and fails. If you meant a disagreement should also only be reported, say so and Task 12 loses one comparison.
 3. **`conveyorsSource = bridge` means "layer not sent" (Ruling M1),** because the bridge never sent conveyors. The switch PR makes it send. Accept?
