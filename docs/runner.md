@@ -229,7 +229,8 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
     (1 m) and `clockSpeedPercent` (0.01) equal; `isProducing`, `isPaused`, `isBackedUp` and `inputsFull` equal to a value FRM
     showed in the window for at least 99% of machine-rounds (new).
   - `rates` (R2b): `maxPerMinute` within 0.1% or 0.001; `currentPerMinute` and `percent` within 3% of FRM's range per item class
-    (factory total) and within 5% for at least 95% of building-rounds. If only current misses, the verdict carries the owner's
+    (factory total) in at least 99% of item-class checks (one class, current or percent, one round; the owner's allowance of
+    2026-10-26, like the factory flags' 1%), and within 5% for at least 95% of building-rounds. If only current misses, the verdict carries the owner's
     fallback text (set `DefaultRatesMode` to Instantaneous, and the owner rules on the tolerance); a raw productivity above
     1.0001 in the mod's `Factory read` line fails with a "scale" reason.
   - `trains` and `stations` (R3): ids and name hashes equal; "Self-Driving" exact (parked, manual and derailed mismatches are

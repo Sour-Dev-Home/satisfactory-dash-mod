@@ -34,6 +34,11 @@ export const S2_MAX_ABS = 0.001;
 export const S2_CLASS_TOLERANCE = PARITY_POWER_TOLERANCE;
 export const S2_BUILDING_TOLERANCE = 0.05;
 /**
+ * The item-class rule holds for at least this share of class-checks (one class, one of current or percent, one round): the
+ * owner, 2026-10-26, after run 40388387353, "an allowance like factory's", the same 1% the dynamic flags have per machine-round.
+ */
+export const S2_CLASS_SHARE = 0.99;
+/**
  * NEW: every percentage tolerance here (the owner's 3% and 5%) is applied to max(|lo|, |hi|, 1), as S1's `inBracket` does, so
  * below 1 item/min (or 1 %) the allowance is an absolute 0.03 or 0.05 rather than a relative one: lenient for slow machines.
  */
@@ -300,6 +305,7 @@ export function judgeRates(f: FactoryEvidence, raw: { min: number; max: number }
   let buildingRounds = 0;
   let buildingMisses = 0;
   let classMisses = 0;
+  let classChecks = 0;
   let sawCurrent = false;
   const ratios: number[] = [];
   for (const r of rounds) {
@@ -372,6 +378,7 @@ export function judgeRates(f: FactoryEvidence, raw: { min: number; max: number }
         const lo = Math.min(...vs);
         const hi = Math.max(...vs);
         if (hi > 0 && col === 0) ratios.push(mod / ((lo + hi) / 2 || 1));
+        classChecks++;
         if (!inBracket(mod, lo, hi)) {
           classMisses++;
           if (curLines.length < SHOW + 5 && classMisses <= SHOW) curLines.push(`${r.observedAt}: item class ${cls} total ${name} mod ${fmt(mod)} vs FRM ${fmt(lo)}..${fmt(hi)}`);
@@ -383,10 +390,12 @@ export function judgeRates(f: FactoryEvidence, raw: { min: number; max: number }
   if (compared < S2_NEED_ROUNDS) reasons.push(`rates compared in only ${compared} rounds (${unpaired} had no FRM read in the window), need ${S2_NEED_ROUNDS}`);
   if (maxMisses > 0) reasons.push(`maxPerMinute differs from FRM's beyond ${S2_MAX_REL * 100}% or ${S2_MAX_ABS} absolute in ${maxMisses} machine-rounds (first ${maxLines.length}):`, ...maxLines.map((l) => `  ${l}`));
   const buildingShare = buildingRounds === 0 ? 1 : 1 - buildingMisses / buildingRounds;
-  const currentMiss = classMisses > 0 || buildingShare < S2_BUILDING_SHARE;
+  const classShare = classChecks === 0 ? 1 : 1 - classMisses / classChecks;
+  const currentMiss = classShare < S2_CLASS_SHARE || buildingShare < S2_BUILDING_SHARE;
+  const classNote = `${classMisses} of ${classChecks} item-class checks outside FRM's range +/-${S2_CLASS_TOLERANCE * 100}% over the window (${(classShare * 100).toFixed(2)}% within, need ${S2_CLASS_SHARE * 100}%)`;
   if (currentMiss) {
     if (maxMisses === 0) reasons.push(S2_RATES_FALLBACK);
-    reasons.push(`current/percent: ${classMisses} item-class totals outside FRM's range +/-${S2_CLASS_TOLERANCE * 100}% over the window; ${(buildingShare * 100).toFixed(1)}% of ${buildingRounds} building-rounds within ${S2_BUILDING_TOLERANCE * 100}% (need ${S2_BUILDING_SHARE * 100}%)`);
+    reasons.push(`current/percent: ${classNote}; ${(buildingShare * 100).toFixed(1)}% of ${buildingRounds} building-rounds within ${S2_BUILDING_TOLERANCE * 100}% (need ${S2_BUILDING_SHARE * 100}%)`);
     reasons.push(`median mod/FRM current ratio ${Number.isNaN(median(ratios)) ? "n/a" : fmt(median(ratios))}; the mod's raw productivity ${raw ? `${raw.min}..${raw.max}` : "range is not in its log"}`);
     reasons.push(...curLines.map((l) => `  ${l}`));
   }
@@ -399,7 +408,7 @@ export function judgeRates(f: FactoryEvidence, raw: { min: number; max: number }
     // The fluid rule is the one documented at FLUID_CLASSES.
     !rounds.some((r) => r.mod && r.win.length > 0 && ([...r.mod.values()].some((m) => hasFluid(m.s)) || r.win.some((s) => [...s.machines.values()].some((m) => hasFluid(m.s))))) ? "a fluid item (no item of a fluid class in any compared machine)" : null,
   ].filter((x): x is string => x !== null);
-  return { pass: true, reasons: [`${compared} rounds; maxPerMinute within ${S2_MAX_REL * 100}% or ${S2_MAX_ABS}; current and percent within ${S2_CLASS_TOLERANCE * 100}% per item class and within ${S2_BUILDING_TOLERANCE * 100}% for ${(buildingShare * 100).toFixed(1)}% of ${buildingRounds} building-rounds; median mod/FRM current ratio ${fmt(median(ratios))}`, ...frmNote("getFactory", f.frm)], never };
+  return { pass: true, reasons: [`${compared} rounds; maxPerMinute within ${S2_MAX_REL * 100}% or ${S2_MAX_ABS}; current and percent: ${classNote}${classMisses ? ` (first ${Math.min(classMisses, SHOW)}: ${curLines.filter((l) => l.includes(" item class ")).join(" | ")})` : ""}; within ${S2_BUILDING_TOLERANCE * 100}% for ${(buildingShare * 100).toFixed(1)}% of ${buildingRounds} building-rounds; median mod/FRM current ratio ${fmt(median(ratios))}`, ...frmNote("getFactory", f.frm)], never };
 }
 
 // ----------------------------------------------------------------------------------------------------------- R3 trains, stations

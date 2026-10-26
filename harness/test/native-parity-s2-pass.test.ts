@@ -194,6 +194,18 @@ describe("R2b rates", () => {
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/item class .* total currentPerMinute/);
   });
+  it("item-class checks need 99% (owner, 2026-10-26): one round's plate total off passes, two rounds' fail", () => {
+    // 60 rounds x 2 classes x (current, percent) = 240 checks. Plates off by +50% in a round is 2 misses (and 6 building-rounds).
+    const plates = (bad: number) => (i: number, ms: CanonMachine[]) =>
+      i < bad ? ms.map((m) => ({ ...m, production: m.production.map((r) => ({ ...r, currentPerMinute: r.currentPerMinute * 1.5, percent: r.percent * 1.5 })) })) : ms;
+    const one = S2.judgeRates(factoryEv({ mod: plates(1) }));
+    expect(one.pass).toBe(true);
+    expect(one.reasons.join("\n")).toMatch(/2 of 240 item-class checks outside .* \(99\.17% within, need 99%\) \(first 2: .*item class 0:Desc_IronPlate_C total currentPerMinute/);
+    const two = S2.judgeRates(factoryEv({ mod: plates(2) }));
+    expect(two.pass).toBe(false);
+    expect(two.reasons.join("\n")).toMatch(/current\/percent: 4 of 240 item-class checks outside .* \(98\.33% within, need 99%\)/);
+    expect(two.reasons).toContain(S2.S2_RATES_FALLBACK);
+  });
   it("the bracket is FRM's range over the window (a total that moved)", () => {
     const wave = (j: number, ms: CanonMachine[]) => scaled(j % 2 === 0 ? 1 : 1.2)(ms);
     expect(S2.judgeRates(factoryEv({ frm: wave, mod: (_, ms) => scaled(1.1)(ms) })).pass).toBe(true);
