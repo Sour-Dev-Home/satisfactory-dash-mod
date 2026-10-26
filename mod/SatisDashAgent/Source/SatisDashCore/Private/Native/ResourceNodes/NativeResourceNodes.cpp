@@ -57,7 +57,11 @@ namespace
 		{
 			return uint8(A.Reading->Kind) < uint8(B.Reading->Kind);
 		}
-		return !A.Reading->bExploited && B.Reading->bExploited;
+		if (A.Reading->bExploited != B.Reading->bExploited)
+		{
+			return !A.Reading->bExploited;
+		}
+		return A.Reading->ClassName.Compare(B.Reading->ClassName, ESearchCase::CaseSensitive) < 0;
 	}
 }
 
@@ -92,7 +96,7 @@ SatisDash::FNativeWorldBody SatisDash::BuildNativeResourceNodes(const FString& O
 		{
 			Out.Json.AppendChar(TEXT(','));
 		}
-		AppendResourceNodeRecord(Out.Json, Node.Reading->Resource, NativeNodesPurityName(Node.Reading->Purity), NativeNodesKindName(Node.Reading->Kind), Node.Mx, Node.My, Node.Reading->bExploited);
+		AppendResourceNodeRecord(Out.Json, Node.Reading->Resource, NativeNodesPurityName(Node.Reading->Purity), NativeNodesKindName(Node.Reading->Kind), Node.Mx, Node.My, Node.Reading->bExploited, Node.Reading->ClassName);
 		++Out.Items;
 	}
 	Out.Json.AppendChar(TEXT(']'));

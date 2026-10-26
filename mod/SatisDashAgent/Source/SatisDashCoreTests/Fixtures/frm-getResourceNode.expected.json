@@ -5,7 +5,8 @@
     "nodeType": "node",
     "x": -123,
     "y": 679,
-    "exploited": false
+    "exploited": false,
+    "className": "BP_ResourceNode_C"
   },
   {
     "type": "Crude Oil",
