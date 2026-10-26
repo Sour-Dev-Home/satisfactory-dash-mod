@@ -113,6 +113,22 @@ describe("native-parity judge", () => {
     expect(v.power.pass && v.players.pass).toBe(true);
   });
 
+  it("compares className: layers that differ only by className fail, and equal ones pass", () => {
+    const withClass = (name: string) => (c: ReturnType<typeof capture>) => {
+      c.nodes.posts[0]!.data = (c.nodes.posts[0]!.data as CanonNode[]).map((n) => ({ ...n, className: name }));
+    };
+    const same = capture();
+    withClass("Desc_OreIron_C")(same);
+    same.nodes.distinct.h1 = same.nodes.distinct.h1!.map((n) => ({ ...n, className: "Desc_OreIron_C" }));
+    expect(Pass.judgeReaders(same).resourceNodes.pass).toBe(true);
+    const differ = capture();
+    withClass("Desc_OreIron_C")(differ);
+    differ.nodes.distinct.h1 = differ.nodes.distinct.h1!.map((n) => ({ ...n, className: "Desc_OreCopper_C" }));
+    const v = Pass.judgeReaders(differ);
+    expect(v.resourceNodes.pass).toBe(false);
+    expect(v.resourceNodes.reasons.join("\n")).toContain("Desc_OreIron_C");
+  });
+
   it("fails resource nodes when the post is not a valid layer, or no post landed", () => {
     const bad = capture();
     bad.nodes.posts[0]!.data = [{ type: "x" }];

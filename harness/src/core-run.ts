@@ -6,7 +6,7 @@ import { type RunnerConfig } from "./config";
 import { redact, writeBundle } from "./evidence";
 import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
-import { lastLines, RefusalError, type RunDeps, realDeps } from "./run";
+import { lastLines, RefusalError, type RunDeps, realDeps, type WorldKey } from "./run";
 import { type BackendImages, contractPin, imageDescends, realExec } from "./backend";
 import { connectBackendHost, type HostClient } from "./backend-host";
 import { createServerApi } from "./server-api";
@@ -78,6 +78,8 @@ export interface CoreRunSpec {
   backend: boolean;
   /** Loads the staged save (satis-runner only, savesConflict). */
   world: boolean;
+  /** Which staged save the world is: "s3" (s3World, the default) or "s2" (s2World, the S2 native runs). */
+  worldKey?: WorldKey;
   /**
    * Boots once without the mod first to clear the auto-load session, so the run's boot has no game (S6 run 1: the test
    * server auto-loads its last save). The session is put back at the end, whatever happens.
@@ -165,7 +167,10 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   if (spec.emptyBoot && (!deps.readAutoLoad || !deps.setAutoLoad)) throw new RefusalError(`${id} needs the auto-load save deps`);
   if (spec.baseline && (!spec.world || !spec.measureBaseline)) throw new RefusalError(`${id}: a baseline boot needs the world and a measureBaseline`);
   if (spec.world) {
-    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict) throw new RefusalError(`${id} needs s3World in the runner config`);
+    const key = spec.worldKey ?? "s3";
+    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict || (key === "s3" ? !deps.config.s3World : !deps.config.s2World)) {
+      throw new RefusalError(`${id} needs ${key}World in the runner config`);
+    }
     const shared = deps.savesConflict();
     if (shared.length) throw new RefusalError(`another server keeps its settings in this account's saves folder (${shared.join(", ")}): ${id} runs only as satis-runner`);
   }
@@ -291,7 +296,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
       let autoPause: boolean | undefined;
       try {
         await whileRunning(pre, deps.waitHealthy(), "waiting for health before the baseline");
-        await whileRunning(pre, deps.loadWorld!(), "loading the world for the baseline");
+        await whileRunning(pre, deps.loadWorld!(spec.worldKey), "loading the world for the baseline");
         await whileRunning(pre, deps.waitHealthy(), "waiting for health after loading the world for the baseline");
         autoPause = await whileRunning(pre, deps.readAutoPause!(), "reading auto-pause for the baseline");
         await whileRunning(pre, deps.setAutoPause!(false), "turning auto-pause off for the baseline");

@@ -13,11 +13,13 @@ namespace SatisDash
 	SATISDASHCORE_API FString MapNodeType(const FString& Raw);
 
 	/**
-	 * Appends one resourceNodes record {"type","purity","nodeType","x","y","exploited"} with the contract's bounds: type cut to
-	 * 200, purity lowercased and cut to MaxNodeFieldChars, nodeType (already mapped) cut to MaxNodeFieldChars, x and y whole
-	 * metres. Shared by FResourceNodesParse (from FRM) and BuildNativeResourceNodes (from the game).
+	 * Appends one resourceNodes record {"type","purity","nodeType","x","y","exploited"[,"className"]} with the contract's
+	 * bounds: type cut to 200, purity lowercased and cut to MaxNodeFieldChars, nodeType (already mapped) cut to
+	 * MaxNodeFieldChars, x and y whole metres, className (FRM's ClassName or the game's descriptor class name) cut to 200 and
+	 * written after exploited only when it is not empty. Shared by FResourceNodesParse (from FRM) and BuildNativeResourceNodes
+	 * (from the game).
 	 */
-	SATISDASHCORE_API void AppendResourceNodeRecord(FString& Out, const FString& Type, const FString& Purity, const FString& NodeType, double Mx, double My, bool bExploited);
+	SATISDASHCORE_API void AppendResourceNodeRecord(FString& Out, const FString& Type, const FString& Purity, const FString& NodeType, double Mx, double My, bool bExploited, const FString& ClassName);
 
 	/**
 	 * getResourceNode's body to the resourceNodes world body {"observedAt":...,"data":[{"type","purity","nodeType","x","y",

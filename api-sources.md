@@ -504,6 +504,11 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGResourceNodeBase | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:93 | header only (the class declaration; its UCLASS macro is on :92) |
 | AFGResourceNodeBase::GetResourceNodeType | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:176 | header only |
 | AFGResourceNodeBase::GetResourceName | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:180 | header only (FText, "Localized name") |
+| Resources/FGResourceDescriptor.h | Source/FactoryGame/Public/Resources/FGResourceDescriptor.h:1 | header only |
+| UFGResourceDescriptor | Source/FactoryGame/Public/Resources/FGResourceDescriptor.h:13 | header only (derives from UFGItemDescriptor; the class whose short name, Desc_OreIron_C, is the node's className) |
+| AFGResourceNodeBase::GetResourceClass | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:144 | header only (H: returns the effective class, `TSubclassOf< UFGResourceDescriptor >`; GetResourceClassOverride :146 and GetResourceClassOriginal :150 are the parts. The override's behaviour is parity's question; survey S2 says the same) |
+| TSubclassOf | Engine/Source/Runtime/CoreUObject/Public/Templates/SubclassOf.h:29 | header only (the template; :12 is a forward declaration; operator-> at :125 returns UClass*) |
+| UObjectBaseUtility::GetName | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBaseUtility.h:429 | header only (FString, the object's short name, not the path: a class's is Desc_OreIron_C) |
 | AFGResourceNodeBase::IsOccupied | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:140 | header only |
 | Engine/Level.h | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:1 | header only |
 | ULevel | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:422 | header only |

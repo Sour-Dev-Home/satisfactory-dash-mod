@@ -91,6 +91,9 @@ const FINAL_TIMEOUT_MS = 3 * MIN;
 
 export const modName = (spike: SpikeId) => `SatisMod${spike}`;
 
+/** Which staged save loadWorld uploads: s3World (the default) or s2World (the S2 native runs). */
+export type WorldKey = "s3" | "s2";
+
 export interface RunDeps {
   config: RunnerConfig;
   toolchain: Toolchain;
@@ -119,7 +122,7 @@ export interface RunDeps {
   startBackend?(): Promise<Backend>;
   randomCode?(): string;
   /** S3, S6, S7: uploads and loads the staged save; and lists other servers' settings in the saves folder it would use. */
-  loadWorld?(): Promise<void>;
+  loadWorld?(key?: WorldKey): Promise<void>;
   savesConflict?(): string[];
   readAutoPause?(): Promise<boolean>;
   setAutoPause?(enabled: boolean): Promise<void>;
@@ -157,9 +160,9 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     const list = [...api.badRows, ...api.missing.map((u) => `${u.path}:${u.line} ${u.name}`)];
     throw new RefusalError(`check-api failed: ${list.join(", ")}`);
   }
-  if (spec.power && (!deps.collectPower || !deps.loadWorld)) throw new RefusalError("S3 needs frmBaseUrl and s3World in the runner config");
+  if (spec.power && (!deps.collectPower || !deps.loadWorld || !deps.config.s3World)) throw new RefusalError("S3 needs frmBaseUrl and s3World in the runner config");
   if (spec.world) {
-    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict) {
+    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict || !deps.config.s3World) {
       throw new RefusalError(`${spike} needs s3World in the runner config`);
     }
     if (spec.status && !deps.collectStatus) throw new RefusalError("S6 needs the status collector");
@@ -438,8 +441,12 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
         join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "FactoryGame", "Saved", "SaveGames"),
         Number(new URL(config.apiBaseUrl).port),
       ),
-    ...(config.s3World ? {
-      loadWorld: () => loadWorld(api, `w-${Date.now()}`, readFileSync(config.s3World!)),
+    ...(config.s3World || config.s2World ? {
+      loadWorld: async (key: WorldKey = "s3") => {
+        const file = key === "s2" ? config.s2World : config.s3World;
+        if (!file) throw new RefusalError(`needs ${key}World in the runner config`);
+        await loadWorld(api, `w-${Date.now()}`, readFileSync(file));
+      },
       readAutoLoad: () => readAutoLoad(api),
       setAutoLoad: (name: string) => setAutoLoad(api, name),
       collectStatus: async (from: number) => {

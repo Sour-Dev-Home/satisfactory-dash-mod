@@ -27,6 +27,19 @@ describe("mapFrmResourceNodes", () => {
     expect(mapFrmResourceNodes([node("Inpure"), node("Impure"), node("Normal"), node("Pure")]).map((n) => n.purity)).toEqual(["impure", "impure", "normal", "pure"]);
   });
 
+  it("passes FRM's ClassName through as className and omits the key when it is absent or empty", () => {
+    const node = (extra: object) => ({ Name: "Iron Ore", Purity: "Pure", NodeType: "Node", Exploited: false, location: { x: 0, y: 0 }, ...extra });
+    const out = mapFrmResourceNodes([node({ ClassName: "Desc_OreIron_C" }), node({}), node({ ClassName: "" })]);
+    expect(out[0]!.className).toBe("Desc_OreIron_C");
+    expect("className" in out[1]!).toBe(false);
+    expect("className" in out[2]!).toBe(false);
+  });
+
+  it("the contract keeps className (the vendored schema does not strip it)", () => {
+    const r = ResourceNodesLayerDataSchema.parse([{ type: "Iron Ore", purity: "pure", nodeType: "node", x: 0, y: 0, exploited: false, className: "Desc_OreIron_C" }]);
+    expect(r[0]!.className).toBe("Desc_OreIron_C");
+  });
+
   it("drops a node past 1,000,000 m and never yields -0", () => {
     const out = mapFrmResourceNodes([
       { Name: "far", Purity: "Pure", NodeType: "Node", Exploited: false, location: { x: 1e12, y: 0 } },
@@ -53,6 +66,13 @@ describe("canonNodes", () => {
     const a = { type: "A", purity: "pure", nodeType: "node", x: 1, y: 2, exploited: false };
     const b = { ...a, x: 0 };
     expect(canonNodes([a, b])).toEqual(canonNodes([b, a]));
+  });
+
+  it("differs when only className differs, and treats an absent className as empty", () => {
+    const a = { type: "A", purity: "pure", nodeType: "node", x: 1, y: 2, exploited: false };
+    expect(canonNodes([{ ...a, className: "Desc_OreIron_C" }])).not.toEqual(canonNodes([a]));
+    expect(canonNodes([{ ...a, className: "Desc_OreIron_C" }])).not.toEqual(canonNodes([{ ...a, className: "Desc_OreCopper_C" }]));
+    expect(canonNodes([{ ...a, className: "" }])).toEqual(canonNodes([a]));
   });
 });
 

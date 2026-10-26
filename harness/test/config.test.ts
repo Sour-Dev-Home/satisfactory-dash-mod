@@ -38,6 +38,12 @@ describe("RunnerConfigSchema", () => {
     expect(() => RunnerConfigSchema.parse({ ...valid, backendHost: { file: "x", port: 13102, token: "t" } })).toThrow();
   });
 
+  it("takes s2World as an optional save name and refuses an empty one", () => {
+    expect(RunnerConfigSchema.parse(valid).s2World).toBeUndefined();
+    expect(RunnerConfigSchema.parse({ ...valid, s2World: "D:/satis-test/saves/s2-world.sav" }).s2World).toBe("D:/satis-test/saves/s2-world.sav");
+    expect(() => RunnerConfigSchema.parse({ ...valid, s2World: "" })).toThrow();
+  });
+
   it("takes the parity run's agent.cjs path, and refuses an empty one or extra keys", () => {
     expect(RunnerConfigSchema.parse(valid).parity).toBeUndefined();
     const cfg = RunnerConfigSchema.parse({ ...valid, parity: { agentCjs: "D:/satis-runner-config/node-agent/agent.cjs" } });

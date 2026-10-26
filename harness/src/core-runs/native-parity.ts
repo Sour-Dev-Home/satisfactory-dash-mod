@@ -89,6 +89,7 @@ export const nativeParity: CoreRunSpec = {
   requirements: Pass.requirements,
   backend: true,
   world: true,
+  worldKey: "s2",
   modConfig: NATIVE_SOURCES,
   evaluate: Pass.evaluate,
   preflight(deps) {
@@ -116,7 +117,7 @@ export const nativeParity: CoreRunSpec = {
     let rounds: ReturnType<typeof createRoundCollector> | null = null;
     let atStart = { power: { reads: 0, failed: 0 }, players: { reads: 0, failed: 0 }, nodes: { reads: 0, failed: 0 } };
     try {
-      await ctx.deps.loadWorld!();
+      await ctx.deps.loadWorld!("s2");
       await ctx.deps.waitHealthy();
       await ctx.sampleMemory("withMod");
       ctx.rememberAutoPause(await ctx.deps.readAutoPause!());

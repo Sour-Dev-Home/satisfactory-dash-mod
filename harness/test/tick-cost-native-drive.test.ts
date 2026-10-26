@@ -11,6 +11,7 @@ const START = Date.parse("2026-10-26T12:00:00.000Z");
 /** Runs a spec's drive against fakes and returns the order of the steps and the captures. */
 async function drive(spec: typeof tickCost) {
   const steps: string[] = [];
+  const keys: (string | undefined)[] = [];
   let t = START;
   const yieldTurn = () => new Promise<void>((r) => setImmediate(r));
   const deps = {
@@ -18,7 +19,7 @@ async function drive(spec: typeof tickCost) {
     sleep: yieldTurn,
     config: { frmBaseUrl: "http://127.0.0.1:18081" },
     backendHost: async () => ({ relayUrl: "http://127.0.0.1:9", seedCode: async () => void steps.push("seedCode") }),
-    loadWorld: async () => void steps.push("loadWorld"),
+    loadWorld: async (key?: string) => void (steps.push("loadWorld"), keys.push(key)),
     waitHealthy: async () => void steps.push("waitHealthy"),
     readAutoPause: async () => true,
     setAutoPause: async () => void steps.push("autoPauseOff"),
@@ -37,7 +38,7 @@ async function drive(spec: typeof tickCost) {
     rememberAutoPause: () => undefined,
   } as unknown as CoreContext;
   await spec.drive(ctx);
-  return { steps: steps.filter((s) => s !== "seedCode"), captures };
+  return { steps: steps.filter((s) => s !== "seedCode"), captures, keys };
 }
 
 describe("tick-cost-native: spec and drive", () => {
@@ -47,6 +48,12 @@ describe("tick-cost-native: spec and drive", () => {
     expect(tickCostNative.modConfig).toEqual(NATIVE_SOURCES);
     expect(tickCostNative.baseline).toBe(true);
     expect(tickCost.modConfig).toBeUndefined();
+  });
+  it("loads the S2 world in both boots; tick-cost keeps the default world", async () => {
+    expect(tickCostNative.worldKey).toBe("s2");
+    expect(tickCost.worldKey).toBeUndefined();
+    expect((await drive(tickCostNative)).keys).toEqual(["s2"]);
+    expect((await drive(tickCost)).keys).toEqual([undefined]);
   });
   it("enrols after the world is up and auto-pause is off, right before the measurement", async () => {
     const { steps } = await drive(tickCostNative);

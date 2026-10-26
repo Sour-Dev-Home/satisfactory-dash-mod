@@ -12,6 +12,7 @@
 #include "GameFramework/PlayerState.h"
 #include "Online/PlayerInfoCache.h"
 #include "Resources/FGResourceNode.h"
+#include "Resources/FGResourceDescriptor.h"
 #include "Resources/FGResourceNodeBase.h"
 #include "SatisDash/FrmResourceNodes.h"
 #include "SatisDash/GameValues.h"
@@ -237,6 +238,9 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 		default: continue;
 		}
 		Reading.Resource = Node->GetResourceName().ToString();
+		// The descriptor class's short name (Desc_OreIron_C), as FRM's ClassName: GetName, not the path. No class gives empty.
+		const TSubclassOf<UFGResourceDescriptor> ResourceClass = Node->GetResourceClass();
+		Reading.ClassName = ResourceClass ? ResourceClass->GetName() : FString();
 		const FVector Location = Node->GetActorLocation();
 		Reading.XCm = Location.X;
 		Reading.YCm = Location.Y;

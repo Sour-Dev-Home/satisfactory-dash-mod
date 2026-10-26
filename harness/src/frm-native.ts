@@ -7,10 +7,11 @@ const LIMIT_METRES = 1_000_000;
 const MAX_NODES = 5000;
 
 /** A resourceNodes item as the contract has it (map.ts ResourceNodeSchema). */
-export interface CanonNode { type: string; purity: string; nodeType: string; x: number; y: number; exploited: boolean }
+export interface CanonNode { type: string; purity: string; nodeType: string; x: number; y: number; exploited: boolean; className?: string | undefined }
 
 const FrmNodeSchema = z.object({
   Name: z.string(),
+  ClassName: z.string().optional(),
   Purity: z.string(),
   NodeType: z.string(),
   Exploited: z.boolean(),
@@ -49,14 +50,17 @@ export function mapFrmResourceNodes(body: unknown): CanonNode[] {
     const x = metres(r.location.x);
     const y = metres(r.location.y);
     if (Math.abs(x) > LIMIT_METRES || Math.abs(y) > LIMIT_METRES) continue;
-    out.push({ type: cut(r.Name, 200), purity: cut(mapPurity(r.Purity), 40), nodeType: cut(mapNodeType(r.NodeType), 40), x, y, exploited: r.Exploited });
+    const node: CanonNode = { type: cut(r.Name, 200), purity: cut(mapPurity(r.Purity), 40), nodeType: cut(mapNodeType(r.NodeType), 40), x, y, exploited: r.Exploited };
+    // The contract's className is optional: FRM's value as it is, and no key when FRM has none (or an empty one).
+    if (r.ClassName) node.className = cut(r.ClassName, 200);
+    out.push(node);
   }
   return out.slice(0, MAX_NODES);
 }
 
 /** One string per node, sorted: two layers are equal when these lists are. */
 export function canonNodes(nodes: CanonNode[]): string[] {
-  return nodes.map((n) => JSON.stringify([n.type, n.purity, n.nodeType, n.x, n.y, n.exploited])).sort();
+  return nodes.map((n) => JSON.stringify([n.type, n.purity, n.nodeType, n.x, n.y, n.exploited, n.className ?? ""])).sort();
 }
 
 const FrmPlayerSchema = z.object({ Name: z.string(), Online: z.boolean() });

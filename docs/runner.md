@@ -123,6 +123,31 @@ S6 also boots the server once first to clear its auto-load save (`SetAutoLoadSes
 measured boot starts with no game, and sets it back at the end. A killed S6 run can leave it empty: the server then
 boots to the empty entry map until a save is loaded, which the world spikes do themselves.
 
+## The S2 world (Test2)
+
+The two S2 native runs (`native-parity` and `tick-cost-native`, ADR-0058) load the owner's `Test2` save, not S3's. The
+runner config names it as `"s2World"`, beside `"s3World"`:
+
+```json
+{ "s3World": "<path to the S3 save>", "s2World": "<path to the Test2 copy>" }
+```
+
+- Only those two runs use `s2World`. Every other run (`parity`, `enrol`, `tick-cost`, the spikes) keeps loading
+  `s3World`. `tick-cost-native` loads the S2 world in both boots (the one without the mod and the one with it), so the
+  session hash compares like with like.
+- A run that needs `s2World` and finds none in the config is refused before the build: `<id> needs s2World in the runner
+  config`.
+- The staged file lives outside the repository, like `s3World`. The same `satis-runner` rules apply: each run uploads it
+  with `UploadSaveGame` and `LoadSaveGame: true`, and only runs as `satis-runner` (the harness refuses when another
+  server's settings share the saves folder).
+
+> **Owner checklist: `Test2` must contain, before the S2 runs** (if something is missing, add it in the save and stage the new copy; nothing in the harness can build it):
+> 1. Production machines of **several kinds** (at least assembler, constructor and one more recipe machine), some with a **non-100% clock**, at least one **unconfigured** machine, at least one machine in standby/paused (all are checked, not required to pass if absent: absent ones are reported NOT EXERCISED).
+> 2. **At least one oil refinery** (or packager) running a **fluid** recipe, so liquid slots and rates are compared.
+> 3. **Power**: at least one connected circuit with production and consumption.
+> 4. **Trains running a timetable between at least two stations** (self-driving), each station with at least one cargo platform, wagons carrying items. A parked or manual train is welcome, not required.
+> 5. The save loads on the test server (the same dedicated-server version as `harness/toolchain.json`) and is the drones-and-trucks save used for the 3B captures.
+
 ## 5. Check it
 
 Actions → spike → the latest `main` push: `selftest` waits for your approval, then passes. Then run S0 with

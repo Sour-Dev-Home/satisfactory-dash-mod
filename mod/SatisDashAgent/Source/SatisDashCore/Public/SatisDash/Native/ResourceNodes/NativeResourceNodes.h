@@ -18,6 +18,8 @@ namespace SatisDash
 		double XCm = 0;
 		double YCm = 0;
 		bool bExploited = false;
+		/** The resource descriptor's class name, e.g. Desc_OreIron_C (GetName, not the path); empty when the node has none. */
+		FString ClassName;
 	};
 
 	/** Actors looked at per driver tick during a node scan (about 0.1 ms of class checks). */
@@ -45,7 +47,7 @@ namespace SatisDash
 	 * R4 (ADR-0058): the resourceNodes world body {"observedAt":...,"data":[...]} from the game's own nodes, each record in
 	 * the form FResourceNodesParse writes from FRM (one shared record writer). Positions go to whole metres as the map does
 	 * (Math.round of cm / 100), nodes outside +/-1,000,000 m are dropped, and the nodes are sorted by (x, y, resource,
-	 * purity, type, exploited) before the 5,000-item cap, so the same world always gives the same bytes whatever order the
+	 * purity, type, exploited, className) before the 5,000-item cap, so the same world always gives the same bytes whatever order the
 	 * scan found it in. Sorts and builds text, so it runs on the worker, never the game thread.
 	 */
 	SATISDASHCORE_API FNativeWorldBody BuildNativeResourceNodes(const FString& ObservedAt, const TArray<FResourceNodeReading>& Readings);

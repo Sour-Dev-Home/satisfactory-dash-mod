@@ -31,6 +31,7 @@ function fakeDeps(over: Partial<CoreDeps> = {}, log = () => "[x][1]LogSatisDash:
       buildCommand: ["b"],
       builtPluginDir: "D:/b/{spike}",
       installed: { engine: "5.6.1", sml: "3.12.0" },
+      s3World: "D:/satis-test/saves/s3-world.sav",
     }),
     toolchain: { engine: "5.6.1", sml: "3.12.0", source: "x" },
     outDir,
@@ -360,6 +361,42 @@ describe("runCore", () => {
     expect(result.reasons).toContain("baseline: no ticks");
     expect(seen).toBeUndefined();
     expect(calls.slice(calls.indexOf("auto-pause false"), calls.indexOf("auto-pause false") + 3)).toEqual(["auto-pause false", "auto-pause true", "stop"]);
+  });
+
+  it("worldKey: a spec for the S2 world is refused without a loader, naming the key", async () => {
+    const { deps, calls } = fakeDeps();
+    delete (deps as { loadWorld?: unknown }).loadWorld;
+    await expect(runCore("native-parity", spec({ world: true, worldKey: "s2" }), deps)).rejects.toThrow(/native-parity needs s2World in the runner config/);
+    await expect(runCore("tick-cost", spec({ world: true }), deps)).rejects.toThrow(/tick-cost needs s3World in the runner config/);
+    expect(calls).toEqual([]);
+  });
+
+  it("worldKey: s2 is refused when the runner config names no s2World, even with a loader (s3World alone)", async () => {
+    const { deps, calls } = fakeDeps();
+    deps.config.s3World = "x.sav";
+    await expect(runCore("native-parity", spec({ world: true, worldKey: "s2" }), deps)).rejects.toThrow(/needs s2World/);
+    deps.config.s2World = "y.sav";
+    await runCore("native-parity", spec({ world: true, worldKey: "s2" }), deps);
+    expect(calls).toContain("build");
+  });
+
+  it("worldKey: an s3-keyed run is refused at preflight when only s2World is configured (the loader exists for s2)", async () => {
+    const { deps, calls } = fakeDeps();
+    delete (deps.config as { s3World?: string }).s3World;
+    deps.config.s2World = "y.sav";
+    await expect(runCore("tick-cost", spec({ world: true }), deps)).rejects.toThrow(/tick-cost needs s3World in the runner config/);
+    await expect(runCore("tick-cost", spec({ world: true, worldKey: "s3" }), deps)).rejects.toThrow(/needs s3World/);
+    expect(calls).toEqual([]);
+  });
+
+  it("worldKey: the baseline boot loads the spec's key (none when unset)", async () => {
+    for (const [worldKey, expected] of [["s2", "s2"], [undefined, undefined]] as const) {
+      const keys: unknown[] = [];
+      const { deps } = fakeDeps({ loadWorld: async (key) => void keys.push(key) });
+      deps.config.s2World = "y.sav";
+      await runCore("tick-cost", spec({ world: true, baseline: true, worldKey, measureBaseline: async () => 1 }), deps);
+      expect(keys).toEqual([expected]);
+    }
   });
 
   it("baseline is refused without the world or a measurement", async () => {

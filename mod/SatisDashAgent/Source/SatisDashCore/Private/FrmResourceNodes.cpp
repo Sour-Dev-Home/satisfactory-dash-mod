@@ -63,7 +63,7 @@ FString SatisDash::MapNodeType(const FString& Raw)
 	return Out;
 }
 
-void SatisDash::AppendResourceNodeRecord(FString& Out, const FString& Type, const FString& Purity, const FString& NodeType, double Mx, double My, bool bExploited)
+void SatisDash::AppendResourceNodeRecord(FString& Out, const FString& Type, const FString& Purity, const FString& NodeType, double Mx, double My, bool bExploited, const FString& ClassName)
 {
 	Out += TEXT("{\"type\":");
 	SatisDash::Json::AppendString(Out, ClampString(Type));
@@ -75,7 +75,13 @@ void SatisDash::AppendResourceNodeRecord(FString& Out, const FString& Type, cons
 	Out.AppendInt(int32(Mx));
 	Out += TEXT(",\"y\":");
 	Out.AppendInt(int32(My));
-	Out += bExploited ? TEXT(",\"exploited\":true}") : TEXT(",\"exploited\":false}");
+	Out += bExploited ? TEXT(",\"exploited\":true") : TEXT(",\"exploited\":false");
+	if (!ClassName.IsEmpty())
+	{
+		Out += TEXT(",\"className\":");
+		SatisDash::Json::AppendString(Out, ClampString(ClassName));
+	}
+	Out.AppendChar(TEXT('}'));
 }
 
 SatisDash::FResourceNodesParse::FResourceNodesParse(TArray<uint8> InBody, const FString& ObservedAt)
@@ -88,6 +94,7 @@ auto SatisDash::FResourceNodesParse::ReadRecord(bool bRoom) -> ERecord
 	TOptional<FString> Name;
 	TOptional<FString> Purity;
 	TOptional<FString> NodeType;
+	FString ClassName;
 	TOptional<bool> Exploited;
 	bool bLocation = false;
 	double X = 0;
@@ -112,7 +119,7 @@ auto SatisDash::FResourceNodesParse::ReadRecord(bool bRoom) -> ERecord
 				return ERecord::Over;
 			}
 			BeginRecord();
-			AppendResourceNodeRecord(Out, Name.GetValue(), Purity.GetValue(), MapNodeType(NodeType.GetValue()), Mx, My, Exploited.GetValue());
+			AppendResourceNodeRecord(Out, Name.GetValue(), Purity.GetValue(), MapNodeType(NodeType.GetValue()), Mx, My, Exploited.GetValue(), ClassName);
 			return ERecord::Kept;
 		}
 		const FString Key = Reader.Name();
@@ -126,6 +133,14 @@ auto SatisDash::FResourceNodesParse::ReadRecord(bool bRoom) -> ERecord
 				return ERecord::Invalid;
 			}
 			(bName ? Name : bPurity ? Purity : NodeType) = Reader.String();
+		}
+		else if (Is(Key, TEXT("ClassName")))
+		{
+			if (N != EJsonNotation::String)
+			{
+				return ERecord::Invalid;
+			}
+			ClassName = Reader.String();
 		}
 		else if (Is(Key, TEXT("Exploited")))
 		{

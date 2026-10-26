@@ -21,6 +21,12 @@ namespace
 		return R;
 	}
 
+	FResourceNodeReading NativeNodesClassed(FResourceNodeReading R, const TCHAR* ClassName)
+	{
+		R.ClassName = ClassName;
+		return R;
+	}
+
 	FString NativeNodesData(const FNativeWorldBody& Body)
 	{
 		return Body.Json.Mid(Body.DataFrom, Body.DataEnd - Body.DataFrom);
@@ -35,11 +41,13 @@ namespace
 		FString Purity;
 		FString NodeType;
 		bool bExploited = false;
+		/** Empty when the record has no className. */
+		FString ClassName;
 	};
 
 	FString NativeNodesKey(const FNativeNodesItem& Item)
 	{
-		return FString::Printf(TEXT("%d|%d|%s|%s|%s|%d"), Item.X, Item.Y, *Item.Type, *Item.Purity, *Item.NodeType, Item.bExploited ? 1 : 0);
+		return FString::Printf(TEXT("%d|%d|%s|%s|%s|%d|%s"), Item.X, Item.Y, *Item.Type, *Item.Purity, *Item.NodeType, Item.bExploited ? 1 : 0, *Item.ClassName);
 	}
 
 	/** The items of a layer given as the text of its data array, in canonical order, leaving out one node type (empty = none). */
@@ -63,6 +71,7 @@ namespace
 			Item.Purity = Record->GetStringField(TEXT("purity"));
 			Item.NodeType = Record->GetStringField(TEXT("nodeType"));
 			Item.bExploited = Record->GetBoolField(TEXT("exploited"));
+			Record->TryGetStringField(TEXT("className"), Item.ClassName);
 			if (Item.NodeType != SkipNodeType)
 			{
 				Out.Add(Item);
@@ -83,7 +92,7 @@ bool FNativeNodesGoldenTest::RunTest(const FString& Parameters)
 	TArray<FResourceNodeReading> GameNodes;
 	GameNodes.Add(NativeNodesNode(TEXT("Crude Oil"), ENodePurity::Impure, ENodeKind::FrackingSatellite, 50, -50, true));
 	GameNodes.Add(NativeNodesNode(TEXT("Geothermal"), ENodePurity::Pure, ENodeKind::Geyser, 0, 0, false));
-	GameNodes.Add(NativeNodesNode(TEXT("Iron Ore"), ENodePurity::Normal, ENodeKind::Node, -12345, 67890, false));
+	GameNodes.Add(NativeNodesClassed(NativeNodesNode(TEXT("Iron Ore"), ENodePurity::Normal, ENodeKind::Node, -12345, 67890, false), TEXT("BP_ResourceNode_C")));
 	const FNativeWorldBody Native = BuildNativeResourceNodes(TEXT("2026-10-25T12:00:00.000Z"), GameNodes);
 	const FString GoldenText = SatisDash::Test::Fixture(TEXT("frm-getResourceNode.expected.json"));
 	if (!TestFalse(TEXT("the golden was found"), GoldenText.IsEmpty()))
@@ -108,7 +117,7 @@ bool FNativeNodesGoldenTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("four items"), Body.Items, 4);
 	TestEqual(TEXT("the whole body is the world body the bridge posts"), Body.Json,
 		FString(TEXT("{\"observedAt\":\"2026-10-25T12:00:00.000Z\",\"data\":[")
-			TEXT("{\"type\":\"Iron Ore\",\"purity\":\"normal\",\"nodeType\":\"node\",\"x\":-123,\"y\":679,\"exploited\":false},")
+			TEXT("{\"type\":\"Iron Ore\",\"purity\":\"normal\",\"nodeType\":\"node\",\"x\":-123,\"y\":679,\"exploited\":false,\"className\":\"BP_ResourceNode_C\"},")
 			TEXT("{\"type\":\"Geothermal\",\"purity\":\"pure\",\"nodeType\":\"geyser\",\"x\":0,\"y\":0,\"exploited\":false},")
 			TEXT("{\"type\":\"Crude Oil\",\"purity\":\"impure\",\"nodeType\":\"frackingSatellite\",\"x\":1,\"y\":0,\"exploited\":true},")
 			TEXT("{\"type\":\"Copper Ore\",\"purity\":\"pure\",\"nodeType\":\"node\",\"x\":1,\"y\":2,\"exploited\":false}]}")));
@@ -118,8 +127,45 @@ bool FNativeNodesGoldenTest::RunTest(const FString& Parameters)
 
 	// The same record text the FRM parse writes for the same values (one shared writer, so the two sources can't drift).
 	FString Direct;
-	AppendResourceNodeRecord(Direct, TEXT("Iron Ore"), TEXT("Normal"), TEXT("node"), -123, 679, false);
+	AppendResourceNodeRecord(Direct, TEXT("Iron Ore"), TEXT("Normal"), TEXT("node"), -123, 679, false, TEXT(""));
 	TestEqual(TEXT("the shared record writer lowercases purity"), Direct, FString(TEXT("{\"type\":\"Iron Ore\",\"purity\":\"normal\",\"nodeType\":\"node\",\"x\":-123,\"y\":679,\"exploited\":false}")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNativeNodesClassNameTest, "SatisDash.Core.NativeNodes.ClassName", SatisDash::Test::Flags)
+
+bool FNativeNodesClassNameTest::RunTest(const FString& Parameters)
+{
+	// className follows exploited; an empty one writes no key at all (the contract's field is optional).
+	TArray<FResourceNodeReading> In;
+	In.Add(NativeNodesClassed(NativeNodesNode(TEXT("Iron Ore"), ENodePurity::Normal, ENodeKind::Node, 100, 100, false), TEXT("Desc_OreIron_C")));
+	In.Add(NativeNodesNode(TEXT("Iron Ore"), ENodePurity::Normal, ENodeKind::Node, 200, 100, true));
+	const FNativeWorldBody Body = BuildNativeResourceNodes(TEXT("T"), In);
+	TestEqual(TEXT("className is written after exploited, and omitted when empty"), Body.Json,
+		FString(TEXT("{\"observedAt\":\"T\",\"data\":[")
+			TEXT("{\"type\":\"Iron Ore\",\"purity\":\"normal\",\"nodeType\":\"node\",\"x\":1,\"y\":1,\"exploited\":false,\"className\":\"Desc_OreIron_C\"},")
+			TEXT("{\"type\":\"Iron Ore\",\"purity\":\"normal\",\"nodeType\":\"node\",\"x\":2,\"y\":1,\"exploited\":true}]}")));
+
+	// Two nodes that differ only by className are both kept, ordered by className after the S1 key.
+	TArray<FResourceNodeReading> Twins;
+	Twins.Add(NativeNodesClassed(NativeNodesNode(TEXT("Iron Ore"), ENodePurity::Pure, ENodeKind::Node, 0, 0, false), TEXT("Desc_OreIron_C")));
+	Twins.Add(NativeNodesClassed(NativeNodesNode(TEXT("Iron Ore"), ENodePurity::Pure, ENodeKind::Node, 0, 0, false), TEXT("Desc_OreCopper_C")));
+	Twins.Add(NativeNodesNode(TEXT("Iron Ore"), ENodePurity::Pure, ENodeKind::Node, 0, 0, false));
+	const FNativeWorldBody TwinBody = BuildNativeResourceNodes(TEXT("T"), Twins);
+	TestEqual(TEXT("all three kept"), TwinBody.Items, 3);
+	const FString TwinData = NativeNodesData(TwinBody);
+	const int32 AtNone = TwinData.Find(TEXT("\"exploited\":false}"));
+	const int32 AtCopper = TwinData.Find(TEXT("Desc_OreCopper_C"));
+	const int32 AtIron = TwinData.Find(TEXT("Desc_OreIron_C"));
+	TestTrue(TEXT("empty, then Copper, then Iron"), AtNone != INDEX_NONE && AtNone < AtCopper && AtCopper < AtIron);
+
+	// The order the game gave them in does not change the body.
+	TArray<FResourceNodeReading> Reversed;
+	for (int32 I = Twins.Num() - 1; I >= 0; --I)
+	{
+		Reversed.Add(Twins[I]);
+	}
+	TestEqual(TEXT("scan order is irrelevant"), BuildNativeResourceNodes(TEXT("T"), Reversed).Json, TwinBody.Json);
 	return true;
 }
 
