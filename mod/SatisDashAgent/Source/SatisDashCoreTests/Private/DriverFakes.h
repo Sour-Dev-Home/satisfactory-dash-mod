@@ -119,6 +119,12 @@ namespace SatisDash::Test
 		int32 StepsToFinish = 3;
 		int32 ScanBegins = 0;
 		int32 ScanSteps = 0;
+		/** R2a: what a finished factory read returns; bFactoryWorld false = no world or subsystem. A read finishes on its FactorySteps-th step. */
+		TArray<SatisDash::FFactoryReading> Factory;
+		bool bFactoryWorld = true;
+		int32 FactorySteps = 3;
+		int32 FactoryBegins = 0;
+		int32 FactoryStepCalls = 0;
 
 		FFakeGame()
 		{
@@ -136,6 +142,11 @@ namespace SatisDash::Test
 		virtual TOptional<TArray<SatisDash::FResourceNodeReading>> StepResourceNodeScan(int32 MaxActors) override
 		{
 			return ++ScanSteps >= StepsToFinish ? TOptional<TArray<SatisDash::FResourceNodeReading>>(Nodes) : TOptional<TArray<SatisDash::FResourceNodeReading>>();
+		}
+		virtual bool BeginFactoryRead() override { ++FactoryBegins; FactoryStepCalls = 0; return bFactoryWorld; }
+		virtual TOptional<TArray<SatisDash::FFactoryReading>> StepFactoryRead(SatisDash::FStepBudget& Budget) override
+		{
+			return ++FactoryStepCalls >= FactorySteps ? TOptional<TArray<SatisDash::FFactoryReading>>(Factory) : TOptional<TArray<SatisDash::FFactoryReading>>();
 		}
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{

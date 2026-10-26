@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "SatisDash/FrmPlayers.h"
+#include "SatisDash/Native/Factory/NativeFactory.h"
+#include "SatisDash/StepBudget.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Requests.h"
 #include "SatisDash/Responses.h"
@@ -50,6 +52,17 @@ namespace SatisDash
 		 * which the caller treats as "cannot read"). Sorting and building the body are not done here.
 		 */
 		virtual TOptional<TArray<FResourceNodeReading>> StepResourceNodeScan(int32 MaxActors) { return {}; }
+		/**
+		 * R2a: starts a time-sliced read of the factory's machines. False when there is no world or no buildable subsystem.
+		 * Call StepFactoryRead every tick until it returns a value. Only called when factorySource is "native".
+		 */
+		virtual bool BeginFactoryRead() { return false; }
+		/**
+		 * Reads machines until the budget is spent, on the game thread. Unset until every buildable has been seen, then every
+		 * machine read (once). Empty when the world changed under the read, or held no machines: the caller treats that as
+		 * "cannot read". Scaling and building the body are not done here.
+		 */
+		virtual TOptional<TArray<FFactoryReading>> StepFactoryRead(FStepBudget& Budget) { return {}; }
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

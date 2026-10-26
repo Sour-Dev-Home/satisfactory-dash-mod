@@ -1,22 +1,29 @@
 #include "GameReader.h"
 
+#include "Buildables/FGBuildableManufacturer.h"
 #include "Controller/FGServerManagementController.h"
 #include "Controller/FGServerStateController.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "FGBuildableSubsystem.h"
 #include "FGCircuitSubsystem.h"
 #include "FGGameState.h"
+#include "FGInventoryComponent.h"
 #include "FGPowerCircuit.h"
+#include "FGPowerInfoComponent.h"
+#include "FGRecipe.h"
 #include "FGServerSubsystem.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "Online/PlayerInfoCache.h"
+#include "Resources/FGItemDescriptor.h"
 #include "Resources/FGResourceNode.h"
 #include "Resources/FGResourceDescriptor.h"
 #include "Resources/FGResourceNodeBase.h"
 #include "SatisDash/FrmResourceNodes.h"
 #include "SatisDash/GameValues.h"
 #include "SatisDash/Log.h"
+#include "SatisDash/Native/Rates/NativeRates.h"
 
 UFGServerSubsystem* SatisDash::FGameReader::Server() const
 {
@@ -272,4 +279,168 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 	}
 	// A world with no levels, no actors or no nodes comes back empty, which the caller treats as "cannot read".
 	return MoveTemp(ScanFound);
+}
+
+namespace
+{
+	/** R2a: a form the snapshot reports in m3 (the pure side scales it). */
+	bool FactoryReadIsFluid(const TSubclassOf<UFGItemDescriptor>& ItemClass)
+	{
+		const EResourceForm Form = UFGItemDescriptor::GetForm(ItemClass);
+		return Form == EResourceForm::RF_LIQUID || Form == EResourceForm::RF_GAS;
+	}
+
+	void FactoryReadRecipeItems(const TArray<FItemAmount>& Items, TArray<SatisDash::FRecipeItemReading>& Out)
+	{
+		for (const FItemAmount& Item : Items)
+		{
+			if (!Item.ItemClass)
+			{
+				continue;
+			}
+			SatisDash::FRecipeItemReading Line;
+			Line.Name = UFGItemDescriptor::GetItemName(Item.ItemClass).ToString();
+			Line.ClassName = Item.ItemClass->GetName();
+			Line.AmountPerCycle = Item.Amount; // game units (litres for a fluid): NativeRates converts
+			Line.bFluid = FactoryReadIsFluid(Item.ItemClass);
+			Out.Add(MoveTemp(Line));
+		}
+	}
+
+	/**
+	 * Only non-empty slots are kept. Raw counts go to MakeSlotReading, which scales a fluid (litres to m3) in Core: the capacity is
+	 * GetSlotSize (FGInventoryComponent.h:493, "the arbitrary slot size if one is set, otherwise the stack size").
+	 */
+	void FactoryReadSlots(const UFGInventoryComponent& Inventory, TArray<SatisDash::FSlotReading>& Out)
+	{
+		const int32 Size = Inventory.GetSizeLinear();
+		for (int32 Index = 0; Index < Size; ++Index)
+		{
+			FInventoryStack Stack;
+			if (!Inventory.GetStackFromIndex(Index, Stack) || Stack.NumItems <= 0)
+			{
+				continue;
+			}
+			const TSubclassOf<UFGItemDescriptor> ItemClass = Stack.Item.GetItemClass();
+			if (!ItemClass)
+			{
+				continue;
+			}
+			Out.Add(SatisDash::MakeSlotReading(ItemClass->GetName(), Stack.NumItems, Inventory.GetSlotSize(Index, ItemClass), FactoryReadIsFluid(ItemClass)));
+		}
+	}
+}
+
+void SatisDash::FGameReader::ResetFactoryRead()
+{
+	FactoryWorld.Reset();
+	FactoryCursor = 0;
+	FactoryFound.Reset();
+}
+
+bool SatisDash::FGameReader::BeginFactoryRead()
+{
+	UWorld* Current = World.Get();
+	const AFGBuildableSubsystem* Subsystem = Current != nullptr ? AFGBuildableSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		return false;
+	}
+	ResetFactoryRead();
+	FactoryWorld = Current;
+	// Advisory only (a count of the manufacturers the subsystem knows, logged next to what was read).
+	FactoryExpected = Subsystem->GetBuildableCount(AFGBuildableManufacturer::StaticClass());
+	FactoryBoosted = 0;
+	FactoryProductivityMin = 1e300;
+	FactoryProductivityMax = -1e300;
+	return true;
+}
+
+TOptional<TArray<SatisDash::FFactoryReading>> SatisDash::FGameReader::StepFactoryRead(FStepBudget& Budget)
+{
+	UWorld* Current = World.Get();
+	// A different save was loaded while the slices ran (or the world went away): what was read is the old world's or a mix, so
+	// it is "cannot read" (empty: nothing submitted), never a partial part.
+	const AFGBuildableSubsystem* Subsystem = Current != nullptr && Current == FactoryWorld.Get() ? AFGBuildableSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		ResetFactoryRead();
+		return TArray<FFactoryReading>();
+	}
+	// The list is kept bounded whatever the world holds (twice the snapshot's own cap).
+	const int32 MaxFound = 2 * MaxBuildings;
+	bool bFinished = false;
+	Budget.Begin();
+	do
+	{
+		// Re-fetched for every element and never kept: buildables come and go between ticks.
+		const TArray<AFGBuildable*>& All = Subsystem->GetAllBuildablesRef();
+		if (FactoryCursor >= All.Num())
+		{
+			bFinished = true;
+			break;
+		}
+		const AFGBuildableManufacturer* Machine = Cast<AFGBuildableManufacturer>(All[FactoryCursor++]);
+		if (Machine == nullptr || !IsValid(Machine) || FactoryFound.Num() >= MaxFound)
+		{
+			continue;
+		}
+		FFactoryReading Reading;
+		Reading.Id = Machine->GetName();
+		Reading.Name = Machine->mDisplayName.ToString();
+		Reading.ClassName = Machine->GetClass()->GetName();
+		Reading.bProducing = Machine->IsProducing();
+		Reading.bPaused = Machine->IsProductionPaused();
+		const TSubclassOf<UFGRecipe> Recipe = Machine->GetCurrentRecipe();
+		FRateInput Rates;
+		if (Recipe)
+		{
+			Reading.Recipe = UFGRecipe::GetRecipeName(Recipe).ToString();
+			FactoryReadRecipeItems(UFGRecipe::GetProducts(Recipe), Rates.Products);
+			FactoryReadRecipeItems(UFGRecipe::GetIngredients(Machine, Recipe), Rates.Ingredients);
+			Rates.CycleSeconds = UFGRecipe::GetManufacturingDuration(Recipe);
+		}
+		Rates.Potential = Machine->GetCurrentPotential();
+		Rates.RawProductivity = Machine->GetProductivity();
+		Rates.bProducing = Reading.bProducing;
+		NativeRates(Rates, DefaultRatesMode, Reading.Production, Reading.Ingredients);
+		Reading.ClockPercent = 100.0 * Rates.Potential;
+		FactoryProductivityMin = FMath::Min(FactoryProductivityMin, Rates.RawProductivity);
+		FactoryProductivityMax = FMath::Max(FactoryProductivityMax, Rates.RawProductivity);
+		FactoryBoosted += Machine->GetCurrentProductionBoost() > 1.0f ? 1 : 0;
+		const FVector Location = Machine->GetActorLocation();
+		Reading.bHasLocation = true;
+		Reading.XCm = Location.X;
+		Reading.YCm = Location.Y;
+		Reading.ZCm = Location.Z;
+		Reading.YawDeg = Machine->GetActorRotation().Yaw;
+		// Any link in the chain can be missing (no power use, not connected): -1 is "no group".
+		const UFGPowerInfoComponent* PowerInfo = Machine->GetPowerInfo();
+		const UFGPowerCircuit* Circuit = PowerInfo != nullptr ? PowerInfo->GetPowerCircuit() : nullptr;
+		Reading.CircuitGroupId = Circuit != nullptr ? Circuit->GetCircuitGroupID() : -1;
+		if (const UFGInventoryComponent* Output = Machine->GetOutputInventory())
+		{
+			FactoryReadSlots(*Output, Reading.Output);
+		}
+		if (const UFGInventoryComponent* Input = Machine->GetInputInventory())
+		{
+			TArray<FSlotReading> Slots;
+			FactoryReadSlots(*Input, Slots);
+			Reading.Input = MoveTemp(Slots);
+		}
+		FactoryFound.Add(MoveTemp(Reading));
+	} while (!Budget.Spent());
+	Budget.End(); // straight after the loop: nothing else is done on the game thread this step
+	if (!bFinished)
+	{
+		return {};
+	}
+	// Counts and times only; never an id, a name or a recipe. Productivity is the game's raw measure (its scale is judged by the parity run).
+	const bool bAny = FactoryFound.Num() > 0;
+	UE_LOG(LogSatisDash, Display, TEXT("Factory read (game thread only): %d buildings in %d steps, %d machines, longest step %.2f ms, total %.2f ms, expected %d, boosted %d, productivity %.3f..%.3f"),
+		FactoryCursor, Budget.Steps(), FactoryFound.Num(), Budget.LongestMs(), Budget.TotalMs(), FactoryExpected, FactoryBoosted,
+		bAny ? FactoryProductivityMin : 0.0, bAny ? FactoryProductivityMax : 0.0);
+	TArray<FFactoryReading> Done = MoveTemp(FactoryFound);
+	ResetFactoryRead();
+	return MoveTemp(Done);
 }

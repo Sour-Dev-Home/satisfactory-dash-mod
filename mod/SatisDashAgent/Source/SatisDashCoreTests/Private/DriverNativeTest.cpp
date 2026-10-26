@@ -261,3 +261,67 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("one Readers line shows all four native"), AllNative, 1);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeFactoryTest, "SatisDash.Core.Driver.NativeFactory", SatisDash::Test::Flags)
+
+bool FDriverNativeFactoryTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"factorySource\":\"native\"");
+	FDriverFixture F;
+	FFactoryReading Machine;
+	Machine.Id = TEXT("Build_ConstructorMk1_C_77");
+	Machine.Name = TEXT("Constructor");
+	Machine.ClassName = TEXT("Build_ConstructorMk1_C");
+	Machine.bProducing = true;
+	F.Game.Factory.Add(Machine);
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+
+	// A read that needs 3 steps: begun on a sample pass, then stepped once per driver tick, submitted after the third.
+	TestTrue(TEXT("the first factory pass begins a read"), F.runUntil(Driver, [&F] { return F.Game.FactoryBegins >= 1; }, 20));
+	TestEqual(TEXT("one begin"), F.Game.FactoryBegins, 1);
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("one step per tick"), F.Game.FactoryStepCalls, 1);
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("second step"), F.Game.FactoryStepCalls, 2);
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("third step finishes it"), F.Game.FactoryStepCalls, 3);
+	F.run(Driver, 1.0);
+	TestEqual(TEXT("a finished read is not stepped again"), F.Game.FactoryStepCalls, 3);
+	const TArray<FString> Bodies = DriverNativeRun(F, Driver, 10);
+	TestTrue(TEXT("the snapshot carries the fake's machine"), DriverNativeAny(Bodies, TEXT("\"factory\":{\"buildings\":[{\"id\":\"Build_ConstructorMk1_C_77\"")));
+	TestEqual(TEXT("FRM is never asked for the factory"), F.Net.sent(TEXT("/getFactory")), 0);
+
+	// A fluid's amounts are scaled in pure code: litres to m3. A solid's are not.
+	const FSlotReading Water = MakeSlotReading(TEXT("Desc_Water_C"), 5000, 10000, true);
+	TestEqual(TEXT("fluid amount in m3"), Water.Amount, 5.0);
+	TestEqual(TEXT("fluid capacity in m3"), Water.MaxAmount, 10.0);
+	const FSlotReading Plates = MakeSlotReading(TEXT("Desc_IronPlate_C"), 40, 200, false);
+	TestEqual(TEXT("solid amount as is"), Plates.Amount, 40.0);
+	TestEqual(TEXT("solid capacity as is"), Plates.MaxAmount, 200.0);
+
+	// A read still open at the next due time is not restarted.
+	F.Game.FactorySteps = 1000000;
+	TestTrue(TEXT("the next cadence begins another read"), F.runUntil(Driver, [&F] { return F.Game.FactoryBegins >= 2; }, 120));
+	DriverNativeRun(F, Driver, 150);
+	TestEqual(TEXT("an open read is not restarted"), F.Game.FactoryBegins, 2);
+	int32 Notes = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Notes += Line.Contains(TEXT("Factory read")) ? 1 : 0;
+	}
+	TestTrue(TEXT("skipped ticks are noted, rate-limited (one per 60 s, not one per skip)"), Notes >= 1 && Notes <= 3);
+
+	// No world or subsystem: the part is left out, FRM is not asked and "available:false" is not written.
+	FDriverFixture G;
+	G.Game.bFactoryWorld = false;
+	FDriver Quiet{ G.ConfigPath, G.CredentialPath, G.Net, G.Game, G.Worker, G.clock() };
+	G.enrol(Quiet, SatisDash::Test::FakeSecret(), Native);
+	const TArray<FString> QuietBodies = DriverNativeRun(G, Quiet, 40);
+	TestTrue(TEXT("the read was tried"), G.Game.FactoryBegins >= 1);
+	TestFalse(TEXT("no factory part"), DriverNativeAny(QuietBodies, TEXT("\"factory\":")));
+	TestFalse(TEXT("no available:false"), DriverNativeAny(QuietBodies, TEXT("\"available\":false,\"buildings\"")));
+	TestEqual(TEXT("FRM is still not asked"), G.Net.sent(TEXT("/getFactory")), 0);
+	return true;
+}

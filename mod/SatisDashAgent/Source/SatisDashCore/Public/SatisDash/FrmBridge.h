@@ -65,6 +65,12 @@ namespace SatisDash
 		 * while that layer is requested, being read, or has an outcome waiting (the readings are then dropped).
 		 */
 		bool SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, TArray<FResourceNodeReading> Readings, TOptional<FBlake3Hash> LastData);
+		/**
+		 * R2a: the machines a native read finished on the game thread, moved into a factory job. The worker builds the part
+		 * (NativeFactoryPart) and sets it ready, so TakeFactory is the one way out for both sources. FRM is not asked. ReadAt
+		 * is the part's age start. False while a factory job is held (the readings are then dropped).
+		 */
+		bool SubmitNativeFactory(TArray<FFactoryReading> Readings, double ReadAt);
 		/** The layer's finished outcome, once. */
 		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
@@ -79,10 +85,16 @@ namespace SatisDash
 		struct FFactoryJob
 		{
 			explicit FFactoryJob(TArray<uint8> InBody) : Parse{MoveTemp(InBody)} {}
+			/** R2a: the game's own readings; the worker builds the part from them (no FRM body, Parse stays empty). */
+			FFactoryJob(TArray<FFactoryReading> InReadings, double InReadAt) : Parse{TArray<uint8>()}, Readings{MoveTemp(InReadings)}, bNative{true}, ReadAt{InReadAt} {}
 			FFactoryParse Parse;
 			FFactoryParse::EStep Last = FFactoryParse::EStep::More;
 			bool bRan = false;
 			double ReadAt = 0;
+			TArray<FFactoryReading> Readings;
+			bool bNative = false;
+			/** The native part's text, written by the worker. */
+			FString NativeJson;
 		};
 		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
 		struct FReady { FString Json; double At = 0; };

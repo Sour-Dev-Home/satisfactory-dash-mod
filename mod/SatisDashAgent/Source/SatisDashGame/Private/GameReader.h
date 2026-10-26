@@ -22,9 +22,13 @@ namespace SatisDash
 		virtual TOptional<TArray<FPlayerReading>> ReadPlayers() override;
 		virtual bool BeginResourceNodeScan() override;
 		virtual TOptional<TArray<FResourceNodeReading>> StepResourceNodeScan(int32 MaxActors) override;
+		virtual bool BeginFactoryRead() override;
+		virtual TOptional<TArray<FFactoryReading>> StepFactoryRead(FStepBudget& Budget) override;
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) override;
 
 	private:
+		/** Ends the factory read and frees what it holds. */
+		void ResetFactoryRead();
 		UFGServerSubsystem* Server() const;
 		TWeakObjectPtr<UWorld> World;
 
@@ -39,5 +43,17 @@ namespace SatisDash
 		double ScanLongestStep = 0;
 		double ScanTotal = 0;
 		TArray<FResourceNodeReading> ScanFound;
+
+		/**
+		 * The factory read (R2a): an index into the buildable list, never a pointer into it (the list can change between ticks;
+		 * GetAllBuildablesRef is re-fetched for every element). The world it began in: a read that ends in another is "cannot read".
+		 */
+		TWeakObjectPtr<UWorld> FactoryWorld;
+		int32 FactoryCursor = 0;
+		int32 FactoryExpected = 0;
+		int32 FactoryBoosted = 0;
+		double FactoryProductivityMin = 0;
+		double FactoryProductivityMax = 0;
+		TArray<FFactoryReading> FactoryFound;
 	};
 }

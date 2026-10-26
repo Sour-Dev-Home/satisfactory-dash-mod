@@ -121,7 +121,30 @@ bool FFrmBridgeFactoryTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeMapLiveTest, "SatisDash.Core.FrmBridge.MapLive", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeNativeFactoryTest, "SatisDash.Core.FrmBridge.NativeFactory", SatisDash::Test::Flags)
+
+bool FFrmBridgeNativeFactoryTest::RunTest(const FString& Parameters)
+{
+	FFrmBridgeFixture F;
+	TArray<FFactoryReading> Readings;
+	FFactoryReading One;
+	One.Id = TEXT("B_9");
+	One.Name = TEXT("n");
+	One.ClassName = TEXT("c");
+	Readings.Add(One);
+	TestTrue(TEXT("a native read is taken"), F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>(Readings), F.T));
+	TestFalse(TEXT("a second is refused while one is held"), F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>(Readings), F.T));
+	TestFalse(TEXT("nothing ready before the worker ran"), F.Bridge.TakeFactory(F.T, 30).IsSet());
+	F.tick(3);
+	TestEqual(TEXT("the worker built it, FRM was not asked"), F.Net.Open.Num(), 0);
+	const TOptional<FString> Part = F.Bridge.TakeFactory(F.T, 30);
+	TestTrue(TEXT("TakeFactory returns the part"), Part.IsSet() && Part->StartsWith(TEXT("{\"buildings\":[{\"id\":\"B_9\"")));
+	TestFalse(TEXT("taken once"), F.Bridge.TakeFactory(F.T, 30).IsSet());
+	TestTrue(TEXT("once harvested a new one is taken"), F.Bridge.SubmitNativeFactory(MoveTemp(Readings), F.T));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeMapLiveTest,"SatisDash.Core.FrmBridge.MapLive", SatisDash::Test::Flags)
 
 bool FFrmBridgeMapLiveTest::RunTest(const FString& Parameters)
 {

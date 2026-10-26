@@ -218,6 +218,16 @@ bool SatisDash::FFrmBridge::SubmitNativeWorld(EWorldLayer Layer, const FString& 
 	return true;
 }
 
+bool SatisDash::FFrmBridge::SubmitNativeFactory(TArray<FFactoryReading> Readings, double ReadAt)
+{
+	if (Factory.IsValid())
+	{
+		return false;
+	}
+	Factory = MakeShared<FFactoryJob>(MoveTemp(Readings), ReadAt);
+	return true;
+}
+
 TOptional<SatisDash::FWorldOutcome> SatisDash::FFrmBridge::TakeWorld(EWorldLayer Layer)
 {
 	FWorldSlot& Slot = World[int32(Layer)];
@@ -252,7 +262,7 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 		Factory->bRan = false;
 		if (Factory->Last == FFactoryParse::EStep::Done)
 		{
-			FactoryReady = FReady{ Factory->Parse.TakeJson(), Factory->ReadAt };
+			FactoryReady = FReady{ Factory->bNative ? MoveTemp(Factory->NativeJson) : Factory->Parse.TakeJson(), Factory->ReadAt };
 			Factory.Reset();
 		}
 		else if (Factory->Last == FFactoryParse::EStep::Invalid)
@@ -326,7 +336,17 @@ void SatisDash::FFrmBridge::LaunchNext()
 	{
 		Worker.Launch([Job = Factory]
 		{
-			Job->Last = Job->Parse.Step();
+			if (Job->bNative)
+			{
+				// The whole part in one task: sorted, capped and written by the one record writer (one read is at most 20,000 records).
+				int32 Dropped = 0;
+				Job->NativeJson = NativeFactoryPart(MoveTemp(Job->Readings), Dropped);
+				Job->Last = FFactoryParse::EStep::Done;
+			}
+			else
+			{
+				Job->Last = Job->Parse.Step();
+			}
 			Job->bRan = true;
 		});
 	}

@@ -13,6 +13,7 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, Pusher{Clock.Random01}
 	, Bridge{InTransport, InWorker}
 	, WorldLayers{InTransport, Bridge, Clock.Random01}
+	, FactoryBudget{[this] { return Clock.Now(); }}
 {
 }
 
@@ -46,6 +47,7 @@ void SatisDash::FDriver::Tick()
 		StopCommands();
 		Bridge.Stop();
 		WorldLayers.Stop();
+		bFactoryReadOpen = false; // an open game read is dropped: its readings are never submitted
 	}
 	if (!bRunning && bNowRunning)
 	{
@@ -93,6 +95,7 @@ void SatisDash::FDriver::Tick()
 		Agent.OnAuthRejected(); // a 401 on any authenticated call while Running halts the agent (Agent.h)
 		return;
 	}
+	TickFactoryRead(Now);
 	TickSample(Now);
 	TickPush(Now);
 	TickCommands(Now);
@@ -104,6 +107,35 @@ void SatisDash::FDriver::NoteFailedPart(const TCHAR* Part, double Now)
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Couldn't read %s from the game; leaving it out of the snapshot"), Part);
 	}
+}
+
+void SatisDash::FDriver::TickFactoryRead(double Now)
+{
+	if (!bFactoryReadOpen)
+	{
+		return;
+	}
+	const FAgentConfig& Config = Agent.GetConfig();
+	if (Config.GetFactorySource() != ESource::Native)
+	{
+		bFactoryReadOpen = false; // the source changed under a read: drop it
+		return;
+	}
+	// The game thread's whole part: one budgeted slice of the buildables. Sorting and the JSON text are built on the worker.
+	TOptional<TArray<FFactoryReading>> Found = Game.StepFactoryRead(FactoryBudget);
+	if (!Found.IsSet())
+	{
+		return;
+	}
+	bFactoryReadOpen = false;
+	if (Found.GetValue().Num() == 0)
+	{
+		// No world, a world swapped mid-read, or no machines: the part is left out of the snapshot (one warning per 600 s) and
+		// FRM is never asked.
+		NoteFailedPart(TEXT("factory"), Now);
+		return;
+	}
+	Bridge.SubmitNativeFactory(MoveTemp(Found.GetValue()), Now);
 }
 
 void SatisDash::FDriver::TickSample(double Now)
@@ -152,6 +184,26 @@ void SatisDash::FDriver::TickSample(double Now)
 		if (bFactoryDue)
 		{
 			LastFactoryAt = Now;
+		}
+		if (bFactoryDue && Snapshot.Status->bIsGameRunning && Config.GetFactorySource() == ESource::Native)
+		{
+			if (bFactoryReadOpen)
+			{
+				// The last read has not finished: this cadence tick is skipped, not restarted. No names, counts or ids.
+				if (FactoryLog.ShouldLog(TEXT("busy"), Now))
+				{
+					UE_LOG(LogSatisDash, Display, TEXT("Factory read still running: this cadence tick is skipped"));
+				}
+			}
+			else
+			{
+				FactoryBudget.Reset();
+				bFactoryReadOpen = Game.BeginFactoryRead();
+				if (!bFactoryReadOpen)
+				{
+					NoteFailedPart(TEXT("factory"), Now); // no world or subsystem yet: the part is left out and FRM is not asked
+				}
+			}
 		}
 		const bool bNativePlayers = Config.GetPlayersSource() == ESource::Native;
 		Bridge.RequestPass(bFactoryDue, !bNativePlayers, Config.GetFactorySource() == ESource::Bridge, Config.GetTrainsSource() == ESource::Bridge);

@@ -30,6 +30,13 @@ namespace SatisDash
 	};
 
 	/**
+	 * One inventory slot as the snapshot reports it, from the game's raw counts: a fluid's amount and capacity are in
+	 * litres and are divided by 1000 here (FRM's scale, m3); a solid's are items, unchanged.
+	 * Pure: the game reader passes raw counts and never scales.
+	 */
+	SATISDASHCORE_API FSlotReading MakeSlotReading(const FString& ClassName, int32 NumItems, int32 Capacity, bool bFluid);
+
+	/**
 	 * The snapshot's factory part, {"buildings":[...]}, from the game's own machines, each record written by the same
 	 * AppendFactoryBuilding the FRM parse uses. Sorted by Id (ordinal, ties by name and class name), a later duplicate id
 	 * dropped, the first MaxBuildings kept (the rest counted in OutDropped), so the same world always gives the same bytes

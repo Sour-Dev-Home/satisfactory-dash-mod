@@ -108,6 +108,17 @@ namespace
 	}
 }
 
+SatisDash::FSlotReading SatisDash::MakeSlotReading(const FString& ClassName, int32 NumItems, int32 Capacity, bool bFluid)
+{
+	// A true division by 1000 for a fluid, as the unit change is (litres to m3); a solid is counted in items.
+	const double Scale = bFluid ? 1000.0 : 1.0;
+	FSlotReading Slot;
+	Slot.ClassName = ClassName;
+	Slot.Amount = double(NumItems) / Scale;
+	Slot.MaxAmount = double(Capacity) / Scale;
+	return Slot;
+}
+
 FString SatisDash::NativeFactoryPart(TArray<FFactoryReading> Readings, int32& OutDropped)
 {
 	OutDropped = 0;
