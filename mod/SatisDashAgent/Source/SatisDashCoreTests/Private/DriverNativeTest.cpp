@@ -45,7 +45,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	FDriverFixture F;
 	F.Game.Players = TArray<FPlayerReading>{ { TEXT("player-a"), true }, { TEXT("player-b"), false } };
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"playersSource\":\"native\""));
+	// No key: native is the default since the switch PR (ADR-0058; native-parity runs 40244496806, 40253178598).
+	F.enrol(Driver, SatisDash::Test::FakeSecret());
 
 	TArray<FString> Bodies = DriverNativeRun(F, Driver, 20);
 	TestTrue(TEXT("snapshots carry the game's players, connected first"),
@@ -76,14 +77,14 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("no game running: the game's list is not read"), F.Game.PlayerReads, ReadsBefore);
 	TestFalse(TEXT("no game running: no players part"), DriverNativeAny(Bodies, TEXT("\"players\":")));
 
-	// The default config (no key) is the bridge, unchanged: the first pass asks FRM.
+	// The override key still selects the bridge until it is removed: the first pass asks FRM.
 	FDriverFixture G;
 	G.Game.Players = TArray<FPlayerReading>{ { TEXT("player-a"), true } };
 	FDriver Bridge{ G.ConfigPath, G.CredentialPath, G.Net, G.Game, G.Worker, G.clock() };
-	G.enrol(Bridge, SatisDash::Test::FakeSecret());
+	G.enrol(Bridge, SatisDash::Test::FakeSecret(), TEXT(",\"playersSource\":\"bridge\""));
 	G.run(Bridge, 2);
-	TestEqual(TEXT("default: FRM is asked"), G.Net.pending(TEXT("/getPlayer")), 1);
-	TestEqual(TEXT("default: the game's list is not read"), G.Game.PlayerReads, 0);
+	TestEqual(TEXT("bridge key: FRM is asked"), G.Net.pending(TEXT("/getPlayer")), 1);
+	TestEqual(TEXT("bridge key: the game's list is not read"), G.Game.PlayerReads, 0);
 
 	// The evidence runs tell a native reader from the bridge by one line per Running entry, naming each reader's source.
 	int32 NativeLines = 0;
@@ -93,8 +94,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=bridge")) ? 1 : 0;
 		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=bridge")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line for the native-players driver"), NativeLines, 1);
-	TestEqual(TEXT("one Readers line for the default driver"), BridgeLines, 1);
+	TestEqual(TEXT("one Readers line for the default (native players) driver"), NativeLines, 1);
+	TestEqual(TEXT("one Readers line for the bridge-key driver"), BridgeLines, 1);
 	return true;
 }
 
@@ -165,7 +166,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	for (const FString& Line : Log.Take())
 	{
 		ScanLines += Line.Contains(TEXT("Resource node scan")) || Line.Contains(TEXT("found no nodes")) ? 1 : 0;
-		ReadersLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native")) ? 1 : 0;
+		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native")) ? 1 : 0;
 	}
 	TestEqual(TEXT("and logs nothing about a scan"), ScanLines, 0);
 	TestEqual(TEXT("one Readers line for the native-nodes driver"), ReadersLines, 1);
