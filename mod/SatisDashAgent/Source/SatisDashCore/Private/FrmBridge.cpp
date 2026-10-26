@@ -160,7 +160,18 @@ TOptional<FString> SatisDash::FFrmBridge::TakeMapLive(double Now, double MaxAgeS
 
 bool SatisDash::FFrmBridge::LargeBusy() const
 {
-	return Factory.IsValid() || World[0].Job.IsValid() || World[1].Job.IsValid();
+	if (Factory.IsValid())
+	{
+		return true;
+	}
+	for (const FWorldSlot& Slot : World)
+	{
+		if (Slot.Job.IsValid())
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 SatisDash::FFrmBridge::FWorldSlot* SatisDash::FFrmBridge::NextWorldJob()
@@ -178,6 +189,10 @@ SatisDash::FFrmBridge::FWorldSlot* SatisDash::FFrmBridge::NextWorldJob()
 bool SatisDash::FFrmBridge::RequestWorld(EWorldLayer Layer, const FString& ObservedAt, TOptional<FBlake3Hash> LastRaw, TOptional<FBlake3Hash> LastData)
 {
 	FWorldSlot& Slot = World[int32(Layer)];
+	if (WorldLayer(Layer).Endpoint == nullptr)
+	{
+		return false; // a native-only layer (trainRoutes): there is nothing to ask FRM, and a null endpoint never reaches the queue
+	}
 	if (Slot.bRequested || Slot.Job.IsValid() || Slot.Outcome.IsSet())
 	{
 		return false;
@@ -215,6 +230,30 @@ bool SatisDash::FFrmBridge::SubmitNativeWorld(EWorldLayer Layer, const FString& 
 	}
 	Slot.bRequested = true;
 	Slot.Job = MakeShared<FWorldJob>(Layer, MoveTemp(Readings), ObservedAt, LastData);
+	return true;
+}
+
+bool SatisDash::FFrmBridge::SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, FNativeWorldBuilder Builder, TOptional<FBlake3Hash> LastData)
+{
+	FWorldSlot& Slot = World[int32(Layer)];
+	if (Slot.bRequested || Slot.Job.IsValid() || Slot.Outcome.IsSet())
+	{
+		return false;
+	}
+	Slot.bRequested = true;
+	Slot.Job = MakeShared<FWorldJob>(Layer, MoveTemp(Builder), ObservedAt, LastData);
+	return true;
+}
+
+bool SatisDash::FFrmBridge::SubmitNativeMapLive(FTrainsSnapshot Snapshot, double ReadAt)
+{
+	if (NativeMapLive.IsValid())
+	{
+		return false;
+	}
+	NativeMapLive = MakeShared<FNativeMapLiveJob>();
+	NativeMapLive->Readings = MoveTemp(Snapshot);
+	NativeMapLive->ReadAt = ReadAt;
 	return true;
 }
 
@@ -257,6 +296,18 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 	}
 	HarvestMapSide(MapTrains);
 	HarvestMapSide(MapStations);
+	if (NativeMapLive.IsValid() && NativeMapLive->bRan)
+	{
+		if (NativeMapLive->bOk)
+		{
+			MapLiveReady = FReady{ MoveTemp(NativeMapLive->Json), NativeMapLive->ReadAt };
+		}
+		else if (FailLog.ShouldLog(TEXT("mapLiveOverCap"), Now))
+		{
+			UE_LOG(LogSatisDash, Warning, TEXT("mapLive is over its %lld-byte cap; leaving it out of the snapshot"), MapLiveMaxBytes);
+		}
+		NativeMapLive.Reset();
+	}
 	if (Factory.IsValid() && Factory->bRan)
 	{
 		Factory->bRan = false;
@@ -329,6 +380,16 @@ void SatisDash::FFrmBridge::LaunchNext()
 		{
 			FFrmArrayParse& Array = *Job->Owned;
 			Job->Last = Array.Step();
+			Job->bRan = true;
+		});
+	}
+	else if (NativeMapLive.IsValid() && !NativeMapLive->bRan)
+	{
+		Worker.Launch([Job = NativeMapLive]
+		{
+			// The whole part in one task: sorted, capped and written by the record writers the FRM parse uses (a few hundred records).
+			Job->bOk = NativeMapLiveJson(Job->Readings.Trains, Job->Readings.Stations, Job->Json);
+			Job->Readings = FTrainsSnapshot();
 			Job->bRan = true;
 		});
 	}
@@ -422,6 +483,7 @@ void SatisDash::FFrmBridge::Stop()
 	Players.Reset();
 	Factory.Reset();
 	Encode.Reset();
+	NativeMapLive.Reset();
 	PlayersReady.Reset();
 	FactoryReady.Reset();
 	MapTrains = FMapSide();

@@ -6,6 +6,8 @@
 class UWorld;
 class ULevel;
 class UFGServerSubsystem;
+class AFGTrain;
+class AFGTrainStationIdentifier;
 
 namespace SatisDash
 {
@@ -26,9 +28,15 @@ namespace SatisDash
 		virtual TOptional<TArray<FFactoryReading>> StepFactoryRead(FStepBudget& Budget) override;
 		virtual bool FactoryReadAbandoned() const override { return bFactoryAbandoned; }
 		virtual void EndFactoryRead() override { ResetFactoryRead(); }
+		virtual bool BeginTrainsRead() override;
+		virtual TOptional<FTrainsSnapshot> StepTrainsRead(FStepBudget& Budget) override;
+		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandoned; }
+		virtual void EndTrainsRead() override { ResetTrainsRead(); }
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) override;
 
 	private:
+		/** Ends the trains read and frees what it holds. */
+		void ResetTrainsRead();
 		/** Ends the factory read and frees what it holds. */
 		void ResetFactoryRead();
 		UFGServerSubsystem* Server() const;
@@ -59,5 +67,21 @@ namespace SatisDash
 		double FactoryProductivityMin = 0;
 		double FactoryProductivityMax = 0;
 		TArray<FFactoryReading> FactoryFound;
+
+		/**
+		 * The trains read (R3): weak pointers to the trains and station identifiers (dozens), copied when the read begins, and two
+		 * cursors into them. Nothing else is kept across ticks: every other pointer is used inside one step and re-checked. The
+		 * world it began in: a read that ends in another is "cannot read". One read is open at a time (the driver's mapLive pass
+		 * and the world sender's train-routes pass take turns).
+		 */
+		TWeakObjectPtr<UWorld> TrainsWorld;
+		TArray<TWeakObjectPtr<AFGTrain>> TrainsPending;
+		TArray<TWeakObjectPtr<AFGTrainStationIdentifier>> StationsPending;
+		int32 TrainsCursor = 0;
+		int32 StationsCursor = 0;
+		bool bTrainsOpen = false;
+		/** The read that just returned was abandoned (no subsystem, or a world swap), not finished. */
+		bool bTrainsAbandoned = false;
+		FTrainsSnapshot TrainsFound;
 	};
 }

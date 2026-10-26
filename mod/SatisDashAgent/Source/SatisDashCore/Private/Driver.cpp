@@ -14,6 +14,8 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, Bridge{InTransport, InWorker}
 	, WorldLayers{InTransport, Bridge, Clock.Random01}
 	, FactoryBudget{[this] { return Clock.Now(); }}
+	, TrainsBudget{[this] { return Clock.Now(); }}
+	, RoutesBudget{[this] { return Clock.Now(); }}
 {
 }
 
@@ -49,6 +51,8 @@ void SatisDash::FDriver::Tick()
 		WorldLayers.Stop();
 		bFactoryReadOpen = false; // an open game read is dropped: its readings are never submitted
 		Game.EndFactoryRead();
+		bTrainsReadOpen = false; // the same for the trains read (the sender's own is dropped by its Stop)
+		Game.EndTrainsRead();
 	}
 	if (!bRunning && bNowRunning)
 	{
@@ -88,7 +92,7 @@ void SatisDash::FDriver::Tick()
 	// World layers (spec "Timing"): posted one at a time, and only while no snapshot is queued, in flight or being encoded.
 	if (const FCredential* Credential = Agent.GetCredential())
 	{
-		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning });
+		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning, &RoutesBudget });
 	}
 	if (WorldLayers.TakeAuthRejected())
 	{
@@ -97,6 +101,7 @@ void SatisDash::FDriver::Tick()
 		return;
 	}
 	TickFactoryRead(Now);
+	TickTrainsRead(Now);
 	TickSample(Now);
 	TickPush(Now);
 	TickCommands(Now);
@@ -140,6 +145,42 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 	if (!Bridge.SubmitNativeFactory(MoveTemp(Found.GetValue()), Now) && FactoryLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Factory read finished while the last one is still being built: it is dropped"));
+	}
+}
+
+void SatisDash::FDriver::TickTrainsRead(double Now)
+{
+	if (!bTrainsReadOpen)
+	{
+		return;
+	}
+	const FAgentConfig& Config = Agent.GetConfig();
+	if (Config.GetTrainsSource() != ESource::Native)
+	{
+		bTrainsReadOpen = false; // the source changed under a read: drop it
+		Game.EndTrainsRead();
+		return;
+	}
+	// The game thread's whole part: one budgeted slice of the trains and stations. Sorting and the JSON text are built on the worker.
+	TOptional<FTrainsSnapshot> Found = Game.StepTrainsRead(TrainsBudget);
+	if (!Found.IsSet())
+	{
+		return;
+	}
+	bTrainsReadOpen = false;
+	if (Game.TrainsReadAbandoned())
+	{
+		// No railroad subsystem or a world swapped mid-read: the part is left out of the snapshot (one warning per 600 s) and FRM is
+		// never asked. A finished read with no trains and no stations is not this: it is an empty railway, {"trains":[],"stations":[]}.
+		NoteFailedPart(TEXT("mapLive"), Now);
+		return;
+	}
+	// Counts and times only; never an id or a name (both are player-chosen text).
+	UE_LOG(LogSatisDash, Display, TEXT("Trains read (game thread only): %d trains, %d stations in %d steps, longest step %.2f ms, total %.2f ms"),
+		Found->Trains.Num(), Found->Stations.Num(), TrainsBudget.Steps(), TrainsBudget.LongestMs(), TrainsBudget.TotalMs());
+	if (!Bridge.SubmitNativeMapLive(MoveTemp(Found.GetValue()), Now) && TrainsLog.ShouldLog(TEXT("held"), Now))
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Trains read finished while the last one is still being built: it is dropped"));
 	}
 }
 
@@ -207,6 +248,26 @@ void SatisDash::FDriver::TickSample(double Now)
 				if (!bFactoryReadOpen)
 				{
 					NoteFailedPart(TEXT("factory"), Now); // no world or subsystem yet: the part is left out and FRM is not asked
+				}
+			}
+		}
+		if (bFactoryDue && Snapshot.Status->bIsGameRunning && Config.GetTrainsSource() == ESource::Native)
+		{
+			if (bTrainsReadOpen)
+			{
+				// The last read has not finished: this cadence tick is skipped, not restarted. No names, counts or ids.
+				if (TrainsLog.ShouldLog(TEXT("busy"), Now))
+				{
+					UE_LOG(LogSatisDash, Display, TEXT("Trains read still running: this cadence tick is skipped"));
+				}
+			}
+			else
+			{
+				TrainsBudget.Reset();
+				bTrainsReadOpen = Game.BeginTrainsRead();
+				if (!bTrainsReadOpen)
+				{
+					NoteFailedPart(TEXT("mapLive"), Now); // no world or subsystem yet (or the train-routes read has the reader): the part is left out and FRM is not asked
 				}
 			}
 		}

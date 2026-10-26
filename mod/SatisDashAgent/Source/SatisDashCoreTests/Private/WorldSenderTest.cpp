@@ -29,6 +29,10 @@ namespace
 		bool bSnapshotsIdle = true;
 		/** Answer a resource-node read with Code 0 when it shows up, so a test about rails isn't held up by it (one FRM request in flight). */
 		bool bIgnoreNodes = true;
+		/** R3: the native readers (a fake game) are handed to the sender, and the rails read is refused when it shows up. */
+		bool bNativeReaders = false;
+		SatisDash::Test::FFakeGame Game;
+		FStepBudget TrainsBudget{ [this] { return T; } };
 
 		FWorldFixture()
 		{
@@ -47,8 +51,12 @@ namespace
 				{
 					Net.answer(WorldNodesRead, SatisDash::Test::Reply(0, FString()));
 				}
+				if (bNativeReaders)
+				{
+					Net.answer(WorldRailsRead, SatisDash::Test::Reply(0, FString()));
+				}
 				Bridge.Tick(T, 8080, FString());
-				Sender.Tick({ T, Utc, &Config, &Credential, bSnapshotsIdle });
+				Sender.Tick({ T, Utc, &Config, &Credential, bSnapshotsIdle, bNativeReaders ? &Game : nullptr, true, &TrainsBudget });
 			}
 		}
 
@@ -434,5 +442,138 @@ bool FWorldSenderBehindTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("and with the snapshots busy, no post goes"), G.posts(), 0);
 	G.Sender.Stop();
 	TestEqual(TEXT("Stop frees it"), G.Sender.Held(), 0);
+	return true;
+}
+
+namespace
+{
+	const TCHAR* WorldTrainRoutesPost = TEXT("/agent/v1/world/trainRoutes");
+
+	/** A station with a trailing space in its name, one loading platform, and a train whose timetable stops there. */
+	void worldTrainRoutesReadings(SatisDash::Test::FFakeGame& Game)
+	{
+		FStationReading Station;
+		Station.Id = TEXT("Build_TrainStation_C_1");
+		Station.Name = TEXT("Depot ");
+		FPlatformReading Platform;
+		Platform.Id = TEXT("Build_TrainDockingStation_C_1");
+		Platform.bLoad = true;
+		Platform.Items = { TEXT("Desc_IronPlate_C") };
+		Station.Platforms.Add(Platform);
+		Game.Stations = { Station };
+		FTrainReading Train;
+		Train.Id = TEXT("BP_Train_C_1");
+		Train.Name = TEXT("Express");
+		Train.Stops = { TEXT("Depot ") };
+		Train.Items = { TEXT("Desc_IronPlate_C") };
+		Game.Trains = { Train };
+	}
+
+	/** Requests the fixture sent to FRM-style train read paths, as a count. */
+	int32 worldFrmTrainReads(const SatisDash::Test::FFakeTransport& Net)
+	{
+		return Net.sent(TEXT("/getTrains")) + Net.sent(TEXT("/getTrainStation")) + Net.sent(TEXT("/getTrainRoutes"));
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderTrainRoutesTest, "SatisDash.Core.WorldSender.TrainRoutes", SatisDash::Test::Flags)
+
+bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	// trainsSource native: the layer scans (a sliced game read), submits, and posts once; the first read is 180 s x 1.1 after Start.
+	FWorldFixture F;
+	F.Config.TrainsSource = ESource::Native;
+	F.Config.ResourceNodesSource = ESource::Bridge;
+	F.bNativeReaders = true;
+	worldTrainRoutesReadings(F.Game);
+	F.Sender.Start(F.T);
+	TestTrue(TEXT("the layer is posted"), F.until([&F] { return F.Net.pending(WorldTrainRoutesPost) > 0; }, 400));
+	TestEqual(TEXT("one begin"), F.Game.TrainsBegins, 1);
+	TestEqual(TEXT("three steps, one a tick"), F.Game.TrainsStepCalls, 3);
+	const FString Body = F.Net.lastBody(WorldTrainRoutesPost);
+	TestTrue(TEXT("the station comes first, its name exactly as the game gave it"), Body.Contains(TEXT("\"data\":[{\"recordType\":\"station\",\"id\":\"Build_TrainStation_C_1\",\"name\":\"Depot \",")));
+	TestTrue(TEXT("the train follows with its stops"), Body.Contains(TEXT("{\"recordType\":\"train\",\"id\":\"BP_Train_C_1\",\"name\":\"Express\",\"stops\":[\"Depot \"],")));
+	F.Net.answer(WorldTrainRoutesPost, SatisDash::Test::Reply(200, WorldAccepted));
+	F.tick(2);
+	TestEqual(TEXT("the accepted body is not held"), F.Sender.Held(), 0);
+
+	// The game thread's part is logged once per read, counts and times only (no ids, no names).
+	int32 ReadLines = 0;
+	int32 Leaks = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ReadLines += Line.Contains(TEXT("Train routes read (game thread only): 1 stations, 1 trains in 3 steps, longest step ")) ? 1 : 0;
+		Leaks += Line.Contains(TEXT("Depot")) || Line.Contains(TEXT("Express")) || Line.Contains(TEXT("BP_Train")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one Train routes read line"), ReadLines, 1);
+	TestEqual(TEXT("no id or name in the log"), Leaks, 0);
+
+	// The next cycle (600 s x 1.1) reads again, finds the same railway and posts nothing.
+	TestTrue(TEXT("the next cycle reads again"), F.until([&F] { return F.Game.TrainsBegins >= 2 && F.Game.TrainsStepCalls >= 3; }, 700));
+	F.tick(10);
+	TestEqual(TEXT("an unchanged body is not posted again"), F.Net.sent(WorldTrainRoutesPost), 1);
+	TestEqual(TEXT("FRM is never asked for the layer"), worldFrmTrainReads(F.Net), 0);
+
+	// A changed railway is posted.
+	F.Game.Trains[0].Name = TEXT("Local");
+	TestTrue(TEXT("a changed layer posts"), F.until([&F] { return F.Net.pending(WorldTrainRoutesPost) > 0; }, 700));
+	F.Net.answer(WorldTrainRoutesPost, SatisDash::Test::Reply(200, WorldAccepted));
+
+	// A railway with no trains and no stations is a finished, empty read: an empty layer is posted, never FRM.
+	F.Game.Trains.Reset();
+	F.Game.Stations.Reset();
+	TestTrue(TEXT("an empty railway posts an empty layer"), F.until([&F] { return F.Net.pending(WorldTrainRoutesPost) > 0; }, 700));
+	TestTrue(TEXT("with data:[]"), F.Net.lastBody(WorldTrainRoutesPost).Contains(TEXT("\"data\":[]")));
+	F.Net.answer(WorldTrainRoutesPost, SatisDash::Test::Reply(200, WorldAccepted));
+	TestEqual(TEXT("and FRM is still not asked"), worldFrmTrainReads(F.Net), 0);
+
+	// An abandoned read (a world swap) is not an empty railway: nothing is posted, one warning, and it is read again soon.
+	F.Game.bTrainsAbandon = true;
+	const int32 Posts = F.Net.sent(WorldTrainRoutesPost);
+	const int32 Begun = F.Game.TrainsBegins;
+	TestTrue(TEXT("the next read begins"), F.until([&F, Begun] { return F.Game.TrainsBegins > Begun && F.Game.TrainsStepCalls >= 3; }, 700));
+	F.tick(1);
+	TestTrue(TEXT("and is retried soon, not after a whole cycle"), F.until([&F, Begun] { return F.Game.TrainsBegins > Begun + 1; }, 60));
+	TestEqual(TEXT("an abandoned read posts nothing"), F.Net.sent(WorldTrainRoutesPost), Posts);
+	TestEqual(TEXT("and FRM is not asked"), worldFrmTrainReads(F.Net), 0);
+	TestEqual(TEXT("one warning for the abandoned reads"), countLines(Log, TEXT("train routes read was abandoned")), 1);
+	F.Game.bTrainsAbandon = false;
+
+	// A body over the layer cap (WorldLayerMaxBytes) is skipped as the node layer's is: the builder does not apply it, the world read does.
+	FStationReading Big;
+	Big.Name = TEXT("Big");
+	FPlatformReading Wide;
+	for (int32 Item = 0; Item < TrainRoutesMaxItemClasses; ++Item)
+	{
+		Wide.Items.Add(FString::Printf(TEXT("Desc_Item_%02d_C"), Item));
+	}
+	F.Game.Stations.Reset();
+	for (int32 Station = 0; Station < 40; ++Station)
+	{
+		Big.Id = FString::Printf(TEXT("Build_TrainStation_C_%02d"), Station);
+		Big.Platforms.Reset();
+		for (int32 P = 0; P < TrainRoutesMaxPlatforms; ++P)
+		{
+			Wide.Id = FString::Printf(TEXT("Build_TrainDockingStation_C_%02d"), P);
+			Big.Platforms.Add(Wide);
+		}
+		F.Game.Stations.Add(Big);
+	}
+	F.tick(120);
+	TestEqual(TEXT("an over-cap layer is not posted"), F.Net.sent(WorldTrainRoutesPost), Posts);
+	TestEqual(TEXT("it is logged once, with its size"), countLines(Log, TEXT("World layer trainRoutes is ")), 1);
+
+	// trainsSource bridge: the layer is never scheduled (no read, no post, no FRM request), however long the sender runs.
+	FWorldFixture G;
+	G.bNativeReaders = true;
+	G.Config.ResourceNodesSource = ESource::Bridge;
+	worldTrainRoutesReadings(G.Game);
+	G.Sender.Start(G.T);
+	G.tick(2000);
+	TestEqual(TEXT("bridge: no game read"), G.Game.TrainsBegins, 0);
+	TestEqual(TEXT("bridge: no post"), G.Net.sent(WorldTrainRoutesPost), 0);
+	TestEqual(TEXT("bridge: FRM is not asked for it either"), worldFrmTrainReads(G.Net), 0);
+	TestTrue(TEXT("bridge: rails still ask FRM on their own schedule"), G.Net.sent(WorldRailsRead) > 0);
 	return true;
 }

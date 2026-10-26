@@ -1,6 +1,9 @@
 #include "GameReader.h"
 
 #include "Buildables/FGBuildableManufacturer.h"
+#include "Buildables/FGBuildableRailroadStation.h"
+#include "Buildables/FGBuildableTrainPlatform.h"
+#include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "Controller/FGServerManagementController.h"
 #include "Controller/FGServerStateController.h"
 #include "Engine/Level.h"
@@ -10,9 +13,15 @@
 #include "FGGameState.h"
 #include "FGInventoryComponent.h"
 #include "FGPowerCircuit.h"
+#include "FGFreightWagon.h"
 #include "FGPowerInfoComponent.h"
+#include "FGRailroadSubsystem.h"
+#include "FGRailroadTimeTable.h"
 #include "FGRecipe.h"
 #include "FGServerSubsystem.h"
+#include "FGTrain.h"
+#include "FGTrainPlatformConnection.h"
+#include "FGTrainStationIdentifier.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "Online/PlayerInfoCache.h"
@@ -24,6 +33,7 @@
 #include "SatisDash/GameValues.h"
 #include "SatisDash/Log.h"
 #include "SatisDash/Native/Rates/NativeRates.h"
+#include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
 
 UFGServerSubsystem* SatisDash::FGameReader::Server() const
 {
@@ -444,5 +454,215 @@ TOptional<TArray<SatisDash::FFactoryReading>> SatisDash::FGameReader::StepFactor
 		bAny ? FactoryProductivityMin : 0.0, bAny ? FactoryProductivityMax : 0.0);
 	TArray<FFactoryReading> Done = MoveTemp(FactoryFound);
 	ResetFactoryRead();
+	return MoveTemp(Done);
+}
+
+namespace
+{
+	/** R3: a platform chain ends after this many hops, whatever the connections say (a cyclic or broken chain). */
+	constexpr int32 TrainsMaxPlatformHops = 256;
+
+	/** The distinct item class names in an inventory's non-empty stacks (Desc_IronPlate_C), added to Out. */
+	void TrainsReadItems(const UFGInventoryComponent* Inventory, TArray<FString>& Out)
+	{
+		if (!IsValid(Inventory))
+		{
+			return;
+		}
+		TArray<FInventoryStack> Stacks;
+		Inventory->GetInventoryStacks(Stacks);
+		for (const FInventoryStack& Stack : Stacks)
+		{
+			const TSubclassOf<UFGItemDescriptor> ItemClass = Stack.Item.GetItemClass();
+			if (Stack.NumItems > 0 && ItemClass)
+			{
+				Out.AddUnique(ItemClass->GetName());
+			}
+		}
+	}
+
+	SatisDash::ETrainState TrainsReadState(ETrainStatus Status)
+	{
+		switch (Status)
+		{
+		case ETrainStatus::TS_ManualDriving: return SatisDash::ETrainState::Manual;
+		case ETrainStatus::TS_SelfDriving: return SatisDash::ETrainState::SelfDriving;
+		case ETrainStatus::TS_Derailed: return SatisDash::ETrainState::Derailed;
+		default: return SatisDash::ETrainState::Parked;
+		}
+	}
+
+	/** One train, copied into a plain reading. Everything it touches is used inside this call and re-checked. */
+	void TrainsReadTrain(const AFGTrain& Train, SatisDash::FTrainReading& Reading)
+	{
+		Reading.Id = Train.GetName();
+		Reading.Name = Train.GetTrainName().ToString();
+		Reading.State = TrainsReadState(Train.GetTrainStatus());
+		// Which vehicle gives x,y is one constant (NativeTrainPositionSource); a train with no such vehicle is placed at its actor.
+		const AFGRailroadVehicle* Vehicle = nullptr;
+		switch (SatisDash::NativeTrainPositionSource)
+		{
+		case SatisDash::ETrainPositionSource::LastVehicle: Vehicle = Train.GetLastVehicle(); break;
+		case SatisDash::ETrainPositionSource::FirstVehicle: Vehicle = Train.GetFirstVehicle(); break;
+		default: break;
+		}
+		const FVector Location = IsValid(Vehicle) ? Vehicle->GetVehicleLocation() : Train.GetActorLocation();
+		Reading.XCm = Location.X;
+		Reading.YCm = Location.Y;
+		// The timetable's stops, by station name exactly as the game gives it; a stop with no station is skipped.
+		if (Train.HasTimeTable())
+		{
+			const AFGRailroadTimeTable* Table = Train.GetTimeTable();
+			if (IsValid(Table))
+			{
+				TArray<FTimeTableStop> Stops;
+				Table->GetStops(Stops);
+				for (const FTimeTableStop& Stop : Stops)
+				{
+					if (IsValid(Stop.Station))
+					{
+						Reading.Stops.Add(Stop.Station->GetStationName().ToString());
+					}
+				}
+			}
+		}
+		// The cargo: distinct item classes over the consist's freight wagons.
+		for (const AFGRailroadVehicle* Each : Train.mConsistData.Vehicles)
+		{
+			const AFGFreightWagon* Wagon = Cast<AFGFreightWagon>(Each);
+			if (IsValid(Wagon))
+			{
+				TrainsReadItems(Wagon->GetFreightInventory(), Reading.Items);
+			}
+		}
+	}
+
+	/** One station and its cargo platforms (a bounded walk along the chain from the station's output). */
+	void TrainsReadStation(AFGTrainStationIdentifier& Identifier, AFGBuildableRailroadStation& Building, SatisDash::FStationReading& Reading)
+	{
+		Reading.Id = Building.GetName();
+		Reading.Name = Identifier.GetStationName().ToString();
+		const FVector Location = Building.GetActorLocation();
+		Reading.XCm = Location.X;
+		Reading.YCm = Location.Y;
+		TSet<const AFGBuildableTrainPlatform*> Visited;
+		Visited.Add(&Building);
+		UFGTrainPlatformConnection* Output = Building.GetStationOutputConnection();
+		for (int32 Hop = 0; Hop < TrainsMaxPlatformHops && IsValid(Output); ++Hop)
+		{
+			UFGTrainPlatformConnection* Next = Output->GetConnectedTo();
+			AFGBuildableTrainPlatform* Platform = IsValid(Next) ? Next->GetPlatformOwner() : nullptr;
+			if (!IsValid(Platform) || Visited.Contains(Platform))
+			{
+				break; // the end of the chain, or a cycle
+			}
+			Visited.Add(Platform);
+			if (const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platform))
+			{
+				SatisDash::FPlatformReading Entry;
+				Entry.Id = Cargo->GetName();
+				Entry.bLoad = Cargo->GetIsInLoadMode();
+				TrainsReadItems(Cargo->GetInventory(), Entry.Items);
+				Reading.Platforms.Add(MoveTemp(Entry));
+			}
+			Output = Platform->GetConnectionInOppositeDirection(Next);
+		}
+	}
+}
+
+void SatisDash::FGameReader::ResetTrainsRead()
+{
+	TrainsWorld.Reset();
+	TrainsPending.Reset();
+	StationsPending.Reset();
+	TrainsCursor = 0;
+	StationsCursor = 0;
+	TrainsFound = FTrainsSnapshot();
+	bTrainsOpen = false;
+}
+
+bool SatisDash::FGameReader::BeginTrainsRead()
+{
+	if (bTrainsOpen)
+	{
+		return false; // one cursor: the other consumer's read is still open
+	}
+	UWorld* Current = World.Get();
+	const AFGRailroadSubsystem* Subsystem = Current != nullptr ? AFGRailroadSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		return false;
+	}
+	ResetTrainsRead();
+	bTrainsAbandoned = false;
+	TrainsWorld = Current;
+	// Dozens of pointers, copied once; the arrays themselves are never kept.
+	TArray<AFGTrain*> Trains;
+	Subsystem->GetAllTrains(Trains);
+	for (AFGTrain* Train : Trains)
+	{
+		TrainsPending.Add(Train);
+	}
+	TArray<AFGTrainStationIdentifier*> Stations;
+	Subsystem->GetAllTrainStations(Stations);
+	for (AFGTrainStationIdentifier* Station : Stations)
+	{
+		StationsPending.Add(Station);
+	}
+	bTrainsOpen = true;
+	return true;
+}
+
+TOptional<SatisDash::FTrainsSnapshot> SatisDash::FGameReader::StepTrainsRead(FStepBudget& Budget)
+{
+	UWorld* Current = World.Get();
+	// A different save was loaded while the slices ran (or the world or its subsystem went away): what was read is the old world's
+	// or a mix, so it is "cannot read" (empty and flagged), never a partial snapshot.
+	const AFGRailroadSubsystem* Subsystem = Current != nullptr && Current == TrainsWorld.Get() ? AFGRailroadSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		ResetTrainsRead();
+		bTrainsAbandoned = true;
+		return FTrainsSnapshot();
+	}
+	bool bFinished = false;
+	Budget.Begin();
+	do
+	{
+		if (TrainsCursor < TrainsPending.Num())
+		{
+			// Weak: a train that was dismantled since the read began is gone, and is skipped.
+			const AFGTrain* Train = TrainsPending[TrainsCursor++].Get();
+			if (IsValid(Train) && TrainsFound.Trains.Num() < TrainRoutesMaxItems)
+			{
+				FTrainReading Reading;
+				TrainsReadTrain(*Train, Reading);
+				TrainsFound.Trains.Add(MoveTemp(Reading));
+			}
+		}
+		else if (StationsCursor < StationsPending.Num())
+		{
+			AFGTrainStationIdentifier* Identifier = StationsPending[StationsCursor++].Get();
+			AFGBuildableRailroadStation* Building = IsValid(Identifier) ? Identifier->GetStation() : nullptr;
+			if (IsValid(Building) && TrainsFound.Stations.Num() < TrainRoutesMaxItems)
+			{
+				FStationReading Reading;
+				TrainsReadStation(*Identifier, *Building, Reading);
+				TrainsFound.Stations.Add(MoveTemp(Reading));
+			}
+		}
+		else
+		{
+			bFinished = true;
+			break;
+		}
+	} while (!Budget.Spent());
+	Budget.End(); // straight after the loop: nothing else is done on the game thread this step
+	if (!bFinished)
+	{
+		return {};
+	}
+	FTrainsSnapshot Done = MoveTemp(TrainsFound);
+	ResetTrainsRead();
 	return MoveTemp(Done);
 }

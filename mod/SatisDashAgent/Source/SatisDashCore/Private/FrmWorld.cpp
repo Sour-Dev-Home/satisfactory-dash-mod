@@ -8,6 +8,8 @@ namespace
 	constexpr SatisDash::FWorldLayerSpec FrmWorldLayers[] = {
 		{ TEXT("rails"), &SatisDash::FrmGetTrainRails, 120.0, 600.0 },
 		{ TEXT("resourceNodes"), &SatisDash::FrmGetResourceNode, 480.0, 1800.0 },
+		// R3: native-only (no FRM endpoint, never requested from FRM): first read 3 minutes after Running, then every 10 minutes (ADR 0055).
+		{ TEXT("trainRoutes"), nullptr, 180.0, 600.0 },
 	};
 
 	TUniquePtr<SatisDash::FFrmArrayParse> FrmWorldMakeParse(SatisDash::EWorldLayer Layer, TArray<uint8> Body, const FString& ObservedAt)
@@ -35,9 +37,16 @@ SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, TArray<uint8> InBody, FSt
 {
 }
 
+// R4's constructor is a thin wrapper: the readings ride in the builder and are freed with it after the first Step.
 SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, TArray<FResourceNodeReading> InReadings, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes)
+	: FWorldRead{InLayer, FNativeWorldBuilder([Readings = MoveTemp(InReadings)](const FString& Observed) { return BuildNativeResourceNodes(Observed, Readings); }),
+		MoveTemp(InObservedAt), InLastData, InMaxBodyBytes}
+{
+}
+
+SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, FNativeWorldBuilder InBuilder, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes)
 	: Layer{InLayer}
-	, Readings{MoveTemp(InReadings)}
+	, Builder{MoveTemp(InBuilder)}
 	, ObservedAt{MoveTemp(InObservedAt)}
 	, LastData{InLastData}
 	, MaxBodyBytes{InMaxBodyBytes}
@@ -52,8 +61,8 @@ bool SatisDash::FWorldRead::Step()
 	case EStage::Native:
 	{
 		// On the worker: the sort and the JSON text happen here, never on the game thread. The readings are freed first.
-		const FNativeWorldBody Built = BuildNativeResourceNodes(ObservedAt, Readings);
-		Readings.Empty();
+		const FNativeWorldBody Built = Invoke(Builder, ObservedAt);
+		Builder = FNativeWorldBuilder(); // frees the readings the builder captured
 		Settle(Built.Json, Built.DataFrom, Built.DataEnd, Built.Items, Built.Dropped, Built.Over, Built.Bytes);
 		Outcome.RawHash = Outcome.DataHash;
 		Stage = EStage::Done;

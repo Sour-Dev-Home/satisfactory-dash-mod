@@ -61,6 +61,8 @@ namespace SatisDash
 		void NoteFailedPart(const TCHAR* Part, double Now);
 		/** R2a: steps an open native factory read once, every tick, and hands a finished one to the bridge. */
 		void TickFactoryRead(double Now);
+		/** R3: the same for the trains read behind the mapLive part. */
+		void TickTrainsRead(double Now);
 		/** commandRunner.ts: poll, run each command, report its result, one thing at a time (DriverCommands.cpp). */
 		void TickCommands(double Now);
 		void StopCommands();
@@ -81,8 +83,15 @@ namespace SatisDash
 		FStepBudget FactoryBudget;
 		/** A native factory read is open: StepFactoryRead is called every tick until it returns. */
 		bool bFactoryReadOpen = false;
+		/** Times each step of the native trains read for the mapLive part, and of the sender's train-routes read (separate runs, separate totals). */
+		FStepBudget TrainsBudget;
+		FStepBudget RoutesBudget;
+		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */
+		bool bTrainsReadOpen = false;
 		/** Bounded: one key ("busy"). */
 		FRateLimitedLog FactoryLog{ 60.0 };
+		/** Bounded: two keys ("busy", "held"), each at most once per 60 s. */
+		FRateLimitedLog TrainsLog{ 60.0 };
 		double NextConfigAt = 0;
 		double NextStatusAt = 0;
 		TOptional<double> LastPowerAt;

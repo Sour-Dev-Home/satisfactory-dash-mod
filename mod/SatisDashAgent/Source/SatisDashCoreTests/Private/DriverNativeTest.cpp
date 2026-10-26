@@ -262,7 +262,122 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeFactoryTest, "SatisDash.Core.Driver.NativeFactory", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeTrainsTest, "SatisDash.Core.Driver.NativeTrains", SatisDash::Test::Flags)
+
+bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"trainsSource\":\"native\"");
+	FDriverFixture F;
+	FTrainReading Train;
+	Train.Id = TEXT("BP_Train_C_1");
+	Train.Name = TEXT("Express");
+	Train.State = ETrainState::SelfDriving;
+	Train.XCm = 15000;
+	Train.YCm = -25000;
+	F.Game.Trains = { Train };
+	FStationReading Station;
+	Station.Id = TEXT("Build_TrainStation_C_1");
+	Station.Name = TEXT("Depot ");
+	Station.XCm = 500;
+	Station.YCm = 700;
+	F.Game.Stations = { Station };
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+
+	// A read that needs 3 steps: begun on a factory-cadence sample pass, stepped once per driver tick, built on the worker after the third.
+	TestTrue(TEXT("the first factory-cadence pass begins a read"), F.runUntil(Driver, [&F] { return F.Game.TrainsBegins >= 1; }, 20));
+	F.run(Driver, 1.5);
+	TestEqual(TEXT("three steps"), F.Game.TrainsStepCalls, 3);
+	F.run(Driver, 1.0);
+	TestEqual(TEXT("a finished read is not stepped again"), F.Game.TrainsStepCalls, 3);
+	TArray<FString> Bodies = DriverNativeRun(F, Driver, 10);
+	TestTrue(TEXT("the snapshot carries the mapLive part built from the fake's readings"),
+		DriverNativeAny(Bodies, TEXT("\"mapLive\":{\"trains\":[{\"id\":\"BP_Train_C_1\",\"name\":\"Express\",\"x\":150,\"y\":-250,\"status\":\"Self-Driving\"}],\"stations\":[{\"id\":\"Build_TrainStation_C_1\",\"name\":\"Depot \",\"x\":5,\"y\":7}]}")));
+	TestEqual(TEXT("FRM is never asked for trains"), F.Net.sent(TEXT("/getTrains")), 0);
+	TestEqual(TEXT("or stations"), F.Net.sent(TEXT("/getTrainStation")), 0);
+
+	// The "Trains read" line: counts and times, no ids or names.
+	int32 ReadLines = 0;
+	int32 Leaks = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ReadLines += Line.Contains(TEXT("Trains read (game thread only): 1 trains, 1 stations in 3 steps, longest step ")) ? 1 : 0;
+		Leaks += Line.Contains(TEXT("Depot")) || Line.Contains(TEXT("Express")) || Line.Contains(TEXT("BP_Train")) ? 1 : 0;
+	}
+	TestTrue(TEXT("the read is logged"), ReadLines >= 1);
+	TestEqual(TEXT("with no id or name"), Leaks, 0);
+
+	// A finished read with no trains and no stations is a real, empty railway: empty arrays, never "unavailable", never FRM.
+	F.Game.Trains.Reset();
+	F.Game.Stations.Reset();
+	int32 Begun = F.Game.TrainsBegins;
+	TestTrue(TEXT("the next cadence begins a read"), F.runUntil(Driver, [&F, Begun] { return F.Game.TrainsBegins > Begun; }, 120));
+	Bodies = DriverNativeRun(F, Driver, 12);
+	TestTrue(TEXT("an empty railway is {trains:[],stations:[]}"), DriverNativeAny(Bodies, TEXT("\"mapLive\":{\"trains\":[],\"stations\":[]}")));
+	TestFalse(TEXT("and never available:false"), DriverNativeAny(Bodies, TEXT("\"available\":false")));
+	TestEqual(TEXT("FRM is still not asked"), F.Net.sent(TEXT("/getTrains")) + F.Net.sent(TEXT("/getTrainStation")), 0);
+
+	// An abandoned read (a world swap) leaves the part out, with a warning, and FRM is not asked.
+	F.Game.bTrainsAbandon = true;
+	F.Game.Trains = { Train };
+	Begun = F.Game.TrainsBegins;
+	TestTrue(TEXT("the next read begins again"), F.runUntil(Driver, [&F, Begun] { return F.Game.TrainsBegins > Begun; }, 120));
+	TestFalse(TEXT("an abandoned read leaves the part out"), DriverNativeAny(DriverNativeRun(F, Driver, 12), TEXT("\"mapLive\":")));
+	TestEqual(TEXT("and FRM is not asked"), F.Net.sent(TEXT("/getTrains")) + F.Net.sent(TEXT("/getTrainStation")), 0);
+	int32 Warnings = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Warnings += Line.Contains(TEXT("Couldn't read mapLive from the game")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one rate-limited warning"), Warnings, 1);
+	F.Game.bTrainsAbandon = false;
+
+	// A mapLive past its byte cap is left out, with one warning, whatever the cap's arithmetic: 1,000 records of long names.
+	F.Game.Trains.Reset();
+	F.Game.Stations.Reset();
+	for (int32 I = 0; I < 500; ++I)
+	{
+		FTrainReading Long = Train;
+		Long.Id = FString::Printf(TEXT("BP_Train_C_%d"), I);
+		Long.Name = FString::ChrN(400, TEXT('n'));
+		F.Game.Trains.Add(Long);
+		FStationReading Stop = Station;
+		Stop.Id = FString::Printf(TEXT("Build_TrainStation_C_%d"), I);
+		Stop.Name = FString::ChrN(400, TEXT('s'));
+		F.Game.Stations.Add(Stop);
+	}
+	Begun = F.Game.TrainsBegins;
+	TestTrue(TEXT("the next read begins for the cap"), F.runUntil(Driver, [&F, Begun] { return F.Game.TrainsBegins > Begun; }, 120));
+	TestFalse(TEXT("an over-cap mapLive is left out"), DriverNativeAny(DriverNativeRun(F, Driver, 12), TEXT("\"mapLive\":")));
+	int32 CapWarnings = 0;
+	for (const FString& Line : Log.Take())
+	{
+		CapWarnings += Line.Contains(TEXT("mapLive is over its")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one over-cap warning"), CapWarnings, 1);
+
+	// A read still open when the source is switched away is dropped and freed (the reader is told).
+	F.Game.TrainsSteps = 1000000;
+	Begun = F.Game.TrainsBegins;
+	TestTrue(TEXT("the next cadence begins another read"), F.runUntil(Driver, [&F, Begun] { return F.Game.TrainsBegins > Begun; }, 120));
+	const int32 Ends = F.Game.TrainsEnds;
+	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"trainsSource\":\"bridge\""));
+	TestTrue(TEXT("a source change ends the open read"), F.runUntil(Driver, [&F, Ends] { return F.Game.TrainsEnds > Ends; }, 120));
+
+	// No world or subsystem: the part is left out and FRM is not asked.
+	FDriverFixture G;
+	G.Game.bTrainsWorld = false;
+	FDriver Quiet{ G.ConfigPath, G.CredentialPath, G.Net, G.Game, G.Worker, G.clock() };
+	G.enrol(Quiet, SatisDash::Test::FakeSecret(), Native);
+	const TArray<FString> QuietBodies = DriverNativeRun(G, Quiet, 40);
+	TestTrue(TEXT("the read was tried"), G.Game.TrainsBegins >= 1);
+	TestFalse(TEXT("no mapLive part"), DriverNativeAny(QuietBodies, TEXT("\"mapLive\":")));
+	TestEqual(TEXT("FRM is still not asked"), G.Net.sent(TEXT("/getTrains")) + G.Net.sent(TEXT("/getTrainStation")), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeFactoryTest,"SatisDash.Core.Driver.NativeFactory", SatisDash::Test::Flags)
 
 bool FDriverNativeFactoryTest::RunTest(const FString& Parameters)
 {

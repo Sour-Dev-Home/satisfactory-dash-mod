@@ -1,6 +1,9 @@
 Reader: TrainRoutes
 Code: mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Native/TrainRoutes/NativeTrainRoutes.h
 Code: mod/SatisDashAgent/Source/SatisDashCore/Private/Native/TrainRoutes/NativeTrainRoutes.cpp
+Code: mod/SatisDashAgent/Source/SatisDashGame/Private/GameReader.cpp
+Code: mod/SatisDashAgent/Source/SatisDashCore/Private/WorldSender.cpp
+Headers: Task 9 adds the game-side read (GameReader.cpp BeginTrainsRead/StepTrainsRead, the platform walk) and the world sender's native-only layer: Buildables/FGBuildableRailroadStation.h:56 (GetStationOutputConnection), FGTrainPlatformConnection.h:42 (GetConnectedTo), :53 (GetPlatformOwner), Buildables/FGBuildableTrainPlatform.h:66 (GetConnectionInOppositeDirection), Buildables/FGBuildableTrainPlatformCargo.h:37, :57, FGInventoryComponent.h:451; the walk is bounded at 256 hops with a visited set; the log line carries counts and times only, never an id or a name
 Headers: Source/FactoryGame/Public/FGRailroadSubsystem.h:174, :207
 Headers: Source/FactoryGame/Public/FGTrain.h:460, :511
 Headers: Source/FactoryGame/Public/FGRailroadTimeTable.h:15-21, :70

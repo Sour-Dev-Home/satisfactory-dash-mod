@@ -5,12 +5,20 @@
 #include "SatisDash/Native/Factory/NativeFactory.h"
 #include "SatisDash/StepBudget.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
+#include "SatisDash/Native/Trains/NativeTrains.h"
 #include "SatisDash/Requests.h"
 #include "SatisDash/Responses.h"
 #include "SatisDash/Snapshot.h"
 
 namespace SatisDash
 {
+	/** R3: one read of the railway; the same struct feeds the mapLive part and the train-routes layer. */
+	struct FTrainsSnapshot
+	{
+		TArray<FTrainReading> Trains;
+		TArray<FStationReading> Stations;
+	};
+
 	using FReplyHandler = TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
 
 	/** How a request reaches the backend: the mod's own libcurl in the game (SatisDashGame), a fake in the tests. */
@@ -67,6 +75,22 @@ namespace SatisDash
 		virtual bool FactoryReadAbandoned() const { return false; }
 		/** The driver drops an open read (source changed, left Running): frees what the reader buffered. */
 		virtual void EndFactoryRead() {}
+		/**
+		 * R3: starts a time-sliced read of the trains and stations. False when there is no world or no railroad subsystem, or when
+		 * a read is already open (the reader keeps one cursor: the driver's mapLive pass and the world sender's train-routes pass
+		 * take turns). Call StepTrainsRead every tick until it returns a value. Only called when trainsSource is "native".
+		 */
+		virtual bool BeginTrainsRead() { return false; }
+		/**
+		 * Reads trains, then stations, until the budget is spent, on the game thread. Unset until every one has been read, then
+		 * the snapshot (once; empty arrays for a world with no trains or stations, which is a real, empty railway). Sorting and
+		 * building the bodies are not done here.
+		 */
+		virtual TOptional<FTrainsSnapshot> StepTrainsRead(FStepBudget& Budget) { return {}; }
+		/** True when the read StepTrainsRead just ended was abandoned (no subsystem, or the world changed): its value is then not a railway. */
+		virtual bool TrainsReadAbandoned() const { return false; }
+		/** The caller drops its open read (source changed, left Running): frees what the reader buffered. */
+		virtual void EndTrainsRead() {}
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

@@ -577,3 +577,54 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FStepBudget::TotalMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:35 | the plugin's own declaration (Task 2) |
 | FJsonObject::TryGetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:274 | header only (the FStringView overload; test only, Task 8) |
 | FJsonValue::TryGetString | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:74 | header only (test only, Task 8) |
+| FGRailroadSubsystem.h | Source/FactoryGame/Public/FGRailroadSubsystem.h:1 | header only (R3, S2 Task 9) |
+| AFGRailroadSubsystem | Source/FactoryGame/Public/FGRailroadSubsystem.h:88 | header only |
+| AFGRailroadSubsystem::Get | Source/FactoryGame/Public/FGRailroadSubsystem.h:117 | header only (the `UWorld*` overload; null before a world has the subsystem: the read is then not begun) |
+| AFGRailroadSubsystem::GetAllTrains | Source/FactoryGame/Public/FGRailroadSubsystem.h:174 | header only (const, public; fills an array of `AFGTrain*`, copied once into weak pointers) |
+| AFGRailroadSubsystem::GetAllTrainStations | Source/FactoryGame/Public/FGRailroadSubsystem.h:207 | header only (const, public; fills an array of `AFGTrainStationIdentifier*`, copied once into weak pointers) |
+| FGTrain.h | Source/FactoryGame/Public/FGTrain.h:1 | header only (R3, S2 Task 9) |
+| AFGTrain | Source/FactoryGame/Public/FGTrain.h:386 | header only |
+| AFGTrain::GetTrainName | Source/FactoryGame/Public/FGTrain.h:460 | header only (the player-chosen name as FText; copied with ToString, never logged) |
+| ETrainStatus | Source/FactoryGame/Public/FGTrain.h:64 | header only (TS_Parked :66, TS_ManualDriving :67, TS_SelfDriving :68, TS_Derailed :69; the survey said :64-70) |
+| ETrainStatus::TS_ManualDriving | Source/FactoryGame/Public/FGTrain.h:67 | header only |
+| ETrainStatus::TS_SelfDriving | Source/FactoryGame/Public/FGTrain.h:68 | header only |
+| ETrainStatus::TS_Derailed | Source/FactoryGame/Public/FGTrain.h:69 | header only (TS_Parked :66 is the default arm of the mapping) |
+| AFGTrain::GetTrainStatus | Source/FactoryGame/Public/FGTrain.h:614 | header only |
+| AFGTrain::GetTimeTable | Source/FactoryGame/Public/FGTrain.h:511 | header only (may be null: checked) |
+| AFGTrain::HasTimeTable | Source/FactoryGame/Public/FGTrain.h:519 | header only |
+| AFGTrain::GetFirstVehicle | Source/FactoryGame/Public/FGTrain.h:523 | header only (may be null: the train is then placed at its actor) |
+| AFGTrain::GetLastVehicle | Source/FactoryGame/Public/FGTrain.h:527 | header only (selected only by NativeTrainPositionSource = LastVehicle) |
+| FTrainConsist | Source/FactoryGame/Public/FGTrain.h:103 | header only (`Vehicles` :109) |
+| AFGTrain::mConsistData | Source/FactoryGame/Public/FGTrain.h:709 | header only (public: the `public:` at :702 covers it; the plan's row named FGFreightWagon.h, which is ambiguous; the member and the struct are in FGTrain.h) |
+| AFGRailroadVehicle | Source/FactoryGame/Public/FGRailroadVehicle.h:36 | header only (derives AFGVehicle) |
+| AFGRailroadVehicle::GetVehicleLocation | Source/FactoryGame/Public/FGVehicle.h:347 | header only (declared on AFGVehicle, FGVehicle.h:126; the comment at :337-339 says to use it instead of GetActorLocation) |
+| FGRailroadTimeTable.h | Source/FactoryGame/Public/FGRailroadTimeTable.h:1 | header only (R3, S2 Task 9) |
+| AFGRailroadTimeTable | Source/FactoryGame/Public/FGRailroadTimeTable.h:32 | header only |
+| AFGRailroadTimeTable::GetStops | Source/FactoryGame/Public/FGRailroadTimeTable.h:70 | header only (const; fills an array of FTimeTableStop) |
+| FTimeTableStop | Source/FactoryGame/Public/FGRailroadTimeTable.h:15 | header only |
+| FTimeTableStop::Station | Source/FactoryGame/Public/FGRailroadTimeTable.h:21 | header only (a `TObjectPtr`; null stations are skipped) |
+| FGFreightWagon.h | Source/FactoryGame/Public/FGFreightWagon.h:1 | header only (R3, S2 Task 9) |
+| AFGFreightWagon | Source/FactoryGame/Public/FGFreightWagon.h:24 | header only (derives AFGRailroadVehicle; reached by Cast from the consist's vehicles) |
+| AFGFreightWagon::GetFreightInventory | Source/FactoryGame/Public/FGFreightWagon.h:47 | header only (may be null: checked) |
+| FGTrainStationIdentifier.h | Source/FactoryGame/Public/FGTrainStationIdentifier.h:1 | header only (R3, S2 Task 9) |
+| AFGTrainStationIdentifier | Source/FactoryGame/Public/FGTrainStationIdentifier.h:17 | header only |
+| AFGTrainStationIdentifier::GetStation | Source/FactoryGame/Public/FGTrainStationIdentifier.h:84 | header only (the building; null when it is not on this machine: checked) |
+| AFGTrainStationIdentifier::GetStationName | Source/FactoryGame/Public/FGTrainStationIdentifier.h:88 | header only (FText; copied exactly with ToString, no trimming; never logged) |
+| Buildables/FGBuildableRailroadStation.h | Source/FactoryGame/Public/Buildables/FGBuildableRailroadStation.h:1 | header only (R3, S2 Task 9) |
+| AFGBuildableRailroadStation | Source/FactoryGame/Public/Buildables/FGBuildableRailroadStation.h:16 | header only (derives AFGBuildableTrainPlatform) |
+| AFGBuildableRailroadStation::GetStationOutputConnection | Source/FactoryGame/Public/Buildables/FGBuildableRailroadStation.h:56 | header only (non-const; may be null: checked) |
+| FGTrainPlatformConnection.h | Source/FactoryGame/Public/FGTrainPlatformConnection.h:1 | header only (R3, S2 Task 9) |
+| UFGTrainPlatformConnection | Source/FactoryGame/Public/FGTrainPlatformConnection.h:26 | header only |
+| UFGTrainPlatformConnection::GetConnectedTo | Source/FactoryGame/Public/FGTrainPlatformConnection.h:42 | header only (the connection on the next platform; may be null: ends the walk) |
+| UFGTrainPlatformConnection::GetPlatformOwner | Source/FactoryGame/Public/FGTrainPlatformConnection.h:53 | header only (non-const; may be null: ends the walk) |
+| Buildables/FGBuildableTrainPlatform.h | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatform.h:1 | header only (R3, S2 Task 9) |
+| AFGBuildableTrainPlatform | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatform.h:29 | header only |
+| AFGBuildableTrainPlatform::GetConnectionInOppositeDirection | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatform.h:66 | header only (takes the connection on this platform, gives the opposite one; the walk is bounded at 256 hops with a visited set) |
+| Buildables/FGBuildableTrainPlatformCargo.h | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:1 | header only (R3, S2 Task 9) |
+| AFGBuildableTrainPlatformCargo | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:18 | header only (kept; other platform kinds are walked through but not listed) |
+| AFGBuildableTrainPlatformCargo::GetInventory | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:37 | header only (may be null: checked) |
+| AFGBuildableTrainPlatformCargo::GetIsInLoadMode | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:57 | header only (the comment above it: "whether this station should load or unload from vehicles"; true is "load") |
+| UFGInventoryComponent::GetInventoryStacks | Source/FactoryGame/Public/FGInventoryComponent.h:451 | header only (const; empty stacks are left out by default; NumItems and the item class are checked) |
+| TSet | Engine/Source/Runtime/Core/Public/Containers/Set.h:153 | header only |
+| TArray::AddUnique | Engine/Source/Runtime/Core/Public/Containers/Array.h:3015 | header only (the const overload; the rvalue one is :3003) |
+| Invoke | Engine/Source/Runtime/Core/Public/Templates/Invoke.h:44 | header only (calls the native world builder, a TUniqueFunction) |

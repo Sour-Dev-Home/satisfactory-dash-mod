@@ -1,6 +1,9 @@
 Reader: Trains
 Code: mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Native/Trains/NativeTrains.h
 Code: mod/SatisDashAgent/Source/SatisDashCore/Private/Native/Trains/NativeTrains.cpp
+Code: mod/SatisDashAgent/Source/SatisDashGame/Private/GameReader.cpp
+Code: mod/SatisDashAgent/Source/SatisDashCore/Private/Driver.cpp
+Headers: Task 9 adds the game-side read (GameReader.cpp BeginTrainsRead/StepTrainsRead) and the driver's mapLive pass: FGRailroadSubsystem.h:117 (Get), FGTrain.h:386, :511, :519, :527, :709 (mConsistData, in the public: section at :702; FTrainConsist :103), FGVehicle.h:347 (GetVehicleLocation), FGRailroadTimeTable.h:70, FGTrainStationIdentifier.h:84, :88, FGFreightWagon.h:47; the log line carries counts and times only, never an id or a name
 Headers: Source/FactoryGame/Public/FGRailroadSubsystem.h:174, :207
 Headers: Source/FactoryGame/Public/FGTrain.h:64-70, :460, :523, :614
 Headers: Source/FactoryGame/Public/FGTrainStationIdentifier.h:84, :88
