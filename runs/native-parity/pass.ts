@@ -16,14 +16,23 @@
 // Both new readers must also be shown native by the mod's own log (reader-lines.ts): its `Readers:` line, and for the nodes a
 // completed `Resource node scan` line. With a reader on the bridge the mod's output equals FRM's and the values pass trivially.
 // Nothing here changes a pass condition of another run: the 3% bar and the round count are the parity run's own exports.
+//
+// Sprint S2 (ADR-0058, owner decisions of 2026-10-26) adds five judges BESIDE the three above, in pass-s2.ts, never inside them: the
+// factory (R2a), the rates (R2b), the trains and stations (R3) and the native-only trainRoutes layer. A capture without `s2` (S1's)
+// is judged exactly as before; a capture with it, or a mod config that writes factorySource/trainsSource, is judged on all eight, and
+// a config that asks for S2 but a capture without it fails closed. Both new readers must also be shown native by the mod's log
+// (reader-lines.ts) and to have completed a `Factory read` / `Trains read` / `Train routes read` line.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { ResourceNodesLayerDataSchema } from "../../harness/contract/src/map";
 import type { FrmCircuitGroup } from "../../harness/src/frm";
 import { canonNodes, type CanonNode } from "../../harness/src/frm-native";
-import { nodesLogProblems, playersLogProblems, withProblems } from "../../harness/src/reader-lines";
+import { factoryLogProblems, nodesLogProblems, playersLogProblems, stepCosts, trainsLogProblems, withProblems } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
+import { judgeFactory, judgeRates, judgeRoutes, judgeStations, judgeTrains, productivityRange, type S2Evidence, type S2Result } from "./pass-s2";
 import type { Circuit, Posted, ServerState } from "../parity/pass";
 import { inBracket, NEED_PAIRS, PARITY_POWER_TOLERANCE, WINDOW_MINUTES as PARITY_WINDOW_MINUTES } from "../parity/pass";
+
+export * from "./pass-s2";
 
 export const requirements = ["native-parity", "R0-power", "R1-players", "R4-resource-nodes"];
 export const WINDOW_MINUTES = PARITY_WINDOW_MINUTES;
@@ -59,8 +68,14 @@ export interface NativeParity {
   power: { rounds: PowerRound[]; frm: FrmCounts; mergedGroupsMax: number | null };
   players: { rounds: PlayerRound[]; frmSamples: FrmBracket<string[]>[]; frm: FrmCounts };
   nodes: { posts: NodePost[]; frmSamples: FrmBracket<string>[]; distinct: Record<string, CanonNode[]>; frm: FrmCounts };
+  /** Sprint S2's evidence (pass-s2.ts); absent in an S1 capture. */
+  s2?: S2Evidence;
 }
-export interface ReaderVerdicts { power: Verdict; players: Verdict; resourceNodes: Verdict }
+export interface ReaderVerdicts {
+  power: Verdict; players: Verdict; resourceNodes: Verdict;
+  /** S2: present exactly when the capture has `s2`. */
+  factory?: Verdict; rates?: Verdict; trains?: Verdict; stations?: Verdict; trainRoutes?: Verdict;
+}
 
 const ms = (iso: string) => Date.parse(iso);
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
@@ -230,10 +245,35 @@ export function judgeNodes(n: NativeParity["nodes"]): Verdict {
 
 // ------------------------------------------------------------------------------------------------------------- the run
 
-/** The three verdicts, each computed from its own evidence only. */
-export function judgeReaders(c: NativeParity): ReaderVerdicts {
-  return { power: judgePower(c.power), players: judgePlayers(c.players), resourceNodes: judgeNodes(c.nodes) };
+const finish = (r: S2Result): Verdict => (r.pass ? passing(r.reasons, r.never) : { pass: false, reasons: r.reasons });
+
+/**
+ * The verdicts, each computed from its own evidence only: S1's three unchanged, and S2's five when the capture has them. `lines`
+ * (the mod's log) gives the rates judge the raw productivity range for its scale check; without them that check is skipped.
+ */
+export function judgeReaders(c: NativeParity, lines: readonly string[] = []): ReaderVerdicts {
+  const s1 = { power: judgePower(c.power), players: judgePlayers(c.players), resourceNodes: judgeNodes(c.nodes) };
+  if (!c.s2) return s1;
+  const { factory, mapLive, routes } = c.s2;
+  return {
+    ...s1,
+    factory: finish(judgeFactory(factory)),
+    rates: finish(judgeRates(factory, productivityRange(lines))),
+    trains: finish(judgeTrains(mapLive)),
+    stations: finish(judgeStations(mapLive)),
+    trainRoutes: finish(judgeRoutes(routes)),
+  };
 }
+
+/** Why the log does not show a sliced S2 read completed (its `<name> (game thread only):` line): the values would pass trivially otherwise. */
+const readLineProblems = (lines: readonly string[], reader: string): string[] =>
+  stepCosts(lines).some((x) => x.reader === reader) ? [] : [`the mod's log has no "${reader} (game thread only):" line: the native read never completed`];
+
+/** S2 is expected when the capture has its evidence or the config asked for either S2 source (so a drive that lost the evidence fails closed). */
+const expectsS2 = (c: NativeParity, sources: unknown): boolean => {
+  const s = sources as { factorySource?: unknown; trainsSource?: unknown } | undefined | null;
+  return c.s2 !== undefined || s?.factorySource !== undefined || s?.trainsSource !== undefined;
+};
 
 /** What must hold for any verdict to mean anything: the window, the mod enrolled, nothing refused or unreadable. */
 function runReasons(c: NativeParity, sources: unknown): string[] {
@@ -243,8 +283,12 @@ function runReasons(c: NativeParity, sources: unknown): string[] {
     const minutes = (ms(c.windowEndedAt) - ms(c.windowStartedAt)) / 60_000;
     if (!(minutes >= WINDOW_MINUTES)) out.push(`the window ran ${minutes.toFixed(1)} minutes, need ${WINDOW_MINUTES}`);
   }
-  const s = sources as { playersSource?: string; resourceNodesSource?: string } | undefined | null;
+  const s = sources as { playersSource?: string; resourceNodesSource?: string; factorySource?: string; trainsSource?: string } | undefined | null;
   if (s?.playersSource !== "native" || s?.resourceNodesSource !== "native") out.push("the run did not write playersSource and resourceNodesSource as native into the mod's config");
+  if (expectsS2(c, sources)) {
+    if (s?.factorySource !== "native" || s?.trainsSource !== "native") out.push("the run did not write factorySource and trainsSource as native into the mod's config");
+    if (!c.s2) out.push("the S2 evidence (factory, mapLive, trainRoutes) was not captured");
+  }
   if (!c.state) out.push("the mod's server state was not read");
   else {
     if (!c.state.codeConsumed) out.push("the mod's code was not consumed");
@@ -260,7 +304,7 @@ export function evaluate(e: CoreEvidence): Verdict {
   if (!c) return { pass: false, reasons: ["no native-parity capture"] };
   // Values alone cannot tell a native reader from the bridge (the mod's output then equals FRM's): the mod's own log must say
   // the reader was native, and the nodes reader must have completed a scan.
-  const judged = judgeReaders(c);
+  const judged = judgeReaders(c, e.lines);
   const v: ReaderVerdicts = {
     ...judged,
     players: withProblems(judged.players, playersLogProblems(e.lines)),
@@ -268,6 +312,20 @@ export function evaluate(e: CoreEvidence): Verdict {
   };
   const run = runReasons(c, e.captures["mod-config.json"]);
   const names: Array<[string, Verdict]> = [["R0 power", v.power], ["R1 players", v.players], ["R4 resource nodes", v.resourceNodes]];
+  if (expectsS2(c, e.captures["mod-config.json"])) {
+    // The S2 readers must be native and have completed a read; a capture that lost its S2 evidence fails each of them.
+    const none: Verdict = { pass: false, reasons: ["no S2 evidence in the capture"] };
+    const factoryProblems = [...factoryLogProblems(e.lines), ...readLineProblems(e.lines, "Factory read")];
+    const trainsProblems = [...trainsLogProblems(e.lines), ...readLineProblems(e.lines, "Trains read")];
+    const routesProblems = [...trainsLogProblems(e.lines), ...readLineProblems(e.lines, "Train routes read")];
+    names.push(
+      ["R2a factory", withProblems(v.factory ?? none, factoryProblems)],
+      ["R2b rates", withProblems(v.rates ?? none, factoryProblems)],
+      ["R3 trains", withProblems(v.trains ?? none, trainsProblems)],
+      ["R3 stations", withProblems(v.stations ?? none, trainsProblems)],
+      ["R3 trainRoutes", withProblems(v.trainRoutes ?? none, routesProblems)],
+    );
+  }
   const lines = names.flatMap(([name, x]) => x.reasons.map((r) => `${name} ${x.pass ? "PASS" : "FAIL"}: ${r}`));
   return { pass: run.length === 0 && names.every(([, x]) => x.pass), reasons: [...run, ...lines] };
 }

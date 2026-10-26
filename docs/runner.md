@@ -218,6 +218,28 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   `readers.json`; the run is red if any reader is. Fields the world never exercised are reported as `NOT EXERCISED` and do not
   fail (`NOT_EXERCISED_FAILS` in the pass file flips that). It takes about 45 minutes plus the build. To exercise "online"
   players, join the test server with a game client during the window.
+
+  **Sprint S2 (ADR-0058; the run loads `Test2` and writes all four keys, `NATIVE_SOURCES_S2`).** Five more readers are judged,
+  each alone, in `runs/native-parity/pass-s2.ts`, against FRM's `/getFactory` (every 5 s), `/getTrains` (every 2 s),
+  `/getTrainStation` (every 30 s) and the `/getTrainStation` + `/getTrains` pair for the routes layer (every minute and right
+  after each mod routes post), all read over HTTP only. A mod snapshot part carries no read time, so it is compared with the FRM
+  reads that started in `[observedAt - 40 s, observedAt + 5 s]` (new). Rounds without any FRM read in that window are skipped and
+  need not fail; each reader needs at least 40 compared rounds (new; the window holds about 60). The tables:
+  - `factory` (R2a): machine ids equal the union of FRM's in the window; `name`, `className`, `recipe`, `circuitGroupId`, location
+    (1 m) and `clockSpeedPercent` (0.01) equal; `isProducing`, `isPaused`, `isBackedUp` and `inputsFull` equal to a value FRM
+    showed in the window for at least 99% of machine-rounds (new).
+  - `rates` (R2b): `maxPerMinute` within 0.1% or 0.001; `currentPerMinute` and `percent` within 3% of FRM's range per item class
+    (factory total) and within 5% for at least 95% of building-rounds. If only current misses, the verdict carries the owner's
+    fallback text (set `DefaultRatesMode` to Instantaneous, and the owner rules on the tolerance); a raw productivity above
+    1.0001 in the mod's `Factory read` line fails with a "scale" reason.
+  - `trains` and `stations` (R3): ids and name hashes equal; "Self-Driving" exact (parked, manual and derailed mismatches are
+    reported); stationary trains and stations within 1 m, a moving train within the distance FRM's own neighbouring reads moved
+    plus 5 m (new).
+  - `trainRoutes`: native only (the bridge never sent it), first post about 3 minutes after Running and then every 10 minutes, so
+    the 30-minute window always holds at least one; the posted layer equals the FRM-derived layer on one side of the post (120 s).
+  Evidence holds names as hashes only. The reader verdicts also need the mod's log to show the readers native
+  (`factoryLogProblems`, `trainsLogProblems`) and a completed `Factory read`, `Trains read` and `Train routes read` line. S1's
+  three judges are unchanged; an S1 capture is judged as before.
 - `tick-cost-native` is `tick-cost` with the players and resource-node readers set to `native` in the mod's config
   (`mod-config.json`). It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
   by the same limits (tick median at least 95% of the baseline's, S12, same save, memory within 100 MB and no more than 25 MB
