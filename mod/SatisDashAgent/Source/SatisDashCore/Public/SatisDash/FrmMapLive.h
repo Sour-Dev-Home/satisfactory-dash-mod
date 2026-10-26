@@ -12,6 +12,15 @@ namespace SatisDash
 	inline constexpr int64 MapLiveWrapperBytes = 23;
 
 	/**
+	 * One mapLive train record {"id","name","x","y","status"}, as FTrainsParse writes it from FRM and the native reader writes it
+	 * from the game (one shared writer). Id, Name and Status are cut at 200 characters (ClampString); Mx and My are whole
+	 * metres, already in bounds.
+	 */
+	SATISDASHCORE_API void AppendTrainRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My, const FString& Status);
+	/** One mapLive station record {"id","name","x","y"}, shared the same way. */
+	SATISDASHCORE_API void AppendStationRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My);
+
+	/**
 	 * getTrains' body to the trains array [{id,name,x,y,status}], as the Node agent makes it (rawSchemas.ts RawFrmTrainSchema,
 	 * trainsMapper.ts, coordinates.ts, then conformMapLive's 500 and 200). Dropped() counts trains with a coordinate the
 	 * contract can't hold (they do not count towards the 500).

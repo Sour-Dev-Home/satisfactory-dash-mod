@@ -4,6 +4,34 @@
 #include "SatisDash/JsonUtil.h"
 #include "SatisDash/Snapshot.h"
 
+void SatisDash::AppendTrainRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My, const FString& Status)
+{
+	Out += TEXT("{\"id\":");
+	SatisDash::Json::AppendString(Out, ClampString(Id));
+	Out += TEXT(",\"name\":");
+	SatisDash::Json::AppendString(Out, ClampString(Name));
+	Out += TEXT(",\"x\":");
+	Out.AppendInt(int32(Mx));
+	Out += TEXT(",\"y\":");
+	Out.AppendInt(int32(My));
+	Out += TEXT(",\"status\":");
+	SatisDash::Json::AppendString(Out, ClampString(Status));
+	Out.AppendChar(TEXT('}'));
+}
+
+void SatisDash::AppendStationRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My)
+{
+	Out += TEXT("{\"id\":");
+	SatisDash::Json::AppendString(Out, ClampString(Id));
+	Out += TEXT(",\"name\":");
+	SatisDash::Json::AppendString(Out, ClampString(Name));
+	Out += TEXT(",\"x\":");
+	Out.AppendInt(int32(Mx));
+	Out += TEXT(",\"y\":");
+	Out.AppendInt(int32(My));
+	Out.AppendChar(TEXT('}'));
+}
+
 SatisDash::FTrainsParse::FTrainsParse(TArray<uint8> InBody)
 	: FFrmArrayParse(MoveTemp(InBody), MapLiveMaxItems, FString(), FString())
 {
@@ -37,17 +65,7 @@ auto SatisDash::FTrainsParse::ReadRecord(bool bRoom) -> ERecord
 				return ERecord::Over;
 			}
 			BeginRecord();
-			Out += TEXT("{\"id\":");
-			SatisDash::Json::AppendString(Out, ClampString(Id.GetValue()));
-			Out += TEXT(",\"name\":");
-			SatisDash::Json::AppendString(Out, ClampString(Name.GetValue()));
-			Out += TEXT(",\"x\":");
-			Out.AppendInt(int32(Mx));
-			Out += TEXT(",\"y\":");
-			Out.AppendInt(int32(My));
-			Out += TEXT(",\"status\":");
-			SatisDash::Json::AppendString(Out, ClampString(Status.GetValue()));
-			Out.AppendChar(TEXT('}'));
+			AppendTrainRecord(Out, Id.GetValue(), Name.GetValue(), Mx, My, Status.GetValue());
 			return ERecord::Kept;
 		}
 		const FString Key = Reader.Name();
@@ -110,15 +128,7 @@ auto SatisDash::FStationsParse::ReadRecord(bool bRoom) -> ERecord
 				return ERecord::Over;
 			}
 			BeginRecord();
-			Out += TEXT("{\"id\":");
-			SatisDash::Json::AppendString(Out, ClampString(Id.GetValue()));
-			Out += TEXT(",\"name\":");
-			SatisDash::Json::AppendString(Out, ClampString(Name.GetValue()));
-			Out += TEXT(",\"x\":");
-			Out.AppendInt(int32(Mx));
-			Out += TEXT(",\"y\":");
-			Out.AppendInt(int32(My));
-			Out.AppendChar(TEXT('}'));
+			AppendStationRecord(Out, Id.GetValue(), Name.GetValue(), Mx, My);
 			return ERecord::Kept;
 		}
 		const FString Key = Reader.Name();

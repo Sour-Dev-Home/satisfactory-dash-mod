@@ -575,3 +575,5 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FStepBudget::Steps | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:33 | the plugin's own declaration (Task 2) |
 | FStepBudget::LongestMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:34 | the plugin's own declaration (Task 2) |
 | FStepBudget::TotalMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:35 | the plugin's own declaration (Task 2) |
+| FJsonObject::TryGetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:274 | header only (the FStringView overload; test only, Task 8) |
+| FJsonValue::TryGetString | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:74 | header only (test only, Task 8) |
