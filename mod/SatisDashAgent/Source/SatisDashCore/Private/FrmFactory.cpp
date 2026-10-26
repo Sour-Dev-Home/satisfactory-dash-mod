@@ -14,24 +14,24 @@ namespace
 	{
 		return FMath::IsFinite(Value) && Value >= -9007199254740991.0 && Value <= 9007199254740991.0 && double(int64(Value)) == Value;
 	}
+}
 
-	/**
-	 * Centimetres to metres, a true division as JavaScript does it. UE builds with /fp:fast, which turns a division by the
-	 * constant 100.0 into a multiplication by 0.01 and lands one ulp away for some values (4800.0126953125 / 100); the
-	 * volatile divisor keeps the compiler from seeing a constant, so the output equals the Node agent's to the bit.
-	 */
-	double FrmFactoryMetres(double Centimetres)
-	{
-		volatile double Hundred = 100.0;
-		return Centimetres / Hundred;
-	}
+/**
+ * Centimetres to metres, a true division as JavaScript does it. UE builds with /fp:fast, which turns a division by the
+ * constant 100.0 into a multiplication by 0.01 and lands one ulp away for some values (4800.0126953125 / 100); the
+ * volatile divisor keeps the compiler from seeing a constant, so the output equals the Node agent's to the bit.
+ */
+double SatisDash::FrmFactoryMetres(double Centimetres)
+{
+	volatile double Hundred = 100.0;
+	return Centimetres / Hundred;
+}
 
-	/** conform.ts normalizeYaw: into [0, 360); float noise that lands on 360 is 0. JavaScript's % is fmod. */
-	double FrmFactoryYaw(double Degrees)
-	{
-		const double Yaw = FMath::Fmod(FMath::Fmod(Degrees, 360.0) + 360.0, 360.0);
-		return Yaw >= 360.0 ? 0.0 : Yaw;
-	}
+/** conform.ts normalizeYaw: into [0, 360); float noise that lands on 360 is 0. JavaScript's % is fmod. */
+double SatisDash::FrmFactoryYaw(double Degrees)
+{
+	const double Yaw = FMath::Fmod(FMath::Fmod(Degrees, 360.0) + 360.0, 360.0);
+	return Yaw >= 360.0 ? 0.0 : Yaw;
 }
 
 SatisDash::FFactoryParse::FFactoryParse(TArray<uint8> InBody)
@@ -438,22 +438,88 @@ bool SatisDash::FFactoryParse::ReadLocation(EJsonNotation Started, FBuilding& B)
 	return false;
 }
 
-void SatisDash::FFactoryParse::WriteRates(const TCHAR* Field, const TArray<FRate>& Rates)
+namespace
 {
-	Writer->WriteArrayStart(Field);
-	const int32 Keep = FMath::Min(Rates.Num(), MaxRatesPerBuilding);
-	for (int32 I = 0; I < Keep; ++I)
+	void FrmFactoryWriteRates(SatisDash::FFactoryJsonWriter& Writer, const TCHAR* Field, const TArray<SatisDash::FRateReading>* Rates)
 	{
-		const FRate& Rate = Rates[I];
-		Writer->WriteObjectStart();
-		Writer->WriteValue(TEXT("name"), ClampString(Rate.Name));
-		Writer->WriteValue(TEXT("className"), ClampString(Rate.ClassName));
-		Writer->WriteValue(TEXT("currentPerMinute"), Rate.Current);
-		Writer->WriteValue(TEXT("maxPerMinute"), Rate.Max);
-		Writer->WriteValue(TEXT("percent"), Rate.Percent);
-		Writer->WriteObjectEnd();
+		Writer.WriteArrayStart(Field);
+		const int32 Keep = Rates ? FMath::Min(Rates->Num(), SatisDash::MaxRatesPerBuilding) : 0;
+		for (int32 I = 0; I < Keep; ++I)
+		{
+			const SatisDash::FRateReading& Rate = (*Rates)[I];
+			Writer.WriteObjectStart();
+			Writer.WriteValue(TEXT("name"), SatisDash::ClampString(Rate.Name));
+			Writer.WriteValue(TEXT("className"), SatisDash::ClampString(Rate.ClassName));
+			Writer.WriteValue(TEXT("currentPerMinute"), Rate.Current);
+			Writer.WriteValue(TEXT("maxPerMinute"), Rate.Max);
+			Writer.WriteValue(TEXT("percent"), Rate.Percent);
+			Writer.WriteObjectEnd();
+		}
+		Writer.WriteArrayEnd();
 	}
-	Writer->WriteArrayEnd();
+}
+
+void SatisDash::DeriveFactoryFlags(bool bPaused, bool bConfigured, const TArray<FSlotReading>& Output, const TArray<FRateReading>& Ingredients, const TOptional<TArray<FSlotReading>>& Input, bool& OutBackedUp, bool& OutInputsFull)
+{
+	// factoryMapper.ts isBackedUp and areInputsFull, on the whole lists (they run before conform cuts them).
+	OutBackedUp = false;
+	if (!bPaused && bConfigured)
+	{
+		for (const FSlotReading& Slot : Output)
+		{
+			OutBackedUp = OutBackedUp || (Slot.MaxAmount > 0 && Slot.Amount >= Slot.MaxAmount);
+		}
+	}
+	OutInputsFull = !bPaused && bConfigured && Ingredients.Num() > 0 && Input.IsSet();
+	for (int32 I = 0; OutInputsFull && I < Ingredients.Num(); ++I)
+	{
+		bool bFull = false;
+		for (const FSlotReading& Slot : Input.GetValue())
+		{
+			bFull = bFull || (Slot.ClassName.Equals(Ingredients[I].ClassName, ESearchCase::CaseSensitive) && Slot.MaxAmount > 0 && Slot.Amount >= Slot.MaxAmount);
+		}
+		OutInputsFull = bFull;
+	}
+}
+
+void SatisDash::AppendFactoryBuilding(FFactoryJsonWriter& Writer, const FFactoryBuildingModel& B)
+{
+	Writer.WriteObjectStart();
+	Writer.WriteValue(TEXT("id"), ClampString(B.Id));
+	Writer.WriteValue(TEXT("name"), ClampString(B.Name));
+	Writer.WriteValue(TEXT("className"), ClampString(B.ClassName));
+	if (B.Recipe.IsSet())
+	{
+		Writer.WriteValue(TEXT("recipe"), ClampString(B.Recipe.GetValue()));
+	}
+	else
+	{
+		Writer.WriteNull(TEXT("recipe"));
+	}
+	Writer.WriteValue(TEXT("isProducing"), B.bProducing);
+	Writer.WriteValue(TEXT("isPaused"), B.bPaused);
+	Writer.WriteValue(TEXT("isBackedUp"), B.bBackedUp);
+	if (B.InputsFull.IsSet())
+	{
+		Writer.WriteValue(TEXT("inputsFull"), B.InputsFull.GetValue());
+	}
+	Writer.WriteValue(TEXT("circuitGroupId"), B.CircuitGroupId);
+	if (B.bHasLocation)
+	{
+		Writer.WriteObjectStart(TEXT("location"));
+		Writer.WriteValue(TEXT("xM"), B.XM);
+		Writer.WriteValue(TEXT("yM"), B.YM);
+		Writer.WriteValue(TEXT("zM"), B.ZM);
+		Writer.WriteValue(TEXT("rotationDeg"), B.YawDeg);
+		Writer.WriteObjectEnd();
+	}
+	if (B.ClockSpeedPercent.IsSet())
+	{
+		Writer.WriteValue(TEXT("clockSpeedPercent"), B.ClockSpeedPercent.GetValue());
+	}
+	FrmFactoryWriteRates(Writer, TEXT("production"), B.Production);
+	FrmFactoryWriteRates(Writer, TEXT("ingredients"), B.Ingredients);
+	Writer.WriteObjectEnd();
 }
 
 void SatisDash::FFactoryParse::WriteBuilding(const FBuilding& B)
@@ -465,61 +531,40 @@ void SatisDash::FFactoryParse::WriteBuilding(const FBuilding& B)
 	const TArray<FRate>& Ingredients = bConfigured ? B.Ingredients : NoRates;
 	const bool bPaused = B.IsPaused.GetValue();
 
-	// factoryMapper.ts isBackedUp and areInputsFull, on the whole lists (they run before conform cuts them).
+	FFactoryBuildingModel Model;
 	bool bBackedUp = false;
-	if (!bPaused && bConfigured)
-	{
-		for (const FSlot& Slot : B.Output)
-		{
-			bBackedUp = bBackedUp || (Slot.MaxAmount > 0 && Slot.Amount >= Slot.MaxAmount);
-		}
-	}
-	bool bInputsFull = !bPaused && bConfigured && Ingredients.Num() > 0 && B.Input.IsSet();
-	for (int32 I = 0; bInputsFull && I < Ingredients.Num(); ++I)
-	{
-		bool bFull = false;
-		for (const FSlot& Slot : B.Input.GetValue())
-		{
-			bFull = bFull || (Slot.ClassName.Equals(Ingredients[I].ClassName, ESearchCase::CaseSensitive) && Slot.MaxAmount > 0 && Slot.Amount >= Slot.MaxAmount);
-		}
-		bInputsFull = bFull;
-	}
+	bool bInputsFull = false;
+	DeriveFactoryFlags(bPaused, bConfigured, B.Output, Ingredients, B.Input, bBackedUp, bInputsFull);
 
-	Writer->WriteObjectStart();
-	Writer->WriteValue(TEXT("id"), ClampString(B.Id.GetValue()));
-	Writer->WriteValue(TEXT("name"), ClampString(B.Name.GetValue()));
-	Writer->WriteValue(TEXT("className"), ClampString(B.ClassName.GetValue()));
+	Model.Id = B.Id.GetValue();
+	Model.Name = B.Name.GetValue();
+	Model.ClassName = B.ClassName.GetValue();
 	if (bConfigured)
 	{
-		Writer->WriteValue(TEXT("recipe"), ClampString(B.Recipe.GetValue()));
+		Model.Recipe = B.Recipe;
 	}
-	else
-	{
-		Writer->WriteNull(TEXT("recipe"));
-	}
-	Writer->WriteValue(TEXT("isProducing"), B.IsProducing.GetValue());
-	Writer->WriteValue(TEXT("isPaused"), bPaused);
-	Writer->WriteValue(TEXT("isBackedUp"), bBackedUp);
+	Model.bProducing = B.IsProducing.GetValue();
+	Model.bPaused = bPaused;
+	Model.bBackedUp = bBackedUp;
 	if (B.Input.IsSet())
 	{
-		Writer->WriteValue(TEXT("inputsFull"), bInputsFull);
+		Model.InputsFull = bInputsFull;
 	}
-	Writer->WriteValue(TEXT("circuitGroupId"), B.CircuitGroupId.Get(-1));
+	Model.CircuitGroupId = B.CircuitGroupId.Get(-1);
 	if (B.bHasLocation)
 	{
 		// satisfactoryServerAdapter.ts mapLocation: centimetres to metres, the yaw normalised, the pitch dropped.
-		Writer->WriteObjectStart(TEXT("location"));
-		Writer->WriteValue(TEXT("xM"), FrmFactoryMetres(B.X));
-		Writer->WriteValue(TEXT("yM"), FrmFactoryMetres(B.Y));
-		Writer->WriteValue(TEXT("zM"), FrmFactoryMetres(B.Z));
-		Writer->WriteValue(TEXT("rotationDeg"), FrmFactoryYaw(B.Rotation));
-		Writer->WriteObjectEnd();
+		Model.bHasLocation = true;
+		Model.XM = FrmFactoryMetres(B.X);
+		Model.YM = FrmFactoryMetres(B.Y);
+		Model.ZM = FrmFactoryMetres(B.Z);
+		Model.YawDeg = FrmFactoryYaw(B.Rotation);
 	}
 	if (B.ManuSpeed.IsSet() && B.ManuSpeed.GetValue() > 0)
 	{
-		Writer->WriteValue(TEXT("clockSpeedPercent"), B.ManuSpeed.GetValue());
+		Model.ClockSpeedPercent = B.ManuSpeed.GetValue();
 	}
-	WriteRates(TEXT("production"), Production);
-	WriteRates(TEXT("ingredients"), Ingredients);
-	Writer->WriteObjectEnd();
+	Model.Production = &Production;
+	Model.Ingredients = &Ingredients;
+	AppendFactoryBuilding(*Writer, Model);
 }

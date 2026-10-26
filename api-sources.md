@@ -412,6 +412,9 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | ELogVerbosity::Error | Engine/Source/Runtime/Core/Public/Logging/LogVerbosity.h:28 | header only |
 | TMap::GetKeys | Engine/Source/Runtime/Core/Public/Containers/Map.h:327 | header only (the TArray overload; declared in TMapBase, which TMap inherits) |
 | TArray::Sort | Engine/Source/Runtime/Core/Public/Containers/Array.h:3425 | header only (the no-predicate overload) |
+| TArray::StableSort | Engine/Source/Runtime/Core/Public/Containers/Array.h:3475 | header only (the predicate overload; :3457 is the no-predicate one) |
+| FMath::RoundToDouble | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:341 | header only (declared in FGenericPlatformMath, which FMath inherits via FPlatformMath) |
+| FMemory::Memcpy | Engine/Source/Runtime/Core/Public/HAL/UnrealMemory.h:160 | header only (the bit copy of a double; a cast would break strict aliasing) |
 | TArray::IsValidIndex | Engine/Source/Runtime/Core/Public/Containers/Array.h:1094 | header only |
 | TArray::Reserve | Engine/Source/Runtime/Core/Public/Containers/Array.h:3026 | header only |
 | FPowerCircuitStats::MaximumPowerConsumption | Source/FactoryGame/Public/FGPowerCircuit.h:110 | header only |
