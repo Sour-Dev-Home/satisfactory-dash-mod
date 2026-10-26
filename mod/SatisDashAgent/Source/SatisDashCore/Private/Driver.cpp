@@ -52,6 +52,7 @@ void SatisDash::FDriver::Tick()
 		bFactoryReadOpen = false; // an open game read is dropped: its readings are never submitted
 		Game.EndFactoryRead();
 		bTrainsReadOpen = false; // the same for the trains read (the sender's own is dropped by its Stop)
+		bTrainsBeginPending = false;
 		Game.EndTrainsRead();
 	}
 	if (!bRunning && bNowRunning)
@@ -150,11 +151,29 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 
 void SatisDash::FDriver::TickTrainsRead(double Now)
 {
+	const FAgentConfig& Config = Agent.GetConfig();
+	if (bTrainsBeginPending)
+	{
+		if (Config.GetTrainsSource() != ESource::Native)
+		{
+			bTrainsBeginPending = false;
+		}
+		else if (!Game.IsTrainsReadOpen())
+		{
+			bTrainsBeginPending = false;
+			TrainsBudget.Reset();
+			bTrainsReadOpen = Game.BeginTrainsRead();
+			if (!bTrainsReadOpen)
+			{
+				NoteFailedPart(TEXT("mapLive"), Now); // not busy any more, so a real failure: no world or subsystem
+			}
+		}
+		return;
+	}
 	if (!bTrainsReadOpen)
 	{
 		return;
 	}
-	const FAgentConfig& Config = Agent.GetConfig();
 	if (Config.GetTrainsSource() != ESource::Native)
 	{
 		bTrainsReadOpen = false; // the source changed under a read: drop it
@@ -253,7 +272,16 @@ void SatisDash::FDriver::TickSample(double Now)
 		}
 		if (bFactoryDue && Snapshot.Status->bIsGameRunning && Config.GetTrainsSource() == ESource::Native)
 		{
-			if (bTrainsReadOpen)
+			if (bTrainsBeginPending || (!bTrainsReadOpen && Game.IsTrainsReadOpen()))
+			{
+				// The sender's train-routes read holds the one cursor (a few ticks): this round starts on the first free tick. Not a failed read.
+				bTrainsBeginPending = true;
+				if (TrainsLog.ShouldLog(TEXT("wait"), Now))
+				{
+					UE_LOG(LogSatisDash, Display, TEXT("Trains read waits for the train-routes read to finish"));
+				}
+			}
+			else if (bTrainsReadOpen)
 			{
 				// The last read has not finished: this cadence tick is skipped, not restarted. No names, counts or ids.
 				if (TrainsLog.ShouldLog(TEXT("busy"), Now))
@@ -267,7 +295,7 @@ void SatisDash::FDriver::TickSample(double Now)
 				bTrainsReadOpen = Game.BeginTrainsRead();
 				if (!bTrainsReadOpen)
 				{
-					NoteFailedPart(TEXT("mapLive"), Now); // no world or subsystem yet (or the train-routes read has the reader): the part is left out and FRM is not asked
+					NoteFailedPart(TEXT("mapLive"), Now); // no world or subsystem yet (a busy cursor is handled above, not here): the part is left out and FRM is not asked
 				}
 			}
 		}

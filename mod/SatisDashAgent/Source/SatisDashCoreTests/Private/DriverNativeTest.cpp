@@ -319,51 +319,108 @@ bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("FRM is still not asked"), F.Net.sent(TEXT("/getTrains")) + F.Net.sent(TEXT("/getTrainStation")), 0);
 
 	// An abandoned read (a world swap) leaves the part out, with a warning, and FRM is not asked.
-	F.Game.bTrainsAbandon = true;
-	F.Game.Trains = { Train };
-	Begun = F.Game.TrainsBegins;
-	TestTrue(TEXT("the next read begins again"), F.runUntil(Driver, [&F, Begun] { return F.Game.TrainsBegins > Begun; }, 120));
-	TestFalse(TEXT("an abandoned read leaves the part out"), DriverNativeAny(DriverNativeRun(F, Driver, 12), TEXT("\"mapLive\":")));
-	TestEqual(TEXT("and FRM is not asked"), F.Net.sent(TEXT("/getTrains")) + F.Net.sent(TEXT("/getTrainStation")), 0);
+	// Every case below runs on its own fresh driver, which begins its reads in its first 30 s: the sender's own train-routes read
+	// (first due 198 s after Running) is never in these windows, so each count here is the driver's mapLive pass alone.
+	// The first case is the empty one above (F stays under 198 s).
+	TestTrue(TEXT("the empty and basic cases ended before the sender's first read is due"), F.T < 1000.0 + 198.0);
+
+	// An abandoned read (a world swap) leaves the part out, with one warning, and FRM is not asked.
+	// FLogCapture::Take is everything since the capture was made, so each case makes its own capture just before it starts.
+	SatisDash::Test::FLogCapture HLog;
+	FDriverFixture H;
+	H.Game.bTrainsAbandon = true;
+	H.Game.Trains = { Train };
+	FDriver Abandoned{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
+	H.enrol(Abandoned, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("the abandoned read begins"), H.runUntil(Abandoned, [&H] { return H.Game.TrainsBegins >= 1; }, 20));
+	TestFalse(TEXT("an abandoned read leaves the part out"), DriverNativeAny(DriverNativeRun(H, Abandoned, 12), TEXT("\"mapLive\":")));
+	TestEqual(TEXT("it was stepped to its end"), H.Game.TrainsStepCalls, 3);
+	TestEqual(TEXT("and FRM is not asked"), H.Net.sent(TEXT("/getTrains")) + H.Net.sent(TEXT("/getTrainStation")), 0);
 	int32 Warnings = 0;
-	for (const FString& Line : Log.Take())
+	for (const FString& Line : HLog.Take())
 	{
 		Warnings += Line.Contains(TEXT("Couldn't read mapLive from the game")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one rate-limited warning"), Warnings, 1);
-	F.Game.bTrainsAbandon = false;
 
 	// A mapLive past its byte cap is left out, with one warning, whatever the cap's arithmetic: 1,000 records of long names.
-	F.Game.Trains.Reset();
-	F.Game.Stations.Reset();
-	for (int32 I = 0; I < 500; ++I)
+	SatisDash::Test::FLogCapture CapLog;
+	FDriverFixture I;
+	for (int32 N = 0; N < 500; ++N)
 	{
 		FTrainReading Long = Train;
-		Long.Id = FString::Printf(TEXT("BP_Train_C_%d"), I);
+		Long.Id = FString::Printf(TEXT("BP_Train_C_%d"), N);
 		Long.Name = FString::ChrN(400, TEXT('n'));
-		F.Game.Trains.Add(Long);
+		I.Game.Trains.Add(Long);
 		FStationReading Stop = Station;
-		Stop.Id = FString::Printf(TEXT("Build_TrainStation_C_%d"), I);
+		Stop.Id = FString::Printf(TEXT("Build_TrainStation_C_%d"), N);
 		Stop.Name = FString::ChrN(400, TEXT('s'));
-		F.Game.Stations.Add(Stop);
+		I.Game.Stations.Add(Stop);
 	}
-	Begun = F.Game.TrainsBegins;
-	TestTrue(TEXT("the next read begins for the cap"), F.runUntil(Driver, [&F, Begun] { return F.Game.TrainsBegins > Begun; }, 120));
-	TestFalse(TEXT("an over-cap mapLive is left out"), DriverNativeAny(DriverNativeRun(F, Driver, 12), TEXT("\"mapLive\":")));
+	FDriver Capped{ I.ConfigPath, I.CredentialPath, I.Net, I.Game, I.Worker, I.clock() };
+	I.enrol(Capped, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("the over-cap read begins"), I.runUntil(Capped, [&I] { return I.Game.TrainsBegins >= 1; }, 20));
+	TestFalse(TEXT("an over-cap mapLive is left out"), DriverNativeAny(DriverNativeRun(I, Capped, 12), TEXT("\"mapLive\":")));
+	TestEqual(TEXT("it was stepped to its end"), I.Game.TrainsStepCalls, 3);
 	int32 CapWarnings = 0;
-	for (const FString& Line : Log.Take())
+	for (const FString& Line : CapLog.Take())
 	{
 		CapWarnings += Line.Contains(TEXT("mapLive is over its")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one over-cap warning"), CapWarnings, 1);
 
 	// A read still open when the source is switched away is dropped and freed (the reader is told).
-	F.Game.TrainsSteps = 1000000;
-	Begun = F.Game.TrainsBegins;
-	TestTrue(TEXT("the next cadence begins another read"), F.runUntil(Driver, [&F, Begun] { return F.Game.TrainsBegins > Begun; }, 120));
-	const int32 Ends = F.Game.TrainsEnds;
-	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"trainsSource\":\"bridge\""));
-	TestTrue(TEXT("a source change ends the open read"), F.runUntil(Driver, [&F, Ends] { return F.Game.TrainsEnds > Ends; }, 120));
+	FDriverFixture J;
+	J.Game.TrainsSteps = 1000000;
+	FDriver Switched{ J.ConfigPath, J.CredentialPath, J.Net, J.Game, J.Worker, J.clock() };
+	J.enrol(Switched, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a read is open"), J.runUntil(Switched, [&J] { return J.Game.TrainsBegins >= 1; }, 20));
+	const int32 Ends = J.Game.TrainsEnds;
+	J.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"trainsSource\":\"bridge\""));
+	TestTrue(TEXT("a source change ends the open read"), J.runUntil(Switched, [&J, Ends] { return J.Game.TrainsEnds > Ends; }, 120));
+
+	// Contention (one cursor, two consumers). The sender's train-routes read holds the cursor at a factory due time: the driver
+	// waits for the next free tick, writes no "Couldn't read mapLive" warning and loses no round.
+	SatisDash::Test::FLogCapture KLog;
+	FDriverFixture K;
+	K.Game.Trains = { Train };
+	K.Game.Stations = { Station };
+	K.Game.bTrainsOpen = true; // as if the routes read were open
+	FDriver Waiting{ K.ConfigPath, K.CredentialPath, K.Net, K.Game, K.Worker, K.clock() };
+	K.enrol(Waiting, SatisDash::Test::FakeSecret(), Native);
+	TArray<FString> Held = DriverNativeRun(K, Waiting, 20);
+	TestEqual(TEXT("the busy cursor is not begun over"), K.Game.TrainsStepCalls, 0);
+	TestFalse(TEXT("nothing is sent while it is held"), DriverNativeAny(Held, TEXT("\"mapLive\":")));
+	K.Game.bTrainsOpen = false;
+	K.run(Waiting, 1.5);
+	TestTrue(TEXT("the read starts within a couple of ticks of the release"), K.Game.TrainsStepCalls >= 1);
+	TestTrue(TEXT("and mapLive arrives"), DriverNativeAny(DriverNativeRun(K, Waiting, 10), TEXT("\"mapLive\":{\"trains\":[{")));
+	int32 FalseWarnings = 0;
+	for (const FString& Line : KLog.Take())
+	{
+		FalseWarnings += Line.Contains(TEXT("Couldn't read mapLive from the game")) ? 1 : 0;
+	}
+	TestEqual(TEXT("a busy cursor is not a failed read"), FalseWarnings, 0);
+
+	// The other direction: the cursor is held when the routes layer is due (198 s) and released later; the layer does not wait
+	// out a flat 30 s retry, it starts on the first free tick, and posts.
+	SatisDash::Test::FLogCapture LLog;
+	FDriverFixture L;
+	L.Game.Trains = { Train };
+	L.Game.Stations = { Station };
+	L.Game.bTrainsOpen = true;
+	FDriver Starved{ L.ConfigPath, L.CredentialPath, L.Net, L.Game, L.Worker, L.clock() };
+	L.enrol(Starved, SatisDash::Test::FakeSecret(), Native);
+	DriverNativeRun(L, Starved, 215);
+	TestEqual(TEXT("held through the routes due time: no routes post yet"), L.Net.sent(TEXT("/agent/v1/world/trainRoutes")), 0);
+	L.Game.bTrainsOpen = false;
+	TestTrue(TEXT("the routes layer posts soon after the release"), DriverNativeRunUntil(L, Starved, [&L] { return L.Net.pending(TEXT("/agent/v1/world/trainRoutes")) > 0; }, 15));
+	int32 StarvedWarnings = 0;
+	for (const FString& Line : LLog.Take())
+	{
+		StarvedWarnings += Line.Contains(TEXT("Couldn't read mapLive from the game")) || Line.Contains(TEXT("found no")) ? 1 : 0;
+	}
+	TestEqual(TEXT("no failed-read warning in either direction"), StarvedWarnings, 0);
 
 	// No world or subsystem: the part is left out and FRM is not asked.
 	FDriverFixture G;
@@ -377,7 +434,7 @@ bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeFactoryTest,"SatisDash.Core.Driver.NativeFactory", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeFactoryTest, "SatisDash.Core.Driver.NativeFactory", SatisDash::Test::Flags)
 
 bool FDriverNativeFactoryTest::RunTest(const FString& Parameters)
 {

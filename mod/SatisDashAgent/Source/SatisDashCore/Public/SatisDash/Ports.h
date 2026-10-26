@@ -91,6 +91,11 @@ namespace SatisDash
 		virtual bool TrainsReadAbandoned() const { return false; }
 		/** The caller drops its open read (source changed, left Running): frees what the reader buffered. */
 		virtual void EndTrainsRead() {}
+		/**
+		 * True while a trains read is open (begun, not yet finished or ended), by whichever consumer. A consumer that finds the
+		 * cursor busy waits for the next tick; it is not a failed read.
+		 */
+		virtual bool IsTrainsReadOpen() const { return false; }
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

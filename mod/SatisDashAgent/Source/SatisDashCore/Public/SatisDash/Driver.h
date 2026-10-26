@@ -88,6 +88,8 @@ namespace SatisDash
 		FStepBudget RoutesBudget;
 		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */
 		bool bTrainsReadOpen = false;
+		/** A factory-cadence tick found the reader's one trains cursor busy (the sender's read): the read starts on the first tick it is free. */
+		bool bTrainsBeginPending = false;
 		/** Bounded: one key ("busy"). */
 		FRateLimitedLog FactoryLog{ 60.0 };
 		/** Bounded: two keys ("busy", "held"), each at most once per 60 s. */

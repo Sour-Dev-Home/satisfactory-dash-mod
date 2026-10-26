@@ -2,6 +2,7 @@
 
 #include "SatisDash/FrmRails.h"
 #include "SatisDash/FrmResourceNodes.h"
+#include "SatisDash/Log.h"
 
 namespace
 {
@@ -18,7 +19,11 @@ namespace
 		{
 			return MakeUnique<SatisDash::FRailsParse>(MoveTemp(Body), ObservedAt);
 		}
-		return MakeUnique<SatisDash::FResourceNodesParse>(MoveTemp(Body), ObservedAt);
+		if (Layer == SatisDash::EWorldLayer::ResourceNodes)
+		{
+			return MakeUnique<SatisDash::FResourceNodesParse>(MoveTemp(Body), ObservedAt);
+		}
+		return nullptr; // trainRoutes is native-only: it has no FRM body to parse
 	}
 }
 
@@ -90,6 +95,14 @@ bool SatisDash::FWorldRead::Step()
 			return true;
 		}
 		Owned = FrmWorldMakeParse(Layer, MoveTemp(Body), ObservedAt);
+		if (!Owned.IsValid())
+		{
+			// Not reachable (RequestWorld refuses a layer with no endpoint): an FRM body for a native-only layer is invalid, never parsed as nodes.
+			UE_LOG(LogSatisDash, Warning, TEXT("World layer %s has no FRM body format; skipped"), WorldLayer(Layer).Name);
+			Outcome.Kind = FWorldOutcome::EKind::Invalid;
+			Stage = EStage::Done;
+			return true;
+		}
 		Stage = EStage::Parsing;
 		return false;
 	}

@@ -32,6 +32,7 @@ namespace SatisDash
 		virtual TOptional<FTrainsSnapshot> StepTrainsRead(FStepBudget& Budget) override;
 		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandoned; }
 		virtual void EndTrainsRead() override { ResetTrainsRead(); }
+		virtual bool IsTrainsReadOpen() const override { return bTrainsOpen; }
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) override;
 
 	private:

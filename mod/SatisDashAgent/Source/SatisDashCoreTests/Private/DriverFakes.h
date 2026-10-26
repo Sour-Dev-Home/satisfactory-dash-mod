@@ -195,6 +195,7 @@ namespace SatisDash::Test
 		}
 		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandon; }
 		virtual void EndTrainsRead() override { ++TrainsEnds; bTrainsOpen = false; }
+		virtual bool IsTrainsReadOpen() const override { return bTrainsOpen; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);

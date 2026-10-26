@@ -130,6 +130,10 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 				{
 					return; // an idle server (no game) has no world to scan: nothing starts and nothing is logged; it starts once a game runs
 				}
+				if (Layer == EWorldLayer::TrainRoutes && Context.NativeReaders->IsTrainsReadOpen())
+				{
+					return; // the driver's mapLive read holds the one cursor (a few ticks): look again next tick, not a failed scan
+				}
 				const bool bBegun = Layer == EWorldLayer::TrainRoutes
 					? Context.TrainsBudget != nullptr && Context.NativeReaders->BeginTrainsRead()
 					: Context.NativeReaders->BeginResourceNodeScan();
