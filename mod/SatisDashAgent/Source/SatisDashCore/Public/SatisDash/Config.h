@@ -17,6 +17,8 @@ namespace SatisDash
 	/** What a host gets with no key set. The switch PR for a reader flips its constant here and changes nothing else. */
 	inline constexpr ESource DefaultPlayersSource = ESource::Native;
 	inline constexpr ESource DefaultResourceNodesSource = ESource::Native;
+	inline constexpr ESource DefaultFactorySource = ESource::Bridge;
+	inline constexpr ESource DefaultTrainsSource = ESource::Bridge;
 
 	struct FAgentConfig
 	{
@@ -35,17 +37,22 @@ namespace SatisDash
 		 */
 		TOptional<ESource> PlayersSource;
 		TOptional<ESource> ResourceNodesSource;
+		/** The same override for the factory and trains parts: the keys "factorySource" and "trainsSource". */
+		TOptional<ESource> FactorySource;
+		TOptional<ESource> TrainsSource;
 
 		int32 GetFrmPort() const { return FrmPort.Get(DefaultFrmPort); }
 		ESource GetPlayersSource() const { return PlayersSource.Get(DefaultPlayersSource); }
 		ESource GetResourceNodesSource() const { return ResourceNodesSource.Get(DefaultResourceNodesSource); }
+		ESource GetFactorySource() const { return FactorySource.Get(DefaultFactorySource); }
+		ESource GetTrainsSource() const { return TrainsSource.Get(DefaultTrainsSource); }
 	};
 
 	enum class EConfigStatus : uint8
 	{
 		/** There was no file; one was written with the default URL and no code. Config holds those defaults. */
 		Missing,
-		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource" or "resourceNodesSource". */
+		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource" or "trainsSource". */
 		Broken,
 		Valid,
 	};

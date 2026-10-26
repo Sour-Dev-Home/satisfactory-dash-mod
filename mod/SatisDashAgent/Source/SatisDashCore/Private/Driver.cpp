@@ -13,6 +13,9 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, Pusher{Clock.Random01}
 	, Bridge{InTransport, InWorker}
 	, WorldLayers{InTransport, Bridge, Clock.Random01}
+	, FactoryBudget{[this] { return Clock.Now(); }}
+	, TrainsBudget{[this] { return Clock.Now(); }}
+	, RoutesBudget{[this] { return Clock.Now(); }}
 {
 }
 
@@ -46,6 +49,11 @@ void SatisDash::FDriver::Tick()
 		StopCommands();
 		Bridge.Stop();
 		WorldLayers.Stop();
+		bFactoryReadOpen = false; // an open game read is dropped: its readings are never submitted
+		Game.EndFactoryRead();
+		bTrainsReadOpen = false; // the same for the trains read (the sender's own is dropped by its Stop)
+		bTrainsBeginPending = false;
+		Game.EndTrainsRead();
 	}
 	if (!bRunning && bNowRunning)
 	{
@@ -59,9 +67,11 @@ void SatisDash::FDriver::Tick()
 		bGameRunning = false;
 		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
 		const FAgentConfig& Sources = Agent.GetConfig();
-		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s"),
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s"),
 			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
+			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetFactorySource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetTrainsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -83,7 +93,7 @@ void SatisDash::FDriver::Tick()
 	// World layers (spec "Timing"): posted one at a time, and only while no snapshot is queued, in flight or being encoded.
 	if (const FCredential* Credential = Agent.GetCredential())
 	{
-		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning });
+		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning, &RoutesBudget });
 	}
 	if (WorldLayers.TakeAuthRejected())
 	{
@@ -91,6 +101,8 @@ void SatisDash::FDriver::Tick()
 		Agent.OnAuthRejected(); // a 401 on any authenticated call while Running halts the agent (Agent.h)
 		return;
 	}
+	TickFactoryRead(Now);
+	TickTrainsRead(Now);
 	TickSample(Now);
 	TickPush(Now);
 	TickCommands(Now);
@@ -101,6 +113,93 @@ void SatisDash::FDriver::NoteFailedPart(const TCHAR* Part, double Now)
 	if (PartLog.ShouldLog(Part, Now))
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Couldn't read %s from the game; leaving it out of the snapshot"), Part);
+	}
+}
+
+void SatisDash::FDriver::TickFactoryRead(double Now)
+{
+	if (!bFactoryReadOpen)
+	{
+		return;
+	}
+	const FAgentConfig& Config = Agent.GetConfig();
+	if (Config.GetFactorySource() != ESource::Native)
+	{
+		bFactoryReadOpen = false; // the source changed under a read: drop it
+		Game.EndFactoryRead();
+		return;
+	}
+	// The game thread's whole part: one budgeted slice of the buildables. Sorting and the JSON text are built on the worker.
+	TOptional<TArray<FFactoryReading>> Found = Game.StepFactoryRead(FactoryBudget);
+	if (!Found.IsSet())
+	{
+		return;
+	}
+	bFactoryReadOpen = false;
+	if (Game.FactoryReadAbandoned())
+	{
+		// No subsystem or a world swapped mid-read: the part is left out of the snapshot (one warning per 600 s) and FRM is never
+		// asked. A finished read with no machines is not this: it is an empty factory and is sent as {"buildings":[]}.
+		NoteFailedPart(TEXT("factory"), Now);
+		return;
+	}
+	if (!Bridge.SubmitNativeFactory(MoveTemp(Found.GetValue()), Now) && FactoryLog.ShouldLog(TEXT("held"), Now))
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Factory read finished while the last one is still being built: it is dropped"));
+	}
+}
+
+void SatisDash::FDriver::TickTrainsRead(double Now)
+{
+	const FAgentConfig& Config = Agent.GetConfig();
+	if (bTrainsBeginPending)
+	{
+		if (Config.GetTrainsSource() != ESource::Native)
+		{
+			bTrainsBeginPending = false;
+		}
+		else if (!Game.IsTrainsReadOpen())
+		{
+			bTrainsBeginPending = false;
+			TrainsBudget.Reset();
+			bTrainsReadOpen = Game.BeginTrainsRead();
+			if (!bTrainsReadOpen)
+			{
+				NoteFailedPart(TEXT("mapLive"), Now); // not busy any more, so a real failure: no world or subsystem
+			}
+		}
+		return;
+	}
+	if (!bTrainsReadOpen)
+	{
+		return;
+	}
+	if (Config.GetTrainsSource() != ESource::Native)
+	{
+		bTrainsReadOpen = false; // the source changed under a read: drop it
+		Game.EndTrainsRead();
+		return;
+	}
+	// The game thread's whole part: one budgeted slice of the trains and stations. Sorting and the JSON text are built on the worker.
+	TOptional<FTrainsSnapshot> Found = Game.StepTrainsRead(TrainsBudget);
+	if (!Found.IsSet())
+	{
+		return;
+	}
+	bTrainsReadOpen = false;
+	if (Game.TrainsReadAbandoned())
+	{
+		// No railroad subsystem or a world swapped mid-read: the part is left out of the snapshot (one warning per 600 s) and FRM is
+		// never asked. A finished read with no trains and no stations is not this: it is an empty railway, {"trains":[],"stations":[]}.
+		NoteFailedPart(TEXT("mapLive"), Now);
+		return;
+	}
+	// Counts and times only; never an id or a name (both are player-chosen text).
+	UE_LOG(LogSatisDash, Display, TEXT("Trains read (game thread only): %d trains, %d stations in %d steps, longest step %.2f ms, total %.2f ms"),
+		Found->Trains.Num(), Found->Stations.Num(), TrainsBudget.Steps(), TrainsBudget.LongestMs(), TrainsBudget.TotalMs());
+	if (!Bridge.SubmitNativeMapLive(MoveTemp(Found.GetValue()), Now) && TrainsLog.ShouldLog(TEXT("held"), Now))
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Trains read finished while the last one is still being built: it is dropped"));
 	}
 }
 
@@ -151,8 +250,57 @@ void SatisDash::FDriver::TickSample(double Now)
 		{
 			LastFactoryAt = Now;
 		}
+		if (bFactoryDue && Snapshot.Status->bIsGameRunning && Config.GetFactorySource() == ESource::Native)
+		{
+			if (bFactoryReadOpen)
+			{
+				// The last read has not finished: this cadence tick is skipped, not restarted. No names, counts or ids.
+				if (FactoryLog.ShouldLog(TEXT("busy"), Now))
+				{
+					UE_LOG(LogSatisDash, Display, TEXT("Factory read still running: this cadence tick is skipped"));
+				}
+			}
+			else
+			{
+				FactoryBudget.Reset();
+				bFactoryReadOpen = Game.BeginFactoryRead();
+				if (!bFactoryReadOpen)
+				{
+					NoteFailedPart(TEXT("factory"), Now); // no world or subsystem yet: the part is left out and FRM is not asked
+				}
+			}
+		}
+		if (bFactoryDue && Snapshot.Status->bIsGameRunning && Config.GetTrainsSource() == ESource::Native)
+		{
+			if (bTrainsBeginPending || (!bTrainsReadOpen && Game.IsTrainsReadOpen()))
+			{
+				// The sender's train-routes read holds the one cursor (a few ticks): this round starts on the first free tick. Not a failed read.
+				bTrainsBeginPending = true;
+				if (TrainsLog.ShouldLog(TEXT("wait"), Now))
+				{
+					UE_LOG(LogSatisDash, Display, TEXT("Trains read waits for the train-routes read to finish"));
+				}
+			}
+			else if (bTrainsReadOpen)
+			{
+				// The last read has not finished: this cadence tick is skipped, not restarted. No names, counts or ids.
+				if (TrainsLog.ShouldLog(TEXT("busy"), Now))
+				{
+					UE_LOG(LogSatisDash, Display, TEXT("Trains read still running: this cadence tick is skipped"));
+				}
+			}
+			else
+			{
+				TrainsBudget.Reset();
+				bTrainsReadOpen = Game.BeginTrainsRead();
+				if (!bTrainsReadOpen)
+				{
+					NoteFailedPart(TEXT("mapLive"), Now); // no world or subsystem yet (a busy cursor is handled above, not here): the part is left out and FRM is not asked
+				}
+			}
+		}
 		const bool bNativePlayers = Config.GetPlayersSource() == ESource::Native;
-		Bridge.RequestPass(bFactoryDue, !bNativePlayers);
+		Bridge.RequestPass(bFactoryDue, !bNativePlayers, Config.GetFactorySource() == ESource::Bridge, Config.GetTrainsSource() == ESource::Bridge);
 		if (bNativePlayers)
 		{
 			// R1 (ADR-0058): the game's own lists, small enough to serialise here. Read only while a game is running, as

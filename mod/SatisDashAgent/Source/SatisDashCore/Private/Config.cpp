@@ -233,6 +233,18 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 		Result.BadField = TEXT("resourceNodesSource");
 		return Result;
 	}
+	TOptional<ESource> FactorySource;
+	if (!ConfigReadSource(Object, TEXT("factorySource"), FactorySource))
+	{
+		Result.BadField = TEXT("factorySource");
+		return Result;
+	}
+	TOptional<ESource> TrainsSource;
+	if (!ConfigReadSource(Object, TEXT("trainsSource"), TrainsSource))
+	{
+		Result.BadField = TEXT("trainsSource");
+		return Result;
+	}
 	Result.Status = EConfigStatus::Valid;
 	Result.Config.BackendUrl = Url;
 	Result.Config.EnrollmentCode = Code;
@@ -240,6 +252,8 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 	Result.Config.FrmToken = FrmToken;
 	Result.Config.PlayersSource = PlayersSource;
 	Result.Config.ResourceNodesSource = ResourceNodesSource;
+	Result.Config.FactorySource = FactorySource;
+	Result.Config.TrainsSource = TrainsSource;
 	return Result;
 }
 
@@ -263,6 +277,14 @@ FString SatisDash::ConfigToJson(const FAgentConfig& Config)
 	if (Config.ResourceNodesSource.IsSet())
 	{
 		Object->SetStringField(TEXT("resourceNodesSource"), ConfigSourceName(Config.ResourceNodesSource.GetValue()));
+	}
+	if (Config.FactorySource.IsSet())
+	{
+		Object->SetStringField(TEXT("factorySource"), ConfigSourceName(Config.FactorySource.GetValue()));
+	}
+	if (Config.TrainsSource.IsSet())
+	{
+		Object->SetStringField(TEXT("trainsSource"), ConfigSourceName(Config.TrainsSource.GetValue()));
 	}
 	return SatisDash::Json::WritePretty(Object);
 }

@@ -30,8 +30,10 @@ namespace SatisDash
 		bool bSnapshotsIdle;
 		/** The native readers, when a layer's source is native. */
 		IGameReader* NativeReaders = nullptr;
-			/** A game is running (the last status pass said so): a native scan starts only then, as the native players are read. */
-			bool bGameRunning = true;
+		/** A game is running (the last status pass said so): a native scan starts only then, as the native players are read. */
+		bool bGameRunning = true;
+		/** R3: times the steps of the train-routes read (the sender resets it when a read begins). Null: that layer cannot read. */
+		FStepBudget* TrainsBudget = nullptr;
 	};
 
 	/**
@@ -84,6 +86,8 @@ namespace SatisDash
 		};
 
 		void TickLayer(EWorldLayer Layer, const FWorldContext& Context);
+		/** R3: one tick of the train-routes layer's native read (the game thread's part), then its hand-over to the worker. */
+		void StepTrainRoutesScan(const FWorldContext& Context);
 		void Settle(EWorldLayer Layer, FWorldOutcome Outcome, const FWorldContext& Context);
 		void Post(EWorldLayer Layer, const FWorldContext& Context);
 		void Finish(EWorldLayer Layer, uint32 SentIn, const FHttpReply& Reply);

@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, request, type Server } from "node:h
 import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
-import { startRecorder, type Recorder, type RecorderOptions } from "../src/recorder";
+import { publicEntries, startRecorder, type Recorder, type RecorderOptions } from "../src/recorder";
 import { sessionHash } from "../src/status";
 import { compareRound } from "../../runs/enrol/pass";
 
@@ -225,6 +225,28 @@ describe("recorder (ruling 11)", () => {
     await send(rec.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: JSON.stringify({ ...snapshot, factory: { buildings: [] } }) });
     expect(rec.entries[0]!.oversized).toBeUndefined();
     expect(rec.entries[0]!.snapshot).toMatchObject({ factory: { buildings: [] } });
+  });
+
+  it("keepSnapshotParts keeps the named parts of an accepted snapshot on `parts` (names hashed), and publicEntries never writes them out", async () => {
+    const up = await upstream(() => ({ status: 200, body: "{}" }));
+    const live = { trains: [{ id: "t1", name: "Loop Line", x: 1, y: 2, status: "Parked" }], stations: [{ id: "s1", name: "Depot", x: 3, y: 4 }] };
+    const body = JSON.stringify({ ...snapshot, factory: { buildings: [{ id: "b1" }] }, mapLive: live, players: { available: true, players: [] } });
+    const kept = await recorderFor(up.url, { keepSnapshotParts: ["factory", "mapLive"] });
+    await send(kept.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body });
+    await send(kept.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: JSON.stringify(snapshot) });
+    expect(kept.entries[0]!.parts).toEqual({
+      factory: { buildings: [{ id: "b1" }] },
+      mapLive: { trains: [{ ...live.trains[0], name: sessionHash("Loop Line") }], stations: [{ ...live.stations[0], name: sessionHash("Depot") }] },
+    });
+    expect(JSON.stringify(kept.entries[0]!.parts)).not.toContain("Loop Line");
+    expect(kept.entries[1]).not.toHaveProperty("parts"); // a snapshot without the parts keeps none
+    const text = JSON.stringify(publicEntries(kept.entries));
+    expect(text).not.toContain("buildings");
+    expect(text).not.toContain("Depot");
+    expect(text).not.toContain("parts");
+    const none = await recorderFor(up.url);
+    await send(none.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body });
+    expect(none.entries[0]).not.toHaveProperty("parts");
   });
 
   it("never records the Authorization value, the code or the secret", async () => {

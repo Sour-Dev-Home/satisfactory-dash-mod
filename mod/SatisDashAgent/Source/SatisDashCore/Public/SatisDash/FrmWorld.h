@@ -9,14 +9,15 @@
 
 namespace SatisDash
 {
-	/** The world layers sent so far (spec "What the Node agent sends"). Plan 3C adds Conveyors as a third row. */
-	enum class EWorldLayer : uint8 { Rails, ResourceNodes };
-	inline constexpr int32 WorldLayerCount = 2;
+	/** The world layers sent so far (spec "What the Node agent sends"). Plan 3C adds Conveyors as a fourth row. */
+	enum class EWorldLayer : uint8 { Rails, ResourceNodes, TrainRoutes };
+	inline constexpr int32 WorldLayerCount = 3;
 
 	struct FWorldLayerSpec
 	{
 		/** The layer in the URL (POST /agent/v1/world/<Name>) and in log lines. */
 		const TCHAR* Name;
+		/** The FRM read of the layer; null for a native-only layer (trainRoutes), which is never requested from FRM. */
 		const FFrmEndpoint* Endpoint;
 		/** After the agent starts Running: the first read (spec "Timing": rails 2 min, resource nodes 8 min), times a jitter of +/-10%. */
 		double FirstSeconds;
@@ -24,6 +25,9 @@ namespace SatisDash
 		double IntervalSeconds;
 	};
 	SATISDASHCORE_API const FWorldLayerSpec& WorldLayer(EWorldLayer Layer);
+
+	/** Builds a native layer's whole body from the observedAt text (BuildNativeResourceNodes, BuildNativeTrainRoutes). Runs on the worker. */
+	using FNativeWorldBuilder = TUniqueFunction<FNativeWorldBody(const FString&)>;
 
 	/** map.ts MAP_WORLD_LAYER_MAX_BYTES: the serialised { observedAt, data }, UTF-8, before gzip (worldReader.ts measures it so). */
 	inline constexpr int64 WorldLayerMaxBytes = 2000000;
@@ -65,6 +69,12 @@ namespace SatisDash
 		 * frees the readings. There is no raw body, so RawHash is the data hash and SameRaw does not occur.
 		 */
 		FWorldRead(EWorldLayer InLayer, TArray<FResourceNodeReading> InReadings, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes = WorldLayerMaxBytes);
+		/**
+		 * A native read of any layer: Builder makes the whole body from the observedAt text, on the worker, in the first Step
+		 * (the readings it captured are freed with it). The byte cap and the hashes are applied here, as for an FRM body: the
+		 * builders do not apply WorldLayerMaxBytes.
+		 */
+		FWorldRead(EWorldLayer InLayer, FNativeWorldBuilder InBuilder, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes = WorldLayerMaxBytes);
 		FWorldRead(const FWorldRead&) = delete;
 		FWorldRead& operator=(const FWorldRead&) = delete;
 
@@ -81,7 +91,7 @@ namespace SatisDash
 
 		EWorldLayer Layer;
 		TArray<uint8> Body;
-		TArray<FResourceNodeReading> Readings;
+		FNativeWorldBuilder Builder;
 		FString ObservedAt;
 		TOptional<FBlake3Hash> LastRaw;
 		TOptional<FBlake3Hash> LastData;

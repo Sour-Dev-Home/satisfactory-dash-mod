@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { NATIVE_SOURCES } from "../src/core-run";
+import { NATIVE_SOURCES, NATIVE_SOURCES_S2 } from "../src/core-run";
 import type { CoreEvidence } from "../src/core-run";
 import type { CanonNode } from "../src/frm-native";
 import * as Pass from "../../runs/native-parity/pass";
@@ -189,5 +189,12 @@ describe("native-parity judge", () => {
   it("keeps the harness's key names equal to the mod's", () => {
     const cpp = readFileSync(new URL("../../mod/SatisDashAgent/Source/SatisDashCore/Private/Config.cpp", import.meta.url), "utf8");
     for (const key of Object.keys(NATIVE_SOURCES)) expect(cpp).toContain(`TEXT("${key}")`);
+  });
+
+  it("writes four native keys for S2, leaves S1's two unchanged, and every key is one the mod reads", () => {
+    expect(NATIVE_SOURCES).toEqual({ playersSource: "native", resourceNodesSource: "native" });
+    expect(NATIVE_SOURCES_S2).toEqual({ playersSource: "native", resourceNodesSource: "native", factorySource: "native", trainsSource: "native" });
+    const cpp = readFileSync(new URL("../../mod/SatisDashAgent/Source/SatisDashCore/Private/Config.cpp", import.meta.url), "utf8");
+    for (const key of Object.keys(NATIVE_SOURCES_S2)) expect(cpp).toContain(`TEXT("${key}")`);
   });
 });

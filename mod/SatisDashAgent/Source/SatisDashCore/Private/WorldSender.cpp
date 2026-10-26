@@ -2,16 +2,28 @@
 
 #include "SatisDash/Log.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
+#include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
 #include "SatisDash/Pusher.h"
 #include "SatisDash/Requests.h"
 
 namespace
 {
-	/** R4: the resourceNodes layer comes from the game itself when the config says so and a reader is there. */
+	/**
+	 * A layer comes from the game itself when its source says so and a reader is there: resource nodes by resourceNodesSource (R4),
+	 * train routes by trainsSource (R3). Rails have no native reader.
+	 */
 	bool WorldSenderIsNative(SatisDash::EWorldLayer Layer, const SatisDash::FWorldContext& Context)
 	{
-		return Layer == SatisDash::EWorldLayer::ResourceNodes && Context.NativeReaders != nullptr && Context.Config != nullptr
-			&& Context.Config->GetResourceNodesSource() == SatisDash::ESource::Native;
+		if (Context.NativeReaders == nullptr || Context.Config == nullptr)
+		{
+			return false;
+		}
+		switch (Layer)
+		{
+		case SatisDash::EWorldLayer::ResourceNodes: return Context.Config->GetResourceNodesSource() == SatisDash::ESource::Native;
+		case SatisDash::EWorldLayer::TrainRoutes: return Context.Config->GetTrainsSource() == SatisDash::ESource::Native;
+		default: return false;
+		}
 	}
 }
 
@@ -108,19 +120,34 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 	case EPhase::Waiting:
 		if (Context.Now >= L.NextAt)
 		{
+			if (WorldLayer(Layer).Endpoint == nullptr && !WorldSenderIsNative(Layer, Context))
+			{
+				return; // a native-only layer whose source is the bridge is never scheduled: there is no FRM read to fall back to
+			}
 			if (WorldSenderIsNative(Layer, Context))
 			{
 				if (!Context.bGameRunning)
-					{
-						return; // an idle server (no game) has no world to scan: nothing starts and nothing is logged; it starts once a game runs
-					}
-					if (Context.NativeReaders->BeginResourceNodeScan())
 				{
+					return; // an idle server (no game) has no world to scan: nothing starts and nothing is logged; it starts once a game runs
+				}
+				if (Layer == EWorldLayer::TrainRoutes && Context.NativeReaders->IsTrainsReadOpen())
+				{
+					return; // the driver's mapLive read holds the one cursor (a few ticks): look again next tick, not a failed scan
+				}
+				const bool bBegun = Layer == EWorldLayer::TrainRoutes
+					? Context.TrainsBudget != nullptr && Context.NativeReaders->BeginTrainsRead()
+					: Context.NativeReaders->BeginResourceNodeScan();
+				if (bBegun)
+				{
+					if (Layer == EWorldLayer::TrainRoutes)
+					{
+						Context.TrainsBudget->Reset();
+					}
 					L.Phase = EPhase::Scanning;
 				}
 				else
 				{
-					L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet; FRM is not asked
+					L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet (or the reader is busy); FRM is not asked
 				}
 			}
 			else if (Bridge.RequestWorld(Layer, Context.Utc.ToIso8601(), L.RawHash, L.DataHash))
@@ -133,7 +160,16 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 	{
 		if (!WorldSenderIsNative(Layer, Context))
 		{
+			if (Layer == EWorldLayer::TrainRoutes && Context.NativeReaders != nullptr)
+			{
+				Context.NativeReaders->EndTrainsRead(); // frees what the reader buffered
+			}
 			ScheduleNext(Layer, Context.Now); // the source changed under a scan: drop it
+			return;
+		}
+		if (Layer == EWorldLayer::TrainRoutes)
+		{
+			StepTrainRoutesScan(Context);
 			return;
 		}
 		// The game thread's whole part: a slice of the actor scan. The sort and the JSON text are built on the worker.
@@ -180,6 +216,51 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 		return;
 	case EPhase::Posting:
 		return;
+	}
+}
+
+void SatisDash::FWorldSender::StepTrainRoutesScan(const FWorldContext& Context)
+{
+	constexpr EWorldLayer Layer = EWorldLayer::TrainRoutes;
+	FLayer& L = Layers[int32(Layer)];
+	if (Context.TrainsBudget == nullptr)
+	{
+		Context.NativeReaders->EndTrainsRead();
+		ScheduleNext(Layer, Context.Now);
+		return;
+	}
+	// The game thread's whole part: a budgeted slice of the trains and stations. The sort and the JSON text are built on the worker.
+	TOptional<FTrainsSnapshot> Found = Context.NativeReaders->StepTrainsRead(*Context.TrainsBudget);
+	if (!Found.IsSet())
+	{
+		return;
+	}
+	if (Context.NativeReaders->TrainsReadAbandoned())
+	{
+		// No railroad subsystem, or a world swapped mid-read: this is not an empty railway. Nothing is posted (the backend keeps its
+		// good copy), FRM is never asked, and the read is tried again soon. Counts only in the log.
+		if (!L.bScanLogged && ShouldLog(Layer, TEXT("scan"), Context.Now))
+		{
+			UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's train routes read was abandoned; nothing sent, will read again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
+		}
+		L.bScanLogged = true;
+		L.Phase = EPhase::Waiting;
+		L.NextAt = Context.Now + NodeScanRetrySeconds;
+		return;
+	}
+	L.bScanLogged = false;
+	// A finished read with no trains and no stations is a real, empty railway: an empty layer is posted (the contract accepts it).
+	// Counts and times only; never an id or a name.
+	UE_LOG(LogSatisDash, Display, TEXT("Train routes read (game thread only): %d stations, %d trains in %d steps, longest step %.2f ms, total %.2f ms"),
+		Found->Stations.Num(), Found->Trains.Num(), Context.TrainsBudget->Steps(), Context.TrainsBudget->LongestMs(), Context.TrainsBudget->TotalMs());
+	if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
+		FNativeWorldBuilder([Snapshot = MoveTemp(Found.GetValue())](const FString& Observed) { return BuildNativeTrainRoutes(Observed, Snapshot.Stations, Snapshot.Trains); }), L.DataHash))
+	{
+		L.Phase = EPhase::Reading;
+	}
+	else
+	{
+		ScheduleNext(Layer, Context.Now);
 	}
 }
 

@@ -208,6 +208,26 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("the other key is named too"), ParseConfig(Base + TEXT(",\"resourceNodesSource\":\"x\"}")).BadField, FString(TEXT("resourceNodesSource")));
 
+	// The factory and trains keys: default bridge, the same strict parse, and they name themselves.
+	TestTrue(TEXT("no key: factory default is bridge"), None.Config.GetFactorySource() == ESource::Bridge && DefaultFactorySource == ESource::Bridge);
+	TestTrue(TEXT("no key: trains default is bridge"), None.Config.GetTrainsSource() == ESource::Bridge && DefaultTrainsSource == ESource::Bridge);
+	TestFalse(TEXT("no key: factory and trains unset"), None.Config.FactorySource.IsSet() || None.Config.TrainsSource.IsSet());
+	const FConfigResult Parts = ParseConfig(Base + TEXT(",\"factorySource\":\"native\",\"trainsSource\":\"native\"}"));
+	TestTrue(TEXT("part keys: valid"), Parts.Status == EConfigStatus::Valid);
+	TestTrue(TEXT("factory native"), Parts.Config.GetFactorySource() == ESource::Native);
+	TestTrue(TEXT("trains native"), Parts.Config.GetTrainsSource() == ESource::Native);
+	for (const TCHAR* Key : { TEXT("factorySource"), TEXT("trainsSource") })
+	{
+		for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
+		{
+			const FConfigResult R = ParseConfig(Base + TEXT(",\"") + Key + TEXT("\":") + Bad + TEXT("}"));
+			TestTrue(*FString::Printf(TEXT("%s %s is refused"), Key, Bad), R.Status == EConfigStatus::Broken);
+			TestEqual(*FString::Printf(TEXT("%s %s names the key"), Key, Bad), R.BadField, FString(Key));
+		}
+	}
+	const FString PartsJson = ConfigToJson(Parts.Config);
+	TestTrue(TEXT("round trip keeps the part keys"), PartsJson.Contains(TEXT("\"factorySource\": \"native\"")) && PartsJson.Contains(TEXT("\"trainsSource\": \"native\"")));
+
 	// Written back only when set, and kept when the code is blanked after enrolment.
 	const FString Json = ConfigToJson(Native.Config);
 	TestTrue(TEXT("round trip keeps the keys"), Json.Contains(TEXT("\"playersSource\": \"native\"")) && Json.Contains(TEXT("\"resourceNodesSource\": \"bridge\"")));

@@ -6,7 +6,7 @@
 // since the owner's decision of 2026-10-26 the longest step of every sliced native read is judged against 2 ms.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { TICK_WARMUP_MS } from "../../harness/src/ticks";
-import { MAX_NATIVE_STEP_MS, describeScanCost, nodesLogProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
+import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import * as Base from "../tick-cost/pass";
 
@@ -25,10 +25,33 @@ function requiredStepReaders(sources: S2Sources | undefined): string[] {
   return out;
 }
 
+/** A UE log line's UTC time, `[YYYY.MM.DD-HH.MM.SS:mmm]` (the harness's own tests also write the time with colons), or NaN. */
+const LOG_TIME = /^\[(\d{4})\.(\d{2})\.(\d{2})-(\d{2})[.:](\d{2})[.:](\d{2})[:.](\d{3})\]/;
+function logTimeMs(line: string): number {
+  const m = LOG_TIME.exec(line);
+  return m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!, +m[7]!) : NaN;
+}
+
+/** The S2 readers (from the config) whose step line is not inside the measured window. A line with no readable time does not count. */
+function windowProblems(lines: readonly string[], required: readonly string[], from: number, to: number): string[] {
+  return required
+    .filter((r) => r !== "Resource node scan") // the scan's window is judged from the recorder's accepted post
+    .filter((r) => !lines.some((l) => l.includes(`${r} (game thread only): `) && logTimeMs(l) >= from && logTimeMs(l) <= to))
+    .map((r) => `the mod's log has no "${r} (game thread only):" line inside the measured window: the reader did not run while the ticks were measured`);
+}
+
 export function evaluate(e: CoreEvidence): Verdict {
   const base = Base.evaluate(e);
   const extra: string[] = [];
-  const sources = e.captures["mod-config.json"] as { playersSource?: string; resourceNodesSource?: string } | undefined;
+  const sources = e.captures["mod-config.json"] as S2Sources | undefined;
+  // S2 (Task 11): when the config carries the S2 keys (the run writes NATIVE_SOURCES_S2), both must be native, and the mod's own
+  // log must say so too. S1-shaped evidence has neither key and is judged as before.
+  const s2Shaped = sources?.factorySource !== undefined || sources?.trainsSource !== undefined;
+  if (s2Shaped) {
+    if (sources?.factorySource !== "native") extra.push(`the run did not write factorySource as native into the mod's config (it says ${String(sources?.factorySource)})`);
+    if (sources?.trainsSource !== "native") extra.push(`the run did not write trainsSource as native into the mod's config (it says ${String(sources?.trainsSource)})`);
+    extra.push(...factoryLogProblems(e.lines), ...trainsLogProblems(e.lines));
+  }
   if (sources?.playersSource !== "native" || sources?.resourceNodesSource !== "native") extra.push("the run did not write playersSource and resourceNodesSource as native into the mod's config");
   const parts = e.captures["snapshot-parts.json"] as Parts | undefined;
   const from = parts?.measured ? Date.parse(parts.measured.from) + TICK_WARMUP_MS : NaN;
@@ -48,7 +71,9 @@ export function evaluate(e: CoreEvidence): Verdict {
   // The 2 ms step ceiling (owner, 2026-10-26): a new condition, not a change to the limits above. It covers the sliced native
   // reads only (node scan, factory, trains, train routes); one-shot reads (status, auto-pause, players, power's circuit-id probe)
   // are S0/S1 code outside this rule.
-  extra.push(...stepProblems(e.lines, requiredStepReaders(sources)));
+  const required = requiredStepReaders(sources);
+  extra.push(...stepProblems(e.lines, required));
+  if (s2Shaped) extra.push(...windowProblems(e.lines, required, from, to));
   if (extra.length === 0 && base.pass) {
     const steps = stepCosts(e.lines).map((c) => `${c.reader} longest step ${c.longestStepMs} ms`).join("; ");
     return { pass: true, reasons: [...base.reasons, `native readers live in the window: ${withPlayers} snapshots with players, ${nodePosts.length} resourceNodes post(s)`, describeScanCost(scans), `step ceiling ${MAX_NATIVE_STEP_MS} ms held (sliced native reads only): ${steps}`] };

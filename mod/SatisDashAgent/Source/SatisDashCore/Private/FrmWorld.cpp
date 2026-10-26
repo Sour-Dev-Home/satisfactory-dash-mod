@@ -2,12 +2,17 @@
 
 #include "SatisDash/FrmRails.h"
 #include "SatisDash/FrmResourceNodes.h"
+#include "SatisDash/Log.h"
 
 namespace
 {
 	constexpr SatisDash::FWorldLayerSpec FrmWorldLayers[] = {
 		{ TEXT("rails"), &SatisDash::FrmGetTrainRails, 120.0, 600.0 },
 		{ TEXT("resourceNodes"), &SatisDash::FrmGetResourceNode, 480.0, 1800.0 },
+		// R3: native-only (no FRM endpoint, never requested from FRM): first read 8 minutes after Running, then every 10 minutes (ADR 0055). The first-read
+		// rule is the resource-node layer's (8 minutes, jittered +/-10% by WorldJitterFraction in JitteredSeconds), so the first post
+		// falls inside tick-cost-native's measured span (warmup 3 minutes, window to about 13) and in native-parity's 30-minute window.
+		{ TEXT("trainRoutes"), nullptr, 480.0, 600.0 },
 	};
 
 	TUniquePtr<SatisDash::FFrmArrayParse> FrmWorldMakeParse(SatisDash::EWorldLayer Layer, TArray<uint8> Body, const FString& ObservedAt)
@@ -16,7 +21,11 @@ namespace
 		{
 			return MakeUnique<SatisDash::FRailsParse>(MoveTemp(Body), ObservedAt);
 		}
-		return MakeUnique<SatisDash::FResourceNodesParse>(MoveTemp(Body), ObservedAt);
+		if (Layer == SatisDash::EWorldLayer::ResourceNodes)
+		{
+			return MakeUnique<SatisDash::FResourceNodesParse>(MoveTemp(Body), ObservedAt);
+		}
+		return nullptr; // trainRoutes is native-only: it has no FRM body to parse
 	}
 }
 
@@ -35,9 +44,16 @@ SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, TArray<uint8> InBody, FSt
 {
 }
 
+// R4's constructor is a thin wrapper: the readings ride in the builder and are freed with it after the first Step.
 SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, TArray<FResourceNodeReading> InReadings, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes)
+	: FWorldRead{InLayer, FNativeWorldBuilder([Readings = MoveTemp(InReadings)](const FString& Observed) { return BuildNativeResourceNodes(Observed, Readings); }),
+		MoveTemp(InObservedAt), InLastData, InMaxBodyBytes}
+{
+}
+
+SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, FNativeWorldBuilder InBuilder, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes)
 	: Layer{InLayer}
-	, Readings{MoveTemp(InReadings)}
+	, Builder{MoveTemp(InBuilder)}
 	, ObservedAt{MoveTemp(InObservedAt)}
 	, LastData{InLastData}
 	, MaxBodyBytes{InMaxBodyBytes}
@@ -52,8 +68,8 @@ bool SatisDash::FWorldRead::Step()
 	case EStage::Native:
 	{
 		// On the worker: the sort and the JSON text happen here, never on the game thread. The readings are freed first.
-		const FNativeWorldBody Built = BuildNativeResourceNodes(ObservedAt, Readings);
-		Readings.Empty();
+		const FNativeWorldBody Built = Invoke(Builder, ObservedAt);
+		Builder = FNativeWorldBuilder(); // frees the readings the builder captured
 		Settle(Built.Json, Built.DataFrom, Built.DataEnd, Built.Items, Built.Dropped, Built.Over, Built.Bytes);
 		Outcome.RawHash = Outcome.DataHash;
 		Stage = EStage::Done;
@@ -81,6 +97,14 @@ bool SatisDash::FWorldRead::Step()
 			return true;
 		}
 		Owned = FrmWorldMakeParse(Layer, MoveTemp(Body), ObservedAt);
+		if (!Owned.IsValid())
+		{
+			// Not reachable (RequestWorld refuses a layer with no endpoint): an FRM body for a native-only layer is invalid, never parsed as nodes.
+			UE_LOG(LogSatisDash, Warning, TEXT("World layer %s has no FRM body format; skipped"), WorldLayer(Layer).Name);
+			Outcome.Kind = FWorldOutcome::EKind::Invalid;
+			Stage = EStage::Done;
+			return true;
+		}
 		Stage = EStage::Parsing;
 		return false;
 	}

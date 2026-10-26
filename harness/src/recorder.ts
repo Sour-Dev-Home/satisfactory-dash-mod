@@ -30,7 +30,10 @@ export interface RecordedCall {
   world?: { layer: string; items: number; bytes: number };
   /** The posted `data` array, kept only for the layers RecorderOptions.keepWorldData names (never for snapshots). */
   worldData?: unknown[];
+  /** The parts of an accepted snapshot RecorderOptions.keepSnapshotParts names, with mapLive names already hashed. In memory only: publicEntries leaves them out. */
+  parts?: Partial<Record<SnapshotPart, unknown>>;
 }
+export type SnapshotPart = "factory" | "mapLive";
 export interface Recorder { url: string; entries: RecordedCall[]; close(): Promise<void> }
 
 const MAX_RECORDED = 2 * 1024 * 1024;
@@ -119,6 +122,17 @@ export interface RecorderOptions {
   trimOversizedFor?: ReadonlyArray<RecordedCall["agent"]>;
   /** World layers whose posted `data` array is kept in `worldData` (a layer so named must not carry personal data: resourceNodes carries resource names). */
   keepWorldData?: readonly string[];
+  /**
+   * S2: the parts of each accepted snapshot (within the 2 MB recording cap) that the native-parity judge compares, kept on
+   * `RecordedCall.parts` so the run does not dig them out of `snapshot` again. A snapshot over the cap is still `unrecorded` and
+   * fails the run: the cap is deliberately not raised (a 340-machine factory part is a few hundred KB, see the recorder test).
+   */
+  keepSnapshotParts?: readonly SnapshotPart[];
+}
+
+/** The entries as recorder.json carries them: never the snapshot, the kept world data or the kept parts (all in memory only). */
+export function publicEntries(entries: readonly RecordedCall[]): Array<Omit<RecordedCall, "snapshot" | "worldData" | "parts">> {
+  return entries.map(({ snapshot: _s, worldData: _w, parts: _p, ...rest }) => rest);
 }
 
 /** Starts the recorder on 127.0.0.1 in front of upstream (the relay's URL). */
@@ -126,6 +140,7 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
   const target = new URL(upstream);
   const trimFor = new Set(opts.trimOversizedFor ?? []);
   const keepWorld = new Set(opts.keepWorldData ?? []);
+  const keepParts = [...(opts.keepSnapshotParts ?? [])];
   const entries: RecordedCall[] = [];
 
   const handle = (req: IncomingMessage, res: ServerResponse) => {
@@ -162,6 +177,14 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
             }
           } else if (s !== undefined) {
             entry.snapshot = hashSession(hashPlayers(hashMapLive(s.value)));
+            if (keepParts.length > 0 && entry.agent === "mod" && entry.snapshot !== null && typeof entry.snapshot === "object") {
+              const kept: Partial<Record<SnapshotPart, unknown>> = {};
+              for (const part of keepParts) {
+                const value = (entry.snapshot as Record<string, unknown>)[part];
+                if (value !== undefined) kept[part] = value;
+              }
+              if (Object.keys(kept).length > 0) entry.parts = kept;
+            }
           }
         } else if (method === "GET" && path === COMMANDS) {
           const ids = commandIds(got.json(upRes?.headers ?? {}));

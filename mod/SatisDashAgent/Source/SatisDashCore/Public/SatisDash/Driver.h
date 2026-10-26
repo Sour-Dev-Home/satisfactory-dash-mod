@@ -7,6 +7,7 @@
 #include "SatisDash/Ports.h"
 #include "SatisDash/Pusher.h"
 #include "SatisDash/RateLimit.h"
+#include "SatisDash/StepBudget.h"
 #include "SatisDash/WorldSender.h"
 
 namespace SatisDash
@@ -58,6 +59,10 @@ namespace SatisDash
 		void TickSample(double Now);
 		void TickPush(double Now);
 		void NoteFailedPart(const TCHAR* Part, double Now);
+		/** R2a: steps an open native factory read once, every tick, and hands a finished one to the bridge. */
+		void TickFactoryRead(double Now);
+		/** R3: the same for the trains read behind the mapLive part. */
+		void TickTrainsRead(double Now);
 		/** commandRunner.ts: poll, run each command, report its result, one thing at a time (DriverCommands.cpp). */
 		void TickCommands(double Now);
 		void StopCommands();
@@ -74,6 +79,21 @@ namespace SatisDash
 		FWorldSender WorldLayers;
 		/** Bounded: one key per snapshot part (status, auto-pause, power, players), each logged at most once per 600 s. */
 		FRateLimitedLog PartLog;
+		/** Times each step of the native factory read (the game's reader logs its counters). */
+		FStepBudget FactoryBudget;
+		/** A native factory read is open: StepFactoryRead is called every tick until it returns. */
+		bool bFactoryReadOpen = false;
+		/** Times each step of the native trains read for the mapLive part, and of the sender's train-routes read (separate runs, separate totals). */
+		FStepBudget TrainsBudget;
+		FStepBudget RoutesBudget;
+		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */
+		bool bTrainsReadOpen = false;
+		/** A factory-cadence tick found the reader's one trains cursor busy (the sender's read): the read starts on the first tick it is free. */
+		bool bTrainsBeginPending = false;
+		/** Bounded: one key ("busy"). */
+		FRateLimitedLog FactoryLog{ 60.0 };
+		/** Bounded: three keys ("busy", "held", "wait"), each at most once per 60 s. */
+		FRateLimitedLog TrainsLog{ 60.0 };
 		double NextConfigAt = 0;
 		double NextStatusAt = 0;
 		TOptional<double> LastPowerAt;

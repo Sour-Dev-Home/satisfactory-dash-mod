@@ -10,15 +10,11 @@ namespace SatisDash
 	void FStepBudget::Begin()
 	{
 		StepStart = TimeSource.Read();
-		LastSample = StepStart;
-		Sampled = false;
 	}
 
 	bool FStepBudget::Spent() const
 	{
-		LastSample = TimeSource.Read();
-		Sampled = true;
-		return LastSample - StepStart >= BudgetSeconds;
+		return TimeSource.Read() - StepStart >= BudgetSeconds;
 	}
 
 	void FStepBudget::End()
@@ -29,14 +25,11 @@ namespace SatisDash
 		++StepCount;
 		Total += Took;
 		Longest = FMath::Max(Longest, Took);
-		Sampled = false;
 	}
 
 	void FStepBudget::Reset()
 	{
 		StepStart = 0.0;
-		LastSample = 0.0;
-		Sampled = false;
 		StepCount = 0;
 		Longest = 0.0;
 		Total = 0.0;

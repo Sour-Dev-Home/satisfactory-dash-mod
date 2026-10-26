@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
 import * as Pass from "../../../runs/native-parity/pass";
 import { FRM_BRACKET_GAP_MS } from "../../../runs/enrol/pass";
-import { NATIVE_SOURCES, type CoreContext, type CoreRunSpec } from "../core-run";
+import { NATIVE_SOURCES_S2, type CoreContext, type CoreRunSpec } from "../core-run";
+import { AgentFactorySchema } from "../../contract/src/agent";
+import { MapLiveSchema, TrainRoutesLayerDataSchema } from "../../contract/src/map";
 import { type FrmRead, parseGetPowerFull, pickBracket, startFrmPoller } from "../frm";
 import { canonNodes, countMergedGroups, mapFrmResourceNodes, playerKeys, startSampler, type CanonNode } from "../frm-native";
-import { startRecorder, type RecordedCall } from "../recorder";
+import {
+  countSomersloops, createFactoryEncoder, FactoryTable, hashRoutes, mapFrmFactory, readFrmRoutes, readFrmStations, readFrmTrains, type CanonMachine,
+  type FactorySampleRows, type RouteRecord,
+} from "../frm-s2";
+import { publicEntries, startRecorder, type RecordedCall } from "../recorder";
 import { accepted, enrolPhase } from "./enrol";
 
 const MIN = 60_000;
@@ -12,6 +18,12 @@ const SECOND = 1000;
 const POWER_POLL_MS = 250; // the enrol run's pause between getPower reads
 const PLAYERS_POLL_MS = 2 * SECOND;
 const NODES_POLL_MS = MIN;
+// S2's FRM samplers (the owner's brief for Task 10): getFactory every 5 s, getTrains every 2 s, getTrainStation every 30 s, and the
+// getTrainStation+getTrains pair for the routes layer every minute and at once after each mod routes post.
+const FACTORY_POLL_MS = 5 * SECOND;
+const TRAINS_POLL_MS = 2 * SECOND;
+const STATIONS_POLL_MS = 30 * SECOND;
+const ROUTES_POLL_MS = MIN;
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -71,6 +83,41 @@ export function createRoundCollector(opts: { reads: () => FrmRead[]; now: () => 
   };
 }
 
+/**
+ * The judge's S2 rounds from the mod's accepted snapshots (their `parts`, which the recorder kept with mapLive names hashed): one
+ * factory round per snapshot that carried a factory part and one mapLive round per snapshot that carried a mapLive part. A part that
+ * does not parse against the pinned contract is a round with null rows, which the judge reports. Names of trains and stations are
+ * hashes already; the factory's machine names are building display names, not player text.
+ */
+export function s2RoundsFrom(entries: readonly RecordedCall[], table: FactoryTable): { factory: Pass.FactoryRound[]; mapLive: Pass.LiveRound[] } {
+  const factory: Pass.FactoryRound[] = [];
+  const mapLive: Pass.LiveRound[] = [];
+  for (const e of entries) {
+    const observedAt = (e.snapshot as Snap | undefined)?.observedAt;
+    if (!observedAt || !e.parts) continue;
+    if (e.parts.factory !== undefined) {
+      const parsed = AgentFactorySchema.safeParse(e.parts.factory);
+      factory.push({ observedAt, rows: parsed.success ? parsed.data.buildings.map((b) => table.row(b as CanonMachine)) : null });
+    }
+    if (e.parts.mapLive !== undefined) {
+      const parsed = MapLiveSchema.safeParse(e.parts.mapLive);
+      mapLive.push({ observedAt, trains: parsed.success ? parsed.data.trains : null, stations: parsed.success ? parsed.data.stations : null });
+    }
+  }
+  return { factory, mapLive };
+}
+
+/** The trainRoutes layers the mod posted, with names hashed before they enter evidence (the recorder keeps the raw data in memory only). */
+export function routePosts(entries: readonly RecordedCall[], from: number): Pass.NodePost[] {
+  return entries
+    .filter((e) => e.agent === "mod" && e.world?.layer === "trainRoutes" && e.status === 200 && Date.parse(e.at) >= from)
+    .map((e) => {
+      // A layer that is not valid is kept as a marker only (its names could not be hashed field by field); the judge fails it as invalid.
+      const parsed = TrainRoutesLayerDataSchema.safeParse(e.worldData);
+      return { at: e.at, status: e.status, data: parsed.success ? hashRoutes(parsed.data as RouteRecord[]) : "not a valid trainRoutes layer (not recorded)" };
+    });
+}
+
 /** FRM reads made since the window began: a read that failed while the world was still coming up never reaches a judge. */
 export const sinceWindow = (now: { reads: number; failed: number }, atStart: { reads: number; failed: number }): Pass.FrmCounts => ({
   reads: now.reads - atStart.reads,
@@ -90,7 +137,7 @@ export const nativeParity: CoreRunSpec = {
   backend: true,
   world: true,
   worldKey: "s2",
-  modConfig: NATIVE_SOURCES,
+  modConfig: NATIVE_SOURCES_S2,
   evaluate: Pass.evaluate,
   preflight(deps) {
     if (!deps.config.frmBaseUrl) throw new Error("native-parity needs frmBaseUrl in the runner config: FRM is the oracle (docs/runner.md)");
@@ -103,7 +150,7 @@ export const nativeParity: CoreRunSpec = {
       return r.json();
     };
     const host = await ctx.deps.backendHost!();
-    const recorder = await startRecorder(host.relayUrl, { keepWorldData: ["resourceNodes"] });
+    const recorder = await startRecorder(host.relayUrl, { keepWorldData: ["resourceNodes", "trainRoutes"], keepSnapshotParts: ["factory", "mapLive"] });
     const capture: Pass.NativeParity = {
       windowStartedAt: null, windowEndedAt: null, accepted: 0, unrecorded: 0, refused: [], state: null,
       power: { rounds: [], frm: { reads: 0, failed: 0 }, mergedGroupsMax: null },
@@ -116,6 +163,16 @@ export const nativeParity: CoreRunSpec = {
     let nodes: ReturnType<typeof startSampler<{ hash: string; mapped: CanonNode[] }>> | null = null;
     let rounds: ReturnType<typeof createRoundCollector> | null = null;
     let atStart = { power: { reads: 0, failed: 0 }, players: { reads: 0, failed: 0 }, nodes: { reads: 0, failed: 0 } };
+    // S2: the factory samples are kept as the rows that changed (frm-s2.ts), the routes samples as a hash of the canonical layer.
+    const table = new FactoryTable();
+    const encoder = createFactoryEncoder(table);
+    let sloops = 0;
+    let factory: ReturnType<typeof startSampler<FactorySampleRows>> | null = null;
+    let trains: ReturnType<typeof startSampler<ReturnType<typeof readFrmTrains>>> | null = null;
+    let stations: ReturnType<typeof startSampler<ReturnType<typeof readFrmStations>>> | null = null;
+    let routes: ReturnType<typeof startSampler<ReturnType<typeof readFrmRoutes>>> | null = null;
+    let s2Start = { factory: { reads: 0, failed: 0 }, trains: { reads: 0, failed: 0 }, stations: { reads: 0, failed: 0 }, routes: { reads: 0, failed: 0 } };
+    let s2From = 0;
     try {
       await ctx.deps.loadWorld!("s2");
       await ctx.deps.waitHealthy();
@@ -140,6 +197,19 @@ export const nativeParity: CoreRunSpec = {
         },
         { intervalMs: NODES_POLL_MS, now: Date.now, sleep: realSleep },
       );
+      // S2's oracle: FRM's own getFactory, getTrains and getTrainStation (and the pair for the routes layer), read as a black box from
+      // before the mod enrols, so a mod part from the first minute of the window has FRM reads before it too.
+      factory = startSampler(
+        async () => {
+          const body = await get("/getFactory", 20_000);
+          sloops = Math.max(sloops, countSomersloops(body));
+          return encoder.push(mapFrmFactory(body));
+        },
+        { intervalMs: FACTORY_POLL_MS, now: Date.now, sleep: realSleep },
+      );
+      trains = startSampler(async () => readFrmTrains(await get("/getTrains", 5000)), { intervalMs: TRAINS_POLL_MS, now: Date.now, sleep: realSleep });
+      stations = startSampler(async () => readFrmStations(await get("/getTrainStation", 5000)), { intervalMs: STATIONS_POLL_MS, now: Date.now, sleep: realSleep });
+      routes = startSampler(async () => readFrmRoutes(await get("/getTrainStation", 10_000), await get("/getTrains", 10_000)), { intervalMs: ROUTES_POLL_MS, now: Date.now, sleep: realSleep });
       // Enrolled after the world is up, so the mod's one resource-node post (about 8 minutes after enrolment, then every 30)
       // lands inside the 30-minute window that opens a minute after enrolment.
       await enrolPhase(ctx, host, recorder);
@@ -147,8 +217,11 @@ export const nativeParity: CoreRunSpec = {
       const from = Date.now();
       capture.windowStartedAt = iso(from);
       atStart = { power: power.counts(), players: players.counts(), nodes: nodes.counts() };
-      rounds = createRoundCollector({ reads: () => power!.reads, now: Date.now, startAt: accepted(recorder).length });
+      s2Start = { factory: factory.counts(), trains: trains.counts(), stations: stations.counts(), routes: routes.counts() };
+      s2From = accepted(recorder).length;
+      rounds = createRoundCollector({ reads: () => power!.reads, now: Date.now, startAt: s2From });
       let postsSeen = 0;
+      let routePostsSeen = 0;
       while (Date.now() - from < Pass.WINDOW_MINUTES * MIN) {
         await ctx.deps.sleep(SECOND);
         rounds.feed(accepted(recorder));
@@ -158,6 +231,12 @@ export const nativeParity: CoreRunSpec = {
         if (posts.length > postsSeen) {
           postsSeen = posts.length;
           await nodes.take();
+        }
+        // The trainRoutes layer is native only (the bridge never sent it): a pair of FRM reads right after each accepted post.
+        const routeCount = recorder.entries.filter((e) => e.agent === "mod" && e.world?.layer === "trainRoutes" && e.status === 200).length;
+        if (routeCount > routePostsSeen) {
+          routePostsSeen = routeCount;
+          await routes.take();
         }
       }
       capture.windowEndedAt = iso(Date.now());
@@ -169,6 +248,10 @@ export const nativeParity: CoreRunSpec = {
       power?.stop();
       players?.stop();
       nodes?.stop();
+      factory?.stop();
+      trains?.stop();
+      stations?.stop();
+      routes?.stop();
       if (rounds) {
         capture.power.rounds = rounds.power; // a run that failed mid-window keeps what it saw (the verdict fails on the window)
         capture.players.rounds = rounds.players;
@@ -195,10 +278,38 @@ export const nativeParity: CoreRunSpec = {
       capture.nodes.posts = mod
         .filter((e) => e.world?.layer === "resourceNodes" && e.status === 200 && Date.parse(e.at) >= from)
         .map((e) => ({ at: e.at, status: e.status, data: e.worldData }));
+      if (factory && trains && stations && routes) {
+        const s2 = s2RoundsFrom(accepted(recorder).slice(s2From), table);
+        const iv = (s: { startedAt: number; endedAt: number }) => ({ startedAt: iso(s.startedAt), endedAt: iso(s.endedAt) });
+        const routeDistinct: Record<string, string[]> = {};
+        for (const s of routes.samples) routeDistinct[s.value.hash] ??= s.value.canon;
+        capture.s2 = {
+          factory: {
+            statics: table.statics,
+            rounds: s2.factory,
+            frmSamples: factory.samples.map((s) => ({ ...iv(s), ...s.value })),
+            frm: sinceWindow(factory.counts(), s2Start.factory),
+            somersloopMachines: sloops,
+          },
+          mapLive: {
+            rounds: s2.mapLive,
+            trains: trains.samples.map((s) => ({ ...iv(s), value: s.value })),
+            stations: stations.samples.map((s) => ({ ...iv(s), value: s.value })),
+            trainsFrm: sinceWindow(trains.counts(), s2Start.trains),
+            stationsFrm: sinceWindow(stations.counts(), s2Start.stations),
+          },
+          routes: {
+            posts: routePosts(recorder.entries, from),
+            frmSamples: routes.samples.map((s) => ({ ...iv(s), value: s.value.hash })),
+            distinct: routeDistinct,
+            frm: sinceWindow(routes.counts(), s2Start.routes),
+          },
+        };
+      }
       capture.state = await host.state("mod").catch(() => null);
       ctx.captures["native-parity.json"] = capture;
       ctx.captures["readers.json"] = Pass.judgeReaders(capture);
-      ctx.captures["recorder.json"] = recorder.entries.map(({ snapshot: _, worldData: __, ...rest }) => rest);
+      ctx.captures["recorder.json"] = publicEntries(recorder.entries);
       await recorder.close();
     }
   },

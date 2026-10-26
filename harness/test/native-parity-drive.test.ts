@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NATIVE_SOURCES } from "../src/core-run";
+import { NATIVE_SOURCES_S2 } from "../src/core-run";
 import { createRoundCollector, nativeParity, sinceWindow } from "../src/core-runs/native-parity";
 import type { FrmRead } from "../src/frm";
 import type { RecordedCall } from "../src/recorder";
@@ -91,7 +91,7 @@ describe("native-parity drive: counts and spec", () => {
   });
 
   it("writes the native sources into the mod's config, needs the backend, the world and FRM", () => {
-    expect(nativeParity.modConfig).toEqual(NATIVE_SOURCES);
+    expect(nativeParity.modConfig).toEqual(NATIVE_SOURCES_S2); // S2: all four readers native (S1 wrote the first two)
     expect(nativeParity.backend && nativeParity.world).toBe(true);
     expect(() => nativeParity.preflight!({ config: {} } as never)).toThrow(/frmBaseUrl/);
     expect(() => nativeParity.preflight!({ config: { frmBaseUrl: "http://127.0.0.1:18081" } } as never)).not.toThrow();

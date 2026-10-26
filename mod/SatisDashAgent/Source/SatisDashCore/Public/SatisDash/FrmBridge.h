@@ -40,9 +40,10 @@ namespace SatisDash
 
 		/**
 		 * A sample pass that read the game: queues getPlayer (the status cadence) unless bPlayers is false (the players
-		 * reader is native), and getFactory when bFactoryDue.
+		 * reader is native), and on the factory cadence (bFactoryDue) getFactory unless bFactoryFromFrm is false, and the
+		 * getTrains/getTrainStation pair (StartMapCycle) unless bTrainsFromFrm is false. A native part is never requested.
 		 */
-		void RequestPass(bool bFactoryDue, bool bPlayers = true);
+		void RequestPass(bool bFactoryDue, bool bPlayers = true, bool bFactoryFromFrm = true, bool bTrainsFromFrm = true);
 		/** Every driver tick: takes finished work, launches the next job and starts the next FRM read. */
 		void Tick(double Now, int32 Port, const FString& Token);
 		/** The newest players part finished within MaxAgeSeconds, once. */
@@ -64,6 +65,24 @@ namespace SatisDash
 		 * while that layer is requested, being read, or has an outcome waiting (the readings are then dropped).
 		 */
 		bool SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, TArray<FResourceNodeReading> Readings, TOptional<FBlake3Hash> LastData);
+		/**
+		 * R3: the same for any native layer: Builder (which owns the readings it was made from) runs on the worker and makes the
+		 * whole body; the cap, hashes and gzip are then applied as for an FRM body. FRM is not asked.
+		 */
+		bool SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, FNativeWorldBuilder Builder, TOptional<FBlake3Hash> LastData);
+		/**
+		 * R3: the trains and stations a native read finished on the game thread, moved into a mapLive job. The worker joins
+		 * them (NativeMapLiveJson) and sets the part ready, so TakeMapLive is the one way out for both sources; a part past its
+		 * byte cap is left out with one warning. FRM is not asked. ReadAt is the part's age start. False while a mapLive job
+		 * is held (the readings are then dropped).
+		 */
+		bool SubmitNativeMapLive(FTrainsSnapshot Snapshot, double ReadAt);
+		/**
+		 * R2a: the machines a native read finished on the game thread, moved into a factory job. The worker builds the part
+		 * (NativeFactoryPart) and sets it ready, so TakeFactory is the one way out for both sources. FRM is not asked. ReadAt
+		 * is the part's age start. False while a factory job is held (the readings are then dropped).
+		 */
+		bool SubmitNativeFactory(TArray<FFactoryReading> Readings, double ReadAt);
 		/** The layer's finished outcome, once. */
 		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
@@ -78,12 +97,27 @@ namespace SatisDash
 		struct FFactoryJob
 		{
 			explicit FFactoryJob(TArray<uint8> InBody) : Parse{MoveTemp(InBody)} {}
+			/** R2a: the game's own readings; the worker builds the part from them (no FRM body, Parse stays empty). */
+			FFactoryJob(TArray<FFactoryReading> InReadings, double InReadAt) : Parse{TArray<uint8>()}, Readings{MoveTemp(InReadings)}, bNative{true}, ReadAt{InReadAt} {}
 			FFactoryParse Parse;
 			FFactoryParse::EStep Last = FFactoryParse::EStep::More;
 			bool bRan = false;
 			double ReadAt = 0;
+			TArray<FFactoryReading> Readings;
+			bool bNative = false;
+			/** The native part's text, written by the worker. */
+			FString NativeJson;
 		};
 		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
+		/** R3: the game's own trains and stations; the worker writes the joined part (Json, or Ok false when it is over its cap). */
+		struct FNativeMapLiveJob
+		{
+			FTrainsSnapshot Readings;
+			double ReadAt = 0;
+			FString Json;
+			bool bOk = false;
+			bool bRan = false;
+		};
 		struct FReady { FString Json; double At = 0; };
 
 		/** One of mapLive's two reads: not asked, waiting for FRM, parsing on the worker, or settled (Ok or Failed). */
@@ -113,6 +147,10 @@ namespace SatisDash
 				: Work{InLayer, MoveTemp(InReadings), InObservedAt, InLastData}
 			{
 			}
+			FWorldJob(EWorldLayer InLayer, FNativeWorldBuilder InBuilder, const FString& InObservedAt, TOptional<FBlake3Hash> InLastData)
+				: Work{InLayer, MoveTemp(InBuilder), InObservedAt, InLastData}
+			{
+			}
 			/** Named Work, not Read: check-api's receiver heuristic does not trust a name FFrmQueue also declares. */
 			FWorldRead Work;
 			bool bFinished = false;
@@ -140,6 +178,7 @@ namespace SatisDash
 		TSharedPtr<FPlayersJob> Players;
 		TSharedPtr<FFactoryJob> Factory;
 		TSharedPtr<FEncodeJob> Encode;
+		TSharedPtr<FNativeMapLiveJob> NativeMapLive;
 		TOptional<FReady> PlayersReady;
 		TOptional<FReady> FactoryReady;
 		FMapSide MapTrains;

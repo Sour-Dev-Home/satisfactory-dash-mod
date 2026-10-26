@@ -103,6 +103,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | Cast | Engine/Source/Runtime/CoreUObject/Public/Templates/Casts.h:95 | header only |
 | TStringConversion::Length | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:791 | header only (FTCHARToUTF8 is a TStringConversion) |
 | FString::Left | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1146 | header only |
+| FString::ReplaceInline | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2059 | header only (returns the number of replacements; the test counts an id's copies with it) |
 | FString::ToLower | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1565 | header only |
 | FString::Len | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1128 | header only |
 | Dom/JsonObject.h | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:1 | header only |
@@ -121,6 +122,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | IHttpResponse::GetContentAsString | Engine/Source/Runtime/Online/HTTP/Public/Interfaces/IHttpResponse.h:127 | header only |
 | TSharedRef | Engine/Source/Runtime/Core/Public/Templates/SharedPointer.h:151 | header only |
 | TSharedPtr | Engine/Source/Runtime/Core/Public/Templates/SharedPointer.h:664 | header only |
+| TSharedPtr::ToSharedRef | Engine/Source/Runtime/Core/Public/Templates/SharedPointer.h:998 | header only (the const& overload, inside TSharedPtr :664) |
 | FGCircuitSubsystem.h | Source/FactoryGame/Public/FGCircuitSubsystem.h:1 | sml-power-network-2026-10-19.md (names the subsystem's circuits) |
 | AFGCircuitSubsystem | Source/FactoryGame/Public/FGCircuitSubsystem.h:32 | header only |
 | AFGCircuitSubsystem::GetCircuitSubsystem | Source/FactoryGame/Public/FGCircuitSubsystem.h:49 | header only |
@@ -412,6 +414,9 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | ELogVerbosity::Error | Engine/Source/Runtime/Core/Public/Logging/LogVerbosity.h:28 | header only |
 | TMap::GetKeys | Engine/Source/Runtime/Core/Public/Containers/Map.h:327 | header only (the TArray overload; declared in TMapBase, which TMap inherits) |
 | TArray::Sort | Engine/Source/Runtime/Core/Public/Containers/Array.h:3425 | header only (the no-predicate overload) |
+| TArray::StableSort | Engine/Source/Runtime/Core/Public/Containers/Array.h:3475 | header only (the predicate overload; :3457 is the no-predicate one) |
+| FMath::RoundToDouble | Engine/Source/Runtime/Core/Public/GenericPlatform/GenericPlatformMath.h:341 | header only (declared in FGenericPlatformMath, which FMath inherits via FPlatformMath) |
+| FMemory::Memcpy | Engine/Source/Runtime/Core/Public/HAL/UnrealMemory.h:160 | header only (the bit copy of a double; a cast would break strict aliasing) |
 | TArray::IsValidIndex | Engine/Source/Runtime/Core/Public/Containers/Array.h:1094 | header only |
 | TArray::Reserve | Engine/Source/Runtime/Core/Public/Containers/Array.h:3026 | header only |
 | FPowerCircuitStats::MaximumPowerConsumption | Source/FactoryGame/Public/FGPowerCircuit.h:110 | header only |
@@ -509,6 +514,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGResourceNodeBase::GetResourceClass | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:144 | header only (H: returns the effective class, `TSubclassOf< UFGResourceDescriptor >`; GetResourceClassOverride :146 and GetResourceClassOriginal :150 are the parts. The override's behaviour is parity's question; survey S2 says the same) |
 | TSubclassOf | Engine/Source/Runtime/CoreUObject/Public/Templates/SubclassOf.h:29 | header only (the template; :12 is a forward declaration; operator-> at :125 returns UClass*) |
 | UObjectBaseUtility::GetName | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBaseUtility.h:429 | header only (FString, the object's short name, not the path: a class's is Desc_OreIron_C) |
+| UObjectBaseUtility::IsA | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBaseUtility.h:626 | header only (template<class T> bool IsA() const: "true if this object is of the template type"; the platform walk keeps a second station out) |
 | AFGResourceNodeBase::IsOccupied | Source/FactoryGame/Public/Resources/FGResourceNodeBase.h:140 | header only |
 | Engine/Level.h | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:1 | header only |
 | ULevel | Engine/Source/Runtime/Engine/Classes/Engine/Level.h:422 | header only |
@@ -519,3 +525,107 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FJsonObject::GetNumberField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:140 | header only (the FStringView overload; test only) |
 | AActor | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:253 | header only |
 | FVector | Engine/Source/Runtime/Core/Public/Math/MathFwd.h:47 | header only (a using for UE::Math::TVector<double>) |
+| Buildables/FGBuildableManufacturer.h | Source/FactoryGame/Public/Buildables/FGBuildableManufacturer.h:1 | header only (R2a, S2 Task 7) |
+| AFGBuildableManufacturer | Source/FactoryGame/Public/Buildables/FGBuildableManufacturer.h:85 | header only |
+| AFGBuildableManufacturer::StaticClass | Engine/Source/Runtime/CoreUObject/Public/UObject/ObjectMacros.h:1824 | header only (generated by DECLARE_CLASS from GENERATED_BODY, FGBuildableManufacturer.h:85; used only for GetBuildableCount's class filter) |
+| AFGBuildableManufacturer::GetInputInventory | Source/FactoryGame/Public/Buildables/FGBuildableManufacturer.h:157 | header only (may be null: checked) |
+| AFGBuildableManufacturer::GetOutputInventory | Source/FactoryGame/Public/Buildables/FGBuildableManufacturer.h:161 | header only (may be null: checked) |
+| AFGBuildableManufacturer::GetCurrentRecipe | Source/FactoryGame/Public/Buildables/FGBuildableManufacturer.h:165 | header only (a null class is "no recipe") |
+| AFGBuildableFactory::GetPowerInfo | Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:108 | header only (nullptr if the factory does not run on power: checked) |
+| AFGBuildableFactory::IsProducing | Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:151 | header only |
+| AFGBuildableFactory::IsProductionPaused | Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:184 | header only |
+| AFGBuildableFactory::GetProductivity | Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:213 | header only (the scale is not documented: the parity run judges it, see ProductivityFullScale) |
+| AFGBuildableFactory::GetCurrentPotential | Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:225 | header only |
+| AFGBuildableFactory::GetCurrentProductionBoost | Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:315 | header only (the multiplier; above 1 counts a boosted machine in the log) |
+| AFGBuildable | Source/FactoryGame/Public/Buildables/FGBuildable.h:167 | header only (the element type of the subsystem's list) |
+| FGBuildableSubsystem.h | Source/FactoryGame/Public/FGBuildableSubsystem.h:1 | header only |
+| AFGBuildableSubsystem | Source/FactoryGame/Public/FGBuildableSubsystem.h:246 | header only |
+| AFGBuildableSubsystem::Get | Source/FactoryGame/Public/FGBuildableSubsystem.h:272 | header only (the UWorld* overload; can be nullptr at game end or start) |
+| AFGBuildableSubsystem::GetAllBuildablesRef | Source/FactoryGame/Public/FGBuildableSubsystem.h:360 | header only (header: "can be invalidated by buildables being added/removed": fetched again for every element, never kept between ticks) |
+| AFGBuildableSubsystem::GetBuildableCount | Source/FactoryGame/Public/FGBuildableSubsystem.h:363 | header only (advisory count for the log) |
+| FGPowerInfoComponent.h | Source/FactoryGame/Public/FGPowerInfoComponent.h:1 | header only |
+| UFGPowerInfoComponent | Source/FactoryGame/Public/FGPowerInfoComponent.h:51 | header only |
+| UFGPowerInfoComponent::GetPowerCircuit | Source/FactoryGame/Public/FGPowerInfoComponent.h:80 | header only (nullptr if not connected; "can be changed/removed at any time", so never saved) |
+| FGRecipe.h | Source/FactoryGame/Public/FGRecipe.h:1 | header only |
+| UFGRecipe | Source/FactoryGame/Public/FGRecipe.h:40 | header only |
+| UFGRecipe::GetRecipeName | Source/FactoryGame/Public/FGRecipe.h:55 | header only |
+| UFGRecipe::GetIngredients | Source/FactoryGame/Public/FGRecipe.h:59 | header only (the static taking a world context, used so the game's own effective cost is read; the instance getter at :127 is the raw list) |
+| UFGRecipe::GetProducts | Source/FactoryGame/Public/FGRecipe.h:63 | header only (the static; the instance getter is at :126) |
+| UFGRecipe::GetManufacturingDuration | Source/FactoryGame/Public/FGRecipe.h:75 | header only (the static: "the base manufacturing duration", no clock or boost) |
+| FItemAmount | Source/FactoryGame/Public/ItemAmount.h:14 | header only (ItemClass :32, Amount :36) |
+| FGInventoryComponent.h | Source/FactoryGame/Public/FGInventoryComponent.h:1 | header only |
+| UFGInventoryComponent | Source/FactoryGame/Public/FGInventoryComponent.h:158 | header only |
+| UFGInventoryComponent::GetSizeLinear | Source/FactoryGame/Public/FGInventoryComponent.h:443 | header only |
+| UFGInventoryComponent::GetStackFromIndex | Source/FactoryGame/Public/FGInventoryComponent.h:326 | header only (the const two-argument overload; true for a valid index, the caller checks NumItems; the other overloads at :602 and :607 are not used) |
+| UFGInventoryComponent::GetSlotSize | Source/FactoryGame/Public/FGInventoryComponent.h:493 | header only (comment: "the arbitrary slot size if one is set, otherwise the stack size": the slot's own capacity, so used for MaxAmount in place of the survey's GetStackSize, Resources/FGItemDescriptor.h:251; the parity run judges it) |
+| FInventoryStack | Source/FactoryGame/Public/FGInventoryComponent.h:95 | header only (Item :112, NumItems :116) |
+| FInventoryItem::GetItemClass | Source/FactoryGame/Public/FGInventoryComponent.h:45 | header only |
+| Resources/FGItemDescriptor.h | Source/FactoryGame/Public/Resources/FGItemDescriptor.h:1 | header only |
+| UFGItemDescriptor | Source/FactoryGame/Public/Resources/FGItemDescriptor.h:139 | header only |
+| UFGItemDescriptor::GetForm | Source/FactoryGame/Public/Resources/FGItemDescriptor.h:158 | header only |
+| UFGItemDescriptor::GetItemName | Source/FactoryGame/Public/Resources/FGItemDescriptor.h:191 | header only |
+| EResourceForm | Source/FactoryGame/Public/Resources/FGItemDescriptor.h:18 | header only (RF_INVALID, RF_SOLID, RF_LIQUID, RF_GAS) |
+| EResourceForm::RF_LIQUID | Source/FactoryGame/Public/Resources/FGItemDescriptor.h:22 | header only (a fluid: its counts are litres, scaled in Core) |
+| EResourceForm::RF_GAS | Source/FactoryGame/Public/Resources/FGItemDescriptor.h:23 | header only (a fluid: its counts are litres, scaled in Core) |
+| AActor::GetActorRotation | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:2511 | header only (the survey's :1601 is K2_GetActorRotation) |
+| UObjectBase::GetClass | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBase.h:190 | header only |
+| IsValid | Engine/Source/Runtime/CoreUObject/Public/UObject/Object.h:1857 | header only (IsValid(const UObject*): null or pending-kill is false) |
+| FStepBudget::Begin | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:28 | the plugin's own declaration, not an engine symbol (Task 2): the game reader calls it on the budget the driver passes |
+| FStepBudget::Spent | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:30 | the plugin's own declaration (Task 2) |
+| FStepBudget::End | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:32 | the plugin's own declaration (Task 2) |
+| FStepBudget::Steps | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:33 | the plugin's own declaration (Task 2) |
+| FStepBudget::LongestMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:34 | the plugin's own declaration (Task 2) |
+| FStepBudget::TotalMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:35 | the plugin's own declaration (Task 2) |
+| FJsonObject::TryGetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:274 | header only (the FStringView overload; test only, Task 8) |
+| FJsonValue::TryGetString | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:74 | header only (test only, Task 8) |
+| FGRailroadSubsystem.h | Source/FactoryGame/Public/FGRailroadSubsystem.h:1 | header only (R3, S2 Task 9) |
+| AFGRailroadSubsystem | Source/FactoryGame/Public/FGRailroadSubsystem.h:88 | header only |
+| AFGRailroadSubsystem::Get | Source/FactoryGame/Public/FGRailroadSubsystem.h:117 | header only (the `UWorld*` overload; null before a world has the subsystem: the read is then not begun) |
+| AFGRailroadSubsystem::GetAllTrains | Source/FactoryGame/Public/FGRailroadSubsystem.h:174 | header only (const, public; fills an array of `AFGTrain*`, copied once into weak pointers) |
+| AFGRailroadSubsystem::GetAllTrainStations | Source/FactoryGame/Public/FGRailroadSubsystem.h:207 | header only (const, public; fills an array of `AFGTrainStationIdentifier*`, copied once into weak pointers) |
+| FGTrain.h | Source/FactoryGame/Public/FGTrain.h:1 | header only (R3, S2 Task 9) |
+| AFGTrain | Source/FactoryGame/Public/FGTrain.h:386 | header only |
+| AFGTrain::GetTrainName | Source/FactoryGame/Public/FGTrain.h:460 | header only (the player-chosen name as FText; copied with ToString, never logged) |
+| ETrainStatus | Source/FactoryGame/Public/FGTrain.h:64 | header only (TS_Parked :66, TS_ManualDriving :67, TS_SelfDriving :68, TS_Derailed :69; the survey said :64-70) |
+| ETrainStatus::TS_ManualDriving | Source/FactoryGame/Public/FGTrain.h:67 | header only |
+| ETrainStatus::TS_SelfDriving | Source/FactoryGame/Public/FGTrain.h:68 | header only |
+| ETrainStatus::TS_Derailed | Source/FactoryGame/Public/FGTrain.h:69 | header only (TS_Parked :66 is the default arm of the mapping) |
+| AFGTrain::GetTrainStatus | Source/FactoryGame/Public/FGTrain.h:614 | header only |
+| AFGTrain::GetTimeTable | Source/FactoryGame/Public/FGTrain.h:511 | header only (may be null: checked) |
+| AFGTrain::HasTimeTable | Source/FactoryGame/Public/FGTrain.h:519 | header only |
+| AFGTrain::GetFirstVehicle | Source/FactoryGame/Public/FGTrain.h:523 | header only (may be null: the train is then placed at its actor) |
+| AFGTrain::GetLastVehicle | Source/FactoryGame/Public/FGTrain.h:527 | header only (selected only by NativeTrainPositionSource = LastVehicle) |
+| FTrainConsist | Source/FactoryGame/Public/FGTrain.h:103 | header only (`Vehicles` :109) |
+| AFGTrain::mConsistData | Source/FactoryGame/Public/FGTrain.h:709 | header only (public: the `public:` at :702 covers it; the plan's row named FGFreightWagon.h, which is ambiguous; the member and the struct are in FGTrain.h) |
+| AFGRailroadVehicle | Source/FactoryGame/Public/FGRailroadVehicle.h:36 | header only (derives AFGVehicle) |
+| AFGRailroadVehicle::GetVehicleLocation | Source/FactoryGame/Public/FGVehicle.h:347 | header only (declared on AFGVehicle, FGVehicle.h:126; the comment at :337-339 says to use it instead of GetActorLocation) |
+| FGRailroadTimeTable.h | Source/FactoryGame/Public/FGRailroadTimeTable.h:1 | header only (R3, S2 Task 9) |
+| AFGRailroadTimeTable | Source/FactoryGame/Public/FGRailroadTimeTable.h:32 | header only |
+| AFGRailroadTimeTable::GetStops | Source/FactoryGame/Public/FGRailroadTimeTable.h:70 | header only (const; fills an array of FTimeTableStop) |
+| FTimeTableStop | Source/FactoryGame/Public/FGRailroadTimeTable.h:15 | header only |
+| FTimeTableStop::Station | Source/FactoryGame/Public/FGRailroadTimeTable.h:21 | header only (a `TObjectPtr`; null stations are skipped) |
+| FGFreightWagon.h | Source/FactoryGame/Public/FGFreightWagon.h:1 | header only (R3, S2 Task 9) |
+| AFGFreightWagon | Source/FactoryGame/Public/FGFreightWagon.h:24 | header only (derives AFGRailroadVehicle; reached by Cast from the consist's vehicles) |
+| AFGFreightWagon::GetFreightInventory | Source/FactoryGame/Public/FGFreightWagon.h:47 | header only (may be null: checked) |
+| FGTrainStationIdentifier.h | Source/FactoryGame/Public/FGTrainStationIdentifier.h:1 | header only (R3, S2 Task 9) |
+| AFGTrainStationIdentifier | Source/FactoryGame/Public/FGTrainStationIdentifier.h:17 | header only |
+| AFGTrainStationIdentifier::GetStation | Source/FactoryGame/Public/FGTrainStationIdentifier.h:84 | header only (the building; null when it is not on this machine: checked) |
+| AFGTrainStationIdentifier::GetStationName | Source/FactoryGame/Public/FGTrainStationIdentifier.h:88 | header only (FText; copied exactly with ToString, no trimming; never logged) |
+| Buildables/FGBuildableRailroadStation.h | Source/FactoryGame/Public/Buildables/FGBuildableRailroadStation.h:1 | header only (R3, S2 Task 9) |
+| AFGBuildableRailroadStation | Source/FactoryGame/Public/Buildables/FGBuildableRailroadStation.h:16 | header only (derives AFGBuildableTrainPlatform) |
+| AFGBuildableRailroadStation::GetStationOutputConnection | Source/FactoryGame/Public/Buildables/FGBuildableRailroadStation.h:56 | header only (non-const; may be null: checked) |
+| FGTrainPlatformConnection.h | Source/FactoryGame/Public/FGTrainPlatformConnection.h:1 | header only (R3, S2 Task 9) |
+| UFGTrainPlatformConnection | Source/FactoryGame/Public/FGTrainPlatformConnection.h:26 | header only |
+| UFGTrainPlatformConnection::GetConnectedTo | Source/FactoryGame/Public/FGTrainPlatformConnection.h:42 | header only (the connection on the next platform; may be null: ends the walk) |
+| UFGTrainPlatformConnection::GetPlatformOwner | Source/FactoryGame/Public/FGTrainPlatformConnection.h:53 | header only (non-const; may be null: ends the walk) |
+| Buildables/FGBuildableTrainPlatform.h | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatform.h:1 | header only (R3, S2 Task 9) |
+| AFGBuildableTrainPlatform | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatform.h:29 | header only |
+| AFGBuildableTrainPlatform::GetConnectionInOppositeDirection | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatform.h:66 | header only (takes the connection on this platform, gives the opposite one; the walk is bounded at 256 hops with a visited set) |
+| Buildables/FGBuildableTrainPlatformCargo.h | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:1 | header only (R3, S2 Task 9) |
+| AFGBuildableTrainPlatformCargo | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:18 | header only (kept; other platform kinds are walked through but not listed) |
+| AFGBuildableTrainPlatformCargo::GetInventory | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:37 | header only (may be null: checked) |
+| AFGBuildableTrainPlatformCargo::GetIsInLoadMode | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:57 | header only (the comment above it: "whether this station should load or unload from vehicles"; true is "load") |
+| UFGInventoryComponent::GetInventoryStacks | Source/FactoryGame/Public/FGInventoryComponent.h:451 | header only (const; empty stacks are left out by default; NumItems and the item class are checked) |
+| TSet | Engine/Source/Runtime/Core/Public/Containers/Set.h:153 | header only |
+| TArray::AddUnique | Engine/Source/Runtime/Core/Public/Containers/Array.h:3015 | header only (the const overload; the rvalue one is :3003) |
+| Invoke | Engine/Source/Runtime/Core/Public/Templates/Invoke.h:44 | header only (calls the native world builder, a TUniqueFunction) |

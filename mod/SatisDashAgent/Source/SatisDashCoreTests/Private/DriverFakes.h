@@ -119,6 +119,12 @@ namespace SatisDash::Test
 		int32 StepsToFinish = 3;
 		int32 ScanBegins = 0;
 		int32 ScanSteps = 0;
+		/** R2a: what a finished factory read returns; bFactoryWorld false = no world or subsystem. A read finishes on its FactorySteps-th step. */
+		TArray<SatisDash::FFactoryReading> Factory;
+		bool bFactoryWorld = true;
+		int32 FactorySteps = 3;
+		int32 FactoryBegins = 0;
+		int32 FactoryStepCalls = 0;
 
 		FFakeGame()
 		{
@@ -137,6 +143,59 @@ namespace SatisDash::Test
 		{
 			return ++ScanSteps >= StepsToFinish ? TOptional<TArray<SatisDash::FResourceNodeReading>>(Nodes) : TOptional<TArray<SatisDash::FResourceNodeReading>>();
 		}
+		/** The read ends abandoned (a world swap): empty and flagged, as the game reader does. */
+		bool bFactoryAbandon = false;
+		int32 FactoryEnds = 0;
+		virtual bool FactoryReadAbandoned() const override { return bFactoryAbandon; }
+		virtual void EndFactoryRead() override { ++FactoryEnds; }
+		virtual bool BeginFactoryRead() override { ++FactoryBegins; FactoryStepCalls = 0; return bFactoryWorld; }
+		virtual TOptional<TArray<SatisDash::FFactoryReading>> StepFactoryRead(SatisDash::FStepBudget& Budget) override
+		{
+			return ++FactoryStepCalls >= FactorySteps ? TOptional<TArray<SatisDash::FFactoryReading>>(bFactoryAbandon ? TArray<SatisDash::FFactoryReading>() : Factory) : TOptional<TArray<SatisDash::FFactoryReading>>();
+		}
+		/** R3: what a finished trains read returns; bTrainsWorld false = no world or subsystem. A read finishes on its TrainsSteps-th step. */
+		TArray<SatisDash::FTrainReading> Trains;
+		TArray<SatisDash::FStationReading> Stations;
+		bool bTrainsWorld = true;
+		int32 TrainsSteps = 3;
+		int32 TrainsBegins = 0;
+		int32 TrainsStepCalls = 0;
+		int32 TrainsEnds = 0;
+		/** The read ends abandoned (a world swap): empty and flagged, as the game reader does. */
+		bool bTrainsAbandon = false;
+		/** A read is open (begun, not finished or ended): the real reader keeps one cursor, so a second Begin is refused. */
+		bool bTrainsOpen = false;
+		virtual bool BeginTrainsRead() override
+		{
+			++TrainsBegins;
+			if (!bTrainsWorld || bTrainsOpen)
+			{
+				return false;
+			}
+			TrainsStepCalls = 0;
+			bTrainsOpen = true;
+			return true;
+		}
+		virtual TOptional<SatisDash::FTrainsSnapshot> StepTrainsRead(SatisDash::FStepBudget& Budget) override
+		{
+			Budget.Begin();
+			Budget.End();
+			if (++TrainsStepCalls < TrainsSteps)
+			{
+				return {};
+			}
+			bTrainsOpen = false;
+			SatisDash::FTrainsSnapshot Out;
+			if (!bTrainsAbandon)
+			{
+				Out.Trains = Trains;
+				Out.Stations = Stations;
+			}
+			return Out;
+		}
+		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandon; }
+		virtual void EndTrainsRead() override { ++TrainsEnds; bTrainsOpen = false; }
+		virtual bool IsTrainsReadOpen() const override { return bTrainsOpen; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);

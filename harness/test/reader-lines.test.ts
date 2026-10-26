@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, stepCosts, stepProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, factoryLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -46,5 +46,22 @@ describe("step costs", () => {
   });
   it("judges every logged line even when not required", () => {
     expect(stepProblems(LINES, [])).toHaveLength(1);
+  });
+});
+
+describe("the Readers line", () => {
+  const S1 = `${P}Readers: players=native resourceNodes=native`;
+  const S2 = `${P}Readers: players=native resourceNodes=native factory=native trains=bridge`;
+  it("still parses the S1 two-field line, with factory and trains undefined", () => {
+    expect(readerSources([S1])).toEqual({ players: "native", resourceNodes: "native" });
+  });
+  it("parses the S2 four-field line", () => {
+    expect(readerSources([S2])).toEqual({ players: "native", resourceNodes: "native", factory: "native", trains: "bridge" });
+  });
+  it("judges factory and trains like players", () => {
+    expect(factoryLogProblems([S2])).toEqual([]);
+    expect(trainsLogProblems([S2])).toEqual([expect.stringMatching(/trains=bridge, not native/)]);
+    expect(factoryLogProblems([S1])).toEqual([expect.stringMatching(/no factory= field/)]);
+    expect(trainsLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
   });
 });

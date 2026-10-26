@@ -22,8 +22,16 @@ export type CoreRunId = (typeof CORE_RUN_IDS)[number];
 export const MOD = "SatisDashAgent";
 
 /** The sources the harness writes into the mod's config for a run (ADR-0058 Decision 4): the hidden per-reader override. */
-export interface NativeSources { playersSource: "bridge" | "native"; resourceNodesSource: "bridge" | "native" }
+export interface NativeSources {
+  playersSource: "bridge" | "native";
+  resourceNodesSource: "bridge" | "native";
+  /** S2 keys: absent in S1's NATIVE_SOURCES, so S1 evidence re-judges the same. */
+  factorySource?: "bridge" | "native";
+  trainsSource?: "bridge" | "native";
+}
 export const NATIVE_SOURCES: NativeSources = { playersSource: "native", resourceNodesSource: "native" };
+/** S2: all four readers native. */
+export const NATIVE_SOURCES_S2: NativeSources = { ...NATIVE_SOURCES, factorySource: "native", trainsSource: "native" };
 
 /** The credential the mod writes (spec "Shape"; FPaths::ProjectSavedDir() on a dedicated server is FactoryGame/Saved). */
 export const credentialPath = (serverDir: string) => join(serverDir, "FactoryGame", "Saved", "SatisDash", "credential.json");
@@ -403,6 +411,9 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     verdict = spec.evaluate(evidence);
   } catch (e) {
     verdict = { pass: false, reasons: [`judging the evidence failed: ${message(e)}`] };
+    // The drive's first readers.json has no log checks (evaluate would have replaced it with final verdicts), so it must not sit
+    // in the bundle looking green beside a failing result.json: it becomes a failure marker.
+    if ("readers.json" in captures) captures["readers.json"] = { failed: verdict.reasons[0] };
   }
   const allReasons = [...reasons, ...commonReasons(evidence), ...verdict.reasons];
   const result: CoreResult = {

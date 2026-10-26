@@ -441,6 +441,13 @@ describe("runCore", () => {
     expect(readdirSync(dir).length).toBeGreaterThan(0);
   });
 
+  it("an evaluate that throws replaces the drive's first readers.json with a failure marker", async () => {
+    const drive = async (ctx: { captures: Record<string, unknown> }) => { ctx.captures["readers.json"] = { stations: { pass: true } }; };
+    const { dir } = await runCore("http-probe", spec({ drive, evaluate: () => { throw new TypeError("x is undefined"); } } as never), fakeDeps().deps);
+    const readers = JSON.parse(readFileSync(join(dir, "readers.json"), "utf8"));
+    expect(readers).toEqual({ failed: "judging the evidence failed: x is undefined" });
+  });
+
   it("builds outside the out dir, so nothing of the build is ever uploaded with the evidence", () => {
     for (const out of [join(tmpdir(), "core-run"), join(tmpdir(), "core-run") + "/", "relative/out"]) {
       const rel = relative(out, coreBuildDir(out));

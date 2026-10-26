@@ -39,8 +39,6 @@ namespace SatisDash
 		FStepClock TimeSource;
 		double BudgetSeconds;
 		double StepStart = 0.0;
-		mutable double LastSample = 0.0;
-		mutable bool Sampled = false;
 		int32 StepCount = 0;
 		double Longest = 0.0;
 		double Total = 0.0;
