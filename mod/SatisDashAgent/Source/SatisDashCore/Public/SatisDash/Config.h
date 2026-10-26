@@ -19,6 +19,7 @@ namespace SatisDash
 	inline constexpr ESource DefaultResourceNodesSource = ESource::Native;
 	inline constexpr ESource DefaultFactorySource = ESource::Native;
 	inline constexpr ESource DefaultTrainsSource = ESource::Native;
+	inline constexpr ESource DefaultRailsSource = ESource::Bridge;
 
 	struct FAgentConfig
 	{
@@ -40,19 +41,22 @@ namespace SatisDash
 		/** The same override for the factory and trains parts: the keys "factorySource" and "trainsSource". */
 		TOptional<ESource> FactorySource;
 		TOptional<ESource> TrainsSource;
+		/** The same override for the rails part: the key "railsSource". */
+		TOptional<ESource> RailsSource;
 
 		int32 GetFrmPort() const { return FrmPort.Get(DefaultFrmPort); }
 		ESource GetPlayersSource() const { return PlayersSource.Get(DefaultPlayersSource); }
 		ESource GetResourceNodesSource() const { return ResourceNodesSource.Get(DefaultResourceNodesSource); }
 		ESource GetFactorySource() const { return FactorySource.Get(DefaultFactorySource); }
 		ESource GetTrainsSource() const { return TrainsSource.Get(DefaultTrainsSource); }
+		ESource GetRailsSource() const { return RailsSource.Get(DefaultRailsSource); }
 	};
 
 	enum class EConfigStatus : uint8
 	{
 		/** There was no file; one was written with the default URL and no code. Config holds those defaults. */
 		Missing,
-		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource" or "trainsSource". */
+		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource" or "railsSource". */
 		Broken,
 		Valid,
 	};
