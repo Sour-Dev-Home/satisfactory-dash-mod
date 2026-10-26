@@ -196,6 +196,53 @@ namespace SatisDash::Test
 		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandon; }
 		virtual void EndTrainsRead() override { ++TrainsEnds; bTrainsOpen = false; }
 		virtual bool IsTrainsReadOpen() const override { return bTrainsOpen; }
+		/** R5: what a finished logistics pass returns. A pass finishes on its LogisticsStepsToFinish-th step. */
+		int32 LogisticsStepsToFinish = 3;
+		TArray<SatisDash::FRailReading> LogisticsRails;
+		SatisDash::FLogisticsCounts LogisticsCounts;
+		/** The pass ends abandoned (no subsystem, a world swap, or zero buildables): empty and flagged, as the game reader does. */
+		bool bLogisticsAbandoned = false;
+		bool bBeginLogisticsOk = true;
+		int32 LogisticsBegins = 0;
+		int32 LogisticsEnds = 0;
+		int32 LogisticsStepCalls = 0;
+		bool bLastBeginRails = false;
+		bool bLastBeginConveyors = false;
+		/** A pass is open (begun, not finished or ended): a second Begin is refused, as the real reader's. */
+		bool bLogisticsOpen = false;
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) override
+		{
+			++LogisticsBegins;
+			bLastBeginRails = bRails;
+			bLastBeginConveyors = bConveyors;
+			if (!bBeginLogisticsOk || bLogisticsOpen)
+			{
+				return false;
+			}
+			LogisticsStepCalls = 0;
+			bLogisticsOpen = true;
+			return true;
+		}
+		virtual TOptional<SatisDash::FLogisticsSnapshot> StepLogisticsRead(SatisDash::FStepBudget& Budget) override
+		{
+			Budget.Begin();
+			Budget.End();
+			if (++LogisticsStepCalls < LogisticsStepsToFinish)
+			{
+				return {};
+			}
+			bLogisticsOpen = false;
+			SatisDash::FLogisticsSnapshot Out;
+			if (!bLogisticsAbandoned)
+			{
+				Out.Rails = LogisticsRails;
+				Out.Counts = LogisticsCounts;
+			}
+			return Out;
+		}
+		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
+		virtual void EndLogisticsRead() override { ++LogisticsEnds; bLogisticsOpen = false; }
+		virtual bool IsLogisticsReadOpen() const override { return bLogisticsOpen; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);

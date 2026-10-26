@@ -86,6 +86,8 @@ namespace SatisDash
 		/** Times each step of the native trains read for the mapLive part, and of the sender's train-routes read (separate runs, separate totals). */
 		FStepBudget TrainsBudget;
 		FStepBudget RoutesBudget;
+		/** R5: times the shared logistics pass (the world sender resets it when a pass begins). */
+		FStepBudget LogisticsBudget;
 		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */
 		bool bTrainsReadOpen = false;
 		/** A factory-cadence tick found the reader's one trains cursor busy (the sender's read): the read starts on the first tick it is free. */

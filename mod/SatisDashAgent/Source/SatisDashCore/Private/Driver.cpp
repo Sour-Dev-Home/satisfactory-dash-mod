@@ -16,6 +16,7 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, FactoryBudget{[this] { return Clock.Now(); }}
 	, TrainsBudget{[this] { return Clock.Now(); }}
 	, RoutesBudget{[this] { return Clock.Now(); }}
+	, LogisticsBudget{[this] { return Clock.Now(); }}
 {
 }
 
@@ -54,6 +55,7 @@ void SatisDash::FDriver::Tick()
 		bTrainsReadOpen = false; // the same for the trains read (the sender's own is dropped by its Stop)
 		bTrainsBeginPending = false;
 		Game.EndTrainsRead();
+		Game.EndLogisticsRead(); // the sender's pass is dropped by its Stop; the reader frees what it buffered
 	}
 	if (!bRunning && bNowRunning)
 	{
@@ -94,7 +96,7 @@ void SatisDash::FDriver::Tick()
 	// World layers (spec "Timing"): posted one at a time, and only while no snapshot is queued, in flight or being encoded.
 	if (const FCredential* Credential = Agent.GetCredential())
 	{
-		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning, &RoutesBudget });
+		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning, &RoutesBudget, &LogisticsBudget });
 	}
 	if (WorldLayers.TakeAuthRejected())
 	{

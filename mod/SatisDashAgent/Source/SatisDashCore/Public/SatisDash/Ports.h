@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "SatisDash/FrmPlayers.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
+#include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/StepBudget.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Native/Trains/NativeTrains.h"
@@ -19,7 +20,24 @@ namespace SatisDash
 		TArray<FStationReading> Stations;
 	};
 
-	using FReplyHandler = TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
+	/** Counts of one logistics pass (R5, ADR-0058): numbers only, they go to the log line and nowhere else. */
+	struct FLogisticsCounts
+	{
+		int32 Buildables = 0, Tracks = 0, Belts = 0, Lifts = 0, Pipes = 0;
+		int32 OpenEnds = 0, OwnerlessEnds = 0, Dropped = 0;
+		/** Advisory GetBuildableCount of the track class, -1 when not asked. */
+		int32 ExpectedTracks = -1;
+	};
+
+	/** What a finished logistics pass hands over. */
+	struct FLogisticsSnapshot
+	{
+		/** Empty when rails were not asked for. */
+		TArray<FRailReading> Rails;
+		FLogisticsCounts Counts;
+	};
+
+	using FReplyHandler =TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
 
 	/** How a request reaches the backend: the mod's own libcurl in the game (SatisDashGame), a fake in the tests. */
 	class ITransport
@@ -96,6 +114,23 @@ namespace SatisDash
 		 * cursor busy waits for the next tick; it is not a failed read.
 		 */
 		virtual bool IsTrainsReadOpen() const { return false; }
+		/**
+		 * R5: starts the shared, time-sliced logistics pass over the buildables, for the rails layer and/or (later) the conveyors layer.
+		 * False when there is no world or subsystem, or when a pass is already open. Call StepLogisticsRead every tick until it returns
+		 * a value. Bridge-sourced layers never reach this. bConveyors is accepted and ignored until the conveyors reader lands.
+		 */
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) { return false; }
+		/**
+		 * Reads buildables until the budget is spent, on the game thread. Unset until the pass has seen every one, then the
+		 * snapshot (once). Sorting and building the bodies are not done here.
+		 */
+		virtual TOptional<FLogisticsSnapshot> StepLogisticsRead(FStepBudget& Budget) { return {}; }
+		/** True when the pass StepLogisticsRead just ended was abandoned (no subsystem, the world changed, or zero buildables): its value is not a world. */
+		virtual bool LogisticsReadAbandoned() const { return false; }
+		/** The caller drops an open pass (source changed, left Running): frees what the reader buffered. */
+		virtual void EndLogisticsRead() {}
+		/** True while a logistics pass is open (begun, not finished or ended). */
+		virtual bool IsLogisticsReadOpen() const { return false; }
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

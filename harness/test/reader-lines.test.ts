@@ -6,9 +6,17 @@ const line = (name: string, longest: string) => `${P}${name} (game thread only):
 const LINES = [line("Factory read", "0.30"), line("Trains read", "1.70"), line("Train routes read", "2.05")];
 
 describe("step costs", () => {
-  it("names the four sliced readers and the ceiling", () => {
-    expect(STEP_LINE_NAMES).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read"]);
+  it("names the five sliced readers and the ceiling", () => {
+    expect(STEP_LINE_NAMES).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read"]);
     expect(MAX_NATIVE_STEP_MS).toBe(2.0);
+  });
+  it("parses the shared logistics line and holds it to the ceiling", () => {
+    const sample = `${P}Logistics read (game thread only): layers rails=1 conveyors=0, 5 buildables, 2 tracks, 0 belts, 0 lifts, 0 pipes, 0 open ends, 0 ownerless ends in 3 steps, longest step 1.20 ms, total 3.40 ms`;
+    expect(stepCosts([sample])).toEqual([{ reader: "Logistics read", longestStepMs: 1.2, totalMs: 3.4 }]);
+    expect(stepProblems([sample], ["Logistics read"])).toEqual([]);
+    const over = stepProblems([sample.replace("1.20 ms", "2.05 ms")], ["Logistics read"]);
+    expect(over).toHaveLength(1);
+    expect(over[0]).toMatch(/Logistics read/);
   });
   it("parses one StepCost per matching line, including S1's scan line", () => {
     expect(stepCosts(LINES)).toEqual([
