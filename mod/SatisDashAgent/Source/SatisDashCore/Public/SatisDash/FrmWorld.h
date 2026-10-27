@@ -9,9 +9,9 @@
 
 namespace SatisDash
 {
-	/** The world layers sent so far (spec "What the Node agent sends"). Conveyors is native-only. */
-	enum class EWorldLayer : uint8 { Rails, ResourceNodes, TrainRoutes, Conveyors };
-	inline constexpr int32 WorldLayerCount = 4;
+	/** The world layers sent so far (spec "What the Node agent sends"). Conveyors, MapMarkers, DroneRoutes and PowerLines are native-only. */
+	enum class EWorldLayer : uint8 { Rails, ResourceNodes, TrainRoutes, Conveyors, MapMarkers, DroneRoutes, PowerLines };
+	inline constexpr int32 WorldLayerCount = 7;
 
 	struct FWorldLayerSpec
 	{

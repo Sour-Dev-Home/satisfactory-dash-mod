@@ -15,6 +15,10 @@ namespace
 		{ TEXT("trainRoutes"), nullptr, 480.0, 600.0, 0.0 },
 		// R6: native-only like trainRoutes (the bridge never sent conveyors): the same 8 minute first read and 10 minute interval.
 		{ TEXT("conveyors"), nullptr, 480.0, 600.0, 0.0 },
+		// S4-A: native-only like conveyors (no FRM endpoint here): the same 8 minute first read and 10 minute interval (worldReader.ts).
+		{ TEXT("mapMarkers"), nullptr, 480.0, 600.0, 0.0 },
+		{ TEXT("droneRoutes"), nullptr, 480.0, 600.0, 0.0 },
+		{ TEXT("powerLines"), nullptr, 480.0, 600.0, 0.0 },
 	};
 
 	TUniquePtr<SatisDash::FFrmArrayParse> FrmWorldMakeParse(SatisDash::EWorldLayer Layer, TArray<uint8> Body, const FString& ObservedAt)

@@ -30,6 +30,12 @@ namespace
 		case SatisDash::EWorldLayer::TrainRoutes: return Context.Config->GetTrainsSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::Rails: return Context.Config->GetRailsSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::Conveyors: return Context.Config->GetConveyorsSource() == SatisDash::ESource::Native;
+		// S4-A: the getters exist (Task 2) but no scheduler branch reads these layers yet, so each stays false (a native layer
+		// with no branch must not be reachable). Tasks 5, 8 and 11 turn them on:
+		// MapMarkers: Context.Config->GetMapMarkersSource() == Native; DroneRoutes: GetDroneRoutesSource(); PowerLines: GetPowerLinesSource().
+		case SatisDash::EWorldLayer::MapMarkers:
+		case SatisDash::EWorldLayer::DroneRoutes:
+		case SatisDash::EWorldLayer::PowerLines: return false;
 		default: return false;
 		}
 	}
