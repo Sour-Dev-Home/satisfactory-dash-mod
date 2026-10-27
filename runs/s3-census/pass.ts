@@ -14,6 +14,9 @@ export const EXPECTED_BELT_RATE: Record<string, number> = { "Mk.1": 60, "Mk.2": 
 /** m3 a minute by pipe tier. */
 export const EXPECTED_PIPE_FLOW: Record<string, number> = { "Mk.1": 300, "Mk.2": 600 };
 
+/** Mirrors `WorldSenderCensusMaxLines` (mod/SatisDashAgent/Source/SatisDashCore/Private/WorldSender.cpp:15): the mod logs at most this many tier lines. */
+export const CENSUS_MAX_LINES = 16;
+
 const TIER = /\b(Mk\.[1-4])\s*$/;
 
 function tierReason(t: CensusTier): string {
@@ -41,6 +44,7 @@ export function evaluate(e: CoreEvidence): Verdict {
   if (failures.length) return { pass: false, reasons: failures };
   const reasons = [
     `Logistics read: ${JSON.stringify(logistics)}`,
+    ...(census.tiers.length >= CENSUS_MAX_LINES ? [`${census.tiers.length} tier census lines is the mod's cap (WorldSenderCensusMaxLines = ${CENSUS_MAX_LINES}): the census may be truncated (report only)`] : []),
     ...census.tiers.map(tierReason),
     census.kinds ? `kinds: ${census.kinds.checked} ends checked, ${census.kinds.differ} differ from the class table (first classes: ${census.kinds.classes.join(", ") || "none"})` : "kinds: no line",
     census.ports ? `drone ports: ${census.ports.into} edges end at a port, ${census.ports.outOf} start at one` : "drone ports: no line",

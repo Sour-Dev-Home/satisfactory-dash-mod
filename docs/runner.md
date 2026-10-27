@@ -288,7 +288,8 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   and the staged world (`sprint3World`, `Test3`); it needs no `frmBaseUrl` and judges no FRM data. It writes the S3 native
   sources (`NATIVE_SOURCES_S3`, so rails and conveyors are native) into the mod's config, loads `Test3`, turns auto-pause off,
   enrols the mod, and waits at most 14 minutes for the mod's first `Logistics read (game thread only):` line (the first pass
-  lands about 8 minutes after Running), then 20 more seconds for the census lines that follow it. It reads what only the
+  lands about 8 minutes after Running), then for the `Conveyor drone ports:` line and the first tier census line that follow it,
+  all inside that one 14-minute bound (a timeout falls through to judging the log as it is). It reads what only the
   running game says: the belt/lift `GetSpeed()` unit, the tier display names, the pipe flow limits and the drone-port ends.
   `census.json` holds the parsed `Conveyor tier census:` lines (kind, name, speed, count), the `Conveyor kinds:` line, the
   `Conveyor drone ports:` line and the counts of the `Logistics read` line. Pass is a `Logistics read` line with

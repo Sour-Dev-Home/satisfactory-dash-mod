@@ -7,9 +7,9 @@ import { enrolPhase } from "./enrol";
 const MIN = 60_000;
 /** The first logistics pass lands about 8 minutes after the agent starts Running; the wait is bounded at 14. */
 export const CENSUS_WAIT_MS = 14 * MIN;
-/** The census lines follow the Logistics read line in the same pass; this is slack for them to reach the log file. */
-export const CENSUS_SETTLE_MS = 20_000;
 const LOGISTICS_HEAD = "Logistics read (game thread only):";
+const PORTS_HEAD = "Conveyor drone ports:";
+const TIER_HEAD = "Conveyor tier census:";
 
 /**
  * The one-off census (Task 10; the owner approves each dispatch): Test3 loaded with every native reader on, the mod enrolled, then
@@ -33,8 +33,19 @@ export const s3Census: CoreRunSpec = {
       ctx.rememberAutoPause(await ctx.deps.readAutoPause!());
       await ctx.deps.setAutoPause!(false);
       await enrolPhase(ctx, host, recorder);
-      await ctx.waitFor("the first Logistics read line", () => (lines().some((l) => l.includes(LOGISTICS_HEAD)) ? true : undefined), CENSUS_WAIT_MS);
-      await ctx.deps.sleep(CENSUS_SETTLE_MS);
+      // One bound for the whole wait. WorldSender.cpp logs, in one pass: the Logistics read line, then `Conveyor kinds:`, then
+      // `Conveyor drone ports:`, then (once per run) the tier census lines. So the ports line is not the last of the family: after
+      // it the drive waits for the first tier line. A timeout anywhere falls through to judging what the log holds.
+      const start = ctx.deps.now().getTime();
+      const left = () => Math.max(1000, CENSUS_WAIT_MS - (ctx.deps.now().getTime() - start));
+      const has = (head: string) => () => (lines().some((l) => l.includes(head)) ? true : undefined);
+      for (const [what, head] of [["the first Logistics read line", LOGISTICS_HEAD], ["the Conveyor drone ports line", PORTS_HEAD], ["a Conveyor tier census line", TIER_HEAD]] as const) {
+        try {
+          await ctx.waitFor(what, has(head), left());
+        } catch {
+          break;
+        }
+      }
     } finally {
       const all = lines();
       ctx.captures["census.json"] = { ...censusLines(all), logistics: logisticsRead(all) };

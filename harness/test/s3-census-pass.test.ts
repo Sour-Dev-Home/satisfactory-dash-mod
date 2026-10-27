@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CORE_RUN_IDS, NATIVE_SOURCES_S3, type CoreContext, type CoreDeps, type CoreEvidence } from "../src/core-run";
 import { CORE_RUNS } from "../src/core-runs";
-import { CENSUS_SETTLE_MS, CENSUS_WAIT_MS, s3Census } from "../src/core-runs/s3-census";
+import { CENSUS_WAIT_MS, s3Census } from "../src/core-runs/s3-census";
 import { censusLines, logisticsRead } from "../src/reader-lines";
 import * as Pass from "../../runs/s3-census/pass";
 
@@ -87,19 +87,46 @@ describe("s3-census spec and drive", () => {
     expect(s3Census).toMatchObject({ world: true, worldKey: "sprint3", backend: true, modConfig: NATIVE_SOURCES_S3 });
     expect(s3Census.baseline).toBeUndefined();
     expect(CENSUS_WAIT_MS).toBe(14 * 60_000);
-    expect(CENSUS_SETTLE_MS).toBe(20_000);
   });
-  it("loads the world, enrols, waits for the Logistics line, settles, and writes census.json", async () => {
+  it("reports a possibly truncated census when the tier lines reach the mod's cap of 16", () => {
+    const many = Array.from({ length: 16 }, (_, i) => tier("belt", `Belt ${i}`, "1", 1));
+    expect(Pass.evaluate(ev([logistics(1, 1), ...many])).reasons.join("\n")).toMatch(/may be truncated/);
+    expect(Pass.evaluate(ev([logistics(1, 1), ...many.slice(1)])).reasons.join("\n")).not.toMatch(/truncated/);
+  });
+  it("on the timeout path still writes census.json (empty tiers) and the judge fails with no census line", async () => {
+    const log = logistics(1, 1);
+    const deps = {
+      backendHost: async () => ({ relayUrl: "http://127.0.0.1:9", seedCode: async () => undefined }),
+      loadWorld: async () => undefined, waitHealthy: async () => undefined, readAutoPause: async () => true, setAutoPause: async () => undefined,
+      readLogSince: () => log, now: () => new Date(0),
+    } as unknown as CoreDeps;
+    const captures: Record<string, unknown> = {};
+    const ctx = {
+      deps, captures, offset: 0, writeConfig: () => undefined, noteSecret: () => undefined, rememberAutoPause: () => undefined,
+      waitFor: async (what: string) => {
+        if (what.includes("Logistics") || what.includes("accepted")) return true;
+        throw new Error(`timed out waiting for ${what}`);
+      },
+    } as unknown as CoreContext;
+    await expect(s3Census.drive(ctx)).resolves.toBeUndefined();
+    const c = captures["census.json"] as { tiers: unknown[]; logistics: unknown };
+    expect(c.tiers).toEqual([]);
+    expect(c.logistics).not.toBeNull();
+    const v = Pass.evaluate(ev([log]));
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join(" ")).toMatch(/no conveyor census line/);
+  });
+  it("loads the world, enrols, waits for the Logistics, ports and tier lines, and writes census.json", async () => {
     const steps: string[] = [];
     let log = "";
     const deps = {
+      now: () => new Date(0),
       backendHost: async () => ({ relayUrl: "http://127.0.0.1:9", seedCode: async () => void steps.push("seedCode") }),
       loadWorld: async (key?: string) => void steps.push(`loadWorld:${key}`),
       waitHealthy: async () => void steps.push("waitHealthy"),
       readAutoPause: async () => true,
       setAutoPause: async () => void steps.push("autoPauseOff"),
       readLogSince: () => log,
-      sleep: async (ms: number) => void steps.push(`sleep:${ms}`),
     } as unknown as CoreDeps;
     const waits: Array<[string, number]> = [];
     const captures: Record<string, unknown> = {};
@@ -115,12 +142,14 @@ describe("s3-census spec and drive", () => {
           log = GOOD.join("\n");
           expect(check()).toBe(true);
         }
+        if (what.includes("tier")) expect(check()).toBe(true);
         return true;
       },
     } as unknown as CoreContext;
     await s3Census.drive(ctx);
-    expect(steps.filter((s) => s !== "seedCode")).toEqual(["loadWorld:sprint3", "waitHealthy", "autoPauseOff", "enrol", `sleep:${CENSUS_SETTLE_MS}`]);
-    expect(waits.at(-1)).toEqual(["the first Logistics read line", CENSUS_WAIT_MS]);
+    expect(steps.filter((s) => s !== "seedCode")).toEqual(["loadWorld:sprint3", "waitHealthy", "autoPauseOff", "enrol"]);
+    expect(waits.slice(-3).map((w) => w[0])).toEqual(["the first Logistics read line", "the Conveyor drone ports line", "a Conveyor tier census line"]);
+    expect(waits.at(-1)![1]).toBeLessThanOrEqual(CENSUS_WAIT_MS);
     const c = captures["census.json"] as { tiers: unknown[]; logistics: { belts: number } };
     expect(c.tiers).toHaveLength(3);
     expect(c.logistics.belts).toBe(340);
