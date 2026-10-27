@@ -557,7 +557,7 @@ bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 
 	// The driver's jitter draw is 1.0, so the native first read is 480 s x 1.1 = 528 s after Running.
 	TestTrue(TEXT("the pass begins through the whole driver"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.LogisticsBegins > 0; }, 560));
-	TestTrue(TEXT("not before the native first read"), F.T - 1000.0 >= 430.0);
+	TestTrue(TEXT("not before the native first read (528 s after Running)"), F.T - 1000.0 >= 528.0);
 	TestTrue(TEXT("with the rails flag"), F.Game.bLastBeginRails);
 	TestTrue(TEXT("and the layer is posted when it ends"), DriverNativeRunUntil(F, Driver, [&F, RailsPost] { return F.Net.pending(RailsPost) > 0; }, 30));
 	TestEqual(TEXT("three steps"), F.Game.LogisticsStepCalls, 3);

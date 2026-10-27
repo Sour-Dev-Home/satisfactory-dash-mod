@@ -14,7 +14,7 @@ const runsOn = (job: Job) => [job["runs-on"] ?? []].flat();
 describe("mod-test.yml (the self-hosted runner's second door)", () => {
   const wf = load("mod-test.yml");
 
-  it("holds the UE test-count floor at 169 (the suite has 169 tests)", () => {
+  it("holds the UE test-count floor at 177 (the suite has 177 tests)", () => {
     const steps = Object.values(wf.jobs).flatMap((j) => (j as unknown as { steps: Array<{ run?: string }> }).steps);
     expect(steps.some((s) => /test-mod .*--min 177\b/.test(s.run ?? ""))).toBe(true);
   });

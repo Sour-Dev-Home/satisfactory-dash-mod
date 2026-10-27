@@ -37,7 +37,7 @@ namespace SatisDash
 		FLogisticsCounts Counts;
 	};
 
-	using FReplyHandler =TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
+	using FReplyHandler = TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
 
 	/** How a request reaches the backend: the mod's own libcurl in the game (SatisDashGame), a fake in the tests. */
 	class ITransport

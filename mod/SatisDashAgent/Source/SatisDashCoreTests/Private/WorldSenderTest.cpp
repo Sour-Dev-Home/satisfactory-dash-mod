@@ -754,5 +754,20 @@ bool FWorldSenderNativeFirstReadTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("bridge rails: not before 107 s"), G.until([&G] { return G.Net.sent(WorldRailsRead) > 0; }, 106));
 	TestTrue(TEXT("bridge rails: asked at 108 s"), G.until([&G] { return G.Net.sent(WorldRailsRead) > 0; }, 6));
 	TestEqual(TEXT("bridge rails: no pass"), G.Game.LogisticsBegins, 0);
+
+	// A bridge to native flip mid-run (no pass open): the native first-read rule applies from the flip, and FRM is not asked again.
+	FWorldFixture H;
+	H.Config.RailsSource = ESource::Bridge;
+	H.Config.ResourceNodesSource = ESource::Bridge;
+	H.Config.TrainsSource = ESource::Bridge;
+	H.bNativeReaders = true;
+	H.Random01 = 0.0;
+	worldLogisticsReadings(H.Game);
+	H.Sender.Start(H.T);
+	H.tick(50);
+	H.Config.RailsSource = ESource::Native;
+	TestFalse(TEXT("flip: nothing is begun before 432 s"), H.until([&H] { return H.Game.LogisticsBegins > 0; }, 380));
+	TestTrue(TEXT("flip: the pass begins at 432 s"), H.until([&H] { return H.Game.LogisticsBegins > 0; }, 5));
+	TestEqual(TEXT("flip: FRM is never asked for rails"), H.Net.sent(WorldRailsRead), 0);
 	return true;
 }
