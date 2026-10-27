@@ -840,7 +840,8 @@ bool FWorldSenderDroneRoutesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("both reads begin"), M.until([&M] { return M.Game.MarkersBegins > 0 && M.Game.DronesBegins > 0; }, 440));
 	TestEqual(TEXT("one begin each"), M.Game.MarkersBegins + M.Game.DronesBegins, 2);
 	TestTrue(TEXT("both finish"), M.until([&M] { return M.Net.pending(WorldMapMarkersPost) > 0 || M.Net.pending(WorldDroneRoutesPost) > 0; }, 20));
-	TestEqual(TEXT("each budget counted its own three steps"), M.MarkersBudget.Steps() * 10 + M.DronesBudget.Steps(), 33);
+	TestEqual(TEXT("the markers budget counted its own three steps"), M.MarkersBudget.Steps(), 3);
+	TestEqual(TEXT("the drone budget counted its own three steps"), M.DronesBudget.Steps(), 3);
 	for (int32 Round = 0; Round < 2; ++Round)
 	{
 		M.until([&M] { return M.Net.pending(WorldMapMarkersPost) > 0 || M.Net.pending(WorldDroneRoutesPost) > 0; }, 20);
@@ -852,6 +853,37 @@ bool FWorldSenderDroneRoutesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("drone routes posted once"), M.Net.sent(WorldDroneRoutesPost), 1);
 	TestTrue(TEXT("each body carries its own data"), M.Net.lastBody(WorldMapMarkersPost).Contains(TEXT("AAAA0000")) && !M.Net.lastBody(WorldMapMarkersPost).Contains(TEXT("CCCC0000"))
 		&& M.Net.lastBody(WorldDroneRoutesPost).Contains(TEXT("CCCC0000")) && !M.Net.lastBody(WorldDroneRoutesPost).Contains(TEXT("AAAA0000")));
+
+	// One small layer abandoned while the other is open: the other still posts exactly once.
+	FWorldFixture P;
+	worldMapMarkersFixture(P);
+	worldDroneRoutesFixture(P);
+	P.Config.MapMarkersSource = ESource::Native;
+	P.Config.DroneRoutesSource = ESource::Native;
+	P.Game.bDronesAbandoned = true;
+	P.Sender.Start(P.T);
+	TestTrue(TEXT("abandoned drones: the markers body is posted"), P.until([&P] { return P.Net.pending(WorldMapMarkersPost) > 0; }, 440));
+	P.Net.answer(WorldMapMarkersPost, SatisDash::Test::Reply(200, WorldAccepted));
+	P.tick(2);
+	TestEqual(TEXT("abandoned drones: markers posted once"), P.Net.sent(WorldMapMarkersPost), 1);
+	TestEqual(TEXT("abandoned drones: drone routes posted nothing"), P.Net.sent(WorldDroneRoutesPost), 0);
+
+	// One small layer flipped to bridge while the other is open: only that reader ends, the other still posts exactly once.
+	FWorldFixture Q;
+	worldMapMarkersFixture(Q);
+	worldDroneRoutesFixture(Q);
+	Q.Config.MapMarkersSource = ESource::Native;
+	Q.Config.DroneRoutesSource = ESource::Native;
+	Q.Sender.Start(Q.T);
+	TestTrue(TEXT("both reads are open"), Q.until([&Q] { return Q.Game.MarkersBegins > 0 && Q.Game.DronesBegins > 0; }, 440));
+	Q.Config.DroneRoutesSource = ESource::Bridge;
+	TestTrue(TEXT("flipped drones: the markers body is posted"), Q.until([&Q] { return Q.Net.pending(WorldMapMarkersPost) > 0; }, 20));
+	Q.Net.answer(WorldMapMarkersPost, SatisDash::Test::Reply(200, WorldAccepted));
+	Q.tick(2);
+	TestEqual(TEXT("flipped drones: only the drone reader was ended"), Q.Game.DronesEnds, 1);
+	TestEqual(TEXT("flipped drones: the markers reader was not ended"), Q.Game.MarkersEnds, 0);
+	TestEqual(TEXT("flipped drones: markers posted once"), Q.Net.sent(WorldMapMarkersPost), 1);
+	TestEqual(TEXT("flipped drones: drone routes posted nothing"), Q.Net.sent(WorldDroneRoutesPost), 0);
 	return true;
 }
 
