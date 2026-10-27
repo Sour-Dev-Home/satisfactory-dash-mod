@@ -6,6 +6,9 @@
 // Names are player text. Every name becomes sessionHash(name) here and no raw name is returned or put in an id; the pairing of
 // drone ports is resolved inside mapFrmDroneFull and only ids and hashes leave it.
 //
+// A derived id is an unsalted sha256 of the marker's name. It is kept inside the oracle for ordering and never returned: every
+// id that starts with `derived-` leaves as `derived-` + sessionHash(id) (evidenceId), so it cannot reach a capture or evidence.
+//
 // Where the native readers deliberately differ, these oracles follow the dash mapper and the parity judge reports the
 // difference (it is not an oracle bug):
 //  - repeated ids: the mapper keeps every item, the native readers keep the first;
@@ -31,7 +34,7 @@ const UNPAIRED = "None";
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-const byCodePoint = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 /** Centimetres to metres, rounded to 0.01 m, -0 written 0 (the same form as frm-s3). */
 const metres2 = (cm: number): number => {
   const v = Math.round(cm) / 100;
@@ -52,6 +55,13 @@ const arrayBody = (body: unknown, what: string): unknown[] => {
   return body;
 };
 const sha = (v: unknown): string => createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 32);
+/** A derived id is an unsalted sha256 of the marker's name, so none may reach a capture raw: any id that starts with `derived-`
+ *  leaves the oracle as `derived-` + sessionHash(id). The raw id is kept inside the oracle only, for ordering and comparison. */
+export const evidenceId = (id: string): string => (id.startsWith(DERIVED_ID_PREFIX) ? DERIVED_ID_PREFIX + sessionHash(id) : id);
+// Ties between repeated ids break on the same content the dash mappers compare (JSON of the mapped item: raw name and whole
+// metres), held inside the oracle only and never returned.
+const sortByKey = <T extends { rawId: string; key: string }>(list: T[]): T[] =>
+  list.sort((a, b) => byCodeUnit(a.rawId, b.rawId) || byCodeUnit(a.key, b.key));
 
 // -------------------------------------------------------------------------------------------------------------------- markers
 
@@ -75,7 +85,7 @@ export const markerColor = (raw: unknown): string =>
   typeof raw === "string" && /^[0-9a-fA-F]{8}$/.test(raw) ? `#${raw.slice(0, 6).toLowerCase()}` : DEFAULT_MARKER_COLOR;
 
 export function mapFrmMarkers(body: unknown): FrmMarker[] {
-  const out: FrmMarker[] = [];
+  const out: Array<{ rawId: string; key: string; m: FrmMarker }> = [];
   for (const item of arrayBody(body, "getMapMarkers")) {
     if (!isObj(item)) continue;
     const loc = xy(item.location);
@@ -89,14 +99,14 @@ export function mapFrmMarkers(body: unknown): FrmMarker[] {
     const id = rawId !== undefined && rawId.length > 0 && rawId.length <= MAX_STRING
       ? rawId
       : DERIVED_ID_PREFIX + sha([wholeMetres(loc.x), wholeMetres(loc.y), kind, icon, color, name]);
-    out.push({ id, nameHash: sessionHash(name), kind, icon, color, xM: metres2(loc.x), yM: metres2(loc.y) });
+    const key = JSON.stringify({ id, name, kind, icon, color, x: wholeMetres(loc.x), y: wholeMetres(loc.y) });
+    out.push({ rawId: id, key, m: { id: evidenceId(id), nameHash: sessionHash(name), kind, icon, color, xM: metres2(loc.x), yM: metres2(loc.y) } });
   }
-  out.sort((a, b) => byCodePoint(a.id, b.id) || byCodePoint(JSON.stringify(a), JSON.stringify(b)));
-  return out.slice(0, MAP_MARKERS_MAX_ITEMS);
+  return sortByKey(out).slice(0, MAP_MARKERS_MAX_ITEMS).map((e) => e.m);
 }
 
 export const canonMarkers = (list: FrmMarker[]): string[] =>
-  list.map((m) => [m.id, m.nameHash, m.kind, m.icon, m.color, m.xM, m.yM].map(String).join("|")).sort(byCodePoint);
+  list.map((m) => [m.id, m.nameHash, m.kind, m.icon, m.color, m.xM, m.yM].map(String).join("|")).sort(byCodeUnit);
 
 // ---------------------------------------------------------------------------------------------------------------------- drones
 
@@ -115,7 +125,7 @@ function classesOf(inv: unknown): string[] {
       if (typeof c === "string" && c.length > 0 && c.length <= MAX_STRING) set.add(c);
     }
   }
-  return [...set].sort(byCodePoint).slice(0, MAX_ITEM_CLASSES);
+  return [...set].sort(byCodeUnit).slice(0, MAX_ITEM_CLASSES);
 }
 
 /** "None", empty or over-long names cannot pair; otherwise the name is kept exactly, trailing spaces included. */
@@ -123,40 +133,47 @@ const pairedName = (raw: unknown): string | null =>
   typeof raw !== "string" || raw === UNPAIRED || raw.length === 0 || raw.length > MAX_STRING ? null : raw;
 
 export function mapFrmDroneFull(body: unknown): FrmDronePort[] {
-  const kept: Array<{ id: string; name: string; paired: string | null; input: string[]; output: string[]; fuel: string[]; xM: number; yM: number }> = [];
+  const kept: Array<{ id: string; name: string; paired: string | null; input: string[]; output: string[]; fuel: string[]; xM: number; yM: number; key: string }> = [];
   for (const r of arrayBody(body, "getDroneStation")) {
     if (!isObj(r) || typeof r.ID !== "string" || r.ID === "" || typeof r.Name !== "string") continue;
     const loc = xy(r.location);
-    if (!loc || r.ID.length > MAX_STRING || r.Name.length > MAX_STRING || !inBounds(loc.x) || !inBounds(loc.y)) continue;
+    // The mapper's raw location schema requires a numeric z as well.
+    if (!loc || !isObj(r.location) || !isNum(r.location.z) || r.ID.length > MAX_STRING || r.Name.length > MAX_STRING || !inBounds(loc.x) || !inBounds(loc.y)) continue;
+    const paired = pairedName(r.PairedStation);
+    const input = classesOf(r.InputInventory);
+    const output = classesOf(r.OutputInventory);
+    const fuel = classesOf(r.FuelInventory);
     kept.push({
-      id: r.ID, name: r.Name, paired: pairedName(r.PairedStation),
-      input: classesOf(r.InputInventory), output: classesOf(r.OutputInventory), fuel: classesOf(r.FuelInventory),
-      xM: metres2(loc.x), yM: metres2(loc.y),
+      id: r.ID, name: r.Name, paired, input, output, fuel, xM: metres2(loc.x), yM: metres2(loc.y),
+      key: JSON.stringify({ id: r.ID, name: r.Name, paired, input, output, fuel, x: wholeMetres(loc.x), y: wholeMetres(loc.y) }),
     });
   }
-  const out = kept.map((p): FrmDronePort => ({
-    id: p.id,
-    nameHash: sessionHash(p.name),
-    pairedHash: p.paired === null ? null : sessionHash(p.paired),
-    input: p.input, output: p.output, fuel: p.fuel, xM: p.xM, yM: p.yM,
-    pairedIds: p.paired === null ? [] : kept.filter((q) => q.name === p.paired).map((q) => q.id).sort(byCodePoint),
+  const out = kept.map((p) => ({
+    rawId: p.id,
+    key: p.key,
+    port: {
+      id: evidenceId(p.id),
+      nameHash: sessionHash(p.name),
+      pairedHash: p.paired === null ? null : sessionHash(p.paired),
+      input: p.input, output: p.output, fuel: p.fuel, xM: p.xM, yM: p.yM,
+      pairedIds: p.paired === null ? [] : [...new Set(kept.filter((q) => q.name === p.paired).map((q) => q.id))].sort(byCodeUnit).map(evidenceId),
+    } satisfies FrmDronePort,
   }));
   // The mapper sorts by id, then by content; a repeated id is kept (the native readers keep the first).
-  out.sort((a, b) => byCodePoint(a.id, b.id) || byCodePoint(JSON.stringify(a), JSON.stringify(b)));
-  return out.slice(0, DRONE_ROUTES_MAX_ITEMS);
+  return sortByKey(out).slice(0, DRONE_ROUTES_MAX_ITEMS).map((e) => e.port);
 }
 
 export const canonDrone = (list: FrmDronePort[]): string[] =>
   list
     .map((p) => [p.id, p.nameHash, p.pairedHash ?? "-", p.input.join(","), p.output.join(","), p.fuel.join(","), p.xM, p.yM, p.pairedIds.join(",")].map(String).join("|"))
-    .sort(byCodePoint);
+    .sort(byCodeUnit);
 
 // ----------------------------------------------------------------------------------------------------------------------- wires
 
 export interface FrmWire { id: string; ends: [[number, number], [number, number]] }
 
 export function mapFrmWires(body: unknown): FrmWire[] {
-  const out: FrmWire[] = [];
+  const out: Array<{ rawId: string; key: string; w: FrmWire }> = [];
   for (const item of arrayBody(body, "getCables")) {
     if (!isObj(item)) continue;
     const a = xy(item.location0);
@@ -167,10 +184,10 @@ export function mapFrmWires(body: unknown): FrmWire[] {
     const id = rawId !== undefined && rawId.length > 0 && rawId.length <= MAX_STRING
       ? rawId
       : DERIVED_ID_PREFIX + sha([[wholeMetres(a.x), wholeMetres(a.y)], [wholeMetres(b.x), wholeMetres(b.y)]]);
-    out.push({ id, ends: [[metres2(a.x), metres2(a.y)], [metres2(b.x), metres2(b.y)]] });
+    const key = JSON.stringify([[wholeMetres(a.x), wholeMetres(a.y)], [wholeMetres(b.x), wholeMetres(b.y)]]);
+    out.push({ rawId: id, key, w: { id: evidenceId(id), ends: [[metres2(a.x), metres2(a.y)], [metres2(b.x), metres2(b.y)]] } });
   }
-  out.sort((x, y) => byCodePoint(x.id, y.id) || byCodePoint(JSON.stringify(x.ends), JSON.stringify(y.ends)));
-  return out.slice(0, POWER_LINES_MAX_ITEMS);
+  return sortByKey(out).slice(0, POWER_LINES_MAX_ITEMS).map((e) => e.w);
 }
 
-export const canonWires = (list: FrmWire[]): string[] => list.map((w) => `${w.id}|${w.ends[0].join(",")}|${w.ends[1].join(",")}`).sort(byCodePoint);
+export const canonWires = (list: FrmWire[]): string[] => list.map((w) => `${w.id}|${w.ends[0].join(",")}|${w.ends[1].join(",")}`).sort(byCodeUnit);
