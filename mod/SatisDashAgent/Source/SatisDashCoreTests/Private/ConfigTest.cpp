@@ -262,6 +262,11 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 		{ TEXT("mapMarkersSource"), DefaultMapMarkersSource, &FAgentConfig::GetMapMarkersSource, &FAgentConfig::MapMarkersSource },
 		{ TEXT("droneRoutesSource"), DefaultDroneRoutesSource, &FAgentConfig::GetDroneRoutesSource, &FAgentConfig::DroneRoutesSource },
 		{ TEXT("powerLinesSource"), DefaultPowerLinesSource, &FAgentConfig::GetPowerLinesSource, &FAgentConfig::PowerLinesSource },
+		// The S4-B keys: the same rules, default bridge.
+		{ TEXT("extractorsSource"), DefaultExtractorsSource, &FAgentConfig::GetExtractorsSource, &FAgentConfig::ExtractorsSource },
+		{ TEXT("generatorsSource"), DefaultGeneratorsSource, &FAgentConfig::GetGeneratorsSource, &FAgentConfig::GeneratorsSource },
+		{ TEXT("stationRatesSource"), DefaultStationRatesSource, &FAgentConfig::GetStationRatesSource, &FAgentConfig::StationRatesSource },
+		{ TEXT("storageSource"), DefaultStorageSource, &FAgentConfig::GetStorageSource, &FAgentConfig::StorageSource },
 	};
 	for (const auto& K : S4Keys)
 	{

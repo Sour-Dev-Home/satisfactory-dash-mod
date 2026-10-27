@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -155,5 +155,23 @@ describe("the Readers line", () => {
     expect(droneRoutesLogProblems([S4Bridge])).toEqual([expect.stringMatching(/droneRoutes=bridge, not native/)]);
     expect(powerLinesLogProblems([S4Bridge])).toEqual([expect.stringMatching(/powerLines=bridge, not native/)]);
     expect(powerLinesLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
+  });
+  const S4BNative = `${S4Native} extractors=native generators=native stationRates=native storage=native`;
+  const S4BBridge = `${S4Native} extractors=bridge generators=bridge stationRates=bridge storage=bridge`;
+  it("parses the thirteen-field line; the nine-field line leaves the S4-B fields undefined; a partial group is no line", () => {
+    for (const k of ["extractors", "generators", "stationRates", "storage"] as const) expect(readerSources([S4Native])?.[k]).toBeUndefined();
+    expect(readerSources([S4BNative])).toEqual({ players: "native", resourceNodes: "native", factory: "native", trains: "native", rails: "native", conveyors: "native", mapMarkers: "native", droneRoutes: "native", powerLines: "native", extractors: "native", generators: "native", stationRates: "native", storage: "native" });
+    expect(readerSources([S4BBridge])?.stationRates).toBe("bridge");
+    expect(readerSources([`${S4Native} extractors=native`])).toBeNull();
+    expect(readerSources([`${S4Native} extractors=native generators=native stationRates=native`])).toBeNull();
+  });
+  it("judges extractors, generators, stationRates and storage like conveyors", () => {
+    const judges = [["extractors", extractorsLogProblems], ["generators", generatorsLogProblems], ["stationRates", stationRatesLogProblems], ["storage", storageLogProblems]] as const;
+    for (const [key, judge] of judges) {
+      expect(judge([S4Native])).toEqual([expect.stringMatching(new RegExp(`has no ${key}= field`))]);
+      expect(judge([S4BNative])).toEqual([]);
+      expect(judge([S4BBridge])).toEqual([expect.stringMatching(new RegExp(`${key}=bridge, not native`))]);
+      expect(judge([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
+    }
   });
 });

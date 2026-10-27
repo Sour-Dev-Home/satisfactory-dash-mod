@@ -8,12 +8,13 @@ export const READERS_LINE = "Readers:";
 export const SCAN_LINE = "Resource node scan (game thread only):";
 
 /** factory and trains are absent on the S1 two-field line. */
-export interface ReaderSources { players: string; resourceNodes: string; factory?: string; trains?: string; rails?: string; conveyors?: string; mapMarkers?: string; droneRoutes?: string; powerLines?: string }
+export interface ReaderSources { players: string; resourceNodes: string; factory?: string; trains?: string; rails?: string; conveyors?: string; mapMarkers?: string; droneRoutes?: string; powerLines?: string; extractors?: string; generators?: string; stationRates?: string; storage?: string }
 export interface ScanCost { actors: number; steps: number; nodes: number; longestStepMs: number; totalMs: number }
 
 // The S1 two-field form, the S2 four-field form, the S3 five-field form, the S3 six-field form (conveyors after rails), or the S4-A
-// nine-field form (mapMarkers, droneRoutes and powerLines after conveyors, all three or none).
-const READERS = /\bReaders: players=(\S+) resourceNodes=(\S+)(?: factory=(\S+) trains=(\S+)(?: rails=(\S+)(?: conveyors=(\S+)(?: mapMarkers=(\S+) droneRoutes=(\S+) powerLines=(\S+))?)?)?)?\s*$/;
+// nine-field form (mapMarkers, droneRoutes and powerLines after conveyors, all three or none), or the S4-B thirteen-field form
+// (extractors, generators, stationRates and storage after powerLines, all four or none).
+const READERS = /\bReaders: players=(\S+) resourceNodes=(\S+)(?: factory=(\S+) trains=(\S+)(?: rails=(\S+)(?: conveyors=(\S+)(?: mapMarkers=(\S+) droneRoutes=(\S+) powerLines=(\S+)(?: extractors=(\S+) generators=(\S+) stationRates=(\S+) storage=(\S+))?)?)?)?)?\s*$/;
 const SCAN = /Resource node scan \(game thread only\): (\d+) actors in (\d+) steps, (\d+) nodes, longest step (\d+(?:\.\d+)?) ms, total (\d+(?:\.\d+)?) ms/;
 
 /** The last `Readers:` line (a later Running entry replaces an earlier one), or null when there is none. */
@@ -26,7 +27,8 @@ export function readerSources(lines: readonly string[]): ReaderSources | null {
     const withTrains = m[3] === undefined ? base : { ...base, factory: m[3], trains: m[4]! };
     const withRails = m[5] === undefined ? withTrains : { ...withTrains, rails: m[5] };
     const withConveyors = m[6] === undefined ? withRails : { ...withRails, conveyors: m[6] };
-    found = m[7] === undefined ? withConveyors : { ...withConveyors, mapMarkers: m[7], droneRoutes: m[8]!, powerLines: m[9]! };
+    const withS4A = m[7] === undefined ? withConveyors : { ...withConveyors, mapMarkers: m[7], droneRoutes: m[8]!, powerLines: m[9]! };
+    found = m[10] === undefined ? withS4A : { ...withS4A, extractors: m[10], generators: m[11]!, stationRates: m[12]!, storage: m[13]! };
   }
   return found;
 }
@@ -85,7 +87,7 @@ export function playersLogProblems(lines: readonly string[]): string[] {
   return s.players === "native" ? [] : [`the mod's "${READERS_LINE}" line says players=${s.players}, not native`];
 }
 
-function partLogProblems(lines: readonly string[], part: "factory" | "trains" | "rails" | "conveyors" | "mapMarkers" | "droneRoutes" | "powerLines"): string[] {
+function partLogProblems(lines: readonly string[], part: "factory" | "trains" | "rails" | "conveyors" | "mapMarkers" | "droneRoutes" | "powerLines" | "extractors" | "generators" | "stationRates" | "storage"): string[] {
   const s = readerSources(lines);
   if (!s) return [`the mod's log has no "${READERS_LINE}" line: the run cannot show the ${part} reader was native, not the bridge`];
   const source = s[part];
@@ -113,6 +115,18 @@ export const droneRoutesLogProblems = (lines: readonly string[]): string[] => pa
 
 /** Why the log does not show the power lines reader native (empty: it does). */
 export const powerLinesLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "powerLines");
+
+/** Why the log does not show the extractors reader native (empty: it does). */
+export const extractorsLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "extractors");
+
+/** Why the log does not show the generators reader native (empty: it does). */
+export const generatorsLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "generators");
+
+/** Why the log does not show the station rates reader native (empty: it does). */
+export const stationRatesLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "stationRates");
+
+/** Why the log does not show the storage reader native (empty: it does). */
+export const storageLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "storage");
 
 /** Why the log does not show the resource-node reader native and at work (empty: it does). */
 export function nodesLogProblems(lines: readonly string[]): string[] {

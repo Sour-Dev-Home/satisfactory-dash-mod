@@ -91,8 +91,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	int32 BridgeLines = 0;
 	for (const FString& Line : Log.Take())
 	{
-		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
-		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
+		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
+		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Readers line for the default (native players) driver"), NativeLines, 1);
 	TestEqual(TEXT("one Readers line for the bridge-key driver"), BridgeLines, 1);
@@ -179,7 +179,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	for (const FString& Line : Log.Take())
 	{
 		ScanLines += Line.Contains(TEXT("Resource node scan")) || Line.Contains(TEXT("found no nodes")) ? 1 : 0;
-		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=bridge rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=bridge rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("and logs nothing about a scan"), ScanLines, 0);
 	TestEqual(TEXT("one Readers line for the native-nodes driver"), ReadersLines, 1);
@@ -256,9 +256,9 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	int32 AllNative = 0;
 	for (const FString& Line : Log.Take())
 	{
-		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
+		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line shows the default driver's: all nine native"), AllNative, 1);
+	TestEqual(TEXT("one Readers line shows the default driver's: nine native, the four S4-B keys bridge"), AllNative, 1);
 	return true;
 }
 
@@ -568,7 +568,7 @@ bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 	int32 Readers = 0;
 	for (const FString& Line : Log.Take())
 	{
-		Readers += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		Readers += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows rails=native"), Readers, 1);
 
@@ -624,7 +624,7 @@ bool FDriverNativePowerLinesTest::RunTest(const FString& Parameters)
 	int32 Readers = 0;
 	for (const FString& Line : Log.Take())
 	{
-		Readers += Line.EndsWith(TEXT("rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=native")) ? 1 : 0;
+		Readers += Line.EndsWith(TEXT("rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows powerLines=native"), Readers, 1);
 
@@ -679,7 +679,7 @@ bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 	int32 Readers = 0;
 	for (const FString& Line : Log.Take())
 	{
-		Readers += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		Readers += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=bridge powerLines=bridge extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows mapMarkers=native"), Readers, 1);
 
@@ -701,7 +701,7 @@ bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 	int32 BothNative = 0;
 	for (const FString& Line : Log.Take())
 	{
-		BothNative += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=native powerLines=bridge")) ? 1 : 0;
+		BothNative += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=native powerLines=bridge extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows droneRoutes=native"), BothNative, 1);
 	return true;

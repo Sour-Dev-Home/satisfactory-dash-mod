@@ -74,7 +74,7 @@ void SatisDash::FDriver::Tick()
 		LastGameReadAt.Reset();
 		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
 		const FAgentConfig& Sources = Agent.GetConfig();
-		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s conveyors=%s mapMarkers=%s droneRoutes=%s powerLines=%s"),
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s conveyors=%s mapMarkers=%s droneRoutes=%s powerLines=%s extractors=%s generators=%s stationRates=%s storage=%s"),
 			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetFactorySource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
@@ -83,7 +83,11 @@ void SatisDash::FDriver::Tick()
 			Sources.GetConveyorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetMapMarkersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetDroneRoutesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetPowerLinesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
+			Sources.GetPowerLinesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetExtractorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetGeneratorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetStationRatesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetStorageSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
