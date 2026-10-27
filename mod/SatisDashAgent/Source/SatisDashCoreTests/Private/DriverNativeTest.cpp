@@ -787,6 +787,20 @@ bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("one warning"), Warned, 1);
 
+	// A pass over zero buildables (a save still loading) is reported abandoned by the game reader: nothing is posted, so the
+	// dashboard keeps the last extractors, and the factory part itself still goes out unchanged.
+	FDriverFixture Z;
+	Z.Game.bBuildablesAbandoned = true;
+	Z.Game.BuildablesCounts.Elements = 0;
+	Z.Game.Extractors.Add(Miner);
+	FDriver Empty{ Z.ConfigPath, Z.CredentialPath, Z.Net, Z.Game, Z.Worker, Z.clock() };
+	Z.enrol(Empty, SatisDash::Test::FakeSecret(), Native);
+	const TArray<FString> EmptyBodies = DriverNativeRun(Z, Empty, 80);
+	TestTrue(TEXT("the empty pass was tried"), Z.Game.BuildablesBegins >= 1);
+	TestFalse(TEXT("an empty (abandoned) pass posts no extractors"), DriverNativeAny(EmptyBodies, TEXT("\"extractors\":")));
+	TestTrue(TEXT("the factory part is unchanged"), DriverNativeAny(EmptyBodies, TEXT("\"factory\":{\"buildings\":[]}")));
+	Log.Take();
+
 	// Default config: the extractors source is bridge, so no pass begins and the factory part has no extractors key.
 	FDriverFixture D;
 	FDriver Plain{ D.ConfigPath, D.CredentialPath, D.Net, D.Game, D.Worker, D.clock() };

@@ -1388,8 +1388,9 @@ namespace
 	 *   Max     = items per cycle * 60 / cycle time, where the items per cycle is GetNumExtractedItemsPerCycle
 	 *             (FGBuildableResourceExtractor.h:39) and the cycle time is GetProductionCycleTime (FGBuildableResourceExtractor.h:29,
 	 *             FGBuildableFactory.h:197: "with potential multiplier applied", so it is the time at the current clock).
-	 *   Current = Max * GetProductivity (FGBuildableFactory.h:213), clamped to [0,1].
-	 * A fluid's count is divided by 1000 (litres to m3), as every other fluid amount in this reader.
+	 *   Current = Max * GetProductivity (FGBuildableFactory.h:213) / ProductivityFullScale (the factory read's constant), clamped to [0,1].
+	 * A fluid's count is divided by 1000 (litres to m3), as every other fluid amount in this reader; the raw count is not in
+	 * display units (GetNumExtractedItemsPerCycleConverted exists "for displaying in the UI", FGBuildableResourceExtractor.h:43).
 	 * NEEDS VERIFICATION (the parity run judges, a failure goes to a ruling PR, never a weakened judge):
 	 *   - purity: the headers do not say whether the cycle time already holds it. GetExtractionSpeedMultiplier
 	 *     (FGExtractableResourceInterface.h:56) is a separate getter, but the extractor overrides OnExtractableResourceSet
@@ -1407,7 +1408,7 @@ namespace
 		}
 		const double Items = static_cast<double>(Extractor.GetNumExtractedItemsPerCycle()) / (bFluid ? 1000.0 : 1.0);
 		OutMax = Items * 60.0 / CycleSeconds;
-		OutCurrent = OutMax * FMath::Clamp(static_cast<double>(Extractor.GetProductivity()), 0.0, 1.0);
+		OutCurrent = OutMax * FMath::Clamp(static_cast<double>(Extractor.GetProductivity()) / SatisDash::ProductivityFullScale, 0.0, 1.0);
 	}
 
 	/** V3: backed up is true only when the output has a slot that is full (a held stack at its GetSlotSize); a null inventory is not backed up. */
@@ -1502,7 +1503,11 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 		if (BuildablesAsked.bExtractors)
 		{
 			const AFGBuildableResourceExtractor* Extractor = Cast<AFGBuildableResourceExtractor>(Buildable);
-			if (Extractor != nullptr && BuildablesFound.Extractors.Num() < MaxExtractors)
+			if (Extractor != nullptr && BuildablesFound.Extractors.Num() >= MaxExtractors)
+			{
+				++BuildablesFound.Counts.ExtractorsOverCap;
+			}
+			else if (Extractor != nullptr)
 			{
 				FExtractorReading Reading;
 				Reading.Id = Extractor->GetName();
@@ -1521,7 +1526,9 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 				const UFGPowerCircuit* Circuit = PowerInfo != nullptr ? PowerInfo->GetPowerCircuit() : nullptr;
 				Reading.CircuitGroupId = Circuit != nullptr ? Circuit->GetCircuitGroupID() : -1;
 				// An unoccupied extractor (or one whose resource is not a native interface) has no resource: empty class, Core omits production.
-				const IFGExtractableResourceInterface* Resource = Extractor->GetExtractableResource().GetInterface();
+				// The object behind the interface is checked first: one pending kill is not yet collected, and its interface pointer is stale.
+				const TScriptInterface<IFGExtractableResourceInterface> ResourceRef = Extractor->GetExtractableResource();
+				const IFGExtractableResourceInterface* Resource = IsValid(ResourceRef.GetObject()) ? ResourceRef.GetInterface() : nullptr;
 				const TSubclassOf<UFGResourceDescriptor> ResourceClass = Resource != nullptr ? Resource->GetResourceClass() : nullptr;
 				if (ResourceClass)
 				{
@@ -1541,10 +1548,14 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 	{
 		return {};
 	}
-	// Counts and times only; never an id, a name or a class.
-	UE_LOG(LogSatisDash, Display, TEXT("Buildables read (game thread only): %d buildings in %d steps, %d extractors, longest step %.2f ms, total %.2f ms"),
-		BuildablesFound.Counts.Elements, Budget.Steps(), BuildablesFound.Counts.Extractors, Budget.LongestMs(), Budget.TotalMs());
-	LogLongestStep(TEXT("Buildables"), Budget);
+	if (BuildablesFound.Counts.Elements == 0)
+	{
+		// Ruling M5: a world with no buildables at all is "cannot read" (a save still loading), not an empty factory.
+		ResetBuildablesRead();
+		bBuildablesAbandoned = true;
+		return FBuildablesSnapshot();
+	}
+	// The driver owns the one log line of a finished pass (counts and times), as for trains.
 	FBuildablesSnapshot Done = MoveTemp(BuildablesFound);
 	ResetBuildablesRead(); // closes the pass: the driver does not call EndBuildablesRead after a finished one
 	return MoveTemp(Done);

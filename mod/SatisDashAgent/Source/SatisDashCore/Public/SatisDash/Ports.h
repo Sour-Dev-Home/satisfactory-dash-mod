@@ -71,6 +71,8 @@ namespace SatisDash
 	struct FBuildablesCounts
 	{
 		int32 Elements = 0, Extractors = 0, Generators = 0, Containers = 0;
+		/** Extractors seen past the reader's own list cap and dropped (a count, never ids). */
+		int32 ExtractorsOverCap = 0;
 	};
 
 	/** What a finished Buildables pass hands over; the readings are freed once the fragments are built. */
@@ -208,7 +210,7 @@ namespace SatisDash
 		virtual bool BeginBuildablesRead(const FBuildablesFlags& Asked) { return false; }
 		/** Reads buildables until the budget is spent, on the game thread. Unset until the pass has seen every one, then the snapshot (once). */
 		virtual TOptional<FBuildablesSnapshot> StepBuildablesRead(FStepBudget& Budget) { return {}; }
-		/** True when the pass StepBuildablesRead just ended was abandoned (no subsystem, or the world changed): its value is not a world. */
+		/** True when the pass StepBuildablesRead just ended was abandoned (no subsystem, the world changed, or zero buildables: a save still loading): its value is not a world. */
 		virtual bool BuildablesReadAbandoned() const { return false; }
 		/** The caller drops an open pass (source changed, left Running): frees what the reader buffered. */
 		virtual void EndBuildablesRead() {}

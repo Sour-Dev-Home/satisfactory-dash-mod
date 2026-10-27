@@ -179,7 +179,7 @@ namespace SatisDash
 		FBuildablesFlags BuildablesAsked;
 		int32 BuildablesCursor = 0;
 		bool bBuildablesOpen = false;
-		/** The pass that just returned was abandoned (no subsystem or a world swap), not finished. */
+		/** The pass that just returned was abandoned (no subsystem, a world swap, or zero buildables), not finished. */
 		bool bBuildablesAbandoned = false;
 		FBuildablesSnapshot BuildablesFound;
 	};
