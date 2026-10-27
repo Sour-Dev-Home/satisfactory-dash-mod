@@ -1608,6 +1608,7 @@ bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
 	H.Net.answer(WorldConveyorsPost, SatisDash::Test::Reply(200, WorldAccepted));
 	H.tick(1500);
 	TestEqual(TEXT("powerLines is never posted"), H.Net.sent(WorldPowerLinesPost), 0);
+	TestTrue(TEXT("a later pass ran"), H.Game.LogisticsBegins >= 2);
 	TestFalse(TEXT("and later passes do not ask for it"), H.Game.bLastBeginPowerLines);
 
 	// (d) an abandoned read: all three layers wait NodeScanRetrySeconds together, one warning per layer, nothing posted.
