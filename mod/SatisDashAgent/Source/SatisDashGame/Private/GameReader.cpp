@@ -1,6 +1,24 @@
 #include "GameReader.h"
 
+#include "Buildables/FGBuildableAttachmentMerger.h"
+#include "Buildables/FGBuildableAttachmentSplitter.h"
+#include "Buildables/FGBuildableConveyorBase.h"
+#include "Buildables/FGBuildableConveyorBelt.h"
+#include "Buildables/FGBuildableConveyorLift.h"
+#include "Buildables/FGBuildableDockingStation.h"
+#include "Buildables/FGBuildableDroneStation.h"
+#include "Buildables/FGBuildableGenerator.h"
 #include "Buildables/FGBuildableManufacturer.h"
+#include "Buildables/FGBuildableMergerPriority.h"
+#include "Buildables/FGBuildablePipeline.h"
+#include "Buildables/FGBuildablePipelineJunction.h"
+#include "Buildables/FGBuildablePipelinePump.h"
+#include "Buildables/FGBuildablePipeReservoir.h"
+#include "Buildables/FGBuildableResourceExtractorBase.h"
+#include "Buildables/FGBuildableResourceSink.h"
+#include "Buildables/FGBuildableSpaceElevator.h"
+#include "Buildables/FGBuildableSplitterSmart.h"
+#include "Buildables/FGBuildableStorage.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableRailroadTrack.h"
 #include "Components/SplineComponent.h"
@@ -11,6 +29,8 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "FGBuildableSubsystem.h"
+#include "FGFactoryConnectionComponent.h"
+#include "FGPipeConnectionComponent.h"
 #include "FGCircuitSubsystem.h"
 #include "FGGameState.h"
 #include "FGInventoryComponent.h"
@@ -684,16 +704,132 @@ namespace
 {
 	/** Tracks one logistics pass keeps: above the contract's cap (MaxRailSegments, 5,000) so the builder, not the reader, counts the overflow it drops. */
 	constexpr int32 MaxLogisticsTracks = 2 * SatisDash::MaxRailSegments;
+	/** Belts, lifts and pipelines one pass keeps: above the contract's cap (ConveyorsMaxEdges) so the builder counts what it drops. */
+	constexpr int32 MaxLogisticsConveyors = 2 * SatisDash::ConveyorsMaxEdges;
+	/** Distinct (kind, name) tiers and differing class names the census keeps. */
+	constexpr int32 ConvMaxTiers = 16;
+	constexpr int32 ConvMaxDifferClasses = 8;
+
+	/** Ruling S4: the end kind from the game's own class tree, in the table's order. Only ever compared with the name-based kind; never used for output. */
+	SatisDash::EConveyorNodeKind ConvKindByCast(UObject* Owner)
+	{
+		using SatisDash::EConveyorNodeKind;
+		if (Cast<AFGBuildableAttachmentSplitter>(Owner) != nullptr || Cast<AFGBuildableSplitterSmart>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Splitter;
+		}
+		if (Cast<AFGBuildableAttachmentMerger>(Owner) != nullptr || Cast<AFGBuildableMergerPriority>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Merger;
+		}
+		if (Cast<AFGBuildableConveyorBase>(Owner) != nullptr || Cast<AFGBuildablePipeline>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Conveyor;
+		}
+		if (Cast<AFGBuildablePipelineJunction>(Owner) != nullptr || Cast<AFGBuildablePipelinePump>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Junction;
+		}
+		if (Cast<AFGBuildableResourceExtractorBase>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Extractor;
+		}
+		if (Cast<AFGBuildableGenerator>(Owner) != nullptr || Cast<AFGBuildableResourceSink>(Owner) != nullptr || Cast<AFGBuildableSpaceElevator>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Consumer;
+		}
+		if (Cast<AFGBuildableStorage>(Owner) != nullptr || Cast<AFGBuildablePipeReservoir>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Storage;
+		}
+		if (Cast<AFGBuildableDroneStation>(Owner) != nullptr || Cast<AFGBuildableTrainPlatformCargo>(Owner) != nullptr || Cast<AFGBuildableDockingStation>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Station;
+		}
+		if (Cast<AFGBuildableManufacturer>(Owner) != nullptr)
+		{
+			return EConveyorNodeKind::Machine;
+		}
+		return EConveyorNodeKind::Other;
+	}
+
+	/**
+	 * One end of a belt, lift or pipe. OutId stays empty for an open end (not connected, or the connected owner is gone: the latter is
+	 * also counted ownerless). A connected end with an owner gets the owner's GetName(), the kind cross-check and the drone-port count.
+	 */
+	void ConvReadEnd(UObject* Owner, bool bConnected, int32 EndIndex, SatisDash::FLogisticsCounts& Counts, FString& OutId)
+	{
+		OutId.Reset();
+		if (!bConnected)
+		{
+			++Counts.OpenEnds;
+			return;
+		}
+		if (!IsValid(Owner))
+		{
+			++Counts.OwnerlessEnds;
+			++Counts.OpenEnds;
+			return;
+		}
+		OutId = Owner->GetName();
+		const FString ClassName = Owner->GetClass()->GetName();
+		++Counts.KindChecked;
+		if (SatisDash::ClassifyConveyorEnd(OutId) != ConvKindByCast(Owner))
+		{
+			++Counts.KindDiffer;
+			if (Counts.DifferClasses.Num() < ConvMaxDifferClasses && !Counts.DifferClasses.Contains(ClassName))
+			{
+				Counts.DifferClasses.Add(ClassName);
+			}
+		}
+		if (ClassName.StartsWith(TEXT("Build_DroneStation")))
+		{
+			if (EndIndex == 1)
+			{
+				++Counts.EndsIntoPorts;
+			}
+			else
+			{
+				++Counts.EndsOutOfPorts;
+			}
+		}
+	}
+
+	/** Census: one entry per exact (kind, name) pair, at most ConvMaxTiers; further tiers are ignored. */
+	void ConvNoteTier(SatisDash::FLogisticsCounts& Counts, SatisDash::EConveyorKind Kind, const FString& Name, double RawRate)
+	{
+		for (SatisDash::FTierCount& Entry : Counts.Tiers)
+		{
+			if (Entry.Kind == Kind && Entry.Name == Name)
+			{
+				++Entry.Count;
+				return;
+			}
+		}
+		if (Counts.Tiers.Num() < ConvMaxTiers)
+		{
+			SatisDash::FTierCount Entry;
+			Entry.Kind = Kind;
+			Entry.Name = Name;
+			Entry.RawRate = RawRate;
+			Entry.Count = 1;
+			Counts.Tiers.Add(MoveTemp(Entry));
+		}
+	}
 }
 
 void SatisDash::FGameReader::ResetLogisticsRead()
 {
 	LogisticsWorld.Reset();
 	LogisticsTracks.Empty();
+	LogisticsBelts.Empty();
+	LogisticsLifts.Empty();
+	LogisticsPipes.Empty();
 	LogisticsFound = FLogisticsSnapshot();
 	LogisticsPhase = ELogisticsPhase::Collect;
 	LogisticsCursor = 0;
 	bLogisticsRails = false;
+	bLogisticsConveyors = false;
 	bLogisticsOpen = false;
 }
 
@@ -713,7 +849,7 @@ bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors)
 	bLogisticsAbandoned = false;
 	LogisticsWorld = Current;
 	bLogisticsRails = bRails;
-	// The conveyors reader has not landed: bConveyors is accepted and ignored.
+	bLogisticsConveyors = bConveyors;
 	if (bRails)
 	{
 		// Advisory only (the subsystem's own count of tracks, logged next to what was read).
@@ -749,7 +885,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const TArray<AFGBuildable*>& All = Subsystem->GetAllBuildablesRef();
 			if (LogisticsCursor >= All.Num())
 			{
-				LogisticsPhase = ELogisticsPhase::ReadRails;
+				LogisticsPhase = bLogisticsRails ? ELogisticsPhase::ReadRails : ELogisticsPhase::ReadConveyors;
 				LogisticsCursor = 0;
 				continue;
 			}
@@ -773,13 +909,130 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					}
 				}
 			}
+			if (bLogisticsConveyors)
+			{
+				// Belts and lifts through the conveyor base; pipes through the pipeline class, never the pipe base (hypertubes, ruling S10).
+				if (AFGBuildableConveyorBase* Conveyor = Cast<AFGBuildableConveyorBase>(Building))
+				{
+					const bool bLift = Cast<AFGBuildableConveyorLift>(Conveyor) != nullptr;
+					if (bLift || Cast<AFGBuildableConveyorBelt>(Conveyor) != nullptr)
+					{
+						if (LogisticsBelts.Num() + LogisticsLifts.Num() + LogisticsPipes.Num() < MaxLogisticsConveyors)
+						{
+							(bLift ? LogisticsLifts : LogisticsBelts).Add(Conveyor);
+						}
+						else
+						{
+							++LogisticsFound.Counts.Over;
+						}
+					}
+				}
+				else if (AFGBuildablePipeline* Pipe = Cast<AFGBuildablePipeline>(Building))
+				{
+					if (LogisticsBelts.Num() + LogisticsLifts.Num() + LogisticsPipes.Num() < MaxLogisticsConveyors)
+					{
+						LogisticsPipes.Add(Pipe);
+					}
+					else
+					{
+						++LogisticsFound.Counts.Over;
+					}
+				}
+			}
+			continue;
+		}
+		if (LogisticsPhase == ELogisticsPhase::ReadConveyors)
+		{
+			// One weak pointer per iteration (belts, then lifts, then pipes), checked at every use.
+			const int32 BeltCount = LogisticsBelts.Num();
+			const int32 LiftCount = LogisticsLifts.Num();
+			if (LogisticsCursor >= BeltCount + LiftCount + LogisticsPipes.Num())
+			{
+				bFinished = true;
+				break;
+			}
+			const int32 Slot = LogisticsCursor++;
+			FLogisticsCounts& Counts = LogisticsFound.Counts;
+			FConveyorReading Reading;
+			if (Slot < BeltCount + LiftCount)
+			{
+				const bool bLift = Slot >= BeltCount;
+				const AFGBuildableConveyorBase* Edge = (bLift ? LogisticsLifts[Slot - BeltCount] : LogisticsBelts[Slot]).Get();
+				if (!IsValid(Edge))
+				{
+					continue;
+				}
+				const UFGFactoryConnectionComponent* C0 = Edge->GetConnection0();
+				const UFGFactoryConnectionComponent* C1 = Edge->GetConnection1();
+				if (!IsValid(C0))
+				{
+					++Counts.Dropped; // no end 0, so no position (ruling S8)
+					continue;
+				}
+				Reading.Id = Edge->GetName();
+				Reading.Kind = bLift ? EConveyorKind::Lift : EConveyorKind::Belt;
+				Reading.Tier = Edge->mDisplayName.ToString();
+				Reading.RawRate = Edge->GetSpeed();
+				const FVector At = C0->GetConnectorLocation();
+				Reading.XCm = At.X;
+				Reading.YCm = At.Y;
+				for (int32 End = 0; End < 2; ++End)
+				{
+					const UFGFactoryConnectionComponent* Conn = End == 0 ? C0 : C1;
+					const bool bConnected = IsValid(Conn) && Conn->IsConnected();
+					const UFGFactoryConnectionComponent* Other = bConnected ? Conn->GetConnection() : nullptr;
+					// A connected end whose far side or owner is gone is ownerless, and open; a missing component is just open.
+					ConvReadEnd(IsValid(Other) ? Other->GetOuterBuildable() : nullptr, bConnected, End, Counts, End == 0 ? Reading.FromId : Reading.ToId);
+				}
+				if (bLift)
+				{
+					++Counts.Lifts;
+				}
+				else
+				{
+					++Counts.Belts;
+				}
+			}
+			else
+			{
+				const AFGBuildablePipeline* Edge = LogisticsPipes[Slot - BeltCount - LiftCount].Get();
+				if (!IsValid(Edge))
+				{
+					continue;
+				}
+				const UFGPipeConnectionComponentBase* P0 = Edge->GetConnection0();
+				const UFGPipeConnectionComponentBase* P1 = Edge->GetConnection1();
+				if (!IsValid(P0))
+				{
+					++Counts.Dropped;
+					continue;
+				}
+				Reading.Id = Edge->GetName();
+				Reading.Kind = EConveyorKind::Pipe;
+				Reading.Tier = Edge->mDisplayName.ToString();
+				Reading.RawRate = Edge->GetFlowLimit();
+				const FVector At = P0->GetComponentLocation();
+				Reading.XCm = At.X;
+				Reading.YCm = At.Y;
+				for (int32 End = 0; End < 2; ++End)
+				{
+					const UFGPipeConnectionComponentBase* Conn = End == 0 ? P0 : P1;
+					const bool bConnected = IsValid(Conn) && Conn->IsConnected();
+					const UFGPipeConnectionComponentBase* Other = bConnected ? Conn->GetConnection() : nullptr;
+					ConvReadEnd(IsValid(Other) ? Other->GetOwner() : nullptr, bConnected, End, Counts, End == 0 ? Reading.FromId : Reading.ToId);
+				}
+				++Counts.Pipes;
+			}
+			ConvNoteTier(Counts, Reading.Kind, Reading.Tier, Reading.RawRate);
+			LogisticsFound.Conveyors.Add(MoveTemp(Reading));
 			continue;
 		}
 		// ReadRails: one track per iteration, weak, checked at every use.
 		if (LogisticsCursor >= LogisticsTracks.Num())
 		{
-			bFinished = true;
-			break;
+			LogisticsPhase = ELogisticsPhase::ReadConveyors;
+			LogisticsCursor = 0;
+			continue;
 		}
 		const AFGBuildableRailroadTrack* Track = LogisticsTracks[LogisticsCursor++].Get();
 		if (!IsValid(Track))

@@ -9,6 +9,8 @@ Headers: Source/FactoryGame/Public/Buildables/FGBuildableConveyorBelt.h:22 (AFGB
 Headers: Source/FactoryGame/Public/Buildables/FGBuildablePipeline.h:32 (AFGBuildablePipeline), :136 (GetFlowLimit, m^3/s)
 Headers: Source/FactoryGame/Public/Buildables/FGBuildablePipeBase.h:68-69 (GetConnection0, GetConnection1)
 Headers: Source/FactoryGame/Public/FGFactoryConnectionComponent.h:141 (GetConnectorLocation), FGPipeConnectionComponent.h:69 (GetConnection)
+Headers: re-checked against the pinned checkout in Task 9, all lines above hold; Source/FactoryGame/Public/FGFactoryConnectionComponent.h:96 (GetConnection), :111 (IsConnected), :180 (GetOuterBuildable); FGPipeConnectionComponent.h:38 (UFGPipeConnectionComponentBase), :94 (IsConnected); Buildables/FGBuildable.h:824 (mDisplayName, public); the ReadEnd kind-check classes are the Cast targets of api-sources.md
+Headers: Engine/Source/Runtime/Engine/Classes/Components/ActorComponent.h:491 (GetOwner), SceneComponent.h:1031 (GetComponentLocation)
 Survey: mod-native-readers-s3-headers-2026-10-26.md
 Captures: frm-getBelts-2026-10-21-connections-trimmed.json (satisfactory-dash captured-responses; FRM HTTP output only; the fixture frm-getBelts.json is its array, an oracle of the Golden test)
 Captures: frm-getLifts-2026-10-21-trimmed.json (same; the fixture frm-getLifts.json)
