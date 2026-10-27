@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canonDrone, canonMarkers, canonWires, mapFrmDroneFull, mapFrmMarkers, mapFrmWires, markerName } from "../src/frm-s4";
-import { sessionHash } from "../src/status";
+import { evidenceHash } from "../src/evidence-hash";
 
 // Synthetic bodies in the shape of FRM's output; every name and id here is made up.
 const marker = (o: Record<string, unknown> = {}) => ({
@@ -29,7 +29,7 @@ describe("markerName (the NativeMapMarkers.Name vectors)", () => {
 describe("mapFrmMarkers", () => {
   it("maps colour, kind and unrounded metres", () => {
     const [m] = mapFrmMarkers([marker()]);
-    expect(m).toEqual({ id: "M1", nameHash: sessionHash("Alpha"), kind: "marker", icon: 660, color: "#6ea37b", xM: 12468.56, yM: 3030 });
+    expect(m).toEqual({ id: "M1", nameHash: evidenceHash("Alpha"), kind: "marker", icon: 660, color: "#6ea37b", xM: 12468.56, yM: 3030 });
     expect(mapFrmMarkers([marker({ ColorSlot: undefined })])[0]!.color).toBe("#ffffff");
     expect(mapFrmMarkers([marker({ ColorSlot: "zzz" })])[0]!.color).toBe("#ffffff");
     expect(mapFrmMarkers([marker({ MapMarkerType: "RT_Stamp" })])[0]!.kind).toBe("stamp");
@@ -42,9 +42,10 @@ describe("mapFrmMarkers", () => {
     expect(out[0]!.id.startsWith("derived-")).toBe(true);
   });
   it("pins the exact derived id (hand-computed sha256 of [12469,3030,\"marker\",660,\"#6ea37b\",\"Alpha\"], hashed for evidence)", () => {
-    // sha256 of that JSON, first 32 hex, is fac35e79d01769edc9207e7ac970989e; only its sessionHash form is returned.
-    const pinned = "derived-" + sessionHash("derived-fac35e79d01769edc9207e7ac970989e");
-    expect(pinned).toBe("derived-6e68fc3e7a32");
+    // sha256 of that JSON, first 32 hex, is fac35e79d01769edc9207e7ac970989e; only its evidenceHash form is returned.
+    const pinned = "derived-" + evidenceHash("derived-fac35e79d01769edc9207e7ac970989e");
+    // The hash is keyed per run, so only its shape is pinned; the raw digest above is what the hand computation fixes.
+    expect(pinned).toMatch(/^derived-[0-9a-f]{12}$/);
     expect(mapFrmMarkers([marker({ ID: undefined })])[0]!.id).toBe(pinned);
     // Whole-metre rule: 12468.5 m and 12469.4 m are the same metre, 12469.6 m is not.
     expect(mapFrmMarkers([marker({ ID: "", location: { x: 1246850, y: 303049, z: 0 } })])[0]!.id).toBe(pinned);
@@ -55,14 +56,14 @@ describe("mapFrmMarkers", () => {
   it("hashes any derived- id before it leaves the oracle, and never returns the raw digest", () => {
     const raw = "derived-fac35e79d01769edc9207e7ac970989e";
     const own = mapFrmMarkers([marker({ ID: raw })])[0]!;
-    expect(own.id).toBe("derived-" + sessionHash(raw));
+    expect(own.id).toBe("derived-" + evidenceHash(raw));
     const body = [marker({ ID: undefined }), marker({ ID: raw, IconID: 1 })];
     const drone = [port({ ID: raw, Name: "A", PairedStation: "B" }), port({ ID: "P2", Name: "B", PairedStation: "A" })];
     const wire = [{ location0: { x: 100, y: 200 }, location1: { x: 300, y: 400 } }, { ID: raw, location0: { x: 1, y: 2 }, location1: { x: 3, y: 4 } }];
     const all = JSON.stringify([mapFrmMarkers(body), mapFrmDroneFull(drone), mapFrmWires(wire), canonMarkers(mapFrmMarkers(body)), canonDrone(mapFrmDroneFull(drone)), canonWires(mapFrmWires(wire))]);
     expect(all).not.toContain("fac35e79d01769edc9207e7ac970989e");
     expect(all).not.toContain("03a4cc702aa6e4f169ff34dd05571414");
-    expect(mapFrmDroneFull(drone).find((p) => p.id === "P2")!.pairedIds).toEqual(["derived-" + sessionHash(raw)]);
+    expect(mapFrmDroneFull(drone).find((p) => p.id === "P2")!.pairedIds).toEqual(["derived-" + evidenceHash(raw)]);
   });
   it("derives a stable id for a missing or over-long id and drops bad icons and positions", () => {
     const a = mapFrmMarkers([marker({ ID: undefined })])[0]!.id;
@@ -88,13 +89,13 @@ const port = (o: Record<string, unknown> = {}) => ({
 describe("mapFrmDroneFull", () => {
   it("unpaired gives a null hash and no ids; inventories are sorted distinct classes", () => {
     const [p] = mapFrmDroneFull([port()]);
-    expect(p).toEqual({ id: "P1", nameHash: sessionHash("Port One"), pairedHash: null, input: ["Desc_A_C", "Desc_B_C"], output: [], fuel: ["Desc_Fuel_C"], xM: 1, yM: 2.5, pairedIds: [] });
+    expect(p).toEqual({ id: "P1", nameHash: evidenceHash("Port One"), pairedHash: null, input: ["Desc_A_C", "Desc_B_C"], output: [], fuel: ["Desc_Fuel_C"], xM: 1, yM: 2.5, pairedIds: [] });
   });
   it("resolves the paired name over the whole body", () => {
     const body = [port({ ID: "A", Name: "One", PairedStation: "Two" }), port({ ID: "B", Name: "Two", PairedStation: "One" }), port({ ID: "C", Name: "Two" })];
     const out = mapFrmDroneFull(body);
     expect(out.find((p) => p.id === "A")!.pairedIds).toEqual(["B", "C"]);
-    expect(out.find((p) => p.id === "A")!.pairedHash).toBe(sessionHash("Two"));
+    expect(out.find((p) => p.id === "A")!.pairedHash).toBe(evidenceHash("Two"));
     expect(out.find((p) => p.id === "B")!.pairedIds).toEqual(["A"]);
     expect(mapFrmDroneFull([port({ PairedStation: "Nobody" })])[0]!.pairedIds).toEqual([]);
   });
@@ -122,7 +123,7 @@ describe("mapFrmDroneFull", () => {
     }
     const long = "y".repeat(200);
     const [a, b] = mapFrmDroneFull([port({ ID: "A", PairedStation: long }), port({ ID: "B", Name: long })]);
-    expect(a!.pairedHash).toBe(sessionHash(long));
+    expect(a!.pairedHash).toBe(evidenceHash(long));
     expect(a!.pairedIds).toEqual(["B"]);
     expect(b!.pairedIds).toEqual([]);
   });
@@ -166,7 +167,7 @@ describe("mapFrmWires", () => {
     expect(out[0]!.id.startsWith("derived-")).toBe(true);
   });
   it("pins the exact derived id (sha256 of [[1,2],[3,4]] is 03a4cc702aa6e4f169ff34dd05571414, hashed for evidence) and the same-metre rule", () => {
-    const pinned = "derived-" + sessionHash("derived-03a4cc702aa6e4f169ff34dd05571414");
+    const pinned = "derived-" + evidenceHash("derived-03a4cc702aa6e4f169ff34dd05571414");
     expect(mapFrmWires([{ location0: { x: 100, y: 200 }, location1: { x: 300, y: 400 } }])[0]!.id).toBe(pinned);
     // 149 cm and 151 cm round to 1 m and 2 m; 100 cm and 200 cm are the same metres as 149 and 249.
     expect(mapFrmWires([{ ID: "", location0: { x: 149, y: 249 }, location1: { x: 250, y: 350 } }])[0]!.id).toBe(pinned);

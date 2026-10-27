@@ -3,11 +3,11 @@
 // (mapMarkersMapper.ts, droneRoutesMapper.ts, powerLinesMapper.ts: our code). No FRM source is read: the shapes are the
 // dash's captured responses (clean room, docs/clean-room.md).
 //
-// Names are player text. Every name becomes sessionHash(name) here and no raw name is returned or put in an id; the pairing of
+// Names are player text. Every name becomes evidenceHash(name) here and no raw name is returned or put in an id; the pairing of
 // drone ports is resolved inside mapFrmDroneFull and only ids and hashes leave it.
 //
 // A derived id is an unsalted sha256 of the marker's name. It is kept inside the oracle for ordering and never returned: every
-// id that starts with `derived-` leaves as `derived-` + sessionHash(id) (evidenceId), so it cannot reach a capture or evidence.
+// id that starts with `derived-` leaves as `derived-` + evidenceHash(id) (evidenceId), so it cannot reach a capture or evidence.
 //
 // Where the native readers deliberately differ, these oracles follow the dash mapper and the parity judge reports the
 // difference (it is not an oracle bug):
@@ -17,7 +17,7 @@
 //  - items over the layer cap: the mapper cuts the id-sorted list, the native readers send the rest to `Over`.
 
 import { createHash } from "node:crypto";
-import { sessionHash } from "./status";
+import { evidenceHash } from "./evidence-hash";
 
 const LIMIT_METRES = 1_000_000;
 /** The contract's string maximum, also the id maximum (map.ts boundedString). */
@@ -57,8 +57,8 @@ const arrayBody = (body: unknown, what: string): unknown[] => {
 };
 const sha = (v: unknown): string => createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 32);
 /** A derived id is an unsalted sha256 of the marker's name, so none may reach a capture raw: any id that starts with `derived-`
- *  leaves the oracle as `derived-` + sessionHash(id). The raw id is kept inside the oracle only, for ordering and comparison. */
-export const evidenceId = (id: string): string => (id.startsWith(DERIVED_ID_PREFIX) ? DERIVED_ID_PREFIX + sessionHash(id) : id);
+ *  leaves the oracle as `derived-` + evidenceHash(id). The raw id is kept inside the oracle only, for ordering and comparison. */
+export const evidenceId = (id: string): string => (id.startsWith(DERIVED_ID_PREFIX) ? DERIVED_ID_PREFIX + evidenceHash(id) : id);
 // Ties between repeated ids break on the same content the dash mappers compare (JSON of the mapped item: raw name and whole
 // metres), held inside the oracle only and never returned.
 const sortByKey = <T extends { rawId: string; key: string }>(list: T[]): T[] =>
@@ -101,7 +101,7 @@ export function mapFrmMarkers(body: unknown): FrmMarker[] {
       ? rawId
       : DERIVED_ID_PREFIX + sha([wholeMetres(loc.x), wholeMetres(loc.y), kind, icon, color, name]);
     const key = JSON.stringify({ id, name, kind, icon, color, x: wholeMetres(loc.x), y: wholeMetres(loc.y) });
-    out.push({ rawId: id, key, m: { id: evidenceId(id), nameHash: sessionHash(name), kind, icon, color, xM: metres2(loc.x), yM: metres2(loc.y) } });
+    out.push({ rawId: id, key, m: { id: evidenceId(id), nameHash: evidenceHash(name), kind, icon, color, xM: metres2(loc.x), yM: metres2(loc.y) } });
   }
   return sortByKey(out).slice(0, MAP_MARKERS_MAX_ITEMS).map((e) => e.m);
 }
@@ -154,8 +154,8 @@ export function mapFrmDroneFull(body: unknown): FrmDronePort[] {
     key: p.key,
     port: {
       id: evidenceId(p.id),
-      nameHash: sessionHash(p.name),
-      pairedHash: p.paired === null ? null : sessionHash(p.paired),
+      nameHash: evidenceHash(p.name),
+      pairedHash: p.paired === null ? null : evidenceHash(p.paired),
       input: p.input, output: p.output, fuel: p.fuel, xM: p.xM, yM: p.yM,
       pairedIds: p.paired === null ? [] : [...new Set(kept.filter((q) => q.name === p.paired).map((q) => q.id))].sort(byCodeUnit).map(evidenceId),
     } satisfies FrmDronePort,

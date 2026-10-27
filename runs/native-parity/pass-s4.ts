@@ -25,9 +25,11 @@ export const S4_SHOW = 10;
 const EPS = 1e-9;
 /** The id length where the native readers clamp (the contract's id maximum, taken from the oracle); reporting only. */
 const ID_MAX = MAX_STRING;
+/** The drone cargo rule (I-1): item-class set differences are reported, never failed, because the drones fly during the run. */
+const DRONE_CARGO_RULE = "NEW (controller, provisional; owner to confirm, mirrors the trainRoutes cargo ruling of 2026-10-27)";
 /** The prefix the oracles give an id they derive (empty or over-long FRM id), taken from the oracle; reporting only. */
 const DERIVED_PREFIX = DERIVED_ID_PREFIX;
-/** The shape of a posted name: sessionHash (12 hex characters, harness/src/status.ts) or empty. Anything else is a raw name. */
+/** The shape of a posted name: evidenceHash (keyed, 12 hex characters, harness/src/evidence-hash.ts) or empty. Anything else is a raw name. */
 const HASHED_NAME = /^(?:[0-9a-f]{12})?$/;
 
 type Post = { at: string; status: number; data: unknown };
@@ -68,7 +70,7 @@ function dupes(ids: readonly string[]): string[] {
 // -------------------------------------------------------------------------------------------------------- shared layer compare
 
 type Stats = Record<string, number>;
-interface LayerCmp<M, F> { failures: string[]; notes: string[]; pairs: Array<[M, F]>; stats: Stats }
+interface LayerCmp<M, F> { failures: string[]; notes: string[]; pairs: Array<[M, F]>; stats: Stats; reports: string[] }
 
 /**
  * Id sets equal (exact) and per-id field differences from `diff`. The native readers' known divergences are reported, never
@@ -79,9 +81,9 @@ interface LayerCmp<M, F> { failures: string[]; notes: string[]; pairs: Array<[M,
  * the best-matching FRM item is the one compared). The mod's own repeated ids fail.
  */
 function compareLayer<M extends { id: string }, F extends { id: string }>(
-  label: string, mod: M[], frm: F[], cap: number, diff: (m: M, f: F, st: Stats) => string[],
+  label: string, mod: M[], frm: F[], cap: number, diff: (m: M, f: F, st: Stats, rep: string[]) => string[],
 ): LayerCmp<M, F> {
-  const out: LayerCmp<M, F> = { failures: [], notes: [], pairs: [], stats: {} };
+  const out: LayerCmp<M, F> = { failures: [], notes: [], pairs: [], stats: {}, reports: [] };
   const modDup = dupes(mod.map((m) => m.id));
   if (modDup.length) out.failures.push(`the mod sent ${label} id(s) twice (first ${S4_SHOW}): ${modDup.slice(0, S4_SHOW).join(" ")}`);
   const frmDup = dupes(frm.map((f) => f.id));
@@ -110,14 +112,16 @@ function compareLayer<M extends { id: string }, F extends { id: string }>(
   for (const [id, m] of modById) {
     const cands = frmById.get(id);
     if (cands === undefined) continue;
-    let best: { f: F; d: string[]; st: Stats } | null = null;
+    let best: { f: F; d: string[]; st: Stats; rep: string[] } | null = null;
     for (const f of cands) {
       const st: Stats = {};
-      const d = diff(m, f, st);
-      if (best === null || d.length < best.d.length) best = { f, d, st };
+      const rep: string[] = [];
+      const d = diff(m, f, st, rep);
+      if (best === null || d.length < best.d.length) best = { f, d, st, rep };
       if (d.length === 0) break;
     }
     for (const [k, v] of Object.entries(best!.st)) out.stats[k] = (out.stats[k] ?? 0) + v;
+    out.reports.push(...best!.rep);
     out.pairs.push([m, best!.f]);
     diffs.push(...best!.d);
   }
@@ -145,7 +149,7 @@ interface Accepted<M, F> { mod: M[]; frm: F[]; cmp: LayerCmp<M, F> }
 /** The posts loop all three judges share. Returns the failure reasons, or the accepted posts. */
 function runPosts<M extends { id: string }, F extends { id: string }>(
   e: { posts: Post[]; frmSamples: Array<Bracket<string>>; distinct: Record<string, F[]>; frm: Counts },
-  o: { layer: string; endpoint: string; label: string; schema: { safeParse: (d: unknown) => { success: true; data: unknown } | { success: false; error: { issues: Array<{ message: string }> } } }; cap: number; names?: (m: M) => Array<string | null>; diff: (mod: M[]) => (m: M, f: F, st: Stats) => string[]; hint?: (st: Stats) => string[] },
+  o: { layer: string; endpoint: string; label: string; schema: { safeParse: (d: unknown) => { success: true; data: unknown } | { success: false; error: { issues: Array<{ message: string }> } } }; cap: number; names?: (m: M) => Array<string | null>; diff: (mod: M[]) => (m: M, f: F, st: Stats, rep: string[]) => string[]; hint?: (st: Stats) => string[] },
 ): { reasons: string[]; ok: Array<Accepted<M, F>> } {
   const reasons: string[] = [];
   const ok: Array<Accepted<M, F>> = [];
@@ -247,8 +251,9 @@ export function judgeMarkers(e: MarkersEvidence): S4Result {
 // ---------------------------------------------------------------------------------------------------------------------- drones
 
 /**
- * droneRoutes (plan rule R-d, provisional): valid against the contract; id set equal; name hash, paired hash and the input,
- * output and fuel sets exactly equal (sorted); x/y within 1 m in a straight line. pairedId (controller rule): when FRM's paired name
+ * droneRoutes (plan rule R-d, provisional): valid against the contract; id set equal; name hash and paired hash equal; x/y within
+ * 1 m in a straight line. The input, output and fuel item-class sets (sorted) are REPORTED when they differ, never failed, because
+ * the drones fly during the run (DRONE_CARGO_RULE); an input/output swap (the sets equal only when swapped) still fails. pairedId (controller rule): when FRM's paired name
  * matches exactly one port the mod's pairedId must be that id (null fails when that port is in the layer); for an unpaired FRM port
  * it must be null or absent; for an ambiguous name it must be null, absent or one of FRM's candidates; otherwise it is reported,
  * not judged. A pairedId outside the layer fails. A reader that never sends one is flagged in NOT EXERCISED.
@@ -260,17 +265,27 @@ export function judgeDrone(e: DroneEvidence): S4Result {
     hint: (st) => ((st.ioDiff ?? 0) > 0 && st.ioDiff === st.ioSwapped ? ["input/output look swapped (V9: swap the getters in Task 9)"] : []),
     diff: (mod) => {
       const modIds = new Set(mod.map((p) => p.id));
-      return (m, f, st) => {
+      return (m, f, st, rep) => {
         const d: string[] = [];
         if (m.name !== f.nameHash) d.push(`${m.id} nameHash mod=${m.name} frm=${f.nameHash}`);
         if (m.paired !== f.pairedHash) d.push(`${m.id} paired mod=${show(m.paired)} frm=${show(f.pairedHash)}`);
         // The sets are compared sorted by code unit on both sides, so a sort change in the reader is not a cargo difference.
         const mi = [...m.input].sort(byCodeUnit), mo = [...m.output].sort(byCodeUnit), mf = [...m.fuel].sort(byCodeUnit);
         const fi = [...f.input].sort(byCodeUnit), fo = [...f.output].sort(byCodeUnit), ff = [...f.fuel].sort(byCodeUnit);
-        for (const [k, mv, fv] of [["input", mi, fi], ["output", mo, fo], ["fuel", mf, ff]] as const) if (!same(mv, fv)) d.push(`${m.id} ${k} mod=${show(mv)} frm=${show(fv)}`);
+        const swapped = (!same(mi, fi) || !same(mo, fo)) && same(mi, fo) && same(mo, fi);
         if (!same(mi, fi) || !same(mo, fo)) {
           st.ioDiff = (st.ioDiff ?? 0) + 1;
-          if (same(mi, fo) && same(mo, fi)) st.ioSwapped = (st.ioSwapped ?? 0) + 1;
+          if (swapped) st.ioSwapped = (st.ioSwapped ?? 0) + 1;
+        }
+        for (const [k, mv, fv] of [["input", mi, fi], ["output", mo, fo], ["fuel", mf, ff]] as const) {
+          if (same(mv, fv)) continue;
+          const line = `${m.id} ${k} mod=${show(mv)} frm=${show(fv)}`;
+          // A swap is a reader bug; any other cargo drift is reported (the drones fly during the run).
+          if (swapped && k !== "fuel") d.push(line);
+          else {
+            st.cargoOnly = (st.cargoOnly ?? 0) + 1;
+            rep.push(line);
+          }
         }
         // Controller ruling: a straight-line (Euclidean) distance, not per axis.
         if (!(Math.hypot(m.x - f.xM, m.y - f.yM) <= S4_XY_MAX_M + EPS)) d.push(`${m.id} xy mod=(${m.x},${m.y}) frm=(${f.xM},${f.yM})`);
@@ -311,10 +326,12 @@ function finishDrone(ok: Array<Accepted<ModPort, FrmDronePort>>): S4Result {
       ].filter((x): x is string => x !== null);
   const last = ok.at(-1)!.cmp.stats;
   const out = [
-    `${ok.length} posted layer(s) valid against the contract; port ids equal FRM's; ${pairs.length} ports compared; name hash, paired, input, output and fuel equal; x/y within ${S4_XY_MAX_M} m`,
+    `${ok.length} posted layer(s) valid against the contract; port ids equal FRM's; ${pairs.length} ports compared; name hash and paired equal; x/y within ${S4_XY_MAX_M} m; input, output and fuel reported only`,
     `${last.pairedJudged ?? 0} ports: pairedId judged against the one port FRM's paired name matches`,
     `${last.pairedReported ?? 0} ports: pairedId reported, not judged (ambiguous or unpaired in FRM)`,
   ];
+  const cargo = ok.flatMap((a) => a.cmp.reports);
+  if (cargo.length > 0) out.push(`reported, not failed (${DRONE_CARGO_RULE}): ${cargo.length} cargo item-set difference(s) (first 3: ${cargo.slice(0, 3).join(" | ")})`);
   out.push(...uniq(ok.flatMap((a) => a.cmp.notes)));
   return { pass: true, reasons: out, never };
 }

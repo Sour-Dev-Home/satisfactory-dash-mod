@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nativeParity, S4_SAMPLER_MS, s4EvidenceFrom, s4LayerPosts, startS4Samplers, takeAfterNewS4Posts, type S4Samplers } from "../src/core-runs/native-parity";
 import { NATIVE_SOURCES_S4 } from "../src/core-run";
 import type { RecordedCall } from "../src/recorder";
-import { sessionHash } from "../src/status";
+import { evidenceHash } from "../src/evidence-hash";
 
 const T0 = Date.parse("2026-10-27T12:00:00.000Z");
 const call = (over: Partial<RecordedCall>): RecordedCall => ({ at: new Date(T0 + 60_000).toISOString(), doneAt: new Date(T0 + 60_100).toISOString(), agent: "mod", method: "POST", path: "/agent/v1/world/mapMarkers", status: 200, authorization: true, ...over });
@@ -50,7 +50,7 @@ describe("native-parity drive (S4)", () => {
       post("droneRoutes", { worldData: { name: secret } as unknown as unknown[] }),
       post("powerLines", { worldData: secret as unknown as unknown[] }),
     ];
-    expect(s4LayerPosts(entries, "mapMarkers", T0)[0]!.data).toEqual([null, null, null, null, expect.objectContaining({ id: "m1", name: sessionHash(secret) })]);
+    expect(s4LayerPosts(entries, "mapMarkers", T0)[0]!.data).toEqual([null, null, null, null, expect.objectContaining({ id: "m1", name: evidenceHash(secret) })]);
     expect(s4LayerPosts(entries, "droneRoutes", T0)[0]!.data).toEqual([]);
     expect(s4LayerPosts(entries, "powerLines", T0)[0]!.data).toEqual([]);
     expect(JSON.stringify(s4LayerPosts(entries, "mapMarkers", T0))).not.toContain(secret);
@@ -69,8 +69,8 @@ describe("native-parity drive (S4)", () => {
     ];
     const ev = s4EvidenceFrom(s, entries, T0, { markers: zero, drone: zero, wires: zero });
     expect(ev.markers.posts).toHaveLength(1);
-    expect(ev.markers.posts[0]!.data).toEqual([{ id: "m1", name: sessionHash("Alpha"), kind: "marker", icon: 3, color: "#6ea37b", x: 10, y: 20 }]);
-    expect(ev.drone.posts[0]!.data).toEqual([{ id: "p1", name: sessionHash("Beta"), paired: sessionHash("Alpha"), pairedId: "p2", input: [], output: [], fuel: [], x: 1, y: 2 }]);
+    expect(ev.markers.posts[0]!.data).toEqual([{ id: "m1", name: evidenceHash("Alpha"), kind: "marker", icon: 3, color: "#6ea37b", x: 10, y: 20 }]);
+    expect(ev.drone.posts[0]!.data).toEqual([{ id: "p1", name: evidenceHash("Beta"), paired: evidenceHash("Alpha"), pairedId: "p2", input: [], output: [], fuel: [], x: 1, y: 2 }]);
     expect(s.markers.samples.length).toBeGreaterThan(1);
     expect(Object.keys(ev.markers.distinct)).toHaveLength(1); // equal bodies, one hash, kept once
     expect(ev.markers.frmSamples).toHaveLength(s.markers.samples.length);

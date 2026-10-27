@@ -3,7 +3,7 @@ import * as Pass from "../../../runs/native-parity/pass";
 import { FRM_BRACKET_GAP_MS } from "../../../runs/enrol/pass";
 import { NATIVE_SOURCES_S4, type CoreContext, type CoreRunSpec } from "../core-run";
 import { canonDrone, canonMarkers, canonWires, mapFrmDroneFull, mapFrmMarkers, mapFrmWires, type FrmDronePort, type FrmMarker, type FrmWire } from "../frm-s4";
-import { sessionHash } from "../status";
+import { evidenceHash } from "../evidence-hash";
 import { AgentFactorySchema } from "../../contract/src/agent";
 import { MapLiveSchema, TrainRoutesLayerDataSchema } from "../../contract/src/map";
 import { type FrmRead, parseGetPowerFull, pickBracket, startFrmPoller } from "../frm";
@@ -276,11 +276,11 @@ export type S4Samplers = ReturnType<typeof startS4Samplers>;
 export type S4Layer = "mapMarkers" | "droneRoutes" | "powerLines";
 const S4_SAMPLER: Record<S4Layer, "markers" | "drone" | "wires"> = { mapMarkers: "markers", droneRoutes: "drone", powerLines: "wires" };
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-/** A posted name as evidence: its sessionHash. Anything that is not a string becomes a number, which the contract rejects (so the judge fails it) and which carries no text. */
-const hashedName = (v: unknown): unknown => (typeof v === "string" ? sessionHash(v) : v === null ? null : 0);
+/** A posted name as evidence: its evidenceHash. Anything that is not a string becomes a number, which the contract rejects (so the judge fails it) and which carries no text. */
+const hashedName = (v: unknown): unknown => (typeof v === "string" ? evidenceHash(v) : v === null ? null : 0);
 
 /**
- * One posted item with every name replaced by its sessionHash (plan M6). Only the contract's own keys are kept, so an unexpected field
+ * One posted item with every name replaced by its evidenceHash (plan M6). Only the contract's own keys are kept, so an unexpected field
  * could not carry text into a capture. Ids, numbers, class names and hashes are what is left.
  */
 function hashItemNames(layer: S4Layer, item: unknown): unknown {

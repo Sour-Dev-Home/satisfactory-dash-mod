@@ -233,16 +233,28 @@ describe("judgeDrone", () => {
     const frm = Array.from({ length: 2000 }, (_, i) => fd({ id: `P${String(i).padStart(4, "0")}`, pairedHash: null, pairedIds: [] }));
     expect(S4.judgeDrone(dev({ frm, post: [] })).pass).toBe(false);
   });
-  it("an input set that differs fails", () => {
-    const v = S4.judgeDrone(dev({ post: dpost({ input: ["Desc_B_C"] }) }));
-    expect(v.pass).toBe(false);
+  it("a cargo-only drift (input, output or fuel) passes with a report: a count and the first three", () => {
+    const v = S4.judgeDrone(dev({ post: [dm({ input: ["Desc_B_C"], output: ["Desc_C_C"], fuel: [] }), dm({ ...d2m, output: [] })] }));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("reported, not failed (NEW (controller, provisional; owner to confirm, mirrors the trainRoutes cargo ruling of 2026-10-27))");
+    expect(text(v)).toContain("4 cargo item-set difference(s)");
     expect(text(v)).toContain("D1 input mod=[Desc_B_C] frm=[Desc_A_C]");
+    expect(text(v)).not.toContain("D2 output mod=[] frm=[Desc_A_C]");
     expect(text(v)).not.toContain("swapped");
+  });
+  it("cargo equal on every port adds no cargo report", () => {
+    expect(text(S4.judgeDrone(dev()))).not.toContain("cargo item-set");
+  });
+  it("a cargo drift does not hide a name, paired or position failure", () => {
+    const v = S4.judgeDrone(dev({ post: dpost({ input: ["Desc_B_C"], name: OTHER }) }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain(`nameHash mod=${OTHER}`);
   });
   it("swapped input and output fails with the V9 hint", () => {
     const v = S4.judgeDrone(dev({ post: [dm({ input: [], output: ["Desc_A_C"] }), dm({ id: "D2", name: N2, paired: N1, pairedId: "D1", input: ["Desc_A_C"], output: [], fuel: [] })] }));
     expect(v.pass).toBe(false);
     expect(text(v)).toContain("input/output look swapped (V9: swap the getters in Task 9)");
+    expect(text(v)).toContain("D1 input mod=[] frm=[Desc_A_C]");
   });
   it("a name hash or paired hash difference fails", () => {
     expect(text(S4.judgeDrone(dev({ post: dpost({ name: OTHER }) })))).toContain(`nameHash mod=${OTHER}`);
