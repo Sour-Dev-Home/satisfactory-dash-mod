@@ -704,10 +704,12 @@ namespace
 {
 	/** Tracks one logistics pass keeps: above the contract's cap (MaxRailSegments, 5,000) so the builder, not the reader, counts the overflow it drops. */
 	constexpr int32 MaxLogisticsTracks = 2 * SatisDash::MaxRailSegments;
-	/** Belts, lifts and pipelines one pass keeps: above the contract's cap (ConveyorsMaxEdges) so the builder counts what it drops. */
-	constexpr int32 MaxLogisticsConveyors = 2 * SatisDash::ConveyorsMaxEdges;
-	/** Distinct (kind, name) tiers and differing class names the census keeps. */
-	constexpr int32 ConvMaxTiers = 16;
+	/**
+	 * Belts, lifts and pipelines one pass keeps: one past the contract's cap (ConveyorsMaxEdges). A layer over the cap is not posted
+	 * anyway, so one more than the cap is enough to know it is over; the rest only go into Counts.Over (the owner's footprint goal).
+	 */
+	constexpr int32 MaxLogisticsConveyors = SatisDash::ConveyorsMaxEdges + 1;
+	/** Differing class names the kind check keeps. */
 	constexpr int32 ConvMaxDifferClasses = 8;
 
 	/** Ruling S4: the end kind from the game's own class tree, in the table's order. Only ever compared with the name-based kind; never used for output. */
@@ -795,27 +797,6 @@ namespace
 		}
 	}
 
-	/** Census: one entry per exact (kind, name) pair, at most ConvMaxTiers; further tiers are ignored. */
-	void ConvNoteTier(SatisDash::FLogisticsCounts& Counts, SatisDash::EConveyorKind Kind, const FString& Name, double RawRate)
-	{
-		for (SatisDash::FTierCount& Entry : Counts.Tiers)
-		{
-			if (Entry.Kind == Kind && Entry.Name == Name)
-			{
-				++Entry.Count;
-				return;
-			}
-		}
-		if (Counts.Tiers.Num() < ConvMaxTiers)
-		{
-			SatisDash::FTierCount Entry;
-			Entry.Kind = Kind;
-			Entry.Name = Name;
-			Entry.RawRate = RawRate;
-			Entry.Count = 1;
-			Counts.Tiers.Add(MoveTemp(Entry));
-		}
-	}
 }
 
 void SatisDash::FGameReader::ResetLogisticsRead()
@@ -1023,7 +1004,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 				}
 				++Counts.Pipes;
 			}
-			ConvNoteTier(Counts, Reading.Kind, Reading.Tier, Reading.RawRate);
+			NoteConveyorTier(Counts.Tiers, Reading.Kind, Reading.Tier, Reading.RawRate);
 			LogisticsFound.Conveyors.Add(MoveTemp(Reading));
 			continue;
 		}

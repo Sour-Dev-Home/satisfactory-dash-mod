@@ -21,21 +21,12 @@ namespace SatisDash
 		TArray<FStationReading> Stations;
 	};
 
-	/** One belt, lift or pipe tier as the census saw it (R6): game data (a class name), numbers; for the one-off census log lines. */
-	struct FTierCount
-	{
-		EConveyorKind Kind = EConveyorKind::Belt;
-		FString Name;
-		double RawRate = 0;
-		int32 Count = 0;
-	};
-
 	/** Counts of one logistics pass (R5, ADR-0058): numbers only, they go to the log line and nowhere else. */
 	struct FLogisticsCounts
 	{
 		int32 Buildables = 0, Tracks = 0, Belts = 0, Lifts = 0, Pipes = 0;
 		int32 OpenEnds = 0, OwnerlessEnds = 0, Dropped = 0;
-		/** Tracks past the pass's own cap that were not kept. */
+		/** Tracks, belts, lifts and pipes past the pass's own caps that were not kept (one shared count). */
 		int32 Over = 0;
 		/** Advisory GetBuildableCount of the track class, -1 when not asked. */
 		int32 ExpectedTracks = -1;

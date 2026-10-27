@@ -27,6 +27,20 @@ namespace SatisDash
 		double XCm = 0, YCm = 0;    // end 0 connector location, world space
 	};
 
+	/** One belt, lift or pipe tier as the census saw it (R6): game data (a display name), numbers; for the one-off census log lines. */
+	struct FTierCount
+	{
+		EConveyorKind Kind = EConveyorKind::Belt;
+		FString Name;
+		double RawRate = 0;   // the first reading's raw rate for this tier
+		int32 Count = 0;
+	};
+
+	inline constexpr int32 ConveyorMaxTiers = 16;
+
+	/** Census: counts one edge into Tiers by exact (Kind, Name) pair, keeping the first RawRate; a new pair past ConveyorMaxTiers entries is ignored. */
+	SATISDASHCORE_API void NoteConveyorTier(TArray<FTierCount>& Tiers, EConveyorKind Kind, const FString& Name, double RawRate);
+
 	/** The dashboard adapter's classifyConveyorEnd, row for row and in order: the class part of an end id (one trailing _<digits> removed) typed by prefix. */
 	SATISDASHCORE_API EConveyorNodeKind ClassifyConveyorEnd(const FString& Id);
 
