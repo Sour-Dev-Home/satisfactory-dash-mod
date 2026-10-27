@@ -725,3 +725,4 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FColor | Engine/Source/Runtime/Core/Public/Math/Color.h:494 | header only |
 | FColor::ToHex | Engine/Source/Runtime/Core/Public/Math/Color.h:706 | header only (RRGGBBAA, upper case; Color.cpp:585) |
 | TestNotEqual | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:1972 | header only (the FString overload) |
+| FJsonObject::HasTypedField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:93 | header only (the template overload; :105 takes the EJson as an argument) |
