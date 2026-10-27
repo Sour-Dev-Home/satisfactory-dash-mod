@@ -257,6 +257,24 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 		Result.BadField = TEXT("conveyorsSource");
 		return Result;
 	}
+	TOptional<ESource> MapMarkersSource;
+	if (!ConfigReadSource(Object, TEXT("mapMarkersSource"), MapMarkersSource))
+	{
+		Result.BadField = TEXT("mapMarkersSource");
+		return Result;
+	}
+	TOptional<ESource> DroneRoutesSource;
+	if (!ConfigReadSource(Object, TEXT("droneRoutesSource"), DroneRoutesSource))
+	{
+		Result.BadField = TEXT("droneRoutesSource");
+		return Result;
+	}
+	TOptional<ESource> PowerLinesSource;
+	if (!ConfigReadSource(Object, TEXT("powerLinesSource"), PowerLinesSource))
+	{
+		Result.BadField = TEXT("powerLinesSource");
+		return Result;
+	}
 	Result.Status = EConfigStatus::Valid;
 	Result.Config.BackendUrl = Url;
 	Result.Config.EnrollmentCode = Code;
@@ -268,6 +286,9 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 	Result.Config.TrainsSource = TrainsSource;
 	Result.Config.RailsSource = RailsSource;
 	Result.Config.ConveyorsSource = ConveyorsSource;
+	Result.Config.MapMarkersSource = MapMarkersSource;
+	Result.Config.DroneRoutesSource = DroneRoutesSource;
+	Result.Config.PowerLinesSource = PowerLinesSource;
 	return Result;
 }
 
@@ -307,6 +328,18 @@ FString SatisDash::ConfigToJson(const FAgentConfig& Config)
 	if (Config.ConveyorsSource.IsSet())
 	{
 		Object->SetStringField(TEXT("conveyorsSource"), ConfigSourceName(Config.ConveyorsSource.GetValue()));
+	}
+	if (Config.MapMarkersSource.IsSet())
+	{
+		Object->SetStringField(TEXT("mapMarkersSource"), ConfigSourceName(Config.MapMarkersSource.GetValue()));
+	}
+	if (Config.DroneRoutesSource.IsSet())
+	{
+		Object->SetStringField(TEXT("droneRoutesSource"), ConfigSourceName(Config.DroneRoutesSource.GetValue()));
+	}
+	if (Config.PowerLinesSource.IsSet())
+	{
+		Object->SetStringField(TEXT("powerLinesSource"), ConfigSourceName(Config.PowerLinesSource.GetValue()));
 	}
 	return SatisDash::Json::WritePretty(Object);
 }

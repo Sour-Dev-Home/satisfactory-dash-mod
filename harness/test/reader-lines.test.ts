@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, factoryLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -99,5 +99,28 @@ describe("the Readers line", () => {
     expect(conveyorsLogProblems([S3BothNative])).toEqual([]);
     expect(conveyorsLogProblems([S3BothBridge])).toEqual([expect.stringMatching(/conveyors=bridge, not native/)]);
     expect(conveyorsLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
+  });
+  const S4Native = `${S3BothNative} mapMarkers=native droneRoutes=native powerLines=native`;
+  const S4Bridge = `${S3BothNative} mapMarkers=bridge droneRoutes=bridge powerLines=bridge`;
+  it("parses the nine-field line; the six-field line leaves the S4-A fields undefined; a partial group is no line", () => {
+    expect(readerSources([S3BothNative])?.mapMarkers).toBeUndefined();
+    expect(readerSources([S3BothNative])?.droneRoutes).toBeUndefined();
+    expect(readerSources([S3BothNative])?.powerLines).toBeUndefined();
+    expect(readerSources([S4Native])).toEqual({ players: "native", resourceNodes: "native", factory: "native", trains: "native", rails: "native", conveyors: "native", mapMarkers: "native", droneRoutes: "native", powerLines: "native" });
+    expect(readerSources([S4Bridge])?.droneRoutes).toBe("bridge");
+    expect(readerSources([`${S3BothNative} mapMarkers=native`])).toBeNull();
+    expect(readerSources([`${S3BothNative} mapMarkers=native droneRoutes=native`])).toBeNull();
+  });
+  it("judges mapMarkers, droneRoutes and powerLines like conveyors", () => {
+    expect(mapMarkersLogProblems([S3BothNative])).toEqual([expect.stringMatching(/has no mapMarkers= field/)]);
+    expect(droneRoutesLogProblems([S3BothNative])).toEqual([expect.stringMatching(/has no droneRoutes= field/)]);
+    expect(powerLinesLogProblems([S3BothNative])).toEqual([expect.stringMatching(/has no powerLines= field/)]);
+    expect(mapMarkersLogProblems([S4Native])).toEqual([]);
+    expect(droneRoutesLogProblems([S4Native])).toEqual([]);
+    expect(powerLinesLogProblems([S4Native])).toEqual([]);
+    expect(mapMarkersLogProblems([S4Bridge])).toEqual([expect.stringMatching(/mapMarkers=bridge, not native/)]);
+    expect(droneRoutesLogProblems([S4Bridge])).toEqual([expect.stringMatching(/droneRoutes=bridge, not native/)]);
+    expect(powerLinesLogProblems([S4Bridge])).toEqual([expect.stringMatching(/powerLines=bridge, not native/)]);
+    expect(powerLinesLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
   });
 });

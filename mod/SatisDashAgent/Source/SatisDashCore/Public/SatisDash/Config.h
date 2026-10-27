@@ -21,6 +21,9 @@ namespace SatisDash
 	inline constexpr ESource DefaultTrainsSource = ESource::Native;
 	inline constexpr ESource DefaultRailsSource = ESource::Native;
 	inline constexpr ESource DefaultConveyorsSource = ESource::Native;
+	inline constexpr ESource DefaultMapMarkersSource = ESource::Bridge;
+	inline constexpr ESource DefaultDroneRoutesSource = ESource::Bridge;
+	inline constexpr ESource DefaultPowerLinesSource = ESource::Bridge;
 
 	struct FAgentConfig
 	{
@@ -46,6 +49,10 @@ namespace SatisDash
 		TOptional<ESource> RailsSource;
 		/** The same override for the conveyors part: the key "conveyorsSource". The bridge never sent conveyors, so bridge means the layer is not sent. */
 		TOptional<ESource> ConveyorsSource;
+		/** The same override for the map markers, drone routes and power lines layers: the keys "mapMarkersSource", "droneRoutesSource" and "powerLinesSource". Bridge means the layer is not sent. */
+		TOptional<ESource> MapMarkersSource;
+		TOptional<ESource> DroneRoutesSource;
+		TOptional<ESource> PowerLinesSource;
 
 		int32 GetFrmPort() const { return FrmPort.Get(DefaultFrmPort); }
 		ESource GetPlayersSource() const { return PlayersSource.Get(DefaultPlayersSource); }
@@ -54,13 +61,16 @@ namespace SatisDash
 		ESource GetTrainsSource() const { return TrainsSource.Get(DefaultTrainsSource); }
 		ESource GetRailsSource() const { return RailsSource.Get(DefaultRailsSource); }
 		ESource GetConveyorsSource() const { return ConveyorsSource.Get(DefaultConveyorsSource); }
+		ESource GetMapMarkersSource() const { return MapMarkersSource.Get(DefaultMapMarkersSource); }
+		ESource GetDroneRoutesSource() const { return DroneRoutesSource.Get(DefaultDroneRoutesSource); }
+		ESource GetPowerLinesSource() const { return PowerLinesSource.Get(DefaultPowerLinesSource); }
 	};
 
 	enum class EConfigStatus : uint8
 	{
 		/** There was no file; one was written with the default URL and no code. Config holds those defaults. */
 		Missing,
-		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource", "railsSource" or "conveyorsSource". */
+		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource", "railsSource", "conveyorsSource", "mapMarkersSource", "droneRoutesSource" or "powerLinesSource". */
 		Broken,
 		Valid,
 	};
