@@ -1,19 +1,13 @@
 #include "SatisDash/Native/Factory/NativeFactory.h"
+#include "NativeFactoryShared.h"
 
 namespace
 {
-	/** By the exponent bits: UE builds with /fp:fast, where the compiler may assume no infinity and fold isfinite away. */
-	bool NativeFactoryFinite(double Value)
-	{
-		uint64 Bits = 0;
-		FMemory::Memcpy(&Bits, &Value, sizeof(Bits));
-		return (Bits & 0x7FF0000000000000ull) != 0x7FF0000000000000ull;
-	}
+	using SatisDash::NativeShared::NonNegative;
 
-	/** Zero for anything the bridge's schema would refuse: negative, -0 or not finite. */
 	double NativeFactoryNonNegative(double Value)
 	{
-		return NativeFactoryFinite(Value) && Value > 0 ? Value : 0.0;
+		return NonNegative(Value);
 	}
 
 	void NativeFactoryCleanRates(TArray<SatisDash::FRateReading>& Rates)
@@ -83,25 +77,12 @@ namespace
 			Model.InputsFull = bInputsFull;
 		}
 		Model.CircuitGroupId = R.CircuitGroupId;
-		if (R.bHasLocation && NativeFactoryFinite(R.XCm) && NativeFactoryFinite(R.YCm) && NativeFactoryFinite(R.ZCm) && NativeFactoryFinite(R.YawDeg))
+		using namespace NativeShared;
+		if (R.bHasLocation)
 		{
-			Model.bHasLocation = true;
-			Model.XM = FrmFactoryMetres(R.XCm);
-			Model.YM = FrmFactoryMetres(R.YCm);
-			Model.ZM = FrmFactoryMetres(R.ZCm);
-			Model.YawDeg = FrmFactoryYaw(R.YawDeg);
+			SetLocation(Model, R.XCm, R.YCm, R.ZCm, R.YawDeg);
 		}
-		if (NativeFactoryFinite(R.ClockPercent))
-		{
-			// To 0.01 by a true division, as the metres are, so 159.99999 is 160. Anything non-finite along the way (a huge
-			// value overflows when scaled), or nothing positive left, is not reported.
-			const double Scaled = FMath::RoundToDouble(R.ClockPercent * 100.0);
-			const double Hundredths = NativeFactoryFinite(Scaled) ? FrmFactoryMetres(Scaled) : 0.0;
-			if (NativeFactoryFinite(Hundredths) && Hundredths > 0)
-			{
-				Model.ClockSpeedPercent = Hundredths;
-			}
-		}
+		Model.ClockSpeedPercent = ClockPercent(R.ClockPercent);
 		Model.Production = &Production;
 		Model.Ingredients = &Ingredients;
 		AppendFactoryBuilding(Writer, Model);

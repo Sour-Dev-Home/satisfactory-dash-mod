@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { AgentPowerCircuitSchema, AgentStatusSchema, SnapshotRequestSchema } from "../contract/src/agent";
+import { FactorySchema } from "../contract/src/factory";
 import { MapLiveSchema, RailsLayerDataSchema, RailsWorldIngestRequestSchema, ResourceNodesLayerDataSchema } from "../contract/src/map";
 
 const FIXTURES = new URL("../../mod/SatisDashAgent/Source/SatisDashCoreTests/Fixtures/", import.meta.url);
@@ -42,6 +43,19 @@ describe("the core mod's snapshot fixtures, against the pinned contract (spec S1
     expect(ResourceNodesLayerDataSchema.safeParse(load("frm-getResourceNode.expected.json")).success).toBe(true);
     const body = { observedAt: "2026-10-24T12:00:00.000Z", data: load("frm-getTrainRails.expected.json") };
     expect(RailsWorldIngestRequestSchema.safeParse(body).success).toBe(true); // strict: exactly observedAt and data
+  });
+  it("native-extractors.expected.json is valid extractors: the building shape, recipe null, no ingredients (S4-B)", () => {
+    const list = load("native-extractors.expected.json");
+    const r = FactorySchema.shape.extractors.safeParse(list);
+    expect(r.success ? [] : r.error.issues).toEqual([]);
+    expect(list).toHaveLength(3);
+    for (const e of list) {
+      expect(e.recipe).toBeNull();
+      expect(e.ingredients).toEqual([]);
+      expect(typeof e.isBackedUp).toBe("boolean");
+    }
+    // Strict where the schema is: the same fixture inside a factory part parses too.
+    expect(FactorySchema.safeParse({ buildings: [], extractors: list, backedUpCount: 0 }).success).toBe(true);
   });
   it("a circuit has exactly the contract's circuit fields", () => {
     expect(keys(load("snapshot-world.json").power.circuits[0])).toEqual(keys(AgentPowerCircuitSchema.shape));
