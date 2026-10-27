@@ -262,7 +262,7 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
     reported); stationary trains and stations within 1 m, a moving train within the distance FRM's own neighbouring reads moved
     plus 5 m (new).
   - `trainRoutes`: native only (the bridge never sent it), first post about 8 minutes (+/-10%) after Running and then every 10 minutes, so
-    the 30-minute window holds posts at about 8, 18 and 28 minutes and always at least one; the posted layer equals the FRM-derived layer on one side of the post (120 s).
+    the 30-minute window holds posts at about 8, 18 and 28 minutes and always at least one; the posted layer equals the FRM-derived layer on one side of the post (120 s). Owner ruling 2026-10-27: a difference only in a platform's or a train's cargo item set is reported (count and first three), never fails; stations, platform ids, load/unload modes, train ids, names and timetable stops stay exact.
   Evidence holds names as hashes only. The reader verdicts also need the mod's log to show the readers native
   (`factoryLogProblems`, `trainsLogProblems`) and a completed `Factory read`, `Trains read` and `Train routes read` line. S1's
   three judges are unchanged; an S1 capture is judged as before.
@@ -278,7 +278,9 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   a hash each with the distinct mapped body once. Both readers also need the mod's `Readers:` line to say `rails=native` and
   `conveyors=native`, and a `Logistics read (game thread only):` line with `layers ... <layer>=1`. `readers.json` holds the
   final verdicts of every reader (`power`, `players`, `resourceNodes`, `factory`, `rates`, `trains`, `stations`, `trainRoutes`,
-  `rails`, `conveyors`). An S1 or S2 capture is judged as before.
+  `rails`, `conveyors`). An S1 or S2 capture is judged as before. Rails endpoint rule (owner, 2026-10-27): the mod's first and
+  last point of a track pass within 1 m plus the length of FRM's own segment at that end; every other mod point and every FRM
+  point keep the strict 1 m rule.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S3`: the players, resource-node, factory, trains, rails and conveyors readers),
   loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`

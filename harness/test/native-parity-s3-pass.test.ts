@@ -47,7 +47,34 @@ describe("judgeRails", () => {
     expect(S3.judgeRails(railsEv({ post: [modTrack("T1", [[0, 1], [10, 1]])] })).pass).toBe(true);
     const v = S3.judgeRails(railsEv({ post: [modTrack("T1", [[0, 2], [10, 2]])] }));
     expect(v.pass).toBe(false);
-    expect(text(v)).toContain("T1 mod point (0, 2) is 2.00 m");
+    // FRM's only segment is the whole track, so the endpoint allowance covers the mod side; the FRM to mod direction still fails it.
+    expect(text(v)).toContain("T1 FRM point (0, 0) is 2.00 m");
+  });
+  // Owner ruling 2026-10-27 (run 40439238142, Test3): the mod's first and last point get 1 m plus FRM's own end segment.
+  // (The contract holds integer points, so the mod's side uses whole metres; FRM's side carries the fractions.)
+  it("passes a mod endpoint past FRM's short polyline end (the run's case: FRM stops short of the true end)", () => {
+    const frm = [track("T1", [[-1400, 1585.67], [-1409.6, 1585.67], [-1410.85, 1585.67]])];
+    expect(S3.judgeRails(railsEv({ frm, post: [modTrack("T1", [[-1400, 1586], [-1412, 1586]])] })).pass).toBe(true);
+  });
+  it("fails a mod endpoint beyond 1 m plus FRM's end segment, at either end", () => {
+    const frm = [track("T1", [[0, 0], [9, 0], [10, 0]])];
+    expect(S3.judgeRails(railsEv({ frm, post: [modTrack("T1", [[0, 0], [12, 0]])] })).pass).toBe(true);
+    const v = S3.judgeRails(railsEv({ frm, post: [modTrack("T1", [[0, 0], [13, 0]])] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("mod point (13, 0)");
+    const start = [track("T1", [[0, 0], [1, 0], [10, 0]])];
+    expect(S3.judgeRails(railsEv({ frm: start, post: [modTrack("T1", [[-2, 0], [10, 0]])] })).pass).toBe(true);
+    expect(S3.judgeRails(railsEv({ frm: start, post: [modTrack("T1", [[-3, 0], [10, 0]])] })).pass).toBe(false);
+  });
+  it("an interior mod point over 1 m still fails", () => {
+    const frm = [track("T1", [[0, 0], [5, 0], [10, 0]])];
+    expect(S3.judgeRails(railsEv({ frm, post: [modTrack("T1", [[0, 0], [5, 2], [10, 0]])] })).pass).toBe(false);
+  });
+  it("the FRM to mod direction is unchanged: an FRM endpoint 2 m past the mod's line fails", () => {
+    const frm = [track("T1", [[0, 0], [9, 0], [10, 0], [12, 0]])];
+    const v = S3.judgeRails(railsEv({ frm, post: [modTrack("T1", [[0, 0], [10, 0]])] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("FRM point (12, 0)");
   });
   it("fails on an FRM point the mod's polyline does not reach (the symmetric direction)", () => {
     const v = S3.judgeRails(railsEv({ post: [modTrack("T1", [[0, 0], [5, 0]])] }));

@@ -97,11 +97,19 @@ function compareRails(mod: Array<{ id: string; points: Array<[number, number]> }
     const frmPts = frmById.get(id);
     if (frmPts === undefined) continue;
     out.compared++;
-    for (const p of modPts) {
+    // NEW (owner ruling, 2026-10-27, after run 40439238142 on Test3): FRM's polyline stops short of the track's true end (its last
+    // segment was about 0.75 m on Build_RailroadTrack_C_2147440438, and the mod's correct end was 1.08 m from FRM's line). So the
+    // mod's FIRST and LAST point of a track pass within 1 m plus the length of FRM's own segment at that end of the same track;
+    // every other mod point, and every FRM point, keeps the strict 1 m rule. Narrow: two endpoints, mod to FRM direction only.
+    const segLen = (a: [number, number] | undefined, b: [number, number] | undefined) => (a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0);
+    const firstSeg = segLen(frmPts[0], frmPts[1]);
+    const lastSeg = segLen(frmPts.at(-2), frmPts.at(-1));
+    modPts.forEach((p, i) => {
       const d = distToPolylineM(p, frmPts);
       out.maxModToFrm = Math.max(out.maxModToFrm, d);
-      if (d > S3_RAILS_MAX_M + EPS) far.push(`${id} mod point (${p[0]}, ${p[1]}) is ${fmt2(d)} m from FRM's track`);
-    }
+      const extra = i === 0 ? firstSeg : i === modPts.length - 1 ? lastSeg : 0;
+      if (d > S3_RAILS_MAX_M + extra + EPS) far.push(`${id} mod point (${p[0]}, ${p[1]}) is ${fmt2(d)} m from FRM's track${extra > 0 ? ` (end allowance ${fmt2(S3_RAILS_MAX_M + extra)} m)` : ""}`);
+    });
     for (const p of frmPts) {
       const d = distToPolylineM(p, modPts);
       out.maxFrmToMod = Math.max(out.maxFrmToMod, d);
