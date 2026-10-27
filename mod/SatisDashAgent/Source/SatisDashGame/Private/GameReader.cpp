@@ -707,6 +707,7 @@ void SatisDash::FGameReader::ResetMapMarkersRead()
 	MarkersWorld.Reset();
 	MarkersCopy.Empty(); // frees the strings, not just the count
 	MarkersCursor = 0;
+	bMarkersCopied = false;
 	MarkersFound = FMapMarkersSnapshot();
 	bMarkersOpen = false;
 }
@@ -726,7 +727,6 @@ bool SatisDash::FGameReader::BeginMapMarkersRead()
 	ResetMapMarkersRead();
 	bMarkersAbandoned = false;
 	MarkersWorld = Current;
-	Manager->GetMapMarkers(MarkersCopy); // the game's own cap is 250 markers; copied once, then sliced
 	bMarkersOpen = true;
 	return true;
 }
@@ -735,7 +735,7 @@ TOptional<SatisDash::FMapMarkersSnapshot> SatisDash::FGameReader::StepMapMarkers
 {
 	UWorld* Current = World.Get();
 	// A different save was loaded while the slices ran (or the manager went away): "cannot read", empty and flagged.
-	const AFGMapManager* Manager = Current != nullptr && Current == MarkersWorld.Get() ? AFGMapManager::Get(Current) : nullptr;
+	AFGMapManager* Manager = Current != nullptr && Current == MarkersWorld.Get() ? AFGMapManager::Get(Current) : nullptr;
 	if (Manager == nullptr)
 	{
 		ResetMapMarkersRead();
@@ -744,6 +744,12 @@ TOptional<SatisDash::FMapMarkersSnapshot> SatisDash::FGameReader::StepMapMarkers
 	}
 	bool bFinished = false;
 	Budget.Begin();
+	if (!bMarkersCopied)
+	{
+		// The game's own cap is 250 markers; copied once, inside the first step so the budget times it, then sliced.
+		Manager->GetMapMarkers(MarkersCopy);
+		bMarkersCopied = true;
+	}
 	do
 	{
 		if (MarkersCursor < MarkersCopy.Num())
@@ -751,7 +757,14 @@ TOptional<SatisDash::FMapMarkersSnapshot> SatisDash::FGameReader::StepMapMarkers
 			// Only these fields are read; the author fields (LastEditedBy, CreatedByPlayerID) never are.
 			const FMapMarker& Marker = MarkersCopy[MarkersCursor++];
 			FMapMarkerReading Reading;
-			Reading.Id = Marker.HasValidID() ? Marker.MarkerGUID.ToString(EGuidFormats::Digits).ToUpper() : FString();
+			if (Marker.HasValidID())
+			{
+				Reading.Id = Marker.MarkerGUID.ToString(EGuidFormats::Digits).ToUpper();
+			}
+			else
+			{
+				++MarkersFound.Counts.Dropped; // the builder also leaves out an empty id, so the reading still goes on
+			}
 			Reading.Name = Marker.Name;
 			Reading.Kind = Marker.MapMarkerType == ERepresentationType::RT_Stamp ? EMapMarkerKind::Stamp : EMapMarkerKind::Marker;
 			Reading.Icon = Marker.IconID;

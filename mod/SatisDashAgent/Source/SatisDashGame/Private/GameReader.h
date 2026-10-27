@@ -106,9 +106,12 @@ namespace SatisDash
 		/**
 		 * The map-markers read (R8): the manager's markers copied once when the read begins (at most 250 small structs, the only
 		 * game struct held across ticks; the strings are freed on end), a cursor into the copy, and the world it began in.
+		 * The copy also holds fields the reader never reads (LastEditedBy, CreatedByPlayerID); it is freed at Reset and End.
+		 * It is taken in the first step, not in Begin, so the step budget times it.
 		 */
 		TWeakObjectPtr<UWorld> MarkersWorld;
 		TArray<FMapMarker> MarkersCopy;
+		bool bMarkersCopied = false;
 		int32 MarkersCursor = 0;
 		bool bMarkersOpen = false;
 		/** The read that just returned was abandoned (no manager, or a world swap), not finished. */
