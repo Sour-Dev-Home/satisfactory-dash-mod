@@ -1443,15 +1443,28 @@ namespace
 	 * else the held stack's own class; the amount is the count in the slot, a fluid scaled litres to m3 by MakeSlotReading
 	 * ("1 unit equates to 1 Liter", FGBuildableGeneratorFuel.h:176). An empty or out-of-range slot gives false.
 	 */
-	bool BuildablesReadFuelSlot(const UFGInventoryComponent& Inventory, int32 SlotIndex, const TSubclassOf<UFGItemDescriptor>& Preferred, SatisDash::FFuelReading& Out)
+	bool BuildablesReadFuelSlot(const UFGInventoryComponent& Inventory, int32 SlotIndex, const TSubclassOf<UFGItemDescriptor>& Preferred, bool bLabelEmptySlot, SatisDash::FFuelReading& Out)
 	{
-		FInventoryStack Stack;
-		if (SlotIndex < 0 || SlotIndex >= Inventory.GetSizeLinear() || !Inventory.GetStackFromIndex(SlotIndex, Stack) || Stack.NumItems <= 0)
+		if (SlotIndex < 0 || SlotIndex >= Inventory.GetSizeLinear())
 		{
 			return false;
 		}
+		FInventoryStack Stack;
+		if (!Inventory.GetStackFromIndex(SlotIndex, Stack) || Stack.NumItems <= 0)
+		{
+			// Rule: a held stack labels its own count; an empty slot with a fuel still named as burning (fuel only) reads that class with amount 0.
+			if (bLabelEmptySlot && Preferred)
+			{
+				Out.ClassName = Preferred->GetName();
+				Out.Name = UFGItemDescriptor::GetItemName(Preferred).ToString();
+				Out.Amount = 0;
+				return true;
+			}
+			return false;
+		}
 		const TSubclassOf<UFGItemDescriptor> Held = Stack.Item.GetItemClass();
-		const TSubclassOf<UFGItemDescriptor> ItemClass = Preferred ? Preferred : Held;
+		// The held stack owns the count, so it owns the label (Preferred is only a fallback when the stack has no class).
+		const TSubclassOf<UFGItemDescriptor> ItemClass = Held ? Held : Preferred;
 		if (!ItemClass)
 		{
 			return false;
@@ -1470,12 +1483,14 @@ namespace
 	 *              mPowerProduction :126 "in MW"). GetPowerProductionCapacity :87 does not say it follows the clock, so it is not used.
 	 * NEEDS VERIFICATION (the parity run judges, a failure goes to a ruling PR, never a weakened judge): the power-info getters state no
 	 * unit (MW assumed), nor whether a generator's output sits in the base or the dynamic part (the sum is read), and the headers do not
-	 * say what a geothermal generator gives through this path (no min/max invented, survey Q4).
+	 * say what a geothermal generator gives through this path (no min/max invented, survey Q4). Also open: the production boost
+	 * (FGPowerInfoComponent.h:168 GetProductionBoostFactor [%], :171 GetActualProductionBoost [MW]): the header does not say whether
+	 * base + regulated, or CalcPowerProductionCapacityForPotential, include it; not read here. Parity must exercise a boosted
+	 * generator or record it NOT EXERCISED.
 	 */
-	void BuildablesReadGeneratorPower(const AFGBuildableGenerator& Generator, SatisDash::FGeneratorReading& Out)
+	void BuildablesReadGeneratorPower(const AFGBuildableGenerator& Generator, const UFGPowerInfoComponent* PowerInfo, SatisDash::FGeneratorReading& Out)
 	{
-		const UFGPowerInfoComponent* PowerInfo = Generator.GetPowerInfo();
-		if (IsValid(PowerInfo))
+		if (PowerInfo != nullptr)
 		{
 			Out.CurrentMW = static_cast<double>(PowerInfo->GetBaseProduction()) + static_cast<double>(PowerInfo->GetRegulatedDynamicProduction());
 		}
@@ -1614,10 +1629,10 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 				const UFGPowerInfoComponent* PowerInfo = Generator->GetPowerInfo();
 				const UFGPowerCircuit* Circuit = PowerInfo != nullptr ? PowerInfo->GetPowerCircuit() : nullptr;
 				Reading.CircuitGroupId = Circuit != nullptr ? Circuit->GetCircuitGroupID() : -1;
-				BuildablesReadGeneratorPower(*Generator, Reading);
+				BuildablesReadGeneratorPower(*Generator, PowerInfo, Reading);
 				// Only a fuel generator has a fuel (geothermal does not: Fuel stays unset, written as null). Waste is never read.
 				// The supplement is "read" for every generator that was read; an unset value is then null. Only a Fuel generator
-				// whose fuel inventory is missing (null on a client, FGBuildableGeneratorFuel.h:51) is a failed read: absent.
+				// whose fuel inventory is missing (null on a client, FGBuildableGeneratorFuel.h:54) is a failed read: absent.
 				const AFGBuildableGeneratorFuel* FuelGenerator = Cast<AFGBuildableGeneratorFuel>(Generator);
 				if (FuelGenerator == nullptr)
 				{
@@ -1630,14 +1645,14 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 					{
 						Reading.bSupplementRead = true;
 						FFuelReading Fuel;
-						if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetFuelInventoryIndex(), FuelGenerator->GetCurrentFuelClass(), Fuel))
+						if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetFuelInventoryIndex(), FuelGenerator->GetCurrentFuelClass(), true, Fuel))
 						{
 							Reading.Fuel = MoveTemp(Fuel);
 						}
 						if (FuelGenerator->GetRequiresSupplementalResource())
 						{
 							FFuelReading Supplement;
-							if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetSupplementalResourceInventoryIndex(), FuelGenerator->GetSupplementalResourceClass(), Supplement))
+							if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetSupplementalResourceInventoryIndex(), FuelGenerator->GetSupplementalResourceClass(), false, Supplement))
 							{
 								Reading.Supplement = MoveTemp(Supplement);
 							}
