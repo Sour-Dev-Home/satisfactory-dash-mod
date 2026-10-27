@@ -16,8 +16,8 @@ namespace
 	const TCHAR* WorldAccepted = TEXT("{\"accepted\":true,\"unchanged\":false}");
 
 	/** Map markers, drone routes and power lines default to native since the S4 switch; a test about another layer keeps them out of its reads. */
-	template <typename TFixture>
-	void worldS4LayersBridge(TFixture& F)
+	template <typename Fixture>
+	void worldS4LayersBridge(Fixture& F)
 	{
 		F.Config.MapMarkersSource = SatisDash::ESource::Bridge;
 		F.Config.DroneRoutesSource = SatisDash::ESource::Bridge;
