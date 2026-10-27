@@ -279,7 +279,7 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   `conveyors=native`, and a `Logistics read (game thread only):` line with `layers ... <layer>=1`. `readers.json` holds the
   final verdicts of every reader (`power`, `players`, `resourceNodes`, `factory`, `rates`, `trains`, `stations`, `trainRoutes`,
   `rails`, `conveyors`). An S1 or S2 capture is judged as before. Rails endpoint rule (owner, 2026-10-27): the mod's first and
-  last point of a track pass within 1 m plus the length of FRM's own segment at that end; every other mod point and every FRM
+  last point of a track pass within 1 m plus the length of FRM's own segment at that end, that extra capped at 1 m (new); every other mod point and every FRM
   point keep the strict 1 m rule.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S3`: the players, resource-node, factory, trains, rails and conveyors readers),

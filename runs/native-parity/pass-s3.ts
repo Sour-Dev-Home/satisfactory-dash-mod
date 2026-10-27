@@ -11,6 +11,8 @@ export type { Bracket, Counts };
 
 /** Owner, 2026-10-26: rails, a symmetric point-to-polyline distance, each way, against FRM's unrounded values (0.01 m, M3). */
 export const S3_RAILS_MAX_M = 1;
+/** NEW (controller, 2026-10-27): the most a track end's allowance adds to S3_RAILS_MAX_M (FRM's end gap was about 0.75 m). */
+export const S3_RAILS_END_EXTRA_MAX_M = 1;
 /** Owner, 2026-10-26: a conveyor's `at` is within 1 m of FRM's unrounded value. */
 export const S3_AT_MAX_M = 1;
 /** NEW for S3 (the value reuses S2's S2_ROUTES_GAP_MS trainRoutes rule; Open questions): a post is compared with an FRM sample taken within this of it. */
@@ -101,7 +103,10 @@ function compareRails(mod: Array<{ id: string; points: Array<[number, number]> }
     // segment was about 0.75 m on Build_RailroadTrack_C_2147440438, and the mod's correct end was 1.08 m from FRM's line). So the
     // mod's FIRST and LAST point of a track pass within 1 m plus the length of FRM's own segment at that end of the same track;
     // every other mod point, and every FRM point, keeps the strict 1 m rule. Narrow: two endpoints, mod to FRM direction only.
-    const segLen = (a: [number, number] | undefined, b: [number, number] | undefined) => (a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0);
+    // NEW (controller): the end allowance is capped at S3_RAILS_END_EXTRA_MAX_M, so a track FRM lists with only two points (its
+    // "end segment" is then the whole track) cannot wave through an endpoint that is far off.
+    const segLen = (a: [number, number] | undefined, b: [number, number] | undefined) =>
+      a && b ? Math.min(Math.hypot(b[0] - a[0], b[1] - a[1]), S3_RAILS_END_EXTRA_MAX_M) : 0;
     const firstSeg = segLen(frmPts[0], frmPts[1]);
     const lastSeg = segLen(frmPts.at(-2), frmPts.at(-1));
     modPts.forEach((p, i) => {

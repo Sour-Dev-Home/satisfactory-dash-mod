@@ -66,6 +66,14 @@ describe("judgeRails", () => {
     expect(S3.judgeRails(railsEv({ frm: start, post: [modTrack("T1", [[-2, 0], [10, 0]])] })).pass).toBe(true);
     expect(S3.judgeRails(railsEv({ frm: start, post: [modTrack("T1", [[-3, 0], [10, 0]])] })).pass).toBe(false);
   });
+  it("the end allowance is capped: a two-point FRM track cannot wave through a far endpoint", () => {
+    // FRM's only segment is 10 m; uncapped, the mod's end at 13 m (3 m off) would pass. Capped at 1 m extra, the limit is 2 m.
+    const frm = [track("T1", [[0, 0], [10, 0]])];
+    const v = S3.judgeRails(railsEv({ frm, post: [modTrack("T1", [[0, 0], [13, 0]])] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("mod point (13, 0) is 3.00 m");
+    expect(S3.judgeRails(railsEv({ frm, post: [modTrack("T1", [[0, 0], [12, 0]])] })).pass).toBe(true);
+  });
   it("an interior mod point over 1 m still fails", () => {
     const frm = [track("T1", [[0, 0], [5, 0], [10, 0]])];
     expect(S3.judgeRails(railsEv({ frm, post: [modTrack("T1", [[0, 0], [5, 2], [10, 0]])] })).pass).toBe(false);
