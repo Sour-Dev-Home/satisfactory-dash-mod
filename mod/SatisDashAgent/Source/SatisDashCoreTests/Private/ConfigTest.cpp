@@ -228,13 +228,13 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 	const FString PartsJson = ConfigToJson(Parts.Config);
 	TestTrue(TEXT("round trip keeps the part keys"), PartsJson.Contains(TEXT("\"factorySource\": \"bridge\"")) && PartsJson.Contains(TEXT("\"trainsSource\": \"bridge\"")));
 
-	// The rails key: default bridge (until its switch PR), the same strict parse, names itself, round-trips only when set.
-	TestTrue(TEXT("no key: rails default is bridge"), None.Config.GetRailsSource() == ESource::Bridge && DefaultRailsSource == ESource::Bridge);
+	// The rails key: default native (the S3 switch), the same strict parse, names itself, round-trips only when set.
+	TestTrue(TEXT("no key: rails default is native"), None.Config.GetRailsSource() == ESource::Native && DefaultRailsSource == ESource::Native);
 	TestFalse(TEXT("no key: rails unset"), None.Config.RailsSource.IsSet());
-	const FConfigResult RailsNative = ParseConfig(Base + TEXT(",\"railsSource\":\"native\"}"));
-	TestTrue(TEXT("rails key: valid"), RailsNative.Status == EConfigStatus::Valid);
-	TestTrue(TEXT("the rails key selects native"), RailsNative.Config.GetRailsSource() == ESource::Native);
-	TestTrue(TEXT("round trip keeps the rails key"), ConfigToJson(RailsNative.Config).Contains(TEXT("\"railsSource\": \"native\"")));
+	const FConfigResult RailsBridge = ParseConfig(Base + TEXT(",\"railsSource\":\"bridge\"}"));
+	TestTrue(TEXT("rails key: valid"), RailsBridge.Status == EConfigStatus::Valid);
+	TestTrue(TEXT("the rails key still selects the bridge"), RailsBridge.Config.GetRailsSource() == ESource::Bridge);
+	TestTrue(TEXT("round trip keeps the rails key"), ConfigToJson(RailsBridge.Config).Contains(TEXT("\"railsSource\": \"bridge\"")));
 	for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
 	{
 		const FConfigResult R = ParseConfig(Base + TEXT(",\"railsSource\":") + Bad + TEXT("}"));
@@ -242,14 +242,14 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 		TestEqual(*FString::Printf(TEXT("railsSource %s names the key"), Bad), R.BadField, FString(TEXT("railsSource")));
 	}
 
-	// The conveyors key: the same shape (default bridge, which means the layer is not sent).
-	TestTrue(TEXT("no key: conveyors default is bridge"), None.Config.GetConveyorsSource() == ESource::Bridge && DefaultConveyorsSource == ESource::Bridge);
+	// The conveyors key: the same shape (default native, the S3 switch; bridge means the layer is not sent).
+	TestTrue(TEXT("no key: conveyors default is native"), None.Config.GetConveyorsSource() == ESource::Native && DefaultConveyorsSource == ESource::Native);
 	TestFalse(TEXT("no key: conveyors unset"), None.Config.ConveyorsSource.IsSet());
-	const FConfigResult ConveyorsNative = ParseConfig(Base + TEXT(",\"conveyorsSource\":\"native\"}"));
-	TestTrue(TEXT("conveyors key: valid"), ConveyorsNative.Status == EConfigStatus::Valid);
-	TestTrue(TEXT("the conveyors key selects native"), ConveyorsNative.Config.GetConveyorsSource() == ESource::Native);
-	TestTrue(TEXT("and leaves rails on its default"), ConveyorsNative.Config.GetRailsSource() == ESource::Bridge);
-	TestTrue(TEXT("round trip keeps the conveyors key"), ConfigToJson(ConveyorsNative.Config).Contains(TEXT("\"conveyorsSource\": \"native\"")));
+	const FConfigResult ConveyorsBridge = ParseConfig(Base + TEXT(",\"conveyorsSource\":\"bridge\"}"));
+	TestTrue(TEXT("conveyors key: valid"), ConveyorsBridge.Status == EConfigStatus::Valid);
+	TestTrue(TEXT("the conveyors key still selects the bridge"), ConveyorsBridge.Config.GetConveyorsSource() == ESource::Bridge);
+	TestTrue(TEXT("and leaves rails on its default"), ConveyorsBridge.Config.GetRailsSource() == ESource::Native);
+	TestTrue(TEXT("round trip keeps the conveyors key"), ConfigToJson(ConveyorsBridge.Config).Contains(TEXT("\"conveyorsSource\": \"bridge\"")));
 	for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
 	{
 		const FConfigResult R = ParseConfig(Base + TEXT(",\"conveyorsSource\":") + Bad + TEXT("}"));

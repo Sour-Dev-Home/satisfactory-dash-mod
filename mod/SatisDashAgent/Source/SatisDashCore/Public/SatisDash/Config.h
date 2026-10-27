@@ -19,8 +19,8 @@ namespace SatisDash
 	inline constexpr ESource DefaultResourceNodesSource = ESource::Native;
 	inline constexpr ESource DefaultFactorySource = ESource::Native;
 	inline constexpr ESource DefaultTrainsSource = ESource::Native;
-	inline constexpr ESource DefaultRailsSource = ESource::Bridge;
-	inline constexpr ESource DefaultConveyorsSource = ESource::Bridge;
+	inline constexpr ESource DefaultRailsSource = ESource::Native;
+	inline constexpr ESource DefaultConveyorsSource = ESource::Native;
 
 	struct FAgentConfig
 	{

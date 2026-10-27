@@ -176,7 +176,7 @@ export function judgeRails(r: RailsEvidence): S3Result {
     notRep.size > 0 ? null : "a track the contract cannot hold",
   ].filter((x): x is string => x !== null);
   const out = [
-    `${posts} posted layer(s) valid against the contract; track ids equal FRM's; ${tracks} tracks compared; farthest point ${fmt2(maxA)} m (mod to FRM) and ${fmt2(maxB)} m (FRM to mod), limit ${S3_RAILS_MAX_M} m`,
+    `${posts} posted layer(s) valid against the contract; track ids equal FRM's; ${tracks} tracks compared; farthest point ${fmt2(maxA)} m (mod to FRM) and ${fmt2(maxB)} m (FRM to mod), limit ${S3_RAILS_MAX_M} m (a track's two end points: plus FRM's end segment, at most ${S3_RAILS_END_EXTRA_MAX_M} m more)`,
   ];
   if (frmDup.size > 0) out.push(`FRM listed ${frmDup.size} track id(s) twice, reported and not failed (first ${S3_SHOW}): ${[...frmDup].slice(0, S3_SHOW).join(" ")}`);
   if (notRep.size > 0) out.push(`${notRep.size} FRM tracks the contract cannot hold, reported and not failed (first ${S3_SHOW}): ${[...notRep].slice(0, S3_SHOW).join(" ")}`);

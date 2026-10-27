@@ -7,6 +7,7 @@ using SatisDash::Test::FDriverFixture;
 namespace
 {
 	const TCHAR* DriverWorldSnapshots = TEXT("/agent/v1/snapshots");
+	const TCHAR* DriverWorldBridgeKeys = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\""); // rails and conveyors default to native since the S3 switch
 	const TCHAR* DriverWorldRailsRead = TEXT("/getTrainRails");
 	const TCHAR* DriverWorldRailsPost = TEXT("/agent/v1/world/rails");
 	const TCHAR* DriverWorldRails = TEXT("[{\"ID\":\"R1\",\"SplineData\":[{\"x\":0,\"y\":0},{\"x\":300,\"y\":0}]}]");
@@ -57,7 +58,7 @@ bool FDriverWorldTest::RunTest(const FString& Parameters)
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
 	TestEqual(TEXT("no FRM read before enrolling"), F.Net.sent(DriverWorldRailsRead), 0);
-	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverWorldBridgeKeys);
 	const double StartedAt = F.T;
 	TestTrue(TEXT("rails are read once the agent has run for about 2 minutes"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsRead) > 0; }, 200));
 	const double Waited = F.T - StartedAt;
@@ -115,7 +116,7 @@ bool FDriverWorldHaltTest::RunTest(const FString& Parameters)
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
-	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverWorldBridgeKeys);
 	TestTrue(TEXT("rails are read"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsRead) > 0; }, 200));
 	F.Net.answer(DriverWorldRailsRead, SatisDash::Test::Reply(200, DriverWorldRails));
 	TestTrue(TEXT("and posted"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsPost) > 0; }, 30));
@@ -135,7 +136,7 @@ bool FDriverWorldStopsTest::RunTest(const FString& Parameters)
 	FDriverFixture F;
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
-	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverWorldBridgeKeys);
 	TestTrue(TEXT("rails are read"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsRead) > 0; }, 200));
 
 	// The agent is revoked (a snapshot 401) while the rails read is in flight.
@@ -148,7 +149,7 @@ bool FDriverWorldStopsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("nothing of the old run is posted"), F.Net.sent(DriverWorldRailsPost), 0);
 
 	// Re-enrol: the schedule starts again from the new Running edge.
-	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222-2222"));
+	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222-2222"), DriverWorldBridgeKeys);
 	F.run(Driver, 61);
 	F.Net.answer(TEXT("/agent/v1/enroll"), SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()));
 	F.run(Driver, 1);
