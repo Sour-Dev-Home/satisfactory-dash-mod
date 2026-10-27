@@ -23,7 +23,10 @@ namespace
 		FFrmBridge Bridge{ Net, Worker };
 		/** The jitter draw: 1.0 is the top of the range; a test sets 0 for the bottom (x0.9) before Start. */
 		double Random01 = 1.0;
-		FWorldSender Sender{ Net, Bridge, [this] { return Random01; } };
+		/** Draws served first, in order (Start draws rails, nodes, train routes, conveyors); then Random01 again. */
+		TArray<double> Draws;
+		int32 DrawsTaken = 0;
+		FWorldSender Sender{ Net, Bridge, [this] { return DrawsTaken < Draws.Num() ? Draws[DrawsTaken++] : Random01; } };
 		FAgentConfig Config;
 		FCredential Credential;
 		double T = 1000;
@@ -769,5 +772,343 @@ bool FWorldSenderNativeFirstReadTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("flip: nothing is begun before 432 s"), H.until([&H] { return H.Game.LogisticsBegins > 0; }, 380));
 	TestTrue(TEXT("flip: the pass begins at 432 s"), H.until([&H] { return H.Game.LogisticsBegins > 0; }, 5));
 	TestEqual(TEXT("flip: FRM is never asked for rails"), H.Net.sent(WorldRailsRead), 0);
+	return true;
+}
+
+namespace
+{
+	const TCHAR* WorldConveyorsPost = TEXT("/agent/v1/world/conveyors");
+
+	/** R6: one belt (end 0 at the origin) from a miner to a constructor, named so the sort order is visible. */
+	FConveyorReading worldConveyorsBelt(const FString& Id, const FString& From, const FString& To)
+	{
+		FConveyorReading Reading;
+		Reading.Id = Id;
+		Reading.Kind = EConveyorKind::Belt;
+		Reading.FromId = From;
+		Reading.ToId = To;
+		Reading.Tier = TEXT("Conveyor Belt Mk.1");
+		Reading.RawRate = 120.0;
+		return Reading;
+	}
+
+	/** Two belts given out of order, so the sorted body is the proof the worker built it. */
+	void worldConveyorsReadings(SatisDash::Test::FFakeGame& Game)
+	{
+		Game.LogisticsConveyors = {
+			worldConveyorsBelt(TEXT("Build_ConveyorBeltMk1_C_B"), TEXT("Build_MinerMk1_C_1"), TEXT("Build_ConstructorMk1_C_2")),
+			worldConveyorsBelt(TEXT("Build_ConveyorBeltMk1_C_A"), TEXT("Build_MinerMk1_C_3"), TEXT("Build_ConstructorMk1_C_4")),
+		};
+		Game.LogisticsCounts.Buildables = 7;
+		Game.LogisticsCounts.Belts = 2;
+	}
+
+	/** Rails and conveyors native, the other native-capable layers on the bridge, the jitter at the bottom of its range. */
+	void worldBothNative(FWorldFixture& F)
+	{
+		worldLogisticsNative(F);
+		F.Config.ConveyorsSource = ESource::Native;
+	}
+
+	/** The `data` array of the body the builder makes from the fake's conveyor readings. */
+	FString worldConveyorsExpectedData(const TArray<FConveyorReading>& Readings)
+	{
+		const FNativeWorldBody Body = BuildNativeConveyors(TEXT("2026-10-24T12:00:00.000Z"), Readings);
+		return Body.Json.Mid(Body.DataFrom, Body.DataEnd - Body.DataFrom);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderLogisticsBothTest, "SatisDash.Core.WorldSender.LogisticsBoth", SatisDash::Test::Flags)
+
+bool FWorldSenderLogisticsBothTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FWorldFixture F;
+	worldBothNative(F);
+	worldLogisticsReadings(F.Game);
+	worldConveyorsReadings(F.Game);
+	// Census data the real reader will fill: 18 tiers (the log keeps 16), 7 differing classes (the log keeps 5), ports.
+	FLogisticsCounts& Counts = F.Game.LogisticsCounts;
+	Counts.KindChecked = 9;
+	Counts.KindDiffer = 7;
+	for (int32 I = 0; I < 7; ++I)
+	{
+		Counts.DifferClasses.Add(FString::Printf(TEXT("Odd_C_%d"), I));
+	}
+	Counts.EndsIntoPorts = 3;
+	Counts.EndsOutOfPorts = 2;
+	for (int32 I = 0; I < 18; ++I)
+	{
+		FTierCount Tier;
+		Tier.Kind = I % 3 == 0 ? EConveyorKind::Belt : I % 3 == 1 ? EConveyorKind::Lift : EConveyorKind::Pipe;
+		Tier.Name = FString::Printf(TEXT("Tier%02d"), I);
+		Tier.RawRate = 2.5;
+		Tier.Count = I % 3 + 1;
+		Counts.Tiers.Add(Tier);
+	}
+	// Rails is due at 432 s (480 x 0.9); conveyors' own time is 528 s (480 x 1.1). Start draws rails, nodes, routes, conveyors, in that order.
+	F.Draws = { 0.0, 0.0, 0.0, 1.0 };
+	F.Sender.Start(F.T);
+	TestFalse(TEXT("nothing is begun before 432 s"), F.until([&F] { return F.Game.LogisticsBegins > 0; }, 431));
+	TestTrue(TEXT("the pass begins at 432 s"), F.until([&F] { return F.Game.LogisticsBegins > 0; }, 3));
+	TestEqual(TEXT("one begin"), F.Game.LogisticsBegins, 1);
+	TestTrue(TEXT("with the rails flag"), F.Game.bLastBeginRails);
+	TestTrue(TEXT("and the conveyors flag, though its own time (528 s) is later (ruling M6)"), F.Game.bLastBeginConveyors);
+	F.tick(3);
+	TestEqual(TEXT("one pass of three steps"), F.Game.LogisticsStepCalls, 3);
+	TestEqual(TEXT("still one begin"), F.Game.LogisticsBegins, 1);
+
+	// One finished snapshot posts both layers, one after the other (one post in flight).
+	TestTrue(TEXT("rails is posted"), F.until([&F] { return F.Net.pending(WorldRailsPost) > 0; }, 10));
+	F.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	const double RailsAccepted = F.T;
+	TestTrue(TEXT("conveyors is posted"), F.until([&F] { return F.Net.pending(WorldConveyorsPost) > 0; }, 10));
+	const FString Body = F.Net.lastBody(WorldConveyorsPost);
+	const int32 First = Body.Find(TEXT("\"id\":\"Build_ConveyorBeltMk1_C_A\""));
+	const int32 Second = Body.Find(TEXT("\"id\":\"Build_ConveyorBeltMk1_C_B\""));
+	TestTrue(TEXT("both belts are in the body"), First != INDEX_NONE && Second != INDEX_NONE);
+	TestTrue(TEXT("sorted by id"), First < Second);
+	TestTrue(TEXT("the data equals the builder's over the fake's readings"), Body.Contains(worldConveyorsExpectedData(F.Game.LogisticsConveyors)));
+	F.Net.answer(WorldConveyorsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	F.tick(2);
+	TestEqual(TEXT("rails posted once"), F.Net.sent(WorldRailsPost), 1);
+	TestEqual(TEXT("conveyors posted once"), F.Net.sent(WorldConveyorsPost), 1);
+	TestEqual(TEXT("FRM is never asked for rails"), F.Net.sent(WorldRailsRead), 0);
+	TestEqual(TEXT("the accepted bodies are not held"), F.Sender.Held(), 0);
+
+	// The next cycle: both layers were rescheduled together (600 s x 0.9), so one pass takes both, and unchanged data is not posted again.
+	// Rails is accepted at RailsAccepted and rescheduled 540 s on (600 x 0.9); conveyors a moment later. Neither layer's own earlier time (528 s) starts a pass.
+	TestFalse(TEXT("no second pass before the rescheduled time"), F.until([&F] { return F.Game.LogisticsBegins >= 2; }, RailsAccepted + 539.0 - F.T));
+	TestTrue(TEXT("the second pass begins 540 s after rails was accepted"), F.until([&F] { return F.Game.LogisticsBegins >= 2; }, 2));
+	TestEqual(TEXT("the one pass takes both layers"), F.Game.LogisticsBegins, 2);
+	TestTrue(TEXT("with both flags"), F.Game.bLastBeginRails && F.Game.bLastBeginConveyors);
+	F.tick(10);
+	TestEqual(TEXT("an unchanged rails layer is not posted again"), F.Net.sent(WorldRailsPost), 1);
+	TestEqual(TEXT("an unchanged conveyors layer is not posted again"), F.Net.sent(WorldConveyorsPost), 1);
+
+	// The log: one Logistics read line a pass with both flags, the kinds and ports lines each pass (the first 5 differing classes), the
+	// tier census on the first pass only and capped at 16 of the 18 tiers, ids nowhere.
+	int32 ReadLines = 0;
+	int32 KindLines = 0;
+	int32 PortLines = 0;
+	int32 Leaks = 0;
+	int32 Census = 0;
+	int32 CensusFirst = 0;
+	int32 CensusLift = 0;
+	int32 CensusPipe = 0;
+	int32 CensusBeyondCap = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ReadLines += Line.Contains(TEXT("Logistics read (game thread only): layers rails=1 conveyors=1, 7 buildables")) ? 1 : 0;
+		KindLines += Line.Contains(TEXT("Conveyor kinds: 9 ends checked, 7 differ from the class table (first classes: Odd_C_0, Odd_C_1, Odd_C_2, Odd_C_3, Odd_C_4)")) ? 1 : 0;
+		PortLines += Line.Contains(TEXT("Conveyor drone ports: 3 edges end at a port, 2 start at one")) ? 1 : 0;
+		Leaks += Line.Contains(TEXT("Build_ConveyorBelt")) || Line.Contains(TEXT("Build_RailroadTrack")) ? 1 : 0;
+		Census += Line.Contains(TEXT("Conveyor tier census: ")) ? 1 : 0;
+		CensusFirst += Line.EndsWith(TEXT("Conveyor tier census: belt | Tier00 | speed 2.500 | count 1")) ? 1 : 0;
+		CensusLift += Line.EndsWith(TEXT("Conveyor tier census: lift | Tier01 | speed 2.500 | count 2")) ? 1 : 0;
+		CensusPipe += Line.EndsWith(TEXT("Conveyor tier census: pipe | Tier02 | speed 2.500 | count 3")) ? 1 : 0;
+		CensusBeyondCap += Line.Contains(TEXT("Tier16 ")) || Line.Contains(TEXT("Tier17 ")) ? 1 : 0;
+		TestFalse(TEXT("the sixth differing class is not logged"), Line.Contains(TEXT("Odd_C_5")) || Line.Contains(TEXT("Odd_C_6")));
+	}
+	TestEqual(TEXT("one Logistics read line a pass"), ReadLines, 2);
+	TestEqual(TEXT("one kinds line a pass"), KindLines, 2);
+	TestEqual(TEXT("one ports line a pass"), PortLines, 2);
+	TestEqual(TEXT("no id in the log"), Leaks, 0);
+	TestEqual(TEXT("exactly 16 census lines, all on the first pass"), Census, 16);
+	TestEqual(TEXT("belt kind text"), CensusFirst, 1);
+	TestEqual(TEXT("lift kind text"), CensusLift, 1);
+	TestEqual(TEXT("pipe kind text"), CensusPipe, 1);
+	TestEqual(TEXT("the 17th and 18th tiers are not logged"), CensusBeyondCap, 0);
+
+	// Start re-arms the census: the first conveyors pass after it logs its 16 lines again, and the pass after that none.
+	F.Sender.Start(F.T);
+	TestTrue(TEXT("a pass begins after the restart"), F.until([&F] { return F.Game.LogisticsBegins >= 3; }, 440));
+	F.tick(10);
+	// (the capture keeps every line, so the totals are cumulative: 16 from the first run)
+	TestEqual(TEXT("the restart logs the census again"), countLines(Log, TEXT("Conveyor tier census: ")), 32);
+	// The restart forgot the data hashes, so both layers post again; accept them so the layers reschedule.
+	F.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	TestTrue(TEXT("conveyors posts again"), F.until([&F] { return F.Net.pending(WorldConveyorsPost) > 0; }, 10));
+	F.Net.answer(WorldConveyorsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	TestTrue(TEXT("and the next pass"), F.until([&F] { return F.Game.LogisticsBegins >= 4; }, 700));
+	F.tick(10);
+	TestEqual(TEXT("logs none"), countLines(Log, TEXT("Conveyor tier census: ")), 32);
+
+	// A refused submit for one layer reschedules only that layer: the conveyors slot still holds an earlier job, rails is posted.
+	FWorldFixture G;
+	worldBothNative(G);
+	worldLogisticsReadings(G.Game);
+	worldConveyorsReadings(G.Game);
+	G.Sender.Start(G.T);
+	TestTrue(TEXT("the bridge's conveyors slot is taken"), G.Bridge.SubmitNativeWorld(EWorldLayer::Conveyors, TEXT("2026-10-24T12:00:00.000Z"),
+		FNativeWorldBuilder([](const FString& Observed) { return BuildNativeConveyors(Observed, {}); }), TOptional<FBlake3Hash>()));
+	TestTrue(TEXT("the pass begins"), G.until([&G] { return G.Game.LogisticsBegins > 0; }, 440));
+	const double Begun = G.T;
+	TestTrue(TEXT("rails is posted"), G.until([&G] { return G.Net.pending(WorldRailsPost) > 0; }, 20));
+	const double RailsPending = G.T;
+	G.tick(5);
+	TestEqual(TEXT("one pass"), G.Game.LogisticsBegins, 1);
+	TestEqual(TEXT("conveyors is not posted"), G.Net.sent(WorldConveyorsPost), 0);
+	G.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	G.tick(60);
+	TestEqual(TEXT("conveyors is not retried at once (it waits a whole cycle, not the scan retry)"), G.Game.LogisticsBegins, 1);
+	TestEqual(TEXT("rails was posted"), G.Net.sent(WorldRailsPost), 1);
+	TestEqual(TEXT("and still nothing for conveyors"), G.Net.sent(WorldConveyorsPost), 0);
+	// Conveyors was rescheduled a whole interval (540 s) from the pass's end, which is between its begin and rails' post; it takes rails with it.
+	TestFalse(TEXT("no pass before the interval is out"), G.until([&G] { return G.Game.LogisticsBegins >= 2; }, Begun + 539.0 - G.T));
+	TestTrue(TEXT("the next pass begins by the latest rescheduled time"), G.until([&G] { return G.Game.LogisticsBegins >= 2; }, RailsPending + 541.0 - G.T));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderConveyorsOffUnlessNativeTest, "SatisDash.Core.WorldSender.ConveyorsOffUnlessNative", SatisDash::Test::Flags)
+
+bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	// The default config (conveyorsSource unset = bridge): the layer is never scheduled, whatever the rails do.
+	FWorldFixture F;
+	worldLogisticsNative(F);
+	worldLogisticsReadings(F.Game);
+	worldConveyorsReadings(F.Game);
+	F.Sender.Start(F.T);
+	TestTrue(TEXT("rails (native) is posted"), F.until([&F] { return F.Net.pending(WorldRailsPost) > 0; }, 440));
+	F.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	F.tick(2000);
+	TestTrue(TEXT("rails ran more than one pass"), F.Game.LogisticsBegins >= 2);
+	TestFalse(TEXT("no pass asked for conveyors"), F.Game.bLastBeginConveyors);
+	TestEqual(TEXT("no conveyors post"), F.Net.sent(WorldConveyorsPost), 0);
+	TestEqual(TEXT("no FRM request for conveyors (nor a request for rails)"), F.Net.sent(WorldRailsRead), 0);
+	int32 Conveyor = 0;
+	for (const FString& Line : Log.Take())
+	{
+		// (the rails pass's own line says conveyors=0, which is not about the layer)
+		Conveyor += Line.Contains(TEXT("Conveyor kinds")) || Line.Contains(TEXT("Conveyor drone")) || Line.Contains(TEXT("Conveyor tier")) || Line.Contains(TEXT("conveyors=1")) || Line.Contains(TEXT("layer conveyors")) ? 1 : 0;
+	}
+	TestEqual(TEXT("and nothing about conveyors is logged"), Conveyor, 0);
+
+	// railsSource bridge and conveyorsSource native: FRM is asked for getTrainRails, and the pass serves conveyors alone.
+	FWorldFixture G;
+	G.Config.RailsSource = ESource::Bridge;
+	G.Config.ConveyorsSource = ESource::Native;
+	G.Config.ResourceNodesSource = ESource::Bridge;
+	G.Config.TrainsSource = ESource::Bridge;
+	G.bNativeReaders = true;
+	G.Random01 = 0.0;
+	worldConveyorsReadings(G.Game);
+	G.Sender.Start(G.T);
+	TestTrue(TEXT("FRM is asked for the rails"), G.until([&G] { return G.Net.sent(WorldRailsRead) > 0; }, 120));
+	TestFalse(TEXT("no pass before 432 s"), G.until([&G] { return G.Game.LogisticsBegins > 0; }, 320));
+	TestTrue(TEXT("the pass begins at 432 s"), G.until([&G] { return G.Game.LogisticsBegins > 0; }, 5));
+	TestFalse(TEXT("without the rails flag"), G.Game.bLastBeginRails);
+	TestTrue(TEXT("with the conveyors flag"), G.Game.bLastBeginConveyors);
+	TestTrue(TEXT("conveyors is posted"), G.until([&G] { return G.Net.pending(WorldConveyorsPost) > 0; }, 10));
+	G.Net.answer(WorldConveyorsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	G.tick(5);
+	TestEqual(TEXT("one conveyors post"), G.Net.sent(WorldConveyorsPost), 1);
+	TestEqual(TEXT("no rails post from the game"), G.Net.sent(WorldRailsPost), 0);
+
+	// Flip bridge to native mid-run (before any pass): the layer is scheduled at the first-read rule (432 s here), nothing is sent before it.
+	FWorldFixture A;
+	A.Config.ResourceNodesSource = ESource::Bridge;
+	A.Config.TrainsSource = ESource::Bridge;
+	A.bNativeReaders = true;
+	A.Random01 = 0.0;
+	worldConveyorsReadings(A.Game);
+	A.Sender.Start(A.T);
+	A.tick(50);
+	A.Config.ConveyorsSource = ESource::Native;
+	TestFalse(TEXT("flip to native: nothing begun before 432 s"), A.until([&A] { return A.Game.LogisticsBegins > 0; }, 380));
+	TestEqual(TEXT("flip to native: nothing posted before it"), A.Net.sent(WorldConveyorsPost), 0);
+	TestTrue(TEXT("flip to native: the pass begins at 432 s"), A.until([&A] { return A.Game.LogisticsBegins > 0; }, 5));
+	TestTrue(TEXT("flip to native: with the conveyors flag only"), A.Game.bLastBeginConveyors && !A.Game.bLastBeginRails);
+	TestTrue(TEXT("flip to native: the layer is posted"), A.until([&A] { return A.Net.pending(WorldConveyorsPost) > 0; }, 10));
+
+	// Flip native to bridge before the pass: nothing is ever begun or posted.
+	FWorldFixture B;
+	B.Config.ConveyorsSource = ESource::Native;
+	B.Config.ResourceNodesSource = ESource::Bridge;
+	B.Config.TrainsSource = ESource::Bridge;
+	B.bNativeReaders = true;
+	B.Random01 = 0.0;
+	worldConveyorsReadings(B.Game);
+	B.Sender.Start(B.T);
+	B.tick(50);
+	B.Config.ConveyorsSource = ESource::Bridge;
+	B.tick(1500);
+	TestEqual(TEXT("flip to bridge: no pass"), B.Game.LogisticsBegins, 0);
+	TestEqual(TEXT("flip to bridge: no post"), B.Net.sent(WorldConveyorsPost), 0);
+
+	// Flip native to bridge under an open pass that holds only conveyors: the reader is told, nothing is posted, the layer waits a cycle.
+	FWorldFixture C;
+	C.Config.ConveyorsSource = ESource::Native;
+	C.Config.ResourceNodesSource = ESource::Bridge;
+	C.Config.TrainsSource = ESource::Bridge;
+	C.bNativeReaders = true;
+	C.Random01 = 0.0;
+	worldConveyorsReadings(C.Game);
+	C.Game.LogisticsStepsToFinish = 1000000;
+	C.Sender.Start(C.T);
+	TestTrue(TEXT("open pass: begun"), C.until([&C] { return C.Game.LogisticsBegins > 0; }, 440));
+	C.tick(1);
+	C.Config.ConveyorsSource = ESource::Bridge;
+	C.tick();
+	TestEqual(TEXT("open pass: the reader is told"), C.Game.LogisticsEnds, 1);
+	C.tick(120);
+	TestEqual(TEXT("open pass: no post"), C.Net.sent(WorldConveyorsPost), 0);
+	TestEqual(TEXT("open pass: no new pass"), C.Game.LogisticsBegins, 1);
+
+	// A shared pass keeps the layer that is still native when the other flips to bridge, in either order.
+	for (const bool bConveyorsFlips : { true, false })
+	{
+		FWorldFixture D;
+		worldBothNative(D);
+		worldLogisticsReadings(D.Game);
+		worldConveyorsReadings(D.Game);
+		D.Sender.Start(D.T);
+		TestTrue(TEXT("shared pass: begun"), D.until([&D] { return D.Game.LogisticsBegins > 0; }, 440));
+		TestTrue(TEXT("shared pass: with both flags"), D.Game.bLastBeginRails && D.Game.bLastBeginConveyors);
+		TestTrue(TEXT("shared pass: stepped"), D.until([&D] { return D.Game.LogisticsStepCalls >= 1; }, 5));
+		if (bConveyorsFlips)
+		{
+			D.Config.ConveyorsSource = ESource::Bridge;
+		}
+		else
+		{
+			D.Config.RailsSource = ESource::Bridge;
+		}
+		const TCHAR* Kept = bConveyorsFlips ? WorldRailsPost : WorldConveyorsPost;
+		const TCHAR* Dropped = bConveyorsFlips ? WorldConveyorsPost : WorldRailsPost;
+		TestTrue(TEXT("shared pass: the layer still native is posted"), D.until([&D, Kept] { return D.Net.pending(Kept) > 0; }, 20));
+		D.Net.answer(Kept, SatisDash::Test::Reply(200, WorldAccepted));
+		D.tick(60);
+		TestEqual(TEXT("shared pass: the kept layer posted once"), D.Net.sent(Kept), 1);
+		TestEqual(TEXT("shared pass: the dropped layer is not posted"), D.Net.sent(Dropped), 0);
+		TestEqual(TEXT("shared pass: still one pass"), D.Game.LogisticsBegins, 1);
+		TestTrue(TEXT("shared pass: the next pass serves the kept layer alone"), D.until([&D] { return D.Game.LogisticsBegins >= 2; }, 700));
+		TestEqual(TEXT("shared pass: rails flag"), D.Game.bLastBeginRails, bConveyorsFlips);
+		TestEqual(TEXT("shared pass: conveyors flag"), D.Game.bLastBeginConveyors, !bConveyorsFlips);
+		TestEqual(TEXT("shared pass: the dropped layer is never posted"), D.Net.sent(Dropped), 0);
+	}
+
+	// A body over the layer cap is not posted, and warns once.
+	SatisDash::Test::FLogCapture CapLog;
+	FWorldFixture O;
+	O.Config.ConveyorsSource = ESource::Native;
+	O.Config.ResourceNodesSource = ESource::Bridge;
+	O.Config.TrainsSource = ESource::Bridge;
+	O.bNativeReaders = true;
+	O.Random01 = 0.0;
+	O.Game.LogisticsConveyors.Reset();
+	for (int32 Edge = 0; Edge < 6000; ++Edge)
+	{
+		// ids of 100 digits: about 530 bytes an edge, so the body is past 2,000,000 bytes
+		O.Game.LogisticsConveyors.Add(worldConveyorsBelt(FString::Printf(TEXT("Belt_%095d"), Edge), FString::Printf(TEXT("Build_MinerMk1_C_%095d"), Edge), FString::Printf(TEXT("Build_ConstructorMk1_C_%095d"), Edge)));
+	}
+	O.Game.LogisticsCounts.Buildables = 6000;
+	O.Sender.Start(O.T);
+	TestTrue(TEXT("a pass begins"), O.until([&O] { return O.Game.LogisticsBegins > 0; }, 440));
+	O.tick(60);
+	TestEqual(TEXT("an over-cap layer is not posted"), O.Net.sent(WorldConveyorsPost), 0);
+	TestEqual(TEXT("it is logged once, with its size"), countLines(CapLog, TEXT("World layer conveyors is ")), 1);
 	return true;
 }

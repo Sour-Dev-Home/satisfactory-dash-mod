@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "SatisDash/FrmPlayers.h"
+#include "SatisDash/Native/Conveyors/NativeConveyors.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/StepBudget.h"
@@ -25,10 +26,18 @@ namespace SatisDash
 	{
 		int32 Buildables = 0, Tracks = 0, Belts = 0, Lifts = 0, Pipes = 0;
 		int32 OpenEnds = 0, OwnerlessEnds = 0, Dropped = 0;
-		/** Tracks past the pass's own cap that were not kept. */
+		/** Tracks, belts, lifts and pipes past the pass's own caps that were not kept (one shared count). */
 		int32 Over = 0;
 		/** Advisory GetBuildableCount of the track class, -1 when not asked. */
 		int32 ExpectedTracks = -1;
+		/** Conveyors only (all zero when that layer was not asked): ends whose kind was checked against the class table, and those that differed. */
+		int32 KindChecked = 0, KindDiffer = 0;
+		/** The first game class names that differed (the sender logs a few). */
+		TArray<FString> DifferClasses;
+		/** Edges that end at, and start at, a drone port. */
+		int32 EndsIntoPorts = 0, EndsOutOfPorts = 0;
+		/** One entry per belt, lift and pipe tier seen. */
+		TArray<FTierCount> Tiers;
 	};
 
 	/** What a finished logistics pass hands over. */
@@ -36,6 +45,8 @@ namespace SatisDash
 	{
 		/** Empty when rails were not asked for. */
 		TArray<FRailReading> Rails;
+		/** Empty when conveyors were not asked for. */
+		TArray<FConveyorReading> Conveyors;
 		FLogisticsCounts Counts;
 	};
 
@@ -117,9 +128,9 @@ namespace SatisDash
 		 */
 		virtual bool IsTrainsReadOpen() const { return false; }
 		/**
-		 * R5: starts the shared, time-sliced logistics pass over the buildables, for the rails layer and/or (later) the conveyors layer.
+		 * R5: starts the shared, time-sliced logistics pass over the buildables, for the rails layer and/or the conveyors layer.
 		 * False when there is no world or subsystem, or when a pass is already open. Call StepLogisticsRead every tick until it returns
-		 * a value. Bridge-sourced layers never reach this. bConveyors is accepted and ignored until the conveyors reader lands.
+		 * a value. Bridge-sourced layers never reach this. bConveyors asks for the belts, lifts and pipes too.
 		 */
 		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) { return false; }
 		/**

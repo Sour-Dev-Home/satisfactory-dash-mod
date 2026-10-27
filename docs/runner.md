@@ -284,6 +284,20 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   plus the mapLive and rails parts as in `tick-cost`; the run forces the S2 ones native through the config. Power, status and
   auto-pause were never on the bridge. `snapshot-parts.json` (the measured window and which parts each accepted snapshot
   carried; no bodies) is now written by `tick-cost` too.
+- `s3-census` is a one-off, read-only run of Sprint S3 (ADR-0058; the owner approves each dispatch). It needs the backend host
+  and the staged world (`sprint3World`, `Test3`); it needs no `frmBaseUrl` and judges no FRM data. It writes the S3 native
+  sources (`NATIVE_SOURCES_S3`, so rails and conveyors are native) into the mod's config, loads `Test3`, turns auto-pause off,
+  enrols the mod, and waits at most 14 minutes for the mod's first `Logistics read (game thread only):` line (the first pass
+  lands about 8 minutes after Running), then for the `Conveyor drone ports:` line and the first tier census line that follow it,
+  all inside that one 14-minute bound (a timeout falls through to judging the log as it is). It reads what only the
+  running game says: the belt/lift `GetSpeed()` unit, the tier display names, the pipe flow limits and the drone-port ends.
+  `census.json` holds the parsed `Conveyor tier census:` lines (kind, name, speed, count), the `Conveyor kinds:` line, the
+  `Conveyor drone ports:` line and the counts of the `Logistics read` line. Pass is a `Logistics read` line with
+  `layers rails=1 conveyors=1` and at least one census line; nothing else is judged. Every value is printed in `reasons`
+  (game class names and tier display names only there and in `census.json`), and each belt/lift tier named `Mk.1` to `Mk.4`
+  shows `speed / 2` beside the expected 60/120/270/480 with `match` or `NO MATCH`, each pipe tier `Mk.1`/`Mk.2` shows
+  `flow x 60` beside 300/600. If a belt/lift tier prints `NO MATCH`, a small ruling PR sets `NativeConveyorCapacityMode` to
+  `ECapacityMode::ClassTable`. Dispatch: `gh workflow run core-run.yml -f run=s3-census`.
 
 ### The parity run's Node agent
 

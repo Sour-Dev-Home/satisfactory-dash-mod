@@ -113,6 +113,8 @@ namespace SatisDash
 		bool bPassOpen = false;
 		bool bPassRails = false;
 		bool bPassConveyors = false;
+		/** The one-off tier census lines have been written since Start. */
+		bool bConveyorCensusDone = false;
 		uint32 Generation = 0;
 		/** Bounded: each layer's few events, each at most once per 600 s. */
 		FRateLimitedLog Log;

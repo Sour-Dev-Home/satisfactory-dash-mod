@@ -174,8 +174,9 @@ bool FFrmWorldLayerTableTest::RunTest(const FString&)
 		{ EWorldLayer::Rails, TEXT("rails"), true, 120.0, 600.0, 480.0 },
 		{ EWorldLayer::ResourceNodes, TEXT("resourceNodes"), true, 480.0, 1800.0, 0.0 },
 		{ EWorldLayer::TrainRoutes, TEXT("trainRoutes"), false, 480.0, 600.0, 0.0 },
+		{ EWorldLayer::Conveyors, TEXT("conveyors"), false, 480.0, 600.0, 0.0 },
 	};
-	TestEqual(TEXT("three layers"), WorldLayerCount, 3);
+	TestEqual(TEXT("four layers"), WorldLayerCount, 4);
 	for (const FExpected& E : Table)
 	{
 		const FWorldLayerSpec& Spec = WorldLayer(E.Layer);

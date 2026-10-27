@@ -642,3 +642,60 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FVector::ZeroVector | Engine/Source/Runtime/Core/Public/Math/Vector.h:79 | header only (TVector<T>::ZeroVector static) |
 | TArray::Empty | Engine/Source/Runtime/Core/Public/Containers/Array.h:2286 | header only |
 | USplineComponent::GetSplineLength | Engine/Source/Runtime/Engine/Classes/Components/SplineComponent.h:731 | header only (float; the length used for sampling in the spline sampler, checked finite and positive before any distance is built) |
+| Buildables/FGBuildableConveyorBase.h | Source/FactoryGame/Public/Buildables/FGBuildableConveyorBase.h:1 | header only (R6, S3 Task 9; belts and lifts are only reachable through the buildable list, FGBuildableSubsystem.h:360) |
+| AFGBuildableConveyorBase | Source/FactoryGame/Public/Buildables/FGBuildableConveyorBase.h:97 | header only (UCLASS(Abstract) at :96: Cast to it works on a concrete belt or lift; derives AFGBuildable) |
+| AFGBuildableConveyorBase::GetSpeed | Source/FactoryGame/Public/Buildables/FGBuildableConveyorBase.h:160 | header only (float, no unit stated; ITEM_SPACING 120 at :327; the census run settles the unit) |
+| AFGBuildableConveyorBase::GetConnection0 | Source/FactoryGame/Public/Buildables/FGBuildableConveyorBase.h:163 | header only (may be null: checked, the edge is dropped and counted) |
+| AFGBuildableConveyorBase::GetConnection1 | Source/FactoryGame/Public/Buildables/FGBuildableConveyorBase.h:164 | header only (may be null: that end is open) |
+| Buildables/FGBuildableConveyorBelt.h | Source/FactoryGame/Public/Buildables/FGBuildableConveyorBelt.h:1 | header only (R6, S3 Task 9) |
+| AFGBuildableConveyorBelt | Source/FactoryGame/Public/Buildables/FGBuildableConveyorBelt.h:22 | header only (UCLASS() at :21; derives AFGBuildableConveyorBase) |
+| Buildables/FGBuildableConveyorLift.h | Source/FactoryGame/Public/Buildables/FGBuildableConveyorLift.h:1 | header only (R6, S3 Task 9) |
+| AFGBuildableConveyorLift | Source/FactoryGame/Public/Buildables/FGBuildableConveyorLift.h:72 | header only (UCLASS() at :71; derives AFGBuildableConveyorBase) |
+| Buildables/FGBuildablePipeline.h | Source/FactoryGame/Public/Buildables/FGBuildablePipeline.h:1 | header only (R6, S3 Task 9) |
+| AFGBuildablePipeline | Source/FactoryGame/Public/Buildables/FGBuildablePipeline.h:32 | header only (derives AFGBuildablePipeBase, FGBuildablePipeBase.h:22, which hypertubes also derive from: Cast to the pipeline class so hypertubes cannot enter, ruling S10) |
+| AFGBuildablePipeline::GetConnection0 | Source/FactoryGame/Public/Buildables/FGBuildablePipeBase.h:68 | header only (declared on AFGBuildablePipeBase, returns UFGPipeConnectionComponentBase*; may be null: checked) |
+| AFGBuildablePipeline::GetConnection1 | Source/FactoryGame/Public/Buildables/FGBuildablePipeBase.h:69 | header only (declared on AFGBuildablePipeBase; may be null: that end is open) |
+| AFGBuildablePipeline::GetFlowLimit | Source/FactoryGame/Public/Buildables/FGBuildablePipeline.h:136 | header only (float; FGBuildablePipeline.h:134 says "Get the maximum flow of the pipe [m^3/s]", so the pure side's x60 gives per minute; the census run confirms the values) |
+| AFGBuildable::mDisplayName | Source/FactoryGame/Public/Buildables/FGBuildable.h:824 | header only (public FText, UPROPERTY at :823; the same field the factory reader reads on a machine) |
+| FGFactoryConnectionComponent.h | Source/FactoryGame/Public/FGFactoryConnectionComponent.h:1 | header only (R6, S3 Task 9) |
+| UFGFactoryConnectionComponent | Source/FactoryGame/Public/FGFactoryConnectionComponent.h:41 | header only |
+| UFGFactoryConnectionComponent::GetConnection | Source/FactoryGame/Public/FGFactoryConnectionComponent.h:96 | header only (returns mConnectedComponent, may be null: checked at each hop) |
+| UFGFactoryConnectionComponent::IsConnected | Source/FactoryGame/Public/FGFactoryConnectionComponent.h:111 | header only (returns mHasConnectedComponent) |
+| UFGFactoryConnectionComponent::GetConnectorLocation | Source/FactoryGame/Public/FGFactoryConnectionComponent.h:141 | header only (FVector, world space; withClearance defaults off) |
+| UFGFactoryConnectionComponent::GetOuterBuildable | Source/FactoryGame/Public/FGFactoryConnectionComponent.h:180 | header only (AFGBuildable*, may be null: an ownerless end, counted and open) |
+| FGPipeConnectionComponent.h | Source/FactoryGame/Public/FGPipeConnectionComponent.h:1 | header only (R6, S3 Task 9) |
+| UFGPipeConnectionComponentBase | Source/FactoryGame/Public/FGPipeConnectionComponent.h:38 | header only (the type of AFGBuildablePipeBase's connections; derives UFGConnectionComponent) |
+| UFGPipeConnectionComponentBase::GetConnection | Source/FactoryGame/Public/FGPipeConnectionComponent.h:69 | header only (null when the connected component is not valid: checked) |
+| UFGPipeConnectionComponentBase::IsConnected | Source/FactoryGame/Public/FGPipeConnectionComponent.h:94 | header only (non-inline) |
+| UActorComponent::GetOwner | Engine/Source/Runtime/Engine/Classes/Components/ActorComponent.h:491 | header only (AActor*; used on the far pipe connection, may be null: an ownerless end) |
+| USceneComponent::GetComponentLocation | Engine/Source/Runtime/Engine/Classes/Components/SceneComponent.h:1031 | header only (world-space FVector; the pipe end-0 position) |
+| UObject | Engine/Source/Runtime/CoreUObject/Public/UObject/Object.h:93 | header only (the argument type of the file-local kind-by-cast helper) |
+| TArray::Contains | Engine/Source/Runtime/Core/Public/Containers/Array.h:1525 | header only (bounds the differing-class list) |
+| Buildables/FGBuildableAttachmentSplitter.h | Source/FactoryGame/Public/Buildables/FGBuildableAttachmentSplitter.h:1 | header only (R6 kind cross-check, S3 Task 9) |
+| AFGBuildableAttachmentSplitter | Source/FactoryGame/Public/Buildables/FGBuildableAttachmentSplitter.h:14 | header only (Cast target) |
+| Buildables/FGBuildableSplitterSmart.h | Source/FactoryGame/Public/Buildables/FGBuildableSplitterSmart.h:1 | header only |
+| AFGBuildableSplitterSmart | Source/FactoryGame/Public/Buildables/FGBuildableSplitterSmart.h:64 | header only (Cast target) |
+| Buildables/FGBuildableAttachmentMerger.h | Source/FactoryGame/Public/Buildables/FGBuildableAttachmentMerger.h:1 | header only |
+| AFGBuildableAttachmentMerger | Source/FactoryGame/Public/Buildables/FGBuildableAttachmentMerger.h:14 | header only (Cast target) |
+| Buildables/FGBuildableMergerPriority.h | Source/FactoryGame/Public/Buildables/FGBuildableMergerPriority.h:1 | header only |
+| AFGBuildableMergerPriority | Source/FactoryGame/Public/Buildables/FGBuildableMergerPriority.h:14 | header only (Cast target) |
+| Buildables/FGBuildablePipelineJunction.h | Source/FactoryGame/Public/Buildables/FGBuildablePipelineJunction.h:1 | header only |
+| AFGBuildablePipelineJunction | Source/FactoryGame/Public/Buildables/FGBuildablePipelineJunction.h:14 | header only (Cast target) |
+| Buildables/FGBuildablePipelinePump.h | Source/FactoryGame/Public/Buildables/FGBuildablePipelinePump.h:1 | header only |
+| AFGBuildablePipelinePump | Source/FactoryGame/Public/Buildables/FGBuildablePipelinePump.h:36 | header only (Cast target) |
+| Buildables/FGBuildableResourceExtractorBase.h | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractorBase.h:1 | header only |
+| AFGBuildableResourceExtractorBase | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractorBase.h:65 | header only (Cast target) |
+| Buildables/FGBuildableGenerator.h | Source/FactoryGame/Public/Buildables/FGBuildableGenerator.h:1 | header only |
+| AFGBuildableGenerator | Source/FactoryGame/Public/Buildables/FGBuildableGenerator.h:60 | header only (Cast target) |
+| Buildables/FGBuildableResourceSink.h | Source/FactoryGame/Public/Buildables/FGBuildableResourceSink.h:1 | header only |
+| AFGBuildableResourceSink | Source/FactoryGame/Public/Buildables/FGBuildableResourceSink.h:14 | header only (Cast target) |
+| Buildables/FGBuildableSpaceElevator.h | Source/FactoryGame/Public/Buildables/FGBuildableSpaceElevator.h:1 | header only |
+| AFGBuildableSpaceElevator | Source/FactoryGame/Public/Buildables/FGBuildableSpaceElevator.h:51 | header only (Cast target) |
+| Buildables/FGBuildableStorage.h | Source/FactoryGame/Public/Buildables/FGBuildableStorage.h:1 | header only |
+| AFGBuildableStorage | Source/FactoryGame/Public/Buildables/FGBuildableStorage.h:13 | header only (Cast target) |
+| Buildables/FGBuildablePipeReservoir.h | Source/FactoryGame/Public/Buildables/FGBuildablePipeReservoir.h:1 | header only |
+| AFGBuildablePipeReservoir | Source/FactoryGame/Public/Buildables/FGBuildablePipeReservoir.h:43 | header only (Cast target) |
+| Buildables/FGBuildableDroneStation.h | Source/FactoryGame/Public/Buildables/FGBuildableDroneStation.h:1 | header only |
+| AFGBuildableDroneStation | Source/FactoryGame/Public/Buildables/FGBuildableDroneStation.h:37 | header only (Cast target) |
+| Buildables/FGBuildableDockingStation.h | Source/FactoryGame/Public/Buildables/FGBuildableDockingStation.h:1 | header only |
+| AFGBuildableDockingStation | Source/FactoryGame/Public/Buildables/FGBuildableDockingStation.h:63 | header only (Cast target) |

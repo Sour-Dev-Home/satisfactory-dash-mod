@@ -17,7 +17,7 @@ import { type OutboundSample, sampleOutbound } from "./outbound";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
-export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage", "tick-cost", "parity", "manual", "native-parity", "tick-cost-native"] as const;
+export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage", "tick-cost", "parity", "manual", "native-parity", "tick-cost-native", "s3-census"] as const;
 export type CoreRunId = (typeof CORE_RUN_IDS)[number];
 export const MOD = "SatisDashAgent";
 
@@ -33,12 +33,13 @@ export interface NativeSources {
   trainsSource?: "bridge" | "native";
   /** S3 key: absent in S1's and S2's constants. */
   railsSource?: "bridge" | "native";
+  conveyorsSource?: "bridge" | "native";
 }
 export const NATIVE_SOURCES: NativeSources = { playersSource: "native", resourceNodesSource: "native" };
 /** S2: all four readers native. */
 export const NATIVE_SOURCES_S2: NativeSources = { ...NATIVE_SOURCES, factorySource: "native", trainsSource: "native" };
-/** S3: the four S2 readers plus rails native. */
-export const NATIVE_SOURCES_S3: NativeSources = { ...NATIVE_SOURCES_S2, railsSource: "native" };
+/** S3: the four S2 readers plus rails and conveyors native. */
+export const NATIVE_SOURCES_S3: NativeSources = { ...NATIVE_SOURCES_S2, railsSource: "native", conveyorsSource: "native" };
 
 /** The credential the mod writes (spec "Shape"; FPaths::ProjectSavedDir() on a dedicated server is FactoryGame/Saved). */
 export const credentialPath = (serverDir: string) => join(serverDir, "FactoryGame", "Saved", "SatisDash", "credential.json");
