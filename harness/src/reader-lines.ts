@@ -161,6 +161,28 @@ export function censusLines(lines: readonly string[]): Census {
 export interface LogisticsRead { rails: number; conveyors: number; buildables: number; tracks: number; belts: number; lifts: number; pipes: number; openEnds: number; ownerlessEnds: number }
 const LOGISTICS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+), (\d+) buildables, (\d+) tracks, (\d+) belts, (\d+) lifts, (\d+) pipes, (\d+) open ends, (\d+) ownerless ends/;
 
+const LOGISTICS_LAYERS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+)/;
+
+/** The layers the shared logistics pass served, from its `Logistics read` line (the last one wins), or null when there is none. */
+export function logisticsLayers(lines: readonly string[]): { rails: number; conveyors: number } | null {
+  let found: { rails: number; conveyors: number } | null = null;
+  for (const line of lines) {
+    const m = LOGISTICS_LAYERS.exec(line);
+    if (m) found = { rails: Number(m[1]), conveyors: Number(m[2]) };
+  }
+  return found;
+}
+
+/** Why the log does not show the shared pass serving this layer (empty: a `Logistics read` line with `<layer>=1`). */
+export function logisticsLineProblems(lines: readonly string[], layer: "rails" | "conveyors"): string[] {
+  const l = logisticsLayers(lines);
+  if (!l) return [`the mod's log has no "Logistics read (game thread only):" line: the shared logistics pass never completed`];
+  return l[layer] === 1 ? [] : [`the mod's "Logistics read" line says ${layer}=${l[layer]}, not 1: the pass did not serve the ${layer} layer`];
+}
+
+/** The `Conveyor kinds:` census line (the last one), or null: how many belt/lift/pipe ends the class table classified differently. */
+export const kindCheck = (lines: readonly string[]): Census["kinds"] => censusLines(lines).kinds;
+
 /** The first `Logistics read` line's counts (the first pass), or null when there is none. */
 export function logisticsRead(lines: readonly string[]): LogisticsRead | null {
   for (const line of lines) {

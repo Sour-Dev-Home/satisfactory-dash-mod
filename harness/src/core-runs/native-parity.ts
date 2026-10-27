@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import * as Pass from "../../../runs/native-parity/pass";
 import { FRM_BRACKET_GAP_MS } from "../../../runs/enrol/pass";
-import { NATIVE_SOURCES_S2, type CoreContext, type CoreRunSpec } from "../core-run";
+import { NATIVE_SOURCES_S3, type CoreContext, type CoreRunSpec } from "../core-run";
 import { AgentFactorySchema } from "../../contract/src/agent";
 import { MapLiveSchema, TrainRoutesLayerDataSchema } from "../../contract/src/map";
 import { type FrmRead, parseGetPowerFull, pickBracket, startFrmPoller } from "../frm";
 import { canonNodes, countMergedGroups, mapFrmResourceNodes, playerKeys, startSampler, type CanonNode } from "../frm-native";
+import { canonEdges, canonRails, mapFrmConveyors, mapFrmDronePorts, mapFrmRails, type FrmConveyorSample, type FrmRail } from "../frm-s3";
 import {
   countSomersloops, createFactoryEncoder, FactoryTable, hashRoutes, mapFrmFactory, readFrmRoutes, readFrmStations, readFrmTrains, type CanonMachine,
   type FactorySampleRows, type RouteRecord,
@@ -124,9 +125,110 @@ export const sinceWindow = (now: { reads: number; failed: number }, atStart: { r
   failed: now.failed - atStart.failed,
 });
 
+// S3's FRM samplers (the owner's brief for Task 13). The world layers post about every 10 minutes, so these are slow: rails and conveyors
+// every 2 minutes (the judge's S3_GAP_MS) and at once after each accepted post, the drone ports every minute. S1's power and players
+// judges fail an FRM read over 2 s, so none of these runs continuously.
+export const RAILS_POLL_MS = 2 * MIN;
+export const CONVEYORS_POLL_MS = 2 * MIN;
+export const DRONE_POLL_MS = MIN;
+
+type Get = (path: string, timeoutMs: number) => Promise<unknown>;
+type Clock = { now: () => number; sleep: (ms: number) => Promise<void> };
+
+/** The three S3 FRM samplers, started together (before the mod enrols, so an early post has neighbours on both sides). */
+export function startS3Samplers(get: Get, clock: Clock = { now: Date.now, sleep: realSleep }) {
+  const railsHash = (mapped: FrmRail[]) => createHash("sha256").update(canonRails(mapped).join("\n")).digest("hex").slice(0, 16);
+  const edgesHash = (mapped: FrmConveyorSample) => createHash("sha256").update(canonEdges(mapped).join("\n")).digest("hex").slice(0, 16);
+  const rails = startSampler(
+    async () => {
+      const mapped = mapFrmRails(await get("/getTrainRails", 15_000));
+      return { hash: railsHash(mapped), mapped };
+    },
+    { intervalMs: RAILS_POLL_MS, ...clock },
+  );
+  const conveyors = startSampler(
+    async () => {
+      const belts = await get("/getBelts", 20_000);
+      const lifts = await get("/getLifts", 20_000);
+      const pipes = await get("/getPipes", 20_000);
+      const mapped = mapFrmConveyors(belts, lifts, pipes);
+      return { hash: edgesHash(mapped), mapped };
+    },
+    { intervalMs: CONVEYORS_POLL_MS, ...clock },
+  );
+  // Ids only: a port's label is player text and never leaves mapFrmDronePorts.
+  const drone = startSampler(async () => mapFrmDronePorts(await get("/getDroneStation", 5000)), { intervalMs: DRONE_POLL_MS, ...clock });
+  return {
+    rails, conveyors, drone,
+    counts: () => ({ rails: rails.counts(), conveyors: conveyors.counts(), drone: drone.counts() }),
+    stop() {
+      rails.stop();
+      conveyors.stop();
+      drone.stop();
+    },
+  };
+}
+export type S3Samplers = ReturnType<typeof startS3Samplers>;
+
+/** The accepted posts of one S3 layer by the mod, since `from` (the start of enrolment: the first native read can land before the window). */
+export function s3LayerPosts(entries: readonly RecordedCall[], layer: "rails" | "conveyors", from: number): Array<{ at: string; status: number; data: unknown }> {
+  return entries
+    .filter((e) => e.agent === "mod" && e.world?.layer === layer && e.status === 200 && Date.parse(e.at) >= from)
+    .map((e) => ({ at: e.at, status: e.status, data: e.worldData }));
+}
+
 /**
- * The combined native-reader parity run for sprint S1 (runs/native-parity/pass.ts says what is judged). The mod enrols with
- * playersSource and resourceNodesSource native (spec.modConfig). Order: the world loads first (FRM is down before it,
+ * Takes a fresh FRM sample for each S3 layer that has a new accepted mod post since enrolment (so the judge has a sample within its
+ * gap). `seen` is the drive's per-layer count of posts already answered; it is updated here. Returns the layers sampled.
+ */
+export async function takeAfterNewS3Posts(
+  s: Pick<S3Samplers, "rails" | "conveyors">,
+  entries: readonly RecordedCall[],
+  enrolledAt: number,
+  seen: { rails: number; conveyors: number },
+): Promise<Array<"rails" | "conveyors">> {
+  const done: Array<"rails" | "conveyors"> = [];
+  for (const layer of ["rails", "conveyors"] as const) {
+    const count = s3LayerPosts(entries, layer, enrolledAt).length;
+    if (count > seen[layer]) {
+      seen[layer] = count;
+      await s[layer].take();
+      done.push(layer);
+    }
+  }
+  return done;
+}
+
+/** Sprint S3's evidence: the posts since enrolment, the FRM samples as hashes with each distinct mapped body kept once, the ports' ids. */
+export function s3EvidenceFrom(s: S3Samplers, entries: readonly RecordedCall[], enrolledAt: number, atStart: ReturnType<S3Samplers["counts"]>): Pass.S3Evidence {
+  const iv = (x: { startedAt: number; endedAt: number }) => ({ startedAt: iso(x.startedAt), endedAt: iso(x.endedAt) });
+  const railsDistinct: Record<string, FrmRail[]> = {};
+  for (const x of s.rails.samples) railsDistinct[x.value.hash] ??= x.value.mapped;
+  const convDistinct: Record<string, FrmConveyorSample> = {};
+  for (const x of s.conveyors.samples) convDistinct[x.value.hash] ??= x.value.mapped;
+  const ids = [...new Set(s.drone.samples.flatMap((x) => x.value))].sort();
+  const now = s.counts();
+  return {
+    rails: {
+      posts: s3LayerPosts(entries, "rails", enrolledAt),
+      frmSamples: s.rails.samples.map((x) => ({ ...iv(x), value: x.value.hash })),
+      distinct: railsDistinct,
+      frm: sinceWindow(now.rails, atStart.rails),
+    },
+    conveyors: {
+      posts: s3LayerPosts(entries, "conveyors", enrolledAt),
+      frmSamples: s.conveyors.samples.map((x) => ({ ...iv(x), value: x.value.hash })),
+      distinct: convDistinct,
+      frm: sinceWindow(now.conveyors, atStart.conveyors),
+      drone: { ids, frm: sinceWindow(now.drone, atStart.drone) },
+    },
+  };
+}
+
+/**
+ * The combined native-reader parity run for sprints S1, S2 and S3 (runs/native-parity/pass.ts says what is judged). The mod enrols
+ * with all six sources native (spec.modConfig, NATIVE_SOURCES_S3), on the Test3 world; S2 and S3 add their own FRM samplers (below
+ * and startS3Samplers). The S1 part: Order: the world loads first (FRM is down before it,
  * docs/runner.md), the harness's FRM readers start, then the mod enrols (so its one resource-node post, about 8 minutes after
  * enrolment, lands inside the window), a one-minute settle, and 30 minutes of the harness reading FRM's getPower (back to
  * back), getPlayer (every 2 s) and getResourceNode (every minute, and at once after each mod post) beside the mod's posts.
@@ -136,8 +238,8 @@ export const nativeParity: CoreRunSpec = {
   requirements: Pass.requirements,
   backend: true,
   world: true,
-  worldKey: "s2",
-  modConfig: NATIVE_SOURCES_S2,
+  worldKey: "sprint3",
+  modConfig: NATIVE_SOURCES_S3,
   evaluate: Pass.evaluate,
   preflight(deps) {
     if (!deps.config.frmBaseUrl) throw new Error("native-parity needs frmBaseUrl in the runner config: FRM is the oracle (docs/runner.md)");
@@ -150,7 +252,7 @@ export const nativeParity: CoreRunSpec = {
       return r.json();
     };
     const host = await ctx.deps.backendHost!();
-    const recorder = await startRecorder(host.relayUrl, { keepWorldData: ["resourceNodes", "trainRoutes"], keepSnapshotParts: ["factory", "mapLive"] });
+    const recorder = await startRecorder(host.relayUrl, { keepWorldData: ["resourceNodes", "trainRoutes", "rails", "conveyors"], keepSnapshotParts: ["factory", "mapLive"] });
     const capture: Pass.NativeParity = {
       windowStartedAt: null, windowEndedAt: null, accepted: 0, unrecorded: 0, refused: [], state: null,
       power: { rounds: [], frm: { reads: 0, failed: 0 }, mergedGroupsMax: null },
@@ -173,8 +275,11 @@ export const nativeParity: CoreRunSpec = {
     let routes: ReturnType<typeof startSampler<ReturnType<typeof readFrmRoutes>>> | null = null;
     let s2Start = { factory: { reads: 0, failed: 0 }, trains: { reads: 0, failed: 0 }, stations: { reads: 0, failed: 0 }, routes: { reads: 0, failed: 0 } };
     let s2From = 0;
+    let s3: S3Samplers | null = null;
+    let s3Start: ReturnType<S3Samplers["counts"]> = { rails: { reads: 0, failed: 0 }, conveyors: { reads: 0, failed: 0 }, drone: { reads: 0, failed: 0 } };
+    let enrolledAt = 0;
     try {
-      await ctx.deps.loadWorld!("s2");
+      await ctx.deps.loadWorld!("sprint3");
       await ctx.deps.waitHealthy();
       await ctx.sampleMemory("withMod");
       ctx.rememberAutoPause(await ctx.deps.readAutoPause!());
@@ -210,18 +315,24 @@ export const nativeParity: CoreRunSpec = {
       trains = startSampler(async () => readFrmTrains(await get("/getTrains", 5000)), { intervalMs: TRAINS_POLL_MS, now: Date.now, sleep: realSleep });
       stations = startSampler(async () => readFrmStations(await get("/getTrainStation", 5000)), { intervalMs: STATIONS_POLL_MS, now: Date.now, sleep: realSleep });
       routes = startSampler(async () => readFrmRoutes(await get("/getTrainStation", 10_000), await get("/getTrains", 10_000)), { intervalMs: ROUTES_POLL_MS, now: Date.now, sleep: realSleep });
+      // S3's oracle, also from before the mod enrols: getTrainRails, getBelts/getLifts/getPipes and the drone ports (ids only).
+      s3 = startS3Samplers(get);
       // Enrolled after the world is up, so the mod's one resource-node post (about 8 minutes after enrolment, then every 30)
       // lands inside the 30-minute window that opens a minute after enrolment.
+      enrolledAt = Date.now();
       await enrolPhase(ctx, host, recorder);
       await ctx.deps.sleep(MIN); // the world settles
       const from = Date.now();
       capture.windowStartedAt = iso(from);
       atStart = { power: power.counts(), players: players.counts(), nodes: nodes.counts() };
       s2Start = { factory: factory.counts(), trains: trains.counts(), stations: stations.counts(), routes: routes.counts() };
+      s3Start = s3.counts();
       s2From = accepted(recorder).length;
       rounds = createRoundCollector({ reads: () => power!.reads, now: Date.now, startAt: s2From });
       let postsSeen = 0;
       let routePostsSeen = 0;
+      // Counted from zero: a post that landed between enrolment and the window's start (the first native read) gets its sample at once too.
+      const s3Seen = { rails: 0, conveyors: 0 };
       while (Date.now() - from < Pass.WINDOW_MINUTES * MIN) {
         await ctx.deps.sleep(SECOND);
         rounds.feed(accepted(recorder));
@@ -238,6 +349,8 @@ export const nativeParity: CoreRunSpec = {
           routePostsSeen = routeCount;
           await routes.take();
         }
+        // S3: a fresh FRM sample right after each accepted rails or conveyors post, so the judge always has one within its gap.
+        await takeAfterNewS3Posts(s3, recorder.entries, enrolledAt, s3Seen);
       }
       capture.windowEndedAt = iso(Date.now());
       await ctx.deps.sleep(2 * SECOND); // the last sample's FRM neighbour after it
@@ -252,6 +365,7 @@ export const nativeParity: CoreRunSpec = {
       trains?.stop();
       stations?.stop();
       routes?.stop();
+      s3?.stop();
       if (rounds) {
         capture.power.rounds = rounds.power; // a run that failed mid-window keeps what it saw (the verdict fails on the window)
         capture.players.rounds = rounds.players;
@@ -306,6 +420,7 @@ export const nativeParity: CoreRunSpec = {
           },
         };
       }
+      if (s3) capture.s3 = s3EvidenceFrom(s3, recorder.entries, enrolledAt, s3Start);
       capture.state = await host.state("mod").catch(() => null);
       ctx.captures["native-parity.json"] = capture;
       ctx.captures["readers.json"] = Pass.judgeReaders(capture);

@@ -470,6 +470,7 @@ namespace
 		FTrainReading Train;
 		Train.Id = TEXT("BP_Train_C_1");
 		Train.Name = TEXT("Express");
+		Train.State = SatisDash::ETrainState::SelfDriving;
 		Train.Stops = { TEXT("Depot ") };
 		Train.Items = { TEXT("Desc_IronPlate_C") };
 		Game.Trains = { Train };

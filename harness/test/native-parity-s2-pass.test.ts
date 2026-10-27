@@ -427,6 +427,22 @@ describe("trainRoutes", () => {
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/1 in FRM and not in the mod, 1 in the mod and not in FRM/);
   });
+  // Owner ruling 2026-10-27 (run 40439238142, Test3): a cargo-only difference is reported, never a failure.
+  it("a cargo-only difference (platform or train items) passes with a reported line", () => {
+    const frm = layer.map((r) => (r.recordType === "station" && r.id === "S1" ? { ...r, platforms: [{ id: "P1", mode: "load", items: ["Desc_Sulfur_C"] }] } : r.recordType === "train" ? { ...r, items: [] } : r));
+    const v = S2.judgeRoutes(routesEv({ frm }));
+    expect(v.pass).toBe(true);
+    const text = v.reasons.join("\n");
+    expect(text).toContain("reported, not failed (cargo changes between reads): 4 cargo item-set difference(s)");
+    expect(text).toContain("station S1 platform 1: mod [Desc_A_C] vs FRM [Desc_Sulfur_C]");
+  });
+  it("a stop, mode, platform-id or name difference still fails even beside a cargo difference", () => {
+    const base = (f: (r: RouteRecord) => RouteRecord) => S2.judgeRoutes(routesEv({ frm: layer.map(f) }));
+    expect(base((r) => (r.recordType === "station" && r.id === "S1" ? { ...r, platforms: [{ id: "P1", mode: "unload", items: ["Desc_B_C"] }] } : r)).pass).toBe(false);
+    expect(base((r) => (r.recordType === "station" && r.id === "S1" ? { ...r, platforms: [{ id: "P9", mode: "load", items: ["Desc_B_C"] }] } : r)).pass).toBe(false);
+    expect(base((r) => (r.recordType === "train" ? { ...r, stops: ["hash-a"], items: [] } : r)).pass).toBe(false);
+    expect(base((r) => (r.recordType === "train" ? { ...r, name: "hash-x", items: [] } : r)).pass).toBe(false);
+  });
   it("needs a post, a valid layer, and an FRM sample within 120 s", () => {
     expect(S2.judgeRoutes(routesEv({ posts: 0 })).reasons.join("\n")).toContain("posted no trainRoutes layer");
     expect(S2.judgeRoutes(routesEv({ post: [{ recordType: "station", id: "S1" }] })).reasons.join("\n")).toContain("not valid against the pinned contract");

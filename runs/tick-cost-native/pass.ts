@@ -6,7 +6,7 @@
 // since the owner's decision of 2026-10-26 the longest step of every sliced native read is judged against 2 ms.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { TICK_WARMUP_MS } from "../../harness/src/ticks";
-import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
+import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import * as Base from "../tick-cost/pass";
 
@@ -15,13 +15,17 @@ export const requirements = [...Base.requirements, "R0-R1-R4-tick-cost"];
 interface Parts { measured?: { from: string; to: string } | null; snapshots?: Array<{ at: string; playersAvailable?: boolean }> }
 interface Recorded { at: string; status: number; agent: string; world?: { layer: string; items: number; bytes: number } }
 
-interface S2Sources { playersSource?: string; resourceNodesSource?: string; factorySource?: string; trainsSource?: string }
+interface S2Sources { playersSource?: string; resourceNodesSource?: string; factorySource?: string; trainsSource?: string; railsSource?: string; conveyorsSource?: string }
 
-/** The sliced readers that must have logged a step line: the node scan always, the S2 readers when the config made them native. */
-function requiredStepReaders(sources: S2Sources | undefined): string[] {
+/**
+ * The sliced readers that must have logged a step line: the node scan always, the S2 readers when the config made them native,
+ * and the shared logistics pass ("Logistics read", one line for both layers) when rails or conveyors is native (S3, Task 14).
+ */
+export function requiredStepReaders(sources: S2Sources | undefined): string[] {
   const out = ["Resource node scan"];
   if (sources?.factorySource === "native") out.push("Factory read");
   if (sources?.trainsSource === "native") out.push("Trains read", "Train routes read");
+  if (sources?.railsSource === "native" || sources?.conveyorsSource === "native") out.push("Logistics read");
   return out;
 }
 
@@ -52,6 +56,15 @@ export function evaluate(e: CoreEvidence): Verdict {
     if (sources?.trainsSource !== "native") extra.push(`the run did not write trainsSource as native into the mod's config (it says ${String(sources?.trainsSource)})`);
     extra.push(...factoryLogProblems(e.lines), ...trainsLogProblems(e.lines));
   }
+  // S3 (Task 14): when the config carries a logistics key (the run writes NATIVE_SOURCES_S3), both must be native and the mod's
+  // own log must say so. S1- and S2-shaped evidence has neither key and is judged as before. (A rails-only config still needs
+  // the "Logistics read" line, see requiredStepReaders, but it is not a pass of this S3 run.)
+  const s3Shaped = sources?.railsSource !== undefined || sources?.conveyorsSource !== undefined;
+  if (s3Shaped) {
+    if (sources?.railsSource !== "native") extra.push(`the run did not write railsSource as native into the mod's config (it says ${String(sources?.railsSource)})`);
+    if (sources?.conveyorsSource !== "native") extra.push(`the run did not write conveyorsSource as native into the mod's config (it says ${String(sources?.conveyorsSource)})`);
+    extra.push(...railsLogProblems(e.lines), ...conveyorsLogProblems(e.lines));
+  }
   if (sources?.playersSource !== "native" || sources?.resourceNodesSource !== "native") extra.push("the run did not write playersSource and resourceNodesSource as native into the mod's config");
   const parts = e.captures["snapshot-parts.json"] as Parts | undefined;
   const from = parts?.measured ? Date.parse(parts.measured.from) + TICK_WARMUP_MS : NaN;
@@ -73,7 +86,7 @@ export function evaluate(e: CoreEvidence): Verdict {
   // are S0/S1 code outside this rule.
   const required = requiredStepReaders(sources);
   extra.push(...stepProblems(e.lines, required));
-  if (s2Shaped) extra.push(...windowProblems(e.lines, required, from, to));
+  if (s2Shaped || s3Shaped) extra.push(...windowProblems(e.lines, required, from, to));
   if (extra.length === 0 && base.pass) {
     const steps = stepCosts(e.lines).map((c) => `${c.reader} longest step ${c.longestStepMs} ms`).join("; ");
     return { pass: true, reasons: [...base.reasons, `native readers live in the window: ${withPlayers} snapshots with players, ${nodePosts.length} resourceNodes post(s)`, describeScanCost(scans), `step ceiling ${MAX_NATIVE_STEP_MS} ms held (sliced native reads only): ${steps}`] };

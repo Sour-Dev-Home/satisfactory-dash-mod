@@ -120,7 +120,7 @@ export interface RecorderOptions {
    * only for the Node agent (review of 9b60268).
    */
   trimOversizedFor?: ReadonlyArray<RecordedCall["agent"]>;
-  /** World layers whose posted `data` array is kept in `worldData` (a layer so named must not carry personal data: resourceNodes carries resource names). */
+  /** World layers whose posted `data` array is kept in `worldData` (a layer so named must not carry personal data: resourceNodes carries resource names; rails and conveyors carry only ids, class names and tier names). */
   keepWorldData?: readonly string[];
   /**
    * S2: the parts of each accepted snapshot (within the 2 MB recording cap) that the native-parity judge compares, kept on

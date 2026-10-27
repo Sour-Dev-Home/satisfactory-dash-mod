@@ -18,7 +18,8 @@ namespace SatisDash
 	 *  - {"recordType":"station","id","name","platforms":[{"id","mode":"load"|"unload","items":[...]}]}, stations first,
 	 *    sorted by id; platforms sorted by id and cut at 64; items distinct, sorted, cut at 64.
 	 *  - {"recordType":"train","id","name","stops":[...],"items":[...]}, trains sorted by id after the stations; stops in
-	 *    timetable order, cut at 200.
+	 *    timetable order, cut at 200. A Parked train (FTrainReading::State) gets an empty stops list, as FRM sends none for it
+	 *    (controller ruling, run 40439238142); its items are unchanged and every other state keeps its stops.
 	 * Names are kept as the game gives them (a trailing space stays). A reading with an empty id is left out and counted in
 	 * Dropped (an empty item class is left out of its list). The whole layer is cut at 4,000 records (Over counts the rest).
 	 * Every ordering is total, so the same readings in any order give the same bytes. Sorts and builds text, so it runs on

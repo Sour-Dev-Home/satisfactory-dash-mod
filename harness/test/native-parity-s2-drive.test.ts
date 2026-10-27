@@ -8,8 +8,8 @@ const call = (over: Partial<RecordedCall>): RecordedCall => ({ at: "2026-10-26T1
 const building = { id: "b1", name: "Constructor", className: "Build_ConstructorMk1_C", recipe: "Iron Plate", isProducing: true, isPaused: false, isBackedUp: false, inputsFull: false, circuitGroupId: 0, production: [{ name: "Iron Plate", className: "Desc_IronPlate_C", currentPerMinute: 5, maxPerMinute: 10, percent: 50 }] };
 
 describe("native-parity drive (S2)", () => {
-  it("runs on the S2 world with all four readers native and keeps the snapshot parts and the routes data", () => {
-    expect(nativeParity.worldKey).toBe("s2");
+  it("keeps all four S2 readers native (S3 now runs the combined sprint on the sprint3 world)", () => {
+    expect(nativeParity.worldKey).toBe("sprint3");
     expect(nativeParity.modConfig).toMatchObject({ factorySource: "native", trainsSource: "native" });
   });
 

@@ -157,8 +157,8 @@ runner config names it as `"sprint3World"`, beside `"s2World"` and `"s3World"`:
 { "s3World": "<path to the S3 save>", "s2World": "<path to the Test2 copy>", "sprint3World": "<path to the Test3 copy>" }
 ```
 
-- Only `native-parity` and `tick-cost-native` use `sprint3World`, once they switch to the `sprint3` world key (Sprint S3,
-  Tasks 13 and 14). Until then no run uses it. The spikes keep `s3World`.
+- `native-parity`, `tick-cost-native` and the one-off `s3-census` use `sprint3World` (the `sprint3` world key). The spikes
+  keep `s3World`.
 - A run that needs `sprint3World` and finds none in the config is refused before the build: `<id> needs sprint3World in
   the runner config`.
 - The staged file lives outside the repository, like `s3World`. The same `satis-runner` rules apply: each run uploads it
@@ -262,12 +262,30 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
     reported); stationary trains and stations within 1 m, a moving train within the distance FRM's own neighbouring reads moved
     plus 5 m (new).
   - `trainRoutes`: native only (the bridge never sent it), first post about 8 minutes (+/-10%) after Running and then every 10 minutes, so
-    the 30-minute window holds posts at about 8, 18 and 28 minutes and always at least one; the posted layer equals the FRM-derived layer on one side of the post (120 s).
+    the 30-minute window holds posts at about 8, 18 and 28 minutes and always at least one; the posted layer equals the FRM-derived layer on one side of the post (120 s). Owner ruling 2026-10-27: a difference only in a platform's or a train's cargo item set is reported (count and first three), never fails; stations, platform ids, load/unload modes, train ids, names and timetable stops stay exact.
   Evidence holds names as hashes only. The reader verdicts also need the mod's log to show the readers native
   (`factoryLogProblems`, `trainsLogProblems`) and a completed `Factory read`, `Trains read` and `Train routes read` line. S1's
   three judges are unchanged; an S1 capture is judged as before.
+
+  **Sprint S3 (ADR-0058; the run now loads `Test3` (`sprint3World`) and writes all six keys, `NATIVE_SOURCES_S3`).** One combined run
+  judges every S1, S2 and S3 reader. Two more are judged, each alone, in `runs/native-parity/pass-s3.ts`: `rails` (R5) and
+  `conveyors` (R6), against FRM's `/getTrainRails` (15 s timeout) and `/getBelts`, `/getLifts`, `/getPipes` (three reads back to
+  back, 20 s each), each sampled every 2 minutes (the judge's 120 s gap) and at once after each accepted mod post of that layer,
+  plus `/getDroneStation` every minute (ids only; a port's label never enters evidence). The world layers post about every 10
+  minutes, so the S3 samplers are slow on purpose (S1's power and players judges fail on any FRM read over 2 s). They start with
+  the other FRM samplers, before the mod enrols. The evidence takes the mod's rails and conveyors posts **since the start of
+  enrolment** (the first native read, 8 minutes +/-10% after Running, can land before the window opens); FRM samples are kept as
+  a hash each with the distinct mapped body once. Both readers also need the mod's `Readers:` line to say `rails=native` and
+  `conveyors=native`, and a `Logistics read (game thread only):` line with `layers ... <layer>=1`. `readers.json` holds the
+  final verdicts of every reader (`power`, `players`, `resourceNodes`, `factory`, `rates`, `trains`, `stations`, `trainRoutes`,
+  `rails`, `conveyors`). An S1 or S2 capture is judged as before. Rails endpoint rule (owner, 2026-10-27): the mod's first and
+  last point of a track pass within 1 m plus the length of FRM's own segment at that end, that extra capped at 1 m (new); every other mod point and every FRM
+  point keep the strict 1 m rule.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
-  config (`mod-config.json`, `NATIVE_SOURCES_S2`), loading the `Test2` save in both boots. It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
+  config (`mod-config.json`, `NATIVE_SOURCES_S3`: the players, resource-node, factory, trains, rails and conveyors readers),
+  loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`
+  and `conveyorsSource` to be `native` (config and `Readers:` line) and a `Logistics read (game thread only):` line inside the
+  measured window, its longest step at 2.0 ms or less; S1- and S2-shaped evidence is judged as before. It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
   by the same limits (tick median at least 95% of the baseline's, S12, same save, memory within 100 MB and no more than 25 MB
   growth) plus proof that the native readers were live in the measured window (`runs/tick-cost-native/pass.ts`). Unlike
   `tick-cost`, the mod enrols after the world is loaded and auto-pause is off, just before the measurement starts, so its first
@@ -297,7 +315,12 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   (game class names and tier display names only there and in `census.json`), and each belt/lift tier named `Mk.1` to `Mk.4`
   shows `speed / 2` beside the expected 60/120/270/480 with `match` or `NO MATCH`, each pipe tier `Mk.1`/`Mk.2` shows
   `flow x 60` beside 300/600. If a belt/lift tier prints `NO MATCH`, a small ruling PR sets `NativeConveyorCapacityMode` to
-  `ECapacityMode::ClassTable`. Dispatch: `gh workflow run core-run.yml -f run=s3-census`.
+  `ECapacityMode::ClassTable`. Start it through the runner config's `run-backend.ps1` script (in its `scripts` folder) with
+  `-Runs s3-census`, like the other backend runs, because it needs the backend host: a bare `gh workflow run core-run.yml -f
+  run=s3-census` dispatch refuses with "reading the backend's images".
+
+  **The order of the sprint's runs** (each once, the owner dispatches): `mod-test` on each PR branch, then `s3-census` (above),
+  then one `native-parity`, then one `tick-cost-native`, all on `Test3`. Nothing else is run.
 
 ### The parity run's Node agent
 

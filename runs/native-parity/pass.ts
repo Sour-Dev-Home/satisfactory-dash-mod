@@ -26,15 +26,20 @@ import type { CoreEvidence } from "../../harness/src/core-run";
 import { ResourceNodesLayerDataSchema } from "../../harness/contract/src/map";
 import type { FrmCircuitGroup } from "../../harness/src/frm";
 import { canonNodes, type CanonNode } from "../../harness/src/frm-native";
-import { factoryLogProblems, nodesLogProblems, playersLogProblems, stepCosts, trainsLogProblems, withProblems } from "../../harness/src/reader-lines";
+import {
+  conveyorsLogProblems, factoryLogProblems, kindCheck, logisticsLineProblems, nodesLogProblems, playersLogProblems, railsLogProblems, stepCosts,
+  trainsLogProblems, withProblems,
+} from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import { judgeFactory, judgeRates, judgeRoutes, judgeStations, judgeTrains, productivityRange, type S2Evidence, type S2Result } from "./pass-s2";
+import { judgeConveyors, judgeRails, type S3Evidence } from "./pass-s3";
 import type { Circuit, Posted, ServerState } from "../parity/pass";
 import { inBracket, NEED_PAIRS, PARITY_POWER_TOLERANCE, WINDOW_MINUTES as PARITY_WINDOW_MINUTES } from "../parity/pass";
 
 export * from "./pass-s2";
+export * from "./pass-s3";
 
-export const requirements = ["native-parity", "R0-power", "R1-players", "R4-resource-nodes", "R2a-factory", "R2b-rates", "R3-trains", "R3-stations", "R3-train-routes"];
+export const requirements = ["native-parity", "R0-power", "R1-players", "R4-resource-nodes", "R2a-factory", "R2b-rates", "R3-trains", "R3-stations", "R3-train-routes", "R5-rails", "R6-conveyors"];
 export const WINDOW_MINUTES = PARITY_WINDOW_MINUTES;
 /** The parity run's bar: ceil(1800 / 5 x 0.8) rounds. */
 export const NEED_ROUNDS = NEED_PAIRS;
@@ -70,11 +75,15 @@ export interface NativeParity {
   nodes: { posts: NodePost[]; frmSamples: FrmBracket<string>[]; distinct: Record<string, CanonNode[]>; frm: FrmCounts };
   /** Sprint S2's evidence (pass-s2.ts); absent in an S1 capture. */
   s2?: S2Evidence;
+  /** Sprint S3's evidence (pass-s3.ts); absent in an S1 or S2 capture. */
+  s3?: S3Evidence;
 }
 export interface ReaderVerdicts {
   power: Verdict; players: Verdict; resourceNodes: Verdict;
   /** S2: present exactly when the capture has `s2`. */
   factory?: Verdict; rates?: Verdict; trains?: Verdict; stations?: Verdict; trainRoutes?: Verdict;
+  /** S3: present exactly when the capture has `s3`. */
+  rails?: Verdict; conveyors?: Verdict;
 }
 
 const ms = (iso: string) => Date.parse(iso);
@@ -253,16 +262,21 @@ const finish = (r: S2Result): Verdict => (r.pass ? passing(r.reasons, r.never) :
  */
 export function judgeReaders(c: NativeParity, lines: readonly string[] = []): ReaderVerdicts {
   const s1 = { power: judgePower(c.power), players: judgePlayers(c.players), resourceNodes: judgeNodes(c.nodes) };
-  if (!c.s2) return s1;
-  const { factory, mapLive, routes } = c.s2;
-  return {
-    ...s1,
-    factory: finish(judgeFactory(factory)),
-    rates: finish(judgeRates(factory, productivityRange(lines))),
-    trains: finish(judgeTrains(mapLive)),
-    stations: finish(judgeStations(mapLive)),
-    trainRoutes: finish(judgeRoutes(routes)),
-  };
+  let out: ReaderVerdicts = s1;
+  if (c.s2) {
+    const { factory, mapLive, routes } = c.s2;
+    out = {
+      ...out,
+      factory: finish(judgeFactory(factory)),
+      rates: finish(judgeRates(factory, productivityRange(lines))),
+      trains: finish(judgeTrains(mapLive)),
+      stations: finish(judgeStations(mapLive)),
+      trainRoutes: finish(judgeRoutes(routes)),
+    };
+  }
+  // S3's two judges read only their own evidence (the conveyors judge also takes the mod's `Conveyor kinds:` census line, when logged).
+  if (c.s3) out = { ...out, rails: finish(judgeRails(c.s3.rails)), conveyors: finish(judgeConveyors(c.s3.conveyors, kindCheck(lines))) };
+  return out;
 }
 
 /** Why the log does not show a sliced S2 read completed (its `<name> (game thread only):` line): the values would pass trivially otherwise. */
@@ -273,6 +287,12 @@ const readLineProblems = (lines: readonly string[], reader: string): string[] =>
 const expectsS2 = (c: NativeParity, sources: unknown): boolean => {
   const s = sources as { factorySource?: unknown; trainsSource?: unknown } | undefined | null;
   return c.s2 !== undefined || s?.factorySource !== undefined || s?.trainsSource !== undefined;
+};
+
+/** S3 is expected when the capture has its evidence or the config asked for either S3 source (so a drive that lost the evidence fails closed). */
+const expectsS3 = (c: NativeParity, sources: unknown): boolean => {
+  const s = sources as { railsSource?: unknown; conveyorsSource?: unknown } | undefined | null;
+  return c.s3 !== undefined || s?.railsSource !== undefined || s?.conveyorsSource !== undefined;
 };
 
 /** What must hold for any verdict to mean anything: the window, the mod enrolled, nothing refused or unreadable. */
@@ -288,6 +308,11 @@ function runReasons(c: NativeParity, sources: unknown): string[] {
   if (expectsS2(c, sources)) {
     if (s?.factorySource !== "native" || s?.trainsSource !== "native") out.push("the run did not write factorySource and trainsSource as native into the mod's config");
     if (!c.s2) out.push("the S2 evidence (factory, mapLive, trainRoutes) was not captured");
+  }
+  if (expectsS3(c, sources)) {
+    const t = sources as { railsSource?: string; conveyorsSource?: string } | undefined | null;
+    if (t?.railsSource !== "native" || t?.conveyorsSource !== "native") out.push("the run did not write railsSource and conveyorsSource as native into the mod's config");
+    if (!c.s3) out.push("the S3 evidence (rails, conveyors) was not captured");
   }
   if (!c.state) out.push("the mod's server state was not read");
   else {
@@ -324,6 +349,14 @@ export function evaluate(e: CoreEvidence): Verdict {
       ["R3 trains", "trains", withProblems(v.trains ?? none, trainsProblems)],
       ["R3 stations", "stations", withProblems(v.stations ?? none, trainsProblems)],
       ["R3 trainRoutes", "trainRoutes", withProblems(v.trainRoutes ?? none, routesProblems)],
+    );
+  }
+  if (expectsS3(c, e.captures["mod-config.json"])) {
+    // S3's readers: native by the Readers line, and the shared pass logged serving their layer. One failing leaves the other's verdict alone.
+    const none: Verdict = { pass: false, reasons: ["no S3 evidence in the capture"] };
+    names.push(
+      ["R5 rails", "rails", withProblems(v.rails ?? none, [...railsLogProblems(e.lines), ...logisticsLineProblems(e.lines, "rails")])],
+      ["R6 conveyors", "conveyors", withProblems(v.conveyors ?? none, [...conveyorsLogProblems(e.lines), ...logisticsLineProblems(e.lines, "conveyors")])],
     );
   }
   // readers.json is these same final verdicts, the ones the PASS/FAIL lines come from: the drive wrote a first version without the
