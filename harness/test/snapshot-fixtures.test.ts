@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { AgentPowerCircuitSchema, AgentStatusSchema, SnapshotRequestSchema } from "../contract/src/agent";
+import { AgentPowerCircuitSchema, AgentPowerSchema, AgentStatusSchema, SnapshotRequestSchema } from "../contract/src/agent";
 import { FactorySchema } from "../contract/src/factory";
+import { PowerGeneratorSchema, PowerSchema } from "../contract/src/power";
 import { MapLiveSchema, RailsLayerDataSchema, RailsWorldIngestRequestSchema, ResourceNodesLayerDataSchema } from "../contract/src/map";
 
 const FIXTURES = new URL("../../mod/SatisDashAgent/Source/SatisDashCoreTests/Fixtures/", import.meta.url);
@@ -56,6 +57,20 @@ describe("the core mod's snapshot fixtures, against the pinned contract (spec S1
     }
     // Strict where the schema is: the same fixture inside a factory part parses too.
     expect(FactorySchema.safeParse({ buildings: [], extractors: list, backedUpCount: 0 }).success).toBe(true);
+  });
+  it("native-generators.expected.json is valid generators: fuel always present, supplement null or absent (S4-B)", () => {
+    const list = load("native-generators.expected.json");
+    const r = PowerSchema.shape.generators.safeParse(list);
+    expect(r.success ? [] : r.error.issues).toEqual([]);
+    const agent = AgentPowerSchema.safeParse({ circuits: [], generators: list });
+    expect(agent.success ? [] : agent.error.issues).toEqual([]);
+    expect(list).toHaveLength(3);
+    for (const g of list) expect(g).toHaveProperty("fuel");
+    expect(list[0].supplement).not.toBeNull();
+    expect("supplement" in list[1]).toBe(false); // not read
+    expect(list[2].fuel).toBeNull();
+    expect(list[2].supplement).toBeNull();
+    expect(Object.keys(list[0])).toEqual(Object.keys(PowerGeneratorSchema.shape)); // key order as the contract
   });
   it("a circuit has exactly the contract's circuit fields", () => {
     expect(keys(load("snapshot-world.json").power.circuits[0])).toEqual(keys(AgentPowerCircuitSchema.shape));
