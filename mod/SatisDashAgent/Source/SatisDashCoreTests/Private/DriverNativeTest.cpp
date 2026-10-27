@@ -537,3 +537,51 @@ bool FDriverNativeFactoryTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("FRM is still not asked"), G.Net.sent(TEXT("/getFactory")), 0);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeLogisticsTest, "SatisDash.Core.Driver.NativeLogistics", SatisDash::Test::Flags)
+
+bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"railsSource\":\"native\"");
+	const TCHAR* RailsPost = TEXT("/agent/v1/world/rails");
+	FDriverFixture F;
+	FRailReading Track;
+	Track.Id = TEXT("Build_RailroadTrack_C_1");
+	Track.Points = { { 0.0, 0.0 }, { 300.0, 0.0 } };
+	F.Game.LogisticsRails = { Track };
+	F.Game.LogisticsCounts.Buildables = 3;
+	F.Game.LogisticsCounts.Tracks = 1;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+
+	// The driver's jitter draw is 1.0, so the native first read is 480 s x 1.1 = 528 s after Running.
+	TestTrue(TEXT("the pass begins through the whole driver"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.LogisticsBegins > 0; }, 560));
+	TestTrue(TEXT("not before the native first read (528 s after Running)"), F.T - 1000.0 >= 528.0);
+	TestTrue(TEXT("with the rails flag"), F.Game.bLastBeginRails);
+	TestTrue(TEXT("and the layer is posted when it ends"), DriverNativeRunUntil(F, Driver, [&F, RailsPost] { return F.Net.pending(RailsPost) > 0; }, 30));
+	TestEqual(TEXT("three steps"), F.Game.LogisticsStepCalls, 3);
+	TestTrue(TEXT("the body carries the track"), F.Net.lastBody(RailsPost).Contains(TEXT("\"id\":\"Build_RailroadTrack_C_1\"")));
+	TestEqual(TEXT("FRM is never asked for rails while native"), F.Net.sent(TEXT("/getTrainRails")), 0);
+	TestTrue(TEXT("the snapshot flow is unchanged"), F.Net.sent(DriverNativeSnapshots) > 0);
+
+	int32 Readers = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Readers += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native")) ? 1 : 0;
+	}
+	TestEqual(TEXT("the Readers line shows rails=native"), Readers, 1);
+
+	// Leaving Running (a 401 halts the agent) ends an open pass.
+	FDriverFixture H;
+	H.Game.LogisticsStepsToFinish = 1000000;
+	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a pass is open"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.LogisticsStepCalls >= 1; }, 560));
+	TestEqual(TEXT("not ended yet"), H.Game.LogisticsEnds, 0);
+	TestTrue(TEXT("a snapshot is waiting for an answer"), H.runUntil(Halted, [&H] { return H.Net.pending(DriverNativeSnapshots) > 0; }, 30));
+	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
+	H.run(Halted, 1.0);
+	TestTrue(TEXT("leaving Running ends the pass"), H.Game.LogisticsEnds >= 1);
+	return true;
+}

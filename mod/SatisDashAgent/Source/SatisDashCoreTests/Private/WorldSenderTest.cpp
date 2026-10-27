@@ -21,7 +21,9 @@ namespace
 		SatisDash::Test::FFakeTransport Net;
 		SatisDash::Test::FFakeWorker Worker;
 		FFrmBridge Bridge{ Net, Worker };
-		FWorldSender Sender{ Net, Bridge, [] { return 1.0; } };
+		/** The jitter draw: 1.0 is the top of the range; a test sets 0 for the bottom (x0.9) before Start. */
+		double Random01 = 1.0;
+		FWorldSender Sender{ Net, Bridge, [this] { return Random01; } };
 		FAgentConfig Config;
 		FCredential Credential;
 		double T = 1000;
@@ -33,6 +35,7 @@ namespace
 		bool bNativeReaders = false;
 		SatisDash::Test::FFakeGame Game;
 		FStepBudget TrainsBudget{ [this] { return T; } };
+		FStepBudget LogisticsBudget{ [this] { return T; } };
 
 		FWorldFixture()
 		{
@@ -56,7 +59,7 @@ namespace
 					Net.answer(WorldRailsRead, SatisDash::Test::Reply(0, FString()));
 				}
 				Bridge.Tick(T, 8080, FString());
-				Sender.Tick({ T, Utc, &Config, &Credential, bSnapshotsIdle, bNativeReaders ? &Game : nullptr, true, &TrainsBudget });
+				Sender.Tick({ T, Utc, &Config, &Credential, bSnapshotsIdle, bNativeReaders ? &Game : nullptr, true, &TrainsBudget, &LogisticsBudget });
 			}
 		}
 
@@ -578,5 +581,193 @@ bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("bridge: no post"), G.Net.sent(WorldTrainRoutesPost), 0);
 	TestEqual(TEXT("bridge: FRM is not asked for it either"), worldFrmTrainReads(G.Net), 0);
 	TestTrue(TEXT("bridge: rails still ask FRM on their own schedule"), G.Net.sent(WorldRailsRead) > 0);
+	return true;
+}
+
+namespace
+{
+	/** R5: two tracks given out of order, so the sorted body is the proof the worker built it. */
+	void worldLogisticsReadings(SatisDash::Test::FFakeGame& Game)
+	{
+		FRailReading B;
+		B.Id = TEXT("Build_RailroadTrack_C_B");
+		B.Points = { { 0.0, 0.0 }, { 300.0, 0.0 } };
+		FRailReading A;
+		A.Id = TEXT("Build_RailroadTrack_C_A");
+		A.Points = { { 0.0, 100.0 }, { 300.0, 100.0 } };
+		Game.LogisticsRails = { B, A };
+		Game.LogisticsCounts.Buildables = 5;
+		Game.LogisticsCounts.Tracks = 2;
+	}
+
+	/** A fixture whose rails are native, the other native-capable layers on the bridge, the jitter at the bottom of its range. */
+	void worldLogisticsNative(FWorldFixture& F)
+	{
+		F.Config.RailsSource = ESource::Native;
+		F.Config.ResourceNodesSource = ESource::Bridge;
+		F.Config.TrainsSource = ESource::Bridge;
+		F.bNativeReaders = true;
+		F.Random01 = 0.0;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderLogisticsTest, "SatisDash.Core.WorldSender.Logistics", SatisDash::Test::Flags)
+
+bool FWorldSenderLogisticsTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FWorldFixture F;
+	worldLogisticsNative(F);
+	worldLogisticsReadings(F.Game);
+	F.Sender.Start(F.T);
+	// railsSource native: the first read is 480 s x 0.9 = 432 s after Start, not the bridge's 108 s.
+	TestFalse(TEXT("nothing is begun before 432 s"), F.until([&F] { return F.Game.LogisticsBegins > 0; }, 431));
+	TestTrue(TEXT("the pass begins at 432 s"), F.until([&F] { return F.Game.LogisticsBegins > 0; }, 3));
+	TestEqual(TEXT("one begin"), F.Game.LogisticsBegins, 1);
+	TestTrue(TEXT("with the rails flag"), F.Game.bLastBeginRails);
+	TestFalse(TEXT("and not the conveyors flag"), F.Game.bLastBeginConveyors);
+	TestEqual(TEXT("not stepped by the tick that begins it"), F.Game.LogisticsStepCalls, 0);
+	F.tick();
+	TestEqual(TEXT("one step a tick"), F.Game.LogisticsStepCalls, 1);
+	F.tick();
+	TestEqual(TEXT("still one step a tick"), F.Game.LogisticsStepCalls, 2);
+	TestTrue(TEXT("the layer is posted after the third step"), F.until([&F] { return F.Net.pending(WorldRailsPost) > 0; }, 10));
+	TestEqual(TEXT("three steps in all"), F.Game.LogisticsStepCalls, 3);
+	const FString Body = F.Net.lastBody(WorldRailsPost);
+	const int32 First = Body.Find(TEXT("\"id\":\"Build_RailroadTrack_C_A\""));
+	const int32 Second = Body.Find(TEXT("\"id\":\"Build_RailroadTrack_C_B\""));
+	TestTrue(TEXT("both tracks are in the body"), First != INDEX_NONE && Second != INDEX_NONE);
+	TestTrue(TEXT("sorted by id"), First < Second);
+	F.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	F.tick(2);
+	TestEqual(TEXT("one post"), F.Net.sent(WorldRailsPost), 1);
+	TestEqual(TEXT("FRM is never asked for rails"), F.Net.sent(WorldRailsRead), 0);
+	TestEqual(TEXT("the accepted body is not held"), F.Sender.Held(), 0);
+
+	// A second pass over the same readings posts nothing (same data hash).
+	TestTrue(TEXT("the next cycle begins another pass"), F.until([&F] { return F.Game.LogisticsBegins >= 2; }, 700));
+	F.tick(10);
+	TestEqual(TEXT("the second pass has three steps too"), F.Game.LogisticsStepCalls, 3);
+	TestEqual(TEXT("an unchanged layer is not posted again"), F.Net.sent(WorldRailsPost), 1);
+
+	// One log line per pass: counts and times only, no ids.
+	int32 ReadLines = 0;
+	int32 Leaks = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ReadLines += Line.Contains(TEXT("Logistics read (game thread only): layers rails=1 conveyors=0, 5 buildables, 2 tracks, 0 belts, 0 lifts, 0 pipes, 0 open ends, 0 ownerless ends in 3 steps, longest step ")) ? 1 : 0;
+		Leaks += Line.Contains(TEXT("Build_RailroadTrack")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one Logistics read line a pass"), ReadLines, 2);
+	TestEqual(TEXT("no id in the log"), Leaks, 0);
+
+	// An abandoned read (a world swap, no subsystem) posts nothing, warns once and is retried after NodeScanRetrySeconds.
+	F.Game.bLogisticsAbandoned = true;
+	const int32 Posts = F.Net.sent(WorldRailsPost);
+	const int32 Begun = F.Game.LogisticsBegins;
+	TestTrue(TEXT("the next pass begins"), F.until([&F, Begun] { return F.Game.LogisticsBegins > Begun; }, 700));
+	TestTrue(TEXT("and is retried soon, not after a whole cycle"), F.until([&F, Begun] { return F.Game.LogisticsBegins > Begun + 1; }, 45));
+	TestTrue(TEXT("and again"), F.until([&F, Begun] { return F.Game.LogisticsBegins > Begun + 2; }, 45));
+	TestEqual(TEXT("an abandoned read posts nothing"), F.Net.sent(WorldRailsPost), Posts);
+	TestEqual(TEXT("one warning for the abandoned reads"), countLines(Log, TEXT("World layer logistics: the game's read was abandoned")), 1);
+
+	// A read with no buildables at all (the reader reports it abandoned, ruling M5) behaves the same.
+	SatisDash::Test::FLogCapture ZeroLog;
+	FWorldFixture Z;
+	worldLogisticsNative(Z);
+	Z.Game.LogisticsCounts.Buildables = 0;
+	Z.Game.bLogisticsAbandoned = true;
+	Z.Sender.Start(Z.T);
+	TestTrue(TEXT("zero buildables: a pass begins"), Z.until([&Z] { return Z.Game.LogisticsBegins >= 2; }, 480));
+	Z.tick(5);
+	TestEqual(TEXT("zero buildables: nothing posted"), Z.Net.sent(WorldRailsPost), 0);
+	TestEqual(TEXT("zero buildables: one warning"), countLines(ZeroLog, TEXT("World layer logistics: the game's read was abandoned")), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderLogisticsBridgeRailsTest, "SatisDash.Core.WorldSender.LogisticsBridgeRails", SatisDash::Test::Flags)
+
+bool FWorldSenderLogisticsBridgeRailsTest::RunTest(const FString& Parameters)
+{
+	// railsSource bridge: FRM is asked at the first due time (120 s x 0.9 = 108 s here) and the pass is never entered.
+	FWorldFixture F;
+	F.Config.RailsSource = ESource::Bridge;
+	F.bNativeReaders = true;
+	F.Random01 = 0.0;
+	worldLogisticsReadings(F.Game);
+	F.Sender.Start(F.T);
+	TestTrue(TEXT("FRM is asked for the rails"), F.until([&F] { return F.Net.sent(WorldRailsRead) > 0; }, 120));
+	TestTrue(TEXT("at the bridge's first due time"), F.T - 1000.0 >= 107.0 && F.T - 1000.0 <= 112.0);
+	F.tick(900);
+	TestEqual(TEXT("BeginLogisticsRead is never called"), F.Game.LogisticsBegins, 0);
+	TestEqual(TEXT("and nothing is posted from the game"), F.Net.sent(WorldRailsPost), 0);
+
+	// A native pass that is open when the source changes is dropped: the reader is told, the layer is rescheduled (FRM is not asked at once).
+	FWorldFixture G;
+	worldLogisticsNative(G);
+	G.Game.LogisticsStepsToFinish = 1000000;
+	G.Sender.Start(G.T);
+	TestTrue(TEXT("a pass is open"), G.until([&G] { return G.Game.LogisticsBegins > 0; }, 440));
+	G.tick(1);
+	TestEqual(TEXT("stepped, not finished"), G.Game.LogisticsStepCalls, 2);
+	G.Config.RailsSource = ESource::Bridge;
+	G.tick();
+	TestEqual(TEXT("the reader is told"), G.Game.LogisticsEnds, 1);
+	TestEqual(TEXT("and the pass is not stepped again"), G.Game.LogisticsStepCalls, 2);
+	G.tick(60);
+	TestEqual(TEXT("the layer waits for its next cycle"), G.Net.sent(WorldRailsRead), 0);
+	TestEqual(TEXT("no new pass is begun"), G.Game.LogisticsBegins, 1);
+	TestTrue(TEXT("FRM is asked at the rescheduled time"), G.until([&G] { return G.Net.sent(WorldRailsRead) > 0; }, 600));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderNativeFirstReadTest, "SatisDash.Core.WorldSender.NativeFirstRead", SatisDash::Test::Flags)
+
+bool FWorldSenderNativeFirstReadTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	// Rails native: not begun at the bridge's time (up to 132 s) but with the node and routes layers, at 480 s x 0.9 = 432 s.
+	FWorldFixture F;
+	F.Config.RailsSource = ESource::Native;
+	F.Config.ResourceNodesSource = ESource::Native;
+	F.Config.TrainsSource = ESource::Native;
+	F.bNativeReaders = true;
+	F.Random01 = 0.0;
+	worldLogisticsReadings(F.Game);
+	F.Sender.Start(F.T);
+	F.tick(140);
+	TestEqual(TEXT("rails not begun at 140 s"), F.Game.LogisticsBegins, 0);
+	TestFalse(TEXT("nothing begun before 431 s"), F.until([&F] { return F.Game.LogisticsBegins + F.Game.ScanBegins + F.Game.TrainsBegins > 0; }, 290));
+	TestTrue(TEXT("begun at 432 s"), F.until([&F] { return F.Game.LogisticsBegins > 0; }, 5));
+	TestEqual(TEXT("one rails pass"), F.Game.LogisticsBegins, 1);
+	TestEqual(TEXT("the resource nodes keep their 480 s"), F.Game.ScanBegins, 1);
+	TestEqual(TEXT("and so do the train routes"), F.Game.TrainsBegins, 1);
+
+	// Rails on the bridge: requested at their own due time, 108 s here.
+	FWorldFixture G;
+	G.Config.RailsSource = ESource::Bridge;
+	G.Config.ResourceNodesSource = ESource::Native;
+	G.Config.TrainsSource = ESource::Native;
+	G.bNativeReaders = true;
+	G.Random01 = 0.0;
+	G.Sender.Start(G.T);
+	TestFalse(TEXT("bridge rails: not before 107 s"), G.until([&G] { return G.Net.sent(WorldRailsRead) > 0; }, 106));
+	TestTrue(TEXT("bridge rails: asked at 108 s"), G.until([&G] { return G.Net.sent(WorldRailsRead) > 0; }, 6));
+	TestEqual(TEXT("bridge rails: no pass"), G.Game.LogisticsBegins, 0);
+
+	// A bridge to native flip mid-run (no pass open): the native first-read rule applies from the flip, and FRM is not asked again.
+	FWorldFixture H;
+	H.Config.RailsSource = ESource::Bridge;
+	H.Config.ResourceNodesSource = ESource::Bridge;
+	H.Config.TrainsSource = ESource::Bridge;
+	H.bNativeReaders = true;
+	H.Random01 = 0.0;
+	worldLogisticsReadings(H.Game);
+	H.Sender.Start(H.T);
+	H.tick(50);
+	H.Config.RailsSource = ESource::Native;
+	TestFalse(TEXT("flip: nothing is begun before 432 s"), H.until([&H] { return H.Game.LogisticsBegins > 0; }, 380));
+	TestTrue(TEXT("flip: the pass begins at 432 s"), H.until([&H] { return H.Game.LogisticsBegins > 0; }, 5));
+	TestEqual(TEXT("flip: FRM is never asked for rails"), H.Net.sent(WorldRailsRead), 0);
 	return true;
 }

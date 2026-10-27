@@ -1,6 +1,7 @@
 #include "SatisDash/WorldSender.h"
 
 #include "SatisDash/Log.h"
+#include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
 #include "SatisDash/Pusher.h"
@@ -10,7 +11,7 @@ namespace
 {
 	/**
 	 * A layer comes from the game itself when its source says so and a reader is there: resource nodes by resourceNodesSource (R4),
-	 * train routes by trainsSource (R3). Rails have no native reader.
+	 * train routes by trainsSource (R3), rails by railsSource (R5, the shared logistics pass).
 	 */
 	bool WorldSenderIsNative(SatisDash::EWorldLayer Layer, const SatisDash::FWorldContext& Context)
 	{
@@ -22,8 +23,15 @@ namespace
 		{
 		case SatisDash::EWorldLayer::ResourceNodes: return Context.Config->GetResourceNodesSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::TrainRoutes: return Context.Config->GetTrainsSource() == SatisDash::ESource::Native;
+		case SatisDash::EWorldLayer::Rails: return Context.Config->GetRailsSource() == SatisDash::ESource::Native;
 		default: return false;
 		}
+	}
+
+	/** The layers read by the shared logistics pass (rails now, conveyors with Task 8). */
+	bool WorldSenderIsLogistics(SatisDash::EWorldLayer Layer)
+	{
+		return Layer == SatisDash::EWorldLayer::Rails;
 	}
 }
 
@@ -46,7 +54,9 @@ void SatisDash::FWorldSender::Start(double Now)
 	bActive = true;
 	bPostInFlight = false;
 	bAuthRejected = false;
+	bPassOpen = bPassRails = bPassConveyors = false;
 	LastNow = Now;
+	StartedAt = Now;
 	for (int32 I = 0; I < WorldLayerCount; ++I)
 	{
 		Layers[I] = FLayer();
@@ -59,6 +69,7 @@ void SatisDash::FWorldSender::Stop()
 	++Generation;
 	bActive = false;
 	bPostInFlight = false;
+	bPassOpen = bPassRails = bPassConveyors = false; // the driver ends the reader's pass
 	for (FLayer& Layer : Layers)
 	{
 		Layer = FLayer();
@@ -101,6 +112,10 @@ void SatisDash::FWorldSender::Tick(const FWorldContext& Context)
 		return;
 	}
 	LastNow = Context.Now;
+	if (bPassOpen)
+	{
+		StepLogisticsPass(Context);
+	}
 	for (int32 I = 0; I < WorldLayerCount; ++I)
 	{
 		TickLayer(EWorldLayer(I), Context);
@@ -126,6 +141,16 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 			}
 			if (WorldSenderIsNative(Layer, Context))
 			{
+				if (WorldLayer(Layer).NativeFirstSeconds > 0.0 && !L.bFirstNativeDone)
+				{
+					// Ruling M7: a native layer's first read is later than the bridge's, so no pass falls in the host's start-up.
+					L.bFirstNativeDone = true;
+					L.NextAt = StartedAt + JitteredSeconds(WorldLayer(Layer).NativeFirstSeconds, random01Source());
+					if (Context.Now < L.NextAt)
+					{
+						return;
+					}
+				}
 				if (!Context.bGameRunning)
 				{
 					return; // an idle server (no game) has no world to scan: nothing starts and nothing is logged; it starts once a game runs
@@ -133,6 +158,31 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 				if (Layer == EWorldLayer::TrainRoutes && Context.NativeReaders->IsTrainsReadOpen())
 				{
 					return; // the driver's mapLive read holds the one cursor (a few ticks): look again next tick, not a failed scan
+				}
+				if (WorldSenderIsLogistics(Layer))
+				{
+					if (bPassOpen || Context.NativeReaders->IsLogisticsReadOpen())
+					{
+						return; // a pass is under way (ours, or the reader's): look again next tick, not a failed scan
+					}
+					const bool bRails = WorldSenderIsNative(EWorldLayer::Rails, Context) && Layers[int32(EWorldLayer::Rails)].Phase == EPhase::Waiting;
+					const bool bConveyors = false; // Task 8
+					if (Context.LogisticsBudget != nullptr && Context.NativeReaders->BeginLogisticsRead(bRails, bConveyors))
+					{
+						Context.LogisticsBudget->Reset();
+						bPassOpen = true;
+						bPassRails = bRails;
+						bPassConveyors = bConveyors;
+						if (bRails)
+						{
+							Layers[int32(EWorldLayer::Rails)].Phase = EPhase::Scanning;
+						}
+					}
+					else
+					{
+						L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet; FRM is not asked
+					}
+					return;
 				}
 				const bool bBegun = Layer == EWorldLayer::TrainRoutes
 					? Context.TrainsBudget != nullptr && Context.NativeReaders->BeginTrainsRead()
@@ -158,6 +208,10 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 		return;
 	case EPhase::Scanning:
 	{
+		if (WorldSenderIsLogistics(Layer))
+		{
+			return; // the shared pass is stepped once a tick, at the top of Tick
+		}
 		if (!WorldSenderIsNative(Layer, Context))
 		{
 			if (Layer == EWorldLayer::TrainRoutes && Context.NativeReaders != nullptr)
@@ -264,6 +318,79 @@ void SatisDash::FWorldSender::StepTrainRoutesScan(const FWorldContext& Context)
 	}
 }
 
+void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
+{
+	constexpr EWorldLayer RailsLayer = EWorldLayer::Rails;
+	FLayer& Rails = Layers[int32(RailsLayer)];
+	IGameReader* Reader = Context.NativeReaders;
+	// An included layer whose source changed under the pass drops out of it.
+	if (bPassRails && !WorldSenderIsNative(RailsLayer, Context))
+	{
+		bPassRails = false;
+		if (Rails.Phase == EPhase::Scanning)
+		{
+			ScheduleNext(RailsLayer, Context.Now);
+		}
+	}
+	if (Reader == nullptr || Context.LogisticsBudget == nullptr || (!bPassRails && !bPassConveyors))
+	{
+		// Nothing native is left in the pass (or its reader is gone): the reader frees what it buffered, and the pass closes.
+		if (Reader != nullptr)
+		{
+			Reader->EndLogisticsRead();
+		}
+		if (bPassRails && Rails.Phase == EPhase::Scanning)
+		{
+			ScheduleNext(RailsLayer, Context.Now);
+		}
+		bPassOpen = bPassRails = bPassConveyors = false;
+		return;
+	}
+	// The game thread's whole part: one budgeted slice of the buildables. Sorting and the JSON text are built on the worker.
+	TOptional<FLogisticsSnapshot> Found = Reader->StepLogisticsRead(*Context.LogisticsBudget);
+	if (!Found.IsSet())
+	{
+		return;
+	}
+	const bool bWasRails = bPassRails;
+	bPassOpen = bPassRails = bPassConveyors = false;
+	if (Reader->LogisticsReadAbandoned())
+	{
+		// No subsystem, a world swapped mid-read, or no buildables at all: this is not an empty world. Nothing is posted (the backend
+		// keeps its good copy), FRM is never asked, and the read is tried again soon. Counts only in the log.
+		if (bWasRails)
+		{
+			if (!Rails.bScanLogged && ShouldLog(RailsLayer, TEXT("scan"), Context.Now))
+			{
+				UE_LOG(LogSatisDash, Warning, TEXT("World layer logistics: the game's read was abandoned; nothing sent, will read again in %.0f s"), NodeScanRetrySeconds);
+			}
+			Rails.bScanLogged = true;
+			Rails.Phase = EPhase::Waiting;
+			Rails.NextAt = Context.Now + NodeScanRetrySeconds;
+		}
+		return;
+	}
+	Rails.bScanLogged = false;
+	const FLogisticsCounts& C = Found->Counts;
+	const FStepBudget& Budget = *Context.LogisticsBudget;
+	// Counts and times only; never an id or a name.
+	UE_LOG(LogSatisDash, Display, TEXT("Logistics read (game thread only): layers rails=%d conveyors=%d, %d buildables, %d tracks, %d belts, %d lifts, %d pipes, %d open ends, %d ownerless ends in %d steps, longest step %.2f ms, total %.2f ms, expected tracks %d, dropped %d, over cap %d"),
+		bWasRails ? 1 : 0, 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, Budget.Steps(), Budget.LongestMs(), Budget.TotalMs(),
+		C.ExpectedTracks, C.Dropped, C.Over);
+	if (bWasRails)
+	{
+		if (Bridge.SubmitNativeWorld(RailsLayer, Context.Utc.ToIso8601(),
+			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Rails)](const FString& Observed) { return BuildNativeRails(Observed, Snapshot); }), Rails.DataHash))
+		{
+			Rails.Phase = EPhase::Reading;
+		}
+		else
+		{
+			ScheduleNext(RailsLayer, Context.Now);
+		}
+	}
+}
+
 void SatisDash::FWorldSender::Settle(EWorldLayer Layer, FWorldOutcome Outcome, const FWorldContext& Context)
 {
 	using EKind = FWorldOutcome::EKind;
@@ -358,6 +485,7 @@ void SatisDash::FWorldSender::Finish(EWorldLayer Layer, uint32 SentIn, const FHt
 	{
 		bAuthRejected = true;
 		bActive = false;
+		bPassOpen = bPassRails = bPassConveyors = false;
 		for (FLayer& Each : Layers)
 		{
 			Each = FLayer();
