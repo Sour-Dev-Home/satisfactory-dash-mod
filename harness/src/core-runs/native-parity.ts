@@ -177,6 +177,28 @@ export function s3LayerPosts(entries: readonly RecordedCall[], layer: "rails" | 
     .map((e) => ({ at: e.at, status: e.status, data: e.worldData }));
 }
 
+/**
+ * Takes a fresh FRM sample for each S3 layer that has a new accepted mod post since enrolment (so the judge has a sample within its
+ * gap). `seen` is the drive's per-layer count of posts already answered; it is updated here. Returns the layers sampled.
+ */
+export async function takeAfterNewS3Posts(
+  s: Pick<S3Samplers, "rails" | "conveyors">,
+  entries: readonly RecordedCall[],
+  enrolledAt: number,
+  seen: { rails: number; conveyors: number },
+): Promise<Array<"rails" | "conveyors">> {
+  const done: Array<"rails" | "conveyors"> = [];
+  for (const layer of ["rails", "conveyors"] as const) {
+    const count = s3LayerPosts(entries, layer, enrolledAt).length;
+    if (count > seen[layer]) {
+      seen[layer] = count;
+      await s[layer].take();
+      done.push(layer);
+    }
+  }
+  return done;
+}
+
 /** Sprint S3's evidence: the posts since enrolment, the FRM samples as hashes with each distinct mapped body kept once, the ports' ids. */
 export function s3EvidenceFrom(s: S3Samplers, entries: readonly RecordedCall[], enrolledAt: number, atStart: ReturnType<S3Samplers["counts"]>): Pass.S3Evidence {
   const iv = (x: { startedAt: number; endedAt: number }) => ({ startedAt: iso(x.startedAt), endedAt: iso(x.endedAt) });
@@ -204,8 +226,9 @@ export function s3EvidenceFrom(s: S3Samplers, entries: readonly RecordedCall[], 
 }
 
 /**
- * The combined native-reader parity run for sprint S1 (runs/native-parity/pass.ts says what is judged). The mod enrols with
- * playersSource and resourceNodesSource native (spec.modConfig). Order: the world loads first (FRM is down before it,
+ * The combined native-reader parity run for sprints S1, S2 and S3 (runs/native-parity/pass.ts says what is judged). The mod enrols
+ * with all six sources native (spec.modConfig, NATIVE_SOURCES_S3), on the Test3 world; S2 and S3 add their own FRM samplers (below
+ * and startS3Samplers). The S1 part: Order: the world loads first (FRM is down before it,
  * docs/runner.md), the harness's FRM readers start, then the mod enrols (so its one resource-node post, about 8 minutes after
  * enrolment, lands inside the window), a one-minute settle, and 30 minutes of the harness reading FRM's getPower (back to
  * back), getPlayer (every 2 s) and getResourceNode (every minute, and at once after each mod post) beside the mod's posts.
@@ -309,8 +332,7 @@ export const nativeParity: CoreRunSpec = {
       let postsSeen = 0;
       let routePostsSeen = 0;
       // Counted from zero: a post that landed between enrolment and the window's start (the first native read) gets its sample at once too.
-      let railPostsSeen = 0;
-      let conveyorPostsSeen = 0;
+      const s3Seen = { rails: 0, conveyors: 0 };
       while (Date.now() - from < Pass.WINDOW_MINUTES * MIN) {
         await ctx.deps.sleep(SECOND);
         rounds.feed(accepted(recorder));
@@ -328,16 +350,7 @@ export const nativeParity: CoreRunSpec = {
           await routes.take();
         }
         // S3: a fresh FRM sample right after each accepted rails or conveyors post, so the judge always has one within its gap.
-        const railCount = s3LayerPosts(recorder.entries, "rails", enrolledAt).length;
-        if (railCount > railPostsSeen) {
-          railPostsSeen = railCount;
-          await s3.rails.take();
-        }
-        const conveyorCount = s3LayerPosts(recorder.entries, "conveyors", enrolledAt).length;
-        if (conveyorCount > conveyorPostsSeen) {
-          conveyorPostsSeen = conveyorCount;
-          await s3.conveyors.take();
-        }
+        await takeAfterNewS3Posts(s3, recorder.entries, enrolledAt, s3Seen);
       }
       capture.windowEndedAt = iso(Date.now());
       await ctx.deps.sleep(2 * SECOND); // the last sample's FRM neighbour after it
