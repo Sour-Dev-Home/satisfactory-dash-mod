@@ -6,7 +6,7 @@ name: core-run
 # ue-runner environment. The options are the runs the harness drives so far; a run that needs the backend host (enrol,
 # revoke, command, outage, tick-cost, parity, native-parity, tick-cost-native, s3-census) refuses unless the owner has started it in their own session
 # first (docs/runner.md, "The backend host"). parity also needs parity.agentCjs in the runner config; native-parity needs
-# frmBaseUrl (FRM is its oracle).
+# frmBaseUrl (FRM is its oracle); s4-capture needs frmBaseUrl too but no backend host (it captures FRM's output).
 on:
   workflow_dispatch:
     inputs:
@@ -14,7 +14,7 @@ on:
         description: Core run
         required: true
         type: choice
-        options: [http-probe, enrol, revoke, command, outage, tick-cost, parity, manual, native-parity, tick-cost-native, s3-census]
+        options: [http-probe, enrol, revoke, command, outage, tick-cost, parity, manual, native-parity, tick-cost-native, s3-census, s4-capture]
 
 permissions:
   contents: read
