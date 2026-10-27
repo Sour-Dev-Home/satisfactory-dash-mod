@@ -9,11 +9,11 @@ afterEach(() => resetEvidenceKeyForTests());
 
 describe("evidenceHash (final review I-2)", () => {
   it("is 12 lower-case hex characters, equal for the same name within a run, and not the unsalted sessionHash", () => {
-    const h = evidenceHash("FUEL 5");
+    const h = evidenceHash("Alpha");
     expect(h).toMatch(/^[0-9a-f]{12}$/);
-    expect(evidenceHash("FUEL 5")).toBe(h);
+    expect(evidenceHash("Alpha")).toBe(h);
     expect(evidenceHash("Other")).not.toBe(h);
-    expect(h).not.toBe(sessionHash("FUEL 5"));
+    expect(h).not.toBe(sessionHash("Alpha"));
   });
   it("a different key gives a different hash for the same name", () => {
     resetEvidenceKeyForTests(Buffer.alloc(32, 1));

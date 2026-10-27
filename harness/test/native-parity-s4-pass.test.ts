@@ -260,8 +260,10 @@ describe("judgeDrone", () => {
     expect(text(S4.judgeDrone(dev({ post: dpost({ name: OTHER }) })))).toContain(`nameHash mod=${OTHER}`);
     expect(text(S4.judgeDrone(dev({ post: dpost({ paired: null }) })))).toContain("paired mod=null");
   });
-  it("a fuel difference fails", () => {
-    expect(text(S4.judgeDrone(dev({ post: dpost({ fuel: [] }) })))).toContain("D1 fuel");
+  it("a fuel-only difference is cargo: reported, not failed", () => {
+    const v = S4.judgeDrone(dev({ post: dpost({ fuel: [] }) }));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("D1 fuel");
   });
   it("an id only on one side fails", () => {
     expect(S4.judgeDrone(dev({ frm: [fd(), d2f, fd({ id: "D3", pairedIds: [] })] })).pass).toBe(false);
