@@ -633,7 +633,7 @@ bool FWorldSenderMapMarkersTest::RunTest(const FString& Parameters)
 	worldMapMarkersFixture(F);
 	F.Config.MapMarkersSource = ESource::Native;
 	F.Sender.Start(F.T);
-	TestFalse(TEXT("no read before 8 minutes less the jitter (432 s)"), F.until([&F] { return F.Game.MarkersBegins > 0; }, 420));
+	TestFalse(TEXT("no read before 8 minutes less the jitter (432 s)"), F.until([&F] { return F.Game.MarkersBegins > 0; }, 431));
 	TestTrue(TEXT("the read begins at 433 s"), F.until([&F] { return F.Game.MarkersBegins > 0; }, 20));
 	TestEqual(TEXT("one begin"), F.Game.MarkersBegins, 1);
 	F.tick(0.5);

@@ -47,6 +47,61 @@ namespace
 		return Layer == SatisDash::EWorldLayer::Rails || Layer == SatisDash::EWorldLayer::Conveyors;
 	}
 
+	/** The small sliced layers (one reader, one budget each, a few ticks): adding one takes a case in each of the helpers below and in StepSmallLayerScan. */
+	bool WorldSenderIsSmall(SatisDash::EWorldLayer Layer)
+	{
+		return Layer == SatisDash::EWorldLayer::MapMarkers;
+	}
+
+	enum class ESmallBegin { Busy, Begun, Failed };
+
+	/** Opens a small layer's read and resets its budget. Busy: a read is already open (look again next tick). Failed: no world or manager yet. */
+	ESmallBegin BeginSmallLayer(SatisDash::EWorldLayer Layer, const SatisDash::FWorldContext& Context)
+	{
+		switch (Layer)
+		{
+		case SatisDash::EWorldLayer::MapMarkers:
+			if (Context.NativeReaders->IsMapMarkersReadOpen())
+			{
+				return ESmallBegin::Busy;
+			}
+			if (Context.MarkersBudget != nullptr && Context.NativeReaders->BeginMapMarkersRead())
+			{
+				Context.MarkersBudget->Reset();
+				return ESmallBegin::Begun;
+			}
+			return ESmallBegin::Failed;
+		default:
+			return ESmallBegin::Failed;
+		}
+	}
+
+	/** Frees what a small layer's reader buffered. */
+	void EndSmallLayer(SatisDash::EWorldLayer Layer, const SatisDash::FWorldContext& Context)
+	{
+		if (Context.NativeReaders == nullptr)
+		{
+			return;
+		}
+		switch (Layer)
+		{
+		case SatisDash::EWorldLayer::MapMarkers:
+			Context.NativeReaders->EndMapMarkersRead();
+			return;
+		default:
+		{
+			// Unreachable: only layers WorldSenderIsSmall names are routed here. Ends nothing (ending the wrong reader would be worse).
+			static bool bLogged = false;
+			if (!bLogged)
+			{
+				bLogged = true;
+				UE_LOG(LogSatisDash, Warning, TEXT("World sender: a layer with no small-layer reader was routed to the small-layer path; ignored"));
+			}
+			return;
+		}
+		}
+	}
+
 	const TCHAR* WorldSenderKindText(SatisDash::EConveyorKind Kind)
 	{
 		switch (Kind)
@@ -213,22 +268,14 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					}
 					return;
 				}
-				if (Layer == EWorldLayer::MapMarkers)
+				if (WorldSenderIsSmall(Layer))
 				{
-					if (Context.NativeReaders->IsMapMarkersReadOpen())
+					switch (BeginSmallLayer(Layer, Context))
 					{
-						return; // a read is open: look again next tick, not a failed read
+					case ESmallBegin::Busy: return; // a read is open: look again next tick, not a failed read
+					case ESmallBegin::Begun: L.Phase = EPhase::Scanning; return;
+					default: L.NextAt = Context.Now + NodeScanRetrySeconds; return; // no world or no manager yet; FRM is not asked
 					}
-					if (Context.MarkersBudget != nullptr && Context.NativeReaders->BeginMapMarkersRead())
-					{
-						Context.MarkersBudget->Reset();
-						L.Phase = EPhase::Scanning;
-					}
-					else
-					{
-						L.NextAt = Context.Now + NodeScanRetrySeconds; // no world or no manager yet; FRM is not asked
-					}
-					return;
 				}
 				const bool bBegun = Layer == EWorldLayer::TrainRoutes
 					? Context.TrainsBudget != nullptr && Context.NativeReaders->BeginTrainsRead()
@@ -264,14 +311,14 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 			{
 				Context.NativeReaders->EndTrainsRead(); // frees what the reader buffered
 			}
-			if (Layer == EWorldLayer::MapMarkers && Context.NativeReaders != nullptr)
+			if (WorldSenderIsSmall(Layer))
 			{
-				Context.NativeReaders->EndMapMarkersRead();
+				EndSmallLayer(Layer, Context);
 			}
 			ScheduleNext(Layer, Context.Now); // the source changed under a scan: drop it
 			return;
 		}
-		if (Layer == EWorldLayer::MapMarkers)
+		if (WorldSenderIsSmall(Layer))
 		{
 			StepSmallLayerScan(Layer, Context);
 			return;
@@ -382,7 +429,7 @@ void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorld
 	{
 		if (Context.MarkersBudget == nullptr)
 		{
-			Context.NativeReaders->EndMapMarkersRead();
+			EndSmallLayer(Layer, Context);
 			ScheduleNext(Layer, Context.Now);
 			return;
 		}
@@ -421,7 +468,7 @@ void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorld
 		return;
 	}
 	default:
-		Context.NativeReaders->EndMapMarkersRead(); // unreachable: no other layer is routed here yet
+		EndSmallLayer(Layer, Context); // unreachable (WorldSenderIsSmall gates the call): logs once, ends nothing
 		ScheduleNext(Layer, Context.Now);
 		return;
 	}
