@@ -285,13 +285,14 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   **Sprint S4-A (ADR-0058; the run writes all nine keys, `NATIVE_SOURCES_S4`).** Three more readers are judged, each alone, in
   `runs/native-parity/pass-s4.ts`: `mapMarkers` (R8), `droneRoutes` (R9) and `powerLines` (R10), against FRM's `/getMapMarkers`
   (10 s timeout), `/getDroneStation` (10 s, full mapping, beside S3's ids-only sampler) and `/getCables` (20 s), each sampled every
-  2 minutes (the judge's 120 s gap) and at once after each accepted mod post of that layer. Only accepted (status 200) posts since
+  90 s (inside the judge's 120 s gap, as the sampler sleeps the full interval after each read) and at once after each accepted mod post of that layer. Only accepted (status 200) posts since
   the start of enrolment enter the evidence, and **every marker and port name and every `paired` string is replaced by its
   `sessionHash` before the post is captured**, so `native-parity.json` and `recorder.json` carry ids, numbers, class names and
   hashes only (the recorder keeps the three layers' posts in memory; `publicEntries` drops them). The readers also need the
   `Readers:` line to say `mapMarkers=native droneRoutes=native powerLines=native`, `Map markers read` and `Drone routes read`
   lines, and a `Logistics read` line with `powerLines=1`. `readers.json` gains `mapMarkers`, `droneRoutes` and `powerLines`; an S1
-  to S3 capture is judged as before. `tick-cost-native` still uses `NATIVE_SOURCES_S3`.
+  to S3 capture is judged as before. Known gap: `judgeWires` is called without its optional `{ dropped }` count, because there is no
+  wires-only dropped parser, so the dropped-wire check is not applied. `tick-cost-native` still uses `NATIVE_SOURCES_S3`.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S3`: the players, resource-node, factory, trains, rails and conveyors readers),
   loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`

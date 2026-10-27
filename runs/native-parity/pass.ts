@@ -286,6 +286,7 @@ export function judgeReaders(c: NativeParity, lines: readonly string[] = []): Re
   // S3's two judges read only their own evidence (the conveyors judge also takes the mod's `Conveyor kinds:` census line, when logged).
   if (c.s3) out = { ...out, rails: finish(judgeRails(c.s3.rails)), conveyors: finish(judgeConveyors(c.s3.conveyors, kindCheck(lines))) };
   // S4-A's three judges read only their own evidence; one failing leaves the others' verdicts alone.
+  // judgeWires' optional { dropped } is not passed: there is no wires-only dropped parser, so the dropped-wire count check is skipped.
   if (c.s4) out = { ...out, mapMarkers: finish(judgeMarkers(c.s4.markers)), droneRoutes: finish(judgeDrone(c.s4.drone)), powerLines: finish(judgeWires(c.s4.wires)) };
   return out;
 }

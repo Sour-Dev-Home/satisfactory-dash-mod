@@ -228,10 +228,14 @@ export function s3EvidenceFrom(s: S3Samplers, entries: readonly RecordedCall[], 
 }
 
 // S4-A's FRM samplers (Task 15): markers, drone ports (the full mapping, beside S3's ids-only sampler, which stays as it was) and
-// cables, every 2 minutes (the judge's S4_GAP_MS) and at once after each accepted post. The timeouts are the brief's.
-export const MARKERS_POLL_MS = 2 * MIN;
-export const DRONE_FULL_POLL_MS = 2 * MIN;
-export const WIRES_POLL_MS = 2 * MIN;
+// cables, at once after each accepted post and every S4_SAMPLER_MS. The timeouts are the brief's.
+// The sampler sleeps the full interval after each read, so the real period is the interval plus the read time. At 120 s (the judge's
+// S4_GAP_MS) a mod post could find no FRM sample inside the window; 90 s keeps every post within S4_GAP_MS of a sample
+// (controller, 2026-10-28). S2 and S3 samplers are unchanged.
+export const S4_SAMPLER_MS = 90_000;
+export const MARKERS_POLL_MS = S4_SAMPLER_MS;
+export const DRONE_FULL_POLL_MS = S4_SAMPLER_MS;
+export const WIRES_POLL_MS = S4_SAMPLER_MS;
 
 /** The three S4 FRM samplers, started with the others (before the mod enrols). Each sample is `{ hash, mapped }` (frm-s4.ts, names already hashed). */
 export function startS4Samplers(get: Get, clock: Clock = { now: Date.now, sleep: realSleep }) {
@@ -280,7 +284,7 @@ const hashedName = (v: unknown): unknown => (typeof v === "string" ? sessionHash
  * could not carry text into a capture. Ids, numbers, class names and hashes are what is left.
  */
 function hashItemNames(layer: S4Layer, item: unknown): unknown {
-  if (!isRec(item)) return item;
+  if (!isRec(item)) return null; // defence in depth: raw data never passes through
   if (layer === "mapMarkers") return { id: item.id, name: hashedName(item.name), kind: item.kind, icon: item.icon, color: item.color, x: item.x, y: item.y };
   if (layer === "droneRoutes") {
     return {
@@ -295,7 +299,7 @@ function hashItemNames(layer: S4Layer, item: unknown): unknown {
 export function s4LayerPosts(entries: readonly RecordedCall[], layer: S4Layer, from: number): Array<{ at: string; status: number; data: unknown }> {
   return entries
     .filter((e) => e.agent === "mod" && e.world?.layer === layer && e.status === 200 && Date.parse(e.at) >= from)
-    .map((e) => ({ at: e.at, status: e.status, data: Array.isArray(e.worldData) ? e.worldData.map((i) => hashItemNames(layer, i)) : e.worldData }));
+    .map((e) => ({ at: e.at, status: e.status, data: Array.isArray(e.worldData) ? e.worldData.map((i) => hashItemNames(layer, i)) : [] }));
 }
 
 /** Like takeAfterNewS3Posts: a fresh FRM sample for each S4 layer with a new accepted mod post. `seen` is updated here. Returns the layers sampled. */

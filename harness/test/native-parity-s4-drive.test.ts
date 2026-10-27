@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nativeParity, s4EvidenceFrom, s4LayerPosts, startS4Samplers, takeAfterNewS4Posts, type S4Samplers } from "../src/core-runs/native-parity";
+import { nativeParity, S4_SAMPLER_MS, s4EvidenceFrom, s4LayerPosts, startS4Samplers, takeAfterNewS4Posts, type S4Samplers } from "../src/core-runs/native-parity";
 import { NATIVE_SOURCES_S4 } from "../src/core-run";
 import type { RecordedCall } from "../src/recorder";
 import { sessionHash } from "../src/status";
@@ -31,6 +31,29 @@ describe("native-parity drive (S4)", () => {
     await s.wires.take();
     expect(paths.filter((p) => p === "/getCables").length).toBe(before + 1);
     s.stop();
+  });
+
+  it("samples every S4 layer faster than the judge's gap (the real period is the interval plus the read)", async () => {
+    const sleeps: number[] = [];
+    const s = startS4Samplers(async (p) => body(p), { now: Date.now, sleep: (ms) => (sleeps.push(ms), hang()) });
+    await flush();
+    s.stop();
+    expect(sleeps.length).toBeGreaterThanOrEqual(3);
+    for (const ms of sleeps) expect(ms).toBeLessThan(120_000);
+    expect(S4_SAMPLER_MS).toBeLessThan(120_000);
+  });
+
+  it("maps a non-object item to null and a non-array data to [], so raw data never passes through", () => {
+    const secret = "SecretName";
+    const entries = [
+      post("mapMarkers", { worldData: [secret, 7, null, ["x"], { id: "m1", name: secret }] }),
+      post("droneRoutes", { worldData: { name: secret } as unknown as unknown[] }),
+      post("powerLines", { worldData: secret as unknown as unknown[] }),
+    ];
+    expect(s4LayerPosts(entries, "mapMarkers", T0)[0]!.data).toEqual([null, null, null, null, expect.objectContaining({ id: "m1", name: sessionHash(secret) })]);
+    expect(s4LayerPosts(entries, "droneRoutes", T0)[0]!.data).toEqual([]);
+    expect(s4LayerPosts(entries, "powerLines", T0)[0]!.data).toEqual([]);
+    expect(JSON.stringify(s4LayerPosts(entries, "mapMarkers", T0))).not.toContain(secret);
   });
 
   it("keeps each distinct body once by hash and leaves no name anywhere in the evidence", async () => {

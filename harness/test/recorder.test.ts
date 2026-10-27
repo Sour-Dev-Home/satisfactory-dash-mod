@@ -197,7 +197,7 @@ describe("recorder (ruling 11)", () => {
     expect(JSON.stringify(publicEntries(rec.entries))).not.toMatch(/Alpha|Beta/);
   });
 
-  const parts = { settings: { autoPause: false }, power:{ circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
+  const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
   const factory = { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, name: "Constructor", className: "Build_ConstructorMk1_C", pad: "p".repeat(60) })) };
   const big = JSON.stringify({ ...snapshot, ...parts, factory, players: { available: true, players: [{ name: "Someone", online: true }] } });
 
