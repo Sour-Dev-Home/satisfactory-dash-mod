@@ -155,3 +155,51 @@ describe("vendored contract (S4-B: extractors)", () => {
     expect(AgentFactorySchema.safeParse({ buildings: [], extractors }).success).toBe(false);
   });
 });
+
+describe("vendored contract (S4-B: generators)", () => {
+  const generator = {
+    id: "g1",
+    name: "Coal-Powered Generator",
+    className: "Build_GeneratorCoal_C",
+    currentMW: 75,
+    capacityMW: 75,
+    isProducing: true,
+    fuel: { className: "Desc_Coal_C", name: "Coal", amount: 12 },
+  };
+
+  it("AGENT_INPUT_MAX_GENERATORS is 5000", async () => {
+    const agent = await import("../contract/src/agent");
+    expect(agent.AGENT_INPUT_MAX_GENERATORS).toBe(5000);
+  });
+
+  it("AgentPowerGeneratorSchema takes the full field set, fuel null, supplement absent or null", async () => {
+    const { AgentPowerGeneratorSchema: S } = await import("../contract/src/agent");
+    const full = {
+      ...generator,
+      location: { xM: 1, yM: 2, zM: 3, rotationDeg: 90 },
+      circuitGroupId: 1,
+      clockSpeedPercent: 100,
+      supplement: { className: "Desc_Water_C", name: "Water", amount: 5 },
+    };
+    expect(S.safeParse(full).success).toBe(true);
+    expect(S.safeParse({ ...generator, fuel: null }).success).toBe(true);
+    expect(S.safeParse(generator).success).toBe(true);
+    expect(S.safeParse({ ...generator, supplement: null }).success).toBe(true);
+  });
+
+  it("AgentPowerGeneratorSchema rejects an omitted fuel and a 201-character className", async () => {
+    const { AgentPowerGeneratorSchema: S } = await import("../contract/src/agent");
+    const { fuel: _fuel, ...noFuel } = generator;
+    expect(S.safeParse(noFuel).success).toBe(false);
+    expect(S.safeParse({ ...generator, className: "x".repeat(201) }).success).toBe(false);
+    expect(S.safeParse({ ...generator, className: "x".repeat(200) }).success).toBe(true);
+  });
+
+  it("AgentPowerSchema accepts generators, and the key absent; rejects 5001", async () => {
+    const { AgentPowerSchema } = await import("../contract/src/agent");
+    expect(AgentPowerSchema.safeParse({ circuits: [], generators: [generator] }).success).toBe(true);
+    expect(AgentPowerSchema.safeParse({ circuits: [] }).success).toBe(true);
+    const generators = Array.from({ length: 5001 }, (_, i) => ({ ...generator, id: `g${i}` }));
+    expect(AgentPowerSchema.safeParse({ circuits: [], generators }).success).toBe(false);
+  });
+});
