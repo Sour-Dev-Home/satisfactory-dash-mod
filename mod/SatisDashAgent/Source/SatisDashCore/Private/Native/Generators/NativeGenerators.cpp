@@ -92,10 +92,10 @@ namespace
 		Writer.WriteValue(TEXT("circuitGroupId"), R.CircuitGroupId);
 		Writer.WriteValue(TEXT("currentMW"), NonNegative(R.CurrentMW)); // NonNegative also turns -0 into 0
 		Writer.WriteValue(TEXT("capacityMW"), NonNegative(R.CapacityMW));
-		const TOptional<double> Clock = ClockPercent(R.ClockPercent);
-		if (Clock.IsSet())
+		const TOptional<double> ClockSpeed = ClockPercent(R.ClockPercent);
+		if (ClockSpeed.IsSet())
 		{
-			Writer.WriteValue(TEXT("clockSpeedPercent"), Clock.GetValue());
+			Writer.WriteValue(TEXT("clockSpeedPercent"), ClockSpeed.GetValue());
 		}
 		Writer.WriteValue(TEXT("isProducing"), R.bProducing);
 		NativeGeneratorsWriteItem(Writer, TEXT("fuel"), R.Fuel);
