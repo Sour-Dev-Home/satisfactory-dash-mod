@@ -86,13 +86,19 @@ describe("judgeRails", () => {
     expect(v.pass).toBe(false);
     expect(text(v)).toContain("no FRM getTrainRails sample succeeded");
   });
-  it("a duplicate track id on either side fails", () => {
+  it("a duplicate track id in the mod's layer fails; one in FRM's is reported and does not fail", () => {
     const m = S3.judgeRails(railsEv({ post: [modTrack("T1", [[0, 0], [10, 0]]), modTrack("T1", [[0, 0], [10, 0]])] }));
     expect(m.pass).toBe(false);
     expect(text(m)).toContain("the mod sent track id(s) twice");
     const f = S3.judgeRails(railsEv({ frm: [track("T1", [[0, 0], [10, 0]]), track("T1", [[0, 0], [10, 0]])] }));
-    expect(f.pass).toBe(false);
-    expect(text(f)).toContain("FRM listed track id(s) twice");
+    expect(f.pass).toBe(true);
+    expect(text(f)).toContain("FRM listed 1 track id(s) twice, reported and not failed");
+  });
+  it("an empty layer on both sides passes and reports NOT EXERCISED any track", () => {
+    const v = S3.judgeRails(railsEv({ post: [], frm: [] }));
+    expect(v.pass).toBe(true);
+    expect(v.never.join("\n")).toContain("any track");
+    expect(S3.judgeRails(railsEv({})).never.join("\n")).not.toContain("any track");
   });
   it("a mod track whose id FRM marks not representable is in neither set (reported, not failed)", () => {
     const v = S3.judgeRails(railsEv({ frm: [track("T1", [[0, 0], [10, 0]]), track("T2", [[1, 1], [1.2, 1.2]], false)], post: [modTrack("T1", [[0, 0], [10, 0]]), modTrack("T2", [[1, 1], [2, 2]])] }));
@@ -220,13 +226,19 @@ describe("judgeConveyors", () => {
     expect(v.pass).toBe(false);
     expect(text(v)).toContain("no FRM getBelts+getLifts+getPipes sample succeeded");
   });
-  it("a duplicate edge id on either side fails", () => {
+  it("a duplicate edge id in the mod's layer fails; one in FRM's is reported and does not fail", () => {
     const m = S3.judgeConveyors(convEv({ post: [modEdge(), modEdge()] }));
     expect(m.pass).toBe(false);
     expect(text(m)).toContain("the mod sent edge id(s) twice");
     const f = S3.judgeConveyors(convEv({ frm: [frmEdge(), frmEdge()] }));
-    expect(f.pass).toBe(false);
-    expect(text(f)).toContain("FRM listed edge id(s) twice");
+    expect(f.pass).toBe(true);
+    expect(text(f)).toContain("FRM listed 1 edge id(s) twice, reported and not failed");
+  });
+  it("an empty layer on both sides passes and reports NOT EXERCISED any edge", () => {
+    const v = S3.judgeConveyors(convEv({ post: [], frm: [] }));
+    expect(v.pass).toBe(true);
+    expect(v.never.join("\n")).toContain("any edge");
+    expect(S3.judgeConveyors(convEv()).never.join("\n")).not.toContain("any edge");
   });
   it("reports FRM records the oracle dropped, and does not fail on them", () => {
     const ev = convEv();

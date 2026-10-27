@@ -69,16 +69,21 @@ function sidesOf<T>(at: string, samples: readonly Bracket<string>[], distinct: R
 
 // ---------------------------------------------------------------------------------------------------------------------- rails
 
+/** The ids that occur more than once, in one pass. */
+function dupes(ids: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const twice = new Set<string>();
+  for (const id of ids) (seen.has(id) ? twice : seen).add(id);
+  return [...twice];
+}
+
 interface RailsCompare { failures: string[]; compared: number; maxModToFrm: number; maxFrmToMod: number; notRepresentable: string[] }
 
 function compareRails(mod: Array<{ id: string; points: Array<[number, number]> }>, frm: FrmRail[]): RailsCompare {
   const out: RailsCompare = { failures: [], compared: 0, maxModToFrm: 0, maxFrmToMod: 0, notRepresentable: frm.filter((t) => !t.representable).map((t) => t.id) };
-  // A duplicate id on either side fails, as S2's factory judge fails a machine id sent twice (judgeFactory).
-  const dupes = (ids: string[]) => [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+  // Only the mod's duplicate ids fail, as S2's judgeFactory fails a machine id the mod sent twice; FRM's are reported by the caller.
   const modDup = dupes(mod.map((t) => t.id));
-  const frmDup = dupes(frm.map((t) => t.id));
   if (modDup.length) out.failures.push(`the mod sent track id(s) twice (first ${S3_SHOW}): ${modDup.slice(0, S3_SHOW).join(" ")}`);
-  if (frmDup.length) out.failures.push(`FRM listed track id(s) twice (first ${S3_SHOW}): ${frmDup.slice(0, S3_SHOW).join(" ")}`);
   const frmById = new Map(frm.filter((t) => t.representable).map((t) => [t.id, t.points]));
   const modById = new Map(mod.map((t) => [t.id, t.points]));
   // NEW (ruling M3): a track FRM marks not representable is in neither set; a mod track with that id is not "in the mod only".
@@ -119,6 +124,8 @@ export function judgeRails(r: RailsEvidence): S3Result {
   let maxA = 0;
   let maxB = 0;
   const notRep = new Set<string>();
+  const frmDup = new Set<string>();
+  let anyTrack = false;
   const frmTracks: FrmRail[] = [];
   if (r.posts.length === 0) reasons.push("the mod posted no rails layer in the window");
   for (const post of r.posts) {
@@ -144,10 +151,13 @@ export function judgeRails(r: RailsEvidence): S3Result {
     maxB = Math.max(maxB, results[ok]!.maxFrmToMod);
     for (const id of results[ok]!.notRepresentable) notRep.add(id);
     frmTracks.push(...sides[ok]!);
+    for (const id of dupes(sides[ok]!.map((t) => t.id))) frmDup.add(id);
+    if ((parsed.data as unknown[]).length > 0 || sides[ok]!.length > 0) anyTrack = true;
   }
   if (r.frm.failed > 0 && r.frmSamples.length === 0) reasons.push("no FRM getTrainRails sample succeeded");
   if (reasons.length) return failing(reasons);
   const never = [
+    anyTrack ? null : "any track (neither side listed one)",
     frmTracks.some((t) => isCurved(t.points)) ? null : "a curved track (no FRM track has a point over 0.5 m from its chord)",
     frmTracks.some((t) => trackLengthM(t.points) > S3_LONG_TRACK_M) ? null : "a track over 999 m (the point clamp)",
     notRep.size > 0 ? null : "a track the contract cannot hold",
@@ -155,6 +165,7 @@ export function judgeRails(r: RailsEvidence): S3Result {
   const out = [
     `${posts} posted layer(s) valid against the contract; track ids equal FRM's; ${tracks} tracks compared; farthest point ${fmt2(maxA)} m (mod to FRM) and ${fmt2(maxB)} m (FRM to mod), limit ${S3_RAILS_MAX_M} m`,
   ];
+  if (frmDup.size > 0) out.push(`FRM listed ${frmDup.size} track id(s) twice, reported and not failed (first ${S3_SHOW}): ${[...frmDup].slice(0, S3_SHOW).join(" ")}`);
   if (notRep.size > 0) out.push(`${notRep.size} FRM tracks the contract cannot hold, reported and not failed (first ${S3_SHOW}): ${[...notRep].slice(0, S3_SHOW).join(" ")}`);
   return { pass: true, reasons: out, never };
 }
@@ -173,12 +184,9 @@ const show = (v: unknown) => (v === null ? "null" : String(v));
 
 function compareEdges(mod: ModEdge[], frm: FrmEdge[]): string[] {
   const failures: string[] = [];
-  // A duplicate id on either side fails, as S2's factory judge fails a machine id sent twice (judgeFactory).
-  const dupes = (ids: string[]) => [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+  // Only the mod's duplicate ids fail, as S2's judgeFactory fails a machine id the mod sent twice; FRM's are reported by the caller.
   const modDup = dupes(mod.map((e) => e.id));
-  const frmDup = dupes(frm.map((e) => e.id));
   if (modDup.length) failures.push(`the mod sent edge id(s) twice (first ${S3_SHOW}): ${modDup.slice(0, S3_SHOW).join(" ")}`);
-  if (frmDup.length) failures.push(`FRM listed edge id(s) twice (first ${S3_SHOW}): ${frmDup.slice(0, S3_SHOW).join(" ")}`);
   const frmById = new Map(frm.map((e) => [e.id, e]));
   const modById = new Map(mod.map((e) => [e.id, e]));
   const frmOnly = [...frmById.keys()].filter((id) => !modById.has(id));
@@ -218,6 +226,8 @@ export function judgeConveyors(c: ConveyorsEvidence, kindCheck: { checked: numbe
   let outOfPort = 0;
   let filtered = 0;
   let dropped = 0;
+  let anyEdge = false;
+  const frmDup = new Set<string>();
   const kinds = new Set<string>();
   const endKinds = new Set<string>();
   const beltTiers = new Set<string>();
@@ -244,6 +254,8 @@ export function judgeConveyors(c: ConveyorsEvidence, kindCheck: { checked: numbe
     }
     posts++;
     edges = mod.length;
+    if (mod.length > 0 || sides[ok]!.edges.length > 0) anyEdge = true;
+    for (const id of dupes(sides[ok]!.edges.map((e) => e.id))) frmDup.add(id);
     openEdges = mod.filter((e) => e.from === null || e.to === null).length;
     filtered = Math.max(filtered, sides[ok]!.filtered.length);
     dropped = Math.max(dropped, sides[ok]!.dropped);
@@ -262,6 +274,7 @@ export function judgeConveyors(c: ConveyorsEvidence, kindCheck: { checked: numbe
   if (c.frm.failed > 0 && c.frmSamples.length === 0) reasons.push("no FRM getBelts+getLifts+getPipes sample succeeded");
   if (reasons.length) return failing(reasons);
   const never = [
+    anyEdge ? null : "any edge (neither side listed one)",
     ...END_KINDS_SEEN.filter((k) => !endKinds.has(k)).map((k) => `an end of kind ${k}`),
     kinds.has("lift") ? null : "a lift edge",
     kinds.has("pipe") ? null : "a pipe edge",
@@ -276,6 +289,7 @@ export function judgeConveyors(c: ConveyorsEvidence, kindCheck: { checked: numbe
     `${openEdges} edges with an open end, agreed with FRM`,
     `${intoPort} edges into a drone port and ${outOfPort} out of one; all drone-port ends are ports FRM lists`,
   ];
+  if (frmDup.size > 0) out.push(`FRM listed ${frmDup.size} edge id(s) twice, reported and not failed (first ${S3_SHOW}): ${[...frmDup].slice(0, S3_SHOW).join(" ")}`);
   if (dropped > 0) out.push(`${dropped} FRM records dropped by the adapter's rules (out of bounds, no ConnectedTo, empty Name), reported and not compared`);
   if (filtered > 0) out.push(`${filtered} hypertube record(s) filtered by FRM, reported and not compared`);
   if (kindCheck !== null) {
