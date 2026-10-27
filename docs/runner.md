@@ -157,7 +157,7 @@ runner config names it as `"sprint3World"`, beside `"s2World"` and `"s3World"`:
 { "s3World": "<path to the S3 save>", "s2World": "<path to the Test2 copy>", "sprint3World": "<path to the Test3 copy>" }
 ```
 
-- `native-parity`, `tick-cost-native` and the one-off `s3-census` use `sprint3World` (the `sprint3` world key). The spikes
+- `native-parity`, `tick-cost-native` and the one-offs `s3-census` and `s4-capture` use `sprint3World` (the `sprint3` world key). The spikes
   keep `s3World`.
 - A run that needs `sprint3World` and finds none in the config is refused before the build: `<id> needs sprint3World in
   the runner config`.
@@ -321,6 +321,16 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
 
   **The order of the sprint's runs** (each once, the owner dispatches): `mod-test` on each PR branch, then `s3-census` (above),
   then one `native-parity`, then one `tick-cost-native`, all on `Test3`. Nothing else is run.
+- `s4-capture` is a one-off, read-only prerequisite of Sprint S4 (ADR-0058): it saves FRM's HTTP output so the dash repo can
+  design each new contract from a real capture. It needs `frmBaseUrl` and the staged world (`sprint3World`, `Test3`), no
+  backend host, and writes no mod config (the mod stays idle, as in `manual`). It loads `Test3`, turns auto-pause off, waits 2
+  minutes for the trains to move, then reads `/getGenerators`, `/getExtractor`, `/getStorageInv`, `/getTrains`,
+  `/getTrainStation`, `/getMapMarkers`, `/getDroneStation` and `/getCables` every 30 seconds for 15 minutes (15 s timeout per
+  GET; a failed GET is counted). `s4-capture.json` (a run artifact, never committed) holds, per endpoint, the first response
+  body unmodified, the read and failed counts, the sorted union of record keys, and for `/getTrains` and `/getTrainStation`
+  up to 3 full bodies whose records have a non-zero `TransferRate`/`InflowRate`/`OutflowRate` at any depth. Pass is every
+  endpoint answering at least once with a JSON array; the counts and keys are printed in `reasons`, with a `NOT EXERCISED`
+  line if no train or station read showed a non-zero rate. The captures are FRM output only (`docs/clean-room.md` allows that).
 
 ### The parity run's Node agent
 
