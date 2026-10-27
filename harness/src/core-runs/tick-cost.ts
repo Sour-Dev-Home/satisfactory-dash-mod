@@ -87,6 +87,23 @@ export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promis
   return { ticks, outbound: [...endpoints].sort(), outboundNames, outboundSamples, memory, session: state?.running ? state.session : null };
 }
 
+/**
+ * Owner, 2026-10-27 (S12): forward-resolves, once the with-mod window is over, every name the baseline boot's DNS cache gave
+ * to an address the baseline contacted. name -> its sorted addresses; [] for a lookup that failed (the judge reads that as no match).
+ */
+export async function forwardResolve(resolve: (name: string) => Promise<string[]>, base: Measured | undefined): Promise<Record<string, string[]>> {
+  const contacted = new Set((base?.outbound ?? []).map((x) => x.slice(0, x.lastIndexOf(":")).replace(/^\[(.*)\]$/, "$1")));
+  const wanted = new Set<string>();
+  for (const [address, ns] of Object.entries(base?.outboundNames ?? {})) {
+    if (contacted.has(address)) for (const n of ns) wanted.add(n);
+  }
+  const out: Record<string, string[]> = {};
+  for (const name of [...wanted].sort()) {
+    out[name] = await resolve(name).then((a) => [...new Set(a)].sort(), () => []);
+  }
+  return out;
+}
+
 /** Circuit groups in the mod's last accepted snapshot (evidence on the reader's circuit scan). */
 function circuitGroups(snapshot: unknown): number | null {
   const circuits = (snapshot as { power?: { circuits?: unknown } } | undefined)?.power?.circuits;
@@ -170,6 +187,7 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?
       capture.memoryWithMod = w.memory;
       capture.sessionWithMod = w.session;
       capture.outboundNamesWithMod = w.outboundNames;
+      if (ctx.deps.resolveHost) capture.outboundForwardWithMod = await forwardResolve(ctx.deps.resolveHost, base);
     } finally {
       const last = accepted(recorder).at(-1);
       capture.circuitGroups = last ? circuitGroups(last.snapshot) : null;

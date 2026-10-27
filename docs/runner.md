@@ -220,7 +220,10 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
 - `tick-cost` needs the backend host and the staged world, and takes about twice as long as the others: it boots once
   without the mod (world loaded, auto-pause off) and once with it, and measures each for the warmup plus 10 minutes. Every
   30 s it samples the outbound TCP connections and the working set of the server's process tree, by the spawned pid
-  (`tick-cost.json`). No FRM poller runs during it.
+  (`tick-cost.json`). No FRM poller runs during it. For S12, after the with-mod window the harness also forward-resolves
+  (system resolver) each name the baseline's DNS cache gave to an address it contacted, and records it as
+  `outboundForwardWithMod`; a new with-mod endpoint passes when its address is in the forward set of a name the baseline
+  contacted on the same port (owner, 2026-10-27; a failed lookup matches nothing).
 - `parity` needs the backend host, the staged world (`s3World`, `frmBaseUrl`) and `parity.agentCjs` (below). With the
   world running and auto-pause off, it enrols the mod through the recorder, then makes a game API token on the test
   server (`server.GenerateAPIToken`, through the HTTPS API's `RunCommand` on loopback) and sets up satisfactory-dash's

@@ -24,6 +24,15 @@
 //   127.0.0.1:18081, FRM's HTTP server, read by the mod's FRM bridge since Plan 3A): FRM's endpoint, taken from the
 //   runner config's frmBaseUrl and recorded as `frm`, is allowed like the recorder's, only as 127.0.0.1:<port> and only
 //   that exact port. It isn't required to appear. A capture without `frm` allows nothing extra.
+//   Owner decision (2026-10-27, after tick-cost-native run 40550430423, which failed S12 only on the game's own public-IP
+//   lookup again: the baseline contacted api.ipify.org at 104.26.13.205:443 and the with-mod boot 104.26.12.205:443, the
+//   same service on another Cloudflare address, but the with-mod boot's DNS cache had no name for that address): after the
+//   with-mod window the harness forward-resolves, through the system resolver, every name the baseline's DNS cache gave
+//   to an address the baseline contacted, and records it as `outboundForwardWithMod` (name -> sorted addresses, [] when
+//   the lookup failed). An endpoint seen only in the with-mod boot also passes when its address is in the forward set of a
+//   name the baseline contacted on the same port. Any other new endpoint fails as before. A failed lookup matches nothing
+//   and doesn't fail S12 by itself; a capture without the field behaves as before. The pass reason lists these matches
+//   like the name matches, marked "(forward lookup)".
 // - Same save (controller ruling, review of 1ca0065): both boots load the same staged world, and the session hash each
 //   boot runs is recorded; differing or missing hashes fail the run, since the comparison is valid only on the same save.
 // - Memory (owner decision, 2026-10-20): the server process tree's working set (the reader memory.json uses, by pid),
@@ -81,8 +90,12 @@ export interface TickCost {
   /** Each boot's DNS cache names per address it contacted (owner, 2026-10-21: judged for S12). */
   outboundNamesBaseline: Record<string, string[]>;
   outboundNamesWithMod: Record<string, string[]>;
+  /**
+   * Owner, 2026-10-27: after the with-mod window, each name the baseline's DNS cache gave to an address it contacted,
+   * forward-resolved through the system resolver: name -> its sorted addresses, [] on a failed lookup. Absent in older evidence.
+   */
+  outboundForwardWithMod?: Record<string, string[]>;
 }
-
 /** "a.b.c.d:443" or "[v6]:443" into its address and port. */
 function splitEndpoint(x: string): { address: string; port: string } {
   const i = x.lastIndexOf(":");
@@ -153,6 +166,14 @@ export function evaluate(e: CoreEvidence): Verdict {
     const { address, port } = splitEndpoint(x);
     const names = c.outboundNamesWithMod?.[address] ?? [];
     const which = `S12: the mod's boot contacted ${x}${names.length ? ` (${names.join(", ")})` : ""}, which the baseline didn't, isn't the recorder (${c.recorder})`;
+    // Owner, 2026-10-27: a baseline name that resolves to this address now, on a port the baseline contacted it on.
+    const forward = [...baselineByName.keys()]
+      .filter((key) => key.endsWith(`:${port}`) && (c.outboundForwardWithMod?.[key.slice(0, key.lastIndexOf(":"))] ?? []).includes(address))
+      .map((key) => key.slice(0, key.lastIndexOf(":")));
+    if (forward.length && !names.some((n) => baselineByName.has(`${n}:${port}`))) {
+      for (const n of forward) byName.push(`${x} as ${n} (forward lookup; baseline ${baselineByName.get(`${n}:${port}`)!.join(", ")})`);
+      continue;
+    }
     if (!names.length) {
       reasons.push(`${which}, and has no DNS name`);
       continue;

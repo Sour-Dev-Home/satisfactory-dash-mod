@@ -114,6 +114,44 @@ describe("tick-cost pass", () => {
       expect(reasons({ ...run39538061390, outboundWithMod: [RUN_RECORDER, "172.67.74.152:80"] }))
         .toContain(`S12: the mod's boot contacted 172.67.74.152:80 (api.ipify.org), which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and none of its names was contacted in the baseline`);
     });
+    describe("forward lookup (owner, 2026-10-27, after tick-cost-native run 40550430423)", () => {
+      // The baseline contacted api.ipify.org at 104.26.13.205; the with-mod boot 104.26.12.205, which its DNS cache didn't name.
+      const run40550430423: Partial<TickCost> = {
+        recorder: RUN_RECORDER,
+        outboundBaseline: ["104.26.13.205:443"],
+        outboundWithMod: [RUN_RECORDER, "104.26.12.205:443"],
+        outboundNamesBaseline: { "104.26.13.205": ["api.ipify.org"] },
+        outboundNamesWithMod: { "127.0.0.1": ["kubernetes.docker.internal"] },
+        outboundSamples: { baseline: { ok: 28, failed: 0, dnsFailed: 0 }, withMod: { ok: 28, failed: 0, dnsFailed: 0 } },
+        outboundForwardWithMod: { "api.ipify.org": ["104.26.12.205", "104.26.13.205", "172.67.74.152"] },
+      };
+      const unnamed = `S12: the mod's boot contacted 104.26.12.205:443, which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and has no DNS name`;
+      it("passes run 40550430423's shape and says it was a forward lookup", () => {
+        const v = evaluate(ev(capture(run40550430423)));
+        expect(v.pass).toBe(true);
+        expect(v.reasons[0]).toContain("104.26.12.205:443 as api.ipify.org (forward lookup; baseline 104.26.13.205:443)");
+      });
+      it("still fails an unnamed address that is not in the forward set", () => {
+        expect(reasons({ ...run40550430423, outboundForwardWithMod: { "api.ipify.org": ["104.26.13.205"] } })).toContain(unnamed);
+      });
+      it("doesn't match a forward set for a name the baseline contacted on a different port", () => {
+        expect(reasons({ ...run40550430423, outboundWithMod: [RUN_RECORDER, "104.26.12.205:80"] }))
+          .toContain(`S12: the mod's boot contacted 104.26.12.205:80, which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and has no DNS name`);
+      });
+      it("doesn't match a forward set for a name the baseline didn't contact", () => {
+        expect(reasons({ ...run40550430423, outboundForwardWithMod: { "other.example.com": ["104.26.12.205"] } })).toContain(unnamed);
+      });
+      it("a failed lookup ([]) matches nothing and doesn't fail S12 by itself", () => {
+        // A lookup that failed for a name nothing new needed: the run still passes.
+        const v = evaluate(ev(capture({ outboundForwardWithMod: { "api.example.com": [] } })));
+        expect(v.pass).toBe(true);
+        expect(reasons({ ...run40550430423, outboundForwardWithMod: { "api.ipify.org": [] } })).toEqual([unnamed]);
+      });
+      it("behaves as before when the capture has no forward set (older evidence)", () => {
+        const { outboundForwardWithMod: _, ...older } = run40550430423;
+        expect(reasons(older)).toEqual([unnamed]);
+      });
+    });
     it("fails when the sampler never saw the mod's connection to the recorder (review I1: no vacuous pass)", () => {
       expect(reasons({ outboundWithMod: ["203.0.113.7:443"] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");
       expect(reasons({ outboundBaseline: [], outboundWithMod: [] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");

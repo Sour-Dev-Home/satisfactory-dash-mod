@@ -9,7 +9,7 @@ import { TICK_WARMUP_MS } from "../src/ticks";
 const START = Date.parse("2026-10-26T12:00:00.000Z");
 
 /** Runs a spec's drive against fakes and returns the order of the steps and the captures. */
-async function drive(spec: typeof tickCost) {
+async function drive(spec: typeof tickCost, extraDeps: Partial<CoreDeps> = {}, baseline?: unknown) {
   const steps: string[] = [];
   const keys: (string | undefined)[] = [];
   let t = START;
@@ -28,10 +28,11 @@ async function drive(spec: typeof tickCost) {
       t += o.warmupMs + o.durationMs;
       return { warmup: [], samples: [{ at: new Date(t).toISOString(), value: 22 }], errors: 0, median: 22 };
     },
+    ...extraDeps,
   } as unknown as CoreDeps;
   const captures: Record<string, unknown> = {};
   const ctx = {
-    deps, captures, baseline: undefined, proc: { pid: 1, exited: new Promise(() => undefined) },
+    deps, captures, baseline, proc: { pid: 1, exited: new Promise(() => undefined) },
     writeConfig: () => void steps.push("enrol"),
     waitFor: async () => true,
     noteSecret: () => undefined,
@@ -69,6 +70,29 @@ describe("tick-cost-native: spec and drive", () => {
     expect(parts.measured.from).toBe(new Date(START).toISOString());
     expect(Date.parse(parts.measured.to) - Date.parse(parts.measured.from)).toBe(TICK_WARMUP_MS + 10 * 60_000);
     expect(parts.snapshots).toEqual([]);
+  });
+
+  it("forward-resolves the names the baseline's DNS cache gave to addresses it contacted, with a failed lookup as [] (owner, 2026-10-27)", async () => {
+    const asked: string[] = [];
+    const resolveHost = async (name: string) => {
+      asked.push(name);
+      if (name === "down.example.com") throw new Error("ENOTFOUND");
+      return ["104.26.12.205", "104.26.13.205", "104.26.12.205"];
+    };
+    const base = {
+      outbound: ["104.26.13.205:443"],
+      outboundNames: { "104.26.13.205": ["api.ipify.org", "down.example.com"], "198.51.100.1": ["never-contacted.example.com"] },
+    };
+    const { captures } = await drive(tickCostNative, { resolveHost }, base);
+    expect((captures["tick-cost.json"] as { outboundForwardWithMod: unknown }).outboundForwardWithMod).toEqual({
+      "api.ipify.org": ["104.26.12.205", "104.26.13.205"],
+      "down.example.com": [],
+    });
+    expect(asked).toEqual(["api.ipify.org", "down.example.com"]);
+  });
+  it("records no forward set when the deps have no resolver", async () => {
+    const { captures } = await drive(tickCostNative);
+    expect((captures["tick-cost.json"] as { outboundForwardWithMod?: unknown }).outboundForwardWithMod).toBeUndefined();
   });
 
   it("records FRM's endpoint from the runner config for S12 (owner, 2026-10-26)", async () => {
