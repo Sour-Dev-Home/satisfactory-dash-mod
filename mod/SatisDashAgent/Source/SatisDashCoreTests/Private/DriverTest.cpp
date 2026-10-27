@@ -305,5 +305,19 @@ bool FDriverReachabilityFieldsTest::RunTest(const FString& Parameters)
 	{
 		SatisDash::Test::SameText(*this, TEXT("lastGameReadAt does not advance"), Later->GetStringField(TEXT("lastGameReadAt")), Stuck);
 	}
+
+	// A status that fails before any read ever succeeded: unreachable, and lastGameReadAt is omitted (never null).
+	FDriverFixture E;
+	FDriver Fresh{ E.ConfigPath, E.CredentialPath, E.Net, E.Game, E.Worker, E.clock() };
+	E.enrol(Fresh, SatisDash::Test::FakeSecret());
+	E.Game.Status.Reset();
+	for (int32 I = 0; I < 12; ++I) { E.run(Fresh, 0.5); while (E.Net.answer(DriverSnapshots, SatisDash::Test::SnapshotOk(false))) {} }
+	const TSharedPtr<FJsonObject> Never = SatisDash::Json::ParseObject(E.Net.lastBody(DriverSnapshots));
+	TestTrue(TEXT("a body before any good read"), Never.IsValid());
+	if (Never.IsValid())
+	{
+		TestTrue(TEXT("gameReachable false before any good read"), Never->HasTypedField<EJson::Boolean>(TEXT("gameReachable")) && !Never->GetBoolField(TEXT("gameReachable")));
+		TestFalse(TEXT("no lastGameReadAt before any good read"), Never->HasField(TEXT("lastGameReadAt")));
+	}
 	return true;
 }

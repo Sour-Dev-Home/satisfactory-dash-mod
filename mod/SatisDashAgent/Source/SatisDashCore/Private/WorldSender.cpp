@@ -308,7 +308,14 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					{
 					case ESmallBegin::Busy: return; // a read is open: look again next tick, not a failed read
 					case ESmallBegin::Begun: L.Phase = EPhase::Scanning; return;
-					default: L.NextAt = Context.Now + NodeScanRetrySeconds; return; // no world or no manager yet; FRM is not asked
+					default:
+						// No world, manager or subsystem yet; FRM is not asked. One rate-limited line, so a reader that never starts is diagnosable.
+						if (ShouldLog(Layer, TEXT("begin"), Context.Now))
+						{
+							UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's reader could not start; will try again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
+						}
+						L.NextAt = Context.Now + NodeScanRetrySeconds;
+						return;
 					}
 				}
 				const bool bBegun = Layer == EWorldLayer::TrainRoutes

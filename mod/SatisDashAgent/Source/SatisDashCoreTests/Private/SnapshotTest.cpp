@@ -163,7 +163,7 @@ bool FSnapshotReachabilityFieldsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotSpliceTest,"SatisDash.Core.Snapshot.Splice", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotSpliceTest, "SatisDash.Core.Snapshot.Splice", SatisDash::Test::Flags)
 
 bool FSnapshotSpliceTest::RunTest(const FString& Parameters)
 {

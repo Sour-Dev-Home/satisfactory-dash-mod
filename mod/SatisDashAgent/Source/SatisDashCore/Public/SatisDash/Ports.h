@@ -36,7 +36,7 @@ namespace SatisDash
 		/** Power lines only: wires read, and the advisory GetBuildableCount of the wire class (-1 when not asked). */
 		int32 Wires = 0;
 		int32 ExpectedWires = -1;
-		/** Power lines only: wires that were left out (an end missing, or the wire gone between collecting and reading); the cast-count check uses this, not the pass-wide Dropped. */
+		/** Power lines only: wires that were left out (an end missing, the wire gone between collecting and reading, or past the cap); the cast-count check uses this. The first two also count in the pass-wide Dropped; the over-cap ones count in Over. */
 		int32 WiresDropped = 0;
 		/** Conveyors only (all zero when that layer was not asked): ends whose kind was checked against the class table, and those that differed. */
 		int32 KindChecked = 0, KindDiffer = 0;
@@ -86,7 +86,7 @@ namespace SatisDash
 		FDroneRoutesCounts Counts;
 	};
 
-	using FReplyHandler =TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
+	using FReplyHandler = TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
 
 	/** How a request reaches the backend: the mod's own libcurl in the game (SatisDashGame), a fake in the tests. */
 	class ITransport

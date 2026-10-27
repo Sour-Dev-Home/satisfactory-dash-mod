@@ -708,6 +708,22 @@ bool FWorldSenderMapMarkersTest::RunTest(const FString& Parameters)
 	H.tick(1500);
 	TestEqual(TEXT("flipped: no second read"), H.Game.MarkersBegins, 1);
 	TestEqual(TEXT("flipped: no post"), H.Net.sent(WorldMapMarkersPost), 0);
+
+	// A read that cannot begin (no manager or subsystem) retries every 30 s and says so in one rate-limited, counts-only warning (M-2).
+	FWorldFixture I;
+	worldMapMarkersFixture(I);
+	I.Config.MapMarkersSource = ESource::Native;
+	I.Config.DroneRoutesSource = ESource::Native;
+	I.Game.bBeginMarkersOk = false;
+	I.Game.bBeginDronesOk = false;
+	I.Sender.Start(I.T);
+	TestTrue(TEXT("a begin that fails is tried again"), I.until([&I] { return I.Game.MarkersBegins >= 6 && I.Game.DronesBegins >= 6; }, 700));
+	const int32 Markers = countLines(Log, TEXT("World layer mapMarkers: the game's reader could not start; will try again in 30 s"));
+	const int32 Drones = countLines(Log, TEXT("World layer droneRoutes: the game's reader could not start; will try again in 30 s"));
+	TestTrue(TEXT("markers warn, but not on every retry"), Markers >= 1 && Markers < I.Game.MarkersBegins);
+	TestTrue(TEXT("drones warn, but not on every retry"), Drones >= 1 && Drones < I.Game.DronesBegins);
+	TestEqual(TEXT("a begin that fails posts nothing"), I.Net.sent(WorldMapMarkersPost), 0);
+	TestEqual(TEXT("and no name is in the log"), countLines(Log, TEXT("Secret")) + countLines(Log, TEXT("Hidden")), 0);
 	return true;
 }
 
@@ -1522,6 +1538,9 @@ bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("a gap of 5 is allowed"), SatisDash::WireCountSuspect(95, 0, 100));
 	TestTrue(TEXT("a gap of 6 on 100 is suspect"), SatisDash::WireCountSuspect(94, 0, 100));
 	TestFalse(TEXT("dropped wires count as seen"), SatisDash::WireCountSuspect(90, 10, 100));
+	// M-3: the reader counts a wire that was gone, one with a null end and one past the cap all in WiresDropped, so none hides from the check.
+	TestFalse(TEXT("over-cap wires (WiresDropped) count as seen"), SatisDash::WireCountSuspect(2001, 3000, 5001));
+	TestTrue(TEXT("over-cap wires left uncounted would be suspect"), SatisDash::WireCountSuspect(2001, 0, 5001));
 	TestFalse(TEXT("5% of 1000 is 50"), SatisDash::WireCountSuspect(950, 0, 1000));
 	TestTrue(TEXT("51 short of 1000 is suspect"), SatisDash::WireCountSuspect(949, 0, 1000));
 	TestTrue(TEXT("more read than counted, past the gap, is suspect too"), SatisDash::WireCountSuspect(200, 0, 100));

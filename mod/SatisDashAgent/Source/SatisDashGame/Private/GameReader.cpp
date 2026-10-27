@@ -1148,7 +1148,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			}
 			if (bLogisticsPowerLines)
 			{
-				// The wire class is Abstract: Cast reaches the concrete wires. Past the cap the extra only counts in Over.
+				// The wire class is Abstract: Cast reaches the concrete wires. Past the cap the extra counts in Over, and in WiresDropped too so the cast-count check still sees it.
 				if (AFGBuildableWire* Wire = Cast<AFGBuildableWire>(Building))
 				{
 					if (LogisticsWires.Num() < MaxLogisticsWires)
@@ -1158,6 +1158,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					else
 					{
 						++LogisticsFound.Counts.Over;
+						++LogisticsFound.Counts.WiresDropped;
 					}
 				}
 			}
@@ -1264,7 +1265,8 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const AFGBuildableWire* Wire = LogisticsWires[LogisticsCursor++].Get();
 			if (!IsValid(Wire))
 			{
-				++LogisticsFound.Counts.WiresDropped; // gone between Collect and here
+				++LogisticsFound.Counts.Dropped; // gone between Collect and here: counted in both, as a null-end wire is
+				++LogisticsFound.Counts.WiresDropped;
 				continue;
 			}
 			// Both ends must be there (a dangling wire has no line to draw); counted, not an error (rulings R-a, Q8).
