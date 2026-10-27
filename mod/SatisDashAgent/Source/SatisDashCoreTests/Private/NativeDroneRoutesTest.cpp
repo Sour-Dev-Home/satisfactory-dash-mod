@@ -101,6 +101,12 @@ bool FNativeDroneRoutesPairedIdTest::RunTest(const FString& Parameters)
 	Kept.PairedId = FString();
 	TestTrue(TEXT("an empty PairedId is null"), NativeDroneRoutesData(BuildNativeDroneRoutes(NativeDroneRoutesObserved, { Kept })).Contains(TEXT("\"pairedId\":null")));
 
+	// Not paired (bPaired false) but a PairedId set to a kept port: pairedId stays null.
+	FDronePortReading Loose = NativeDroneRoutesReading(TEXT("L1"), TEXT("Loose"));
+	FDronePortReading Target = NativeDroneRoutesReading(TEXT("L2"), TEXT("Target"));
+	Loose.PairedId = Target.Id;
+	TestTrue(TEXT("pairedId is null when the port is not paired"), NativeDroneRoutesData(BuildNativeDroneRoutes(NativeDroneRoutesObserved, { Loose, Target })).Contains(TEXT("\"id\":\"L1\",\"name\":\"Loose\",\"paired\":null,\"pairedId\":null")));
+
 	// Paired to itself: the id is the port's own (allowed; only the parity judge reports it).
 	FDronePortReading Self = NativeDroneRoutesReading(TEXT("S1"), TEXT("Self"));
 	NativeDroneRoutesPair(Self, Self);
@@ -209,7 +215,9 @@ bool FNativeDroneRoutesRulesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("a name of 201 characters drops"), LongName.Dropped, 1);
 	const FNativeWorldBody Far = BuildNativeDroneRoutes(NativeDroneRoutesObserved, { NativeDroneRoutesReading(TEXT("A"), TEXT("n"), 1.0e12, 0) });
 	TestEqual(TEXT("a position outside +/-1,000,000 m drops"), Far.Dropped, 1);
-	TestEqual(TEXT("and leaves no item"), Far.Items + LongId.Items + LongName.Items, 0);
+	const FNativeWorldBody NoId = BuildNativeDroneRoutes(NativeDroneRoutesObserved, { NativeDroneRoutesReading(TEXT(""), TEXT("n")) });
+	TestEqual(TEXT("an empty id drops (the dash schema's min(1))"), NoId.Dropped, 1);
+	TestEqual(TEXT("and leaves no item"), Far.Items + LongId.Items + LongName.Items + NoId.Items, 0);
 	return true;
 }
 

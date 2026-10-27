@@ -31,8 +31,8 @@ namespace SatisDash
 	/**
 	 * R9 (ADR-0058): the droneRoutes world body {"observedAt":...,"data":[{"id","name","paired","pairedId","input","output","fuel","x","y"}]},
 	 * the dash droneRoutesMapper ported plus pairedId. paired is the partner's name, null when unpaired, empty or over 200 characters.
-	 * pairedId is the partner's id only when that id belongs to another (or the same) port kept in this layer, else null, so it never
-	 * names a dropped, capped or missing port. A port with an id or name over 200 characters, or a position outside +/-1,000,000 m, is
+	 * pairedId is the partner's id only when the port is paired and that id belongs to another (or the same) port kept in this layer, else null, so it never
+	 * names a dropped, capped or missing port. A port with an empty id (the dash schema's min(1)), or an id or name over 200 characters, or a position outside +/-1,000,000 m, is
 	 * left out and counted in Dropped. Item classes are distinct, sorted in code-unit order, empty or over-200 ones skipped, at most
 	 * DroneRoutesMaxItemClasses. Ports are sorted by (id, content); a repeated id keeps the first (the rest count in Dropped); at most
 	 * DroneRoutesMaxItems are kept (Over counts the rest). Sorts and builds text, so it runs on the worker, never the game thread.

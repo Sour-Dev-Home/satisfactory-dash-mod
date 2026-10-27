@@ -89,7 +89,7 @@ SatisDash::FNativeWorldBody SatisDash::BuildNativeDroneRoutes(const FString& Obs
 	{
 		const double Mx = ToWholeMetres(Reading.XCm);
 		const double My = ToWholeMetres(Reading.YCm);
-		if (Reading.Id.Len() > DroneRoutesMaxStringChars || Reading.Name.Len() > DroneRoutesMaxStringChars || !InWholeMetreBounds(Mx) || !InWholeMetreBounds(My))
+		if (Reading.Id.IsEmpty() || Reading.Id.Len() > DroneRoutesMaxStringChars || Reading.Name.Len() > DroneRoutesMaxStringChars || !InWholeMetreBounds(Mx) || !InWholeMetreBounds(My))
 		{
 			++Out.Dropped;
 			continue;
@@ -109,7 +109,7 @@ SatisDash::FNativeWorldBody SatisDash::BuildNativeDroneRoutes(const FString& Obs
 		{
 			Port.Head += TEXT("null");
 		}
-		Port.RawPaired = Reading.PairedId;
+		Port.RawPaired = Reading.bPaired ? Reading.PairedId : FString(); // pairedId is null unless the port is paired
 		NativeDroneAppendList(Port.Tail, TEXT(",\"input\":"), NativeDroneItemClasses(Reading.Input));
 		NativeDroneAppendList(Port.Tail, TEXT(",\"output\":"), NativeDroneItemClasses(Reading.Output));
 		NativeDroneAppendList(Port.Tail, TEXT(",\"fuel\":"), NativeDroneItemClasses(Reading.Fuel));
