@@ -19,6 +19,23 @@ namespace
 		const SatisDash::FStationReading* Reading;
 	};
 
+	/** A rate to 3 decimals by a true division (the volatile keeps /fp:fast from multiplying by the reciprocal); unset when absent, not finite or negative. */
+	TOptional<double> NativeTrainsRate3(const TOptional<double>& Value)
+	{
+		if (!Value.IsSet() || !FMath::IsFinite(Value.GetValue()) || Value.GetValue() < 0.0)
+		{
+			return TOptional<double>();
+		}
+		volatile double Scale = 1000.0;
+		const double Scaled = FMath::RoundToDouble(Value.GetValue() * Scale);
+		if (!FMath::IsFinite(Scaled))
+		{
+			return TOptional<double>();
+		}
+		const double Rounded = Scaled / Scale;
+		return Rounded == 0.0 ? 0.0 : Rounded; // never -0
+	}
+
 	/** A total order: id, then name, then the rest, so the bytes do not depend on the order the readings came in. */
 	bool NativeTrainsTrainLess(const FNativeTrainsKeptTrain& A, const FNativeTrainsKeptTrain& B)
 	{
@@ -129,6 +146,15 @@ bool SatisDash::NativeMapLiveJson(const TArray<FTrainReading>& Trains, const TAr
 			StationsArray.AppendChar(TEXT(','));
 		}
 		AppendStationRecord(StationsArray, Station.Reading->Id, Station.Reading->Name, Station.Mx, Station.My);
+		const TOptional<double> Rate = NativeTrainsRate3(Station.Reading->TransferPerMinute);
+		if (Rate.IsSet())
+		{
+			// The shared record ends in '}'; the rate key goes after the existing keys, so their order never moves.
+			StationsArray.LeftChopInline(1);
+			StationsArray += TEXT(",\"transferPerMinute\":");
+			StationsArray += FString::SanitizeFloat(Rate.GetValue(), 0);
+			StationsArray.AppendChar(TEXT('}'));
+		}
 		++Counts.Stations;
 	}
 	StationsArray.AppendChar(TEXT(']'));

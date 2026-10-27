@@ -213,6 +213,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FString::ToUpper | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1553 | header only |
 | FString::TrimStartAndEnd | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1878 | header only |
 | FString::LeftChopInline | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1184 | header only |
+| FString::SanitizeFloat | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2281 | header only (InMinFractionalDigits 0 gives "60" for 60.0 and "12.346" for 12.346; the station rate writer uses 0) |
 | MakeShared | Engine/Source/Runtime/Core/Public/Templates/SharedPointer.h:2252 | header only |
 | TCHAR_TO_UTF8 | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:1021 | header only |
 | FJsonValue | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:21 | header only |

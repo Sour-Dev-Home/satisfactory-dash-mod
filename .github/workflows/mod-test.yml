@@ -33,7 +33,7 @@ jobs:
           node-version-file: harness/.node-version
       - run: npm ci
       - run: npm run harness -- check-api
-      - run: npm run harness -- test-mod --out "$env:RUNNER_TEMP/mod-test" --min 217
+      - run: npm run harness -- test-mod --out "$env:RUNNER_TEMP/mod-test" --min 220
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
