@@ -93,3 +93,33 @@ describe("checkSnapshot", () => {
     expect(r.ok === false && r.issues.some((i) => i.startsWith("agentVersion:"))).toBe(true);
   });
 });
+
+describe("vendored contract (S4-A: mapMarkers, droneRoutes, powerLines, pairedId, status fields)", () => {
+  it("map.ts exports the three new layer schemas and all seven world layers", async () => {
+    const map = await import("../contract/src/map");
+    expect(map.MapMarkersLayerDataSchema).toBeDefined();
+    expect(map.DroneRoutesLayerDataSchema).toBeDefined();
+    expect(map.PowerLinesLayerDataSchema).toBeDefined();
+    expect([...map.KNOWN_MAP_WORLD_LAYERS].sort()).toEqual(
+      ["conveyors", "droneRoutes", "mapMarkers", "powerLines", "rails", "resourceNodes", "trainRoutes"].sort(),
+    );
+  });
+
+  it("DronePortSchema accepts pairedId null, a string, and absent", async () => {
+    const { DronePortSchema } = await import("../contract/src/map");
+    const port = { id: "p1", name: "Port", paired: null, input: [], output: [], fuel: [], x: 0, y: 0 };
+    expect(DronePortSchema.safeParse(port).success).toBe(true);
+    expect(DronePortSchema.safeParse({ ...port, pairedId: null }).success).toBe(true);
+    expect(DronePortSchema.safeParse({ ...port, paired: "Other", pairedId: "p2" }).success).toBe(true);
+  });
+
+  it("SnapshotRequestSchema takes the three top-level status fields, optionally", async () => {
+    const { SnapshotRequestSchema } = await import("../contract/src/agent");
+    const base = { agentVersion: "mod/0.0", observedAt: "2026-10-19T16:00:00.000Z", reachable: false, paused: null };
+    expect(SnapshotRequestSchema.safeParse(base).success).toBe(true);
+    const full = { ...base, gameReachable: false, lastGameReadAt: "2026-10-19T15:59:00.000Z", modVersion: "1.2.3" };
+    expect(SnapshotRequestSchema.safeParse(full).success).toBe(true);
+    expect(SnapshotRequestSchema.safeParse({ ...full, modVersion: "" }).success).toBe(false);
+    expect(SnapshotRequestSchema.safeParse({ ...full, modVersion: "v".repeat(65) }).success).toBe(false);
+  });
+});
