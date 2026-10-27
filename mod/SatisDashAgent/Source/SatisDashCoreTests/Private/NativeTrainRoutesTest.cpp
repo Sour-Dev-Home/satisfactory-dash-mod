@@ -36,6 +36,8 @@ namespace
 		FTrainReading T;
 		T.Id = Id;
 		T.Name = Name;
+		// A Parked train sends no stops, so the fixtures that check stops run self-driving.
+		T.State = ETrainState::SelfDriving;
 		for (const TCHAR* Stop : Stops)
 		{
 			T.Stops.Add(Stop);
@@ -200,6 +202,7 @@ bool FNativeTrainRoutesRulesTest::RunTest(const FString& Parameters)
 	FTrainReading Long;
 	Long.Id = TEXT("T");
 	Long.Name = TEXT("Long");
+	Long.State = ETrainState::SelfDriving;
 	for (int32 I = 0; I < 201; ++I)
 	{
 		Long.Stops.Add(FString::Printf(TEXT("Stop%03d"), I));
@@ -283,6 +286,26 @@ bool FNativeTrainRoutesRulesTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("the field set validates"), NativeRoutesFitsSchema(ManyData));
 		TestEqual(TEXT("the 3,001st is the first train"), ManyData[3000]->AsObject()->GetStringField(TEXT("id")), FString(TEXT("T0000")));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNativeTrainRoutesParkedTest, "SatisDash.Core.NativeTrainRoutes.Parked", SatisDash::Test::Flags)
+
+bool FNativeTrainRoutesParkedTest::RunTest(const FString& Parameters)
+{
+	// Run 40439238142: FRM listed no timetable stops for a Parked train, the mod sent its four; a Parked train now sends none,
+	// with its cargo unchanged, and a Self-Driving train keeps its stops. Manual and Derailed also keep them (no capture shows either).
+	FTrainReading Parked = NativeRoutesTrain(TEXT("T1"), TEXT("Parked"), { TEXT("A"), TEXT("B"), TEXT("C"), TEXT("D") }, { TEXT("Desc_Sulfur_C") });
+	Parked.State = ETrainState::Parked;
+	const FTrainReading Driving = NativeRoutesTrain(TEXT("T2"), TEXT("Driving"), { TEXT("A"), TEXT("B") }, { TEXT("Desc_Silica_C") });
+	FTrainReading Manual = NativeRoutesTrain(TEXT("T3"), TEXT("Manual"), { TEXT("A") }, {});
+	Manual.State = ETrainState::Manual;
+	const FNativeWorldBody Body = BuildNativeTrainRoutes(NativeRoutesObserved, {}, { Driving, Manual, Parked });
+	SatisDash::Test::SameText(*this, TEXT("a Parked train has empty stops and its cargo; the others keep their stops"), Body.Json,
+		TEXT("{\"observedAt\":\"2026-10-26T00:00:00.000Z\",\"data\":[")
+		TEXT("{\"recordType\":\"train\",\"id\":\"T1\",\"name\":\"Parked\",\"stops\":[],\"items\":[\"Desc_Sulfur_C\"]},")
+		TEXT("{\"recordType\":\"train\",\"id\":\"T2\",\"name\":\"Driving\",\"stops\":[\"A\",\"B\"],\"items\":[\"Desc_Silica_C\"]},")
+		TEXT("{\"recordType\":\"train\",\"id\":\"T3\",\"name\":\"Manual\",\"stops\":[\"A\"],\"items\":[]}]}"));
 	return true;
 }
 
