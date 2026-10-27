@@ -170,6 +170,18 @@ describe("recorder (ruling 11)", () => {
     expect(none.entries[0]).not.toHaveProperty("worldData");
   });
 
+  it("keeps both rails and conveyors when keepWorldData names them (S3)", async () => {
+    const up = await upstream(() => ({ status: 200, body: '{"accepted":true,"unchanged":false}' }));
+    const headers = { "user-agent": MOD_UA, "content-type": "application/json" };
+    const rec = await recorderFor(up.url, { keepWorldData: ["rails", "conveyors"] });
+    await send(rec.url, "POST", "/agent/v1/world/rails", { headers, body: JSON.stringify({ observedAt: "t", data: [{ id: "R1", points: [[0, 0], [1, 1]] }] }) });
+    await send(rec.url, "POST", "/agent/v1/world/conveyors", { headers, body: JSON.stringify({ observedAt: "t", data: [{ id: "C1" }, { id: "C2" }] }) });
+    await send(rec.url, "POST", "/agent/v1/world/resourceNodes", { headers, body: JSON.stringify({ observedAt: "t", data: [{ type: "Iron Ore" }] }) });
+    expect(rec.entries[0]).toMatchObject({ worldData: [{ id: "R1", points: [[0, 0], [1, 1]] }] });
+    expect(rec.entries[1]).toMatchObject({ worldData: [{ id: "C1" }, { id: "C2" }] });
+    expect(rec.entries[2]).not.toHaveProperty("worldData");
+  });
+
   const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
   const factory = { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, name: "Constructor", className: "Build_ConstructorMk1_C", pad: "p".repeat(60) })) };
   const big = JSON.stringify({ ...snapshot, ...parts, factory, players: { available: true, players: [{ name: "Someone", online: true }] } });
