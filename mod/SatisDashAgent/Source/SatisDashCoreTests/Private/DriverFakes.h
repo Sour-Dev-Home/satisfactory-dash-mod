@@ -210,16 +210,21 @@ namespace SatisDash::Test
 		int32 LogisticsStepCalls = 0;
 		bool bLastBeginRails = false;
 		bool bLastBeginConveyors = false;
+		bool bLastBeginPowerLines = false;
+		/** S4-A R10: what a pass that asked for power lines returns. */
+		TArray<SatisDash::FPowerLineReading> LogisticsPowerLines;
 		/** A pass is open (begun, not finished or ended): a second Begin is refused, as the real reader's. */
 		bool bLogisticsOpen = false;
 		/** Which layers the open pass was asked for. */
 		bool bOpenRails = false;
 		bool bOpenConveyors = false;
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) override
+		bool bOpenPowerLines = false;
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) override
 		{
 			++LogisticsBegins;
 			bLastBeginRails = bRails;
 			bLastBeginConveyors = bConveyors;
+			bLastBeginPowerLines = bPowerLines;
 			if (!bBeginLogisticsOk || bLogisticsOpen)
 			{
 				return false;
@@ -228,11 +233,25 @@ namespace SatisDash::Test
 			bLogisticsOpen = true;
 			bOpenRails = bRails;
 			bOpenConveyors = bConveyors;
+			bOpenPowerLines = bPowerLines;
 			return true;
 		}
+		/** Diagnostic tests: each step counts this many elements, sits in this phase, and runs the work hook (a test advances the fake clock there). */
+		TFunction<void()> LogisticsStepWork;
+		int32 LogisticsStepElements = 0;
+		int32 LogisticsStepTag = 0;
 		virtual TOptional<SatisDash::FLogisticsSnapshot> StepLogisticsRead(SatisDash::FStepBudget& Budget) override
 		{
+			Budget.SetTag(LogisticsStepTag);
 			Budget.Begin();
+			for (int32 Element = 0; Element < LogisticsStepElements; ++Element)
+			{
+				Budget.Spent();
+			}
+			if (LogisticsStepWork)
+			{
+				LogisticsStepWork();
+			}
 			Budget.End();
 			if (++LogisticsStepCalls < LogisticsStepsToFinish)
 			{
@@ -250,6 +269,10 @@ namespace SatisDash::Test
 				{
 					Out.Conveyors = LogisticsConveyors;
 				}
+				if (bOpenPowerLines)
+				{
+					Out.PowerLines = LogisticsPowerLines;
+				}
 				Out.Counts = LogisticsCounts;
 			}
 			return Out;
@@ -257,6 +280,88 @@ namespace SatisDash::Test
 		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
 		virtual void EndLogisticsRead() override { ++LogisticsEnds; bLogisticsOpen = false; }
 		virtual bool IsLogisticsReadOpen() const override { return bLogisticsOpen; }
+		/** S4-A R8: what a finished map-markers read returns. A read finishes on its MarkersStepsToFinish-th step. */
+		int32 MarkersStepsToFinish = 3;
+		TArray<SatisDash::FMapMarkerReading> Markers;
+		SatisDash::FMapMarkersCounts MarkersCounts;
+		bool bMarkersAbandoned = false;
+		bool bBeginMarkersOk = true;
+		int32 MarkersBegins = 0;
+		int32 MarkersEnds = 0;
+		int32 MarkersStepCalls = 0;
+		bool bMarkersOpen = false;
+		virtual bool BeginMapMarkersRead() override
+		{
+			++MarkersBegins;
+			if (!bBeginMarkersOk || bMarkersOpen)
+			{
+				return false;
+			}
+			MarkersStepCalls = 0;
+			bMarkersOpen = true;
+			return true;
+		}
+		virtual TOptional<SatisDash::FMapMarkersSnapshot> StepMapMarkersRead(SatisDash::FStepBudget& Budget) override
+		{
+			Budget.Begin();
+			Budget.End();
+			if (++MarkersStepCalls < MarkersStepsToFinish)
+			{
+				return {};
+			}
+			bMarkersOpen = false;
+			SatisDash::FMapMarkersSnapshot Out;
+			if (!bMarkersAbandoned)
+			{
+				Out.Markers = Markers;
+				Out.Counts = MarkersCounts;
+			}
+			return Out;
+		}
+		virtual bool MapMarkersReadAbandoned() const override { return bMarkersAbandoned; }
+		virtual void EndMapMarkersRead() override { ++MarkersEnds; bMarkersOpen = false; }
+		virtual bool IsMapMarkersReadOpen() const override { return bMarkersOpen; }
+		/** S4-A R9: the same for drone routes (its own budget and its own open flag). */
+		int32 DronesStepsToFinish = 3;
+		TArray<SatisDash::FDronePortReading> DronePorts;
+		SatisDash::FDroneRoutesCounts DronesCounts;
+		bool bDronesAbandoned = false;
+		bool bBeginDronesOk = true;
+		int32 DronesBegins = 0;
+		int32 DronesEnds = 0;
+		int32 DronesStepCalls = 0;
+		bool bDronesOpen = false;
+		virtual bool BeginDroneRoutesRead() override
+		{
+			++DronesBegins;
+			if (!bBeginDronesOk || bDronesOpen)
+			{
+				return false;
+			}
+			DronesStepCalls = 0;
+			bDronesOpen = true;
+			return true;
+		}
+		virtual TOptional<SatisDash::FDroneRoutesSnapshot> StepDroneRoutesRead(SatisDash::FStepBudget& Budget) override
+		{
+			Budget.Begin();
+			Budget.End();
+			if (++DronesStepCalls < DronesStepsToFinish)
+			{
+				return {};
+			}
+			bDronesOpen = false;
+			SatisDash::FDroneRoutesSnapshot Out;
+			if (!bDronesAbandoned)
+			{
+				Out.Ports = DronePorts;
+				Out.Counts = DronesCounts;
+			}
+			return Out;
+		}
+		virtual bool DroneRoutesReadAbandoned() const override { return bDronesAbandoned; }
+		virtual void EndDroneRoutesRead() override { ++DronesEnds; bDronesOpen = false; }
+		virtual bool IsDroneRoutesReadOpen() const override { return bDronesOpen; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);

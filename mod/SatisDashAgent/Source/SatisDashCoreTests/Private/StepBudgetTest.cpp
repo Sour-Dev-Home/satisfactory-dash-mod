@@ -31,6 +31,9 @@ bool FStepBudgetSlicesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("reset steps"), Slicer.Steps(), 0);
 	TestEqual(TEXT("reset longest"), Slicer.LongestMs(), 0.0);
 	TestEqual(TEXT("reset total"), Slicer.TotalMs(), 0.0);
+	TestEqual(TEXT("reset items"), Slicer.LongestItems(), 0);
+	TestEqual(TEXT("reset start tag"), Slicer.LongestStartTag(), 0);
+	TestEqual(TEXT("reset end tag"), Slicer.LongestEndTag(), 0);
 
 	// A step whose Spent() was never called records the elapsed time (Begin to End = one 0.4 ms tick).
 	TSharedRef<double> Time2 = MakeShared<double>(0.0);
@@ -50,6 +53,40 @@ bool FStepBudgetSlicesTest::RunTest(const FString& Parameters)
 	Looped.End();
 	TestEqual(TEXT("the loop ran both elements"), Cursor, 2);
 	TestTrue(TEXT("the last element's cost is counted (4 ms: Spent() was sampled at 1 ms only)"), FMath::Abs(Looped.LongestMs() - 4.0) < 0.01);
+
+	// The diagnostic: Spent() calls are counted per step, and the longest step keeps its count and the tags at its Begin() and End().
+	// Step 1 (phase 1 to 2): 3 Spent() calls, 1 ms. Step 2 (phase 2 to 3): 2 calls, 5 ms, the new longest. Step 3 (phase 3 to 3): 4 calls, 2 ms, not.
+	TSharedRef<double> Now = MakeShared<double>(0.0);
+	FStepBudget Tagged{[Now]() { return *Now; }, 1.0};
+	Tagged.SetTag(1);
+	Tagged.Begin();
+	Tagged.Spent(); Tagged.Spent(); Tagged.Spent();
+	Tagged.SetTag(2);
+	*Now += 0.001;
+	Tagged.End();
+	TestEqual(TEXT("the first step is the longest so far: 3 items"), Tagged.LongestItems(), 3);
+	TestEqual(TEXT("it began in phase 1"), Tagged.LongestStartTag(), 1);
+	TestEqual(TEXT("and ended in phase 2"), Tagged.LongestEndTag(), 2);
+	Tagged.Begin();
+	Tagged.Spent(); Tagged.Spent();
+	Tagged.SetTag(3);
+	*Now += 0.005;
+	Tagged.End();
+	TestEqual(TEXT("the longer step replaces it: 2 items (the count restarts at Begin)"), Tagged.LongestItems(), 2);
+	TestEqual(TEXT("began in phase 2"), Tagged.LongestStartTag(), 2);
+	TestEqual(TEXT("ended in phase 3"), Tagged.LongestEndTag(), 3);
+	Tagged.Begin();
+	Tagged.Spent(); Tagged.Spent(); Tagged.Spent(); Tagged.Spent();
+	*Now += 0.002;
+	Tagged.End();
+	TestEqual(TEXT("a shorter step changes nothing: items"), Tagged.LongestItems(), 2);
+	TestEqual(TEXT("start tag"), Tagged.LongestStartTag(), 2);
+	TestEqual(TEXT("end tag"), Tagged.LongestEndTag(), 3);
+	TestEqual(TEXT("steps are still counted"), Tagged.Steps(), 3);
+	TestTrue(TEXT("longest and total are unchanged in meaning"), FMath::Abs(Tagged.LongestMs() - 5.0) < 0.01 && FMath::Abs(Tagged.TotalMs() - 8.0) < 0.01);
+	Tagged.Reset();
+	TestEqual(TEXT("Reset clears the items"), Tagged.LongestItems(), 0);
+	TestEqual(TEXT("and both tags"), Tagged.LongestStartTag() + Tagged.LongestEndTag(), 0);
 	return true;
 }
 

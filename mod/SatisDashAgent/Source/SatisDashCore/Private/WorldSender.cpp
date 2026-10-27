@@ -2,6 +2,9 @@
 
 #include "SatisDash/Log.h"
 #include "SatisDash/Native/Conveyors/NativeConveyors.h"
+#include "SatisDash/Native/DroneRoutes/NativeDroneRoutes.h"
+#include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
+#include "SatisDash/Native/PowerLines/NativePowerLines.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
@@ -30,14 +33,86 @@ namespace
 		case SatisDash::EWorldLayer::TrainRoutes: return Context.Config->GetTrainsSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::Rails: return Context.Config->GetRailsSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::Conveyors: return Context.Config->GetConveyorsSource() == SatisDash::ESource::Native;
+		case SatisDash::EWorldLayer::MapMarkers: return Context.Config->GetMapMarkersSource() == SatisDash::ESource::Native;
+		case SatisDash::EWorldLayer::DroneRoutes: return Context.Config->GetDroneRoutesSource() == SatisDash::ESource::Native;
+		case SatisDash::EWorldLayer::PowerLines: return Context.Config->GetPowerLinesSource() == SatisDash::ESource::Native;
 		default: return false;
 		}
 	}
 
-	/** The layers read by the shared logistics pass (rails and conveyors). */
+	/** The layers read by the shared logistics pass (rails, conveyors and power lines). */
 	bool WorldSenderIsLogistics(SatisDash::EWorldLayer Layer)
 	{
-		return Layer == SatisDash::EWorldLayer::Rails || Layer == SatisDash::EWorldLayer::Conveyors;
+		return Layer == SatisDash::EWorldLayer::Rails || Layer == SatisDash::EWorldLayer::Conveyors || Layer == SatisDash::EWorldLayer::PowerLines;
+	}
+
+	/** The small sliced layers (one reader, one budget each, a few ticks): adding one takes a case in each of the helpers below and in StepSmallLayerScan. */
+	bool WorldSenderIsSmall(SatisDash::EWorldLayer Layer)
+	{
+		return Layer == SatisDash::EWorldLayer::MapMarkers || Layer == SatisDash::EWorldLayer::DroneRoutes;
+	}
+
+	enum class ESmallBegin { Busy, Begun, Failed };
+
+	/** Opens a small layer's read and resets its budget. Busy: a read is already open (look again next tick). Failed: no world or manager yet. */
+	ESmallBegin BeginSmallLayer(SatisDash::EWorldLayer Layer, const SatisDash::FWorldContext& Context)
+	{
+		switch (Layer)
+		{
+		case SatisDash::EWorldLayer::MapMarkers:
+			if (Context.NativeReaders->IsMapMarkersReadOpen())
+			{
+				return ESmallBegin::Busy;
+			}
+			if (Context.MarkersBudget != nullptr && Context.NativeReaders->BeginMapMarkersRead())
+			{
+				Context.MarkersBudget->Reset();
+				return ESmallBegin::Begun;
+			}
+			return ESmallBegin::Failed;
+		case SatisDash::EWorldLayer::DroneRoutes:
+			if (Context.NativeReaders->IsDroneRoutesReadOpen())
+			{
+				return ESmallBegin::Busy;
+			}
+			if (Context.DronesBudget != nullptr && Context.NativeReaders->BeginDroneRoutesRead())
+			{
+				Context.DronesBudget->Reset();
+				return ESmallBegin::Begun;
+			}
+			return ESmallBegin::Failed;
+		default:
+			return ESmallBegin::Failed;
+		}
+	}
+
+	/** Frees what a small layer's reader buffered. */
+	void EndSmallLayer(SatisDash::EWorldLayer Layer, const SatisDash::FWorldContext& Context)
+	{
+		if (Context.NativeReaders == nullptr)
+		{
+			return;
+		}
+		switch (Layer)
+		{
+		case SatisDash::EWorldLayer::MapMarkers:
+			Context.NativeReaders->EndMapMarkersRead();
+			return;
+		case SatisDash::EWorldLayer::DroneRoutes:
+			Context.NativeReaders->EndDroneRoutesRead();
+			return;
+		default:
+		{
+			// Unreachable: only layers WorldSenderIsSmall names are routed here. Ends nothing (ending the wrong reader would be worse).
+			static bool bLogged = false;
+			if (!bLogged)
+			{
+				bLogged = true;
+				UE_LOG(LogSatisDash, Warning, TEXT("World sender: a layer with no small-layer reader was routed to the small-layer path; ignored"));
+			}
+			return;
+		}
+		}
 	}
 
 	const TCHAR* WorldSenderKindText(SatisDash::EConveyorKind Kind)
@@ -49,6 +124,23 @@ namespace
 		default: return TEXT("pipe");
 		}
 	}
+}
+
+bool SatisDash::WireCountSuspect(int32 Wires, int32 Dropped, int32 Expected)
+{
+	if (Wires <= 0)
+	{
+		return true;
+	}
+	// No usable advisory count. GetBuildableCount on the abstract wire class gives 0 on a world full of wires (S4 native-parity
+	// run 40528626676 on Test3: 1498 wires read, the subsystem counted 0), so a 0 is "unknown", never "no wires".
+	if (Expected <= 0)
+	{
+		return false;
+	}
+	const int64 Tolerance = FMath::Max<int64>(5, int64(Expected) / 20); // 5% rounded down, at least 5 wires
+	const int64 Difference = int64(Wires) + int64(Dropped) - int64(Expected);
+	return (Difference < 0 ? -Difference : Difference) > Tolerance;
 }
 
 double SatisDash::JitteredSeconds(double BaseSeconds, double Random01)
@@ -70,7 +162,7 @@ void SatisDash::FWorldSender::Start(double Now)
 	bActive = true;
 	bPostInFlight = false;
 	bAuthRejected = false;
-	bPassOpen = bPassRails = bPassConveyors = false;
+	bPassOpen = bPassRails = bPassConveyors = bPassPowerLines = false;
 	bConveyorCensusDone = false;
 	LastNow = Now;
 	StartedAt = Now;
@@ -86,7 +178,7 @@ void SatisDash::FWorldSender::Stop()
 	++Generation;
 	bActive = false;
 	bPostInFlight = false;
-	bPassOpen = bPassRails = bPassConveyors = false; // the driver ends the reader's pass
+	bPassOpen = bPassRails = bPassConveyors = bPassPowerLines = false; // the driver ends the reader's pass
 	for (FLayer& Layer : Layers)
 	{
 		Layer = FLayer();
@@ -184,12 +276,14 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					}
 					const bool bRails = WorldSenderIsNative(EWorldLayer::Rails, Context) && Layers[int32(EWorldLayer::Rails)].Phase == EPhase::Waiting;
 					const bool bConveyors = WorldSenderIsNative(EWorldLayer::Conveyors, Context) && Layers[int32(EWorldLayer::Conveyors)].Phase == EPhase::Waiting;
-					if (Context.LogisticsBudget != nullptr && Context.NativeReaders->BeginLogisticsRead(bRails, bConveyors))
+					const bool bPowerLines = WorldSenderIsNative(EWorldLayer::PowerLines, Context) && Layers[int32(EWorldLayer::PowerLines)].Phase == EPhase::Waiting;
+					if (Context.LogisticsBudget != nullptr && Context.NativeReaders->BeginLogisticsRead(bRails, bConveyors, bPowerLines))
 					{
 						Context.LogisticsBudget->Reset();
 						bPassOpen = true;
 						bPassRails = bRails;
 						bPassConveyors = bConveyors;
+						bPassPowerLines = bPowerLines;
 						if (bRails)
 						{
 							Layers[int32(EWorldLayer::Rails)].Phase = EPhase::Scanning;
@@ -199,12 +293,32 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 						{
 							Layers[int32(EWorldLayer::Conveyors)].Phase = EPhase::Scanning;
 						}
+						if (bPowerLines)
+						{
+							Layers[int32(EWorldLayer::PowerLines)].Phase = EPhase::Scanning;
+						}
 					}
 					else
 					{
 						L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet; FRM is not asked
 					}
 					return;
+				}
+				if (WorldSenderIsSmall(Layer))
+				{
+					switch (BeginSmallLayer(Layer, Context))
+					{
+					case ESmallBegin::Busy: return; // a read is open: look again next tick, not a failed read
+					case ESmallBegin::Begun: L.Phase = EPhase::Scanning; return;
+					default:
+						// No world, manager or subsystem yet; FRM is not asked. One rate-limited line, so a reader that never starts is diagnosable.
+						if (ShouldLog(Layer, TEXT("begin"), Context.Now))
+						{
+							UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's reader could not start; will try again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
+						}
+						L.NextAt = Context.Now + NodeScanRetrySeconds;
+						return;
+					}
 				}
 				const bool bBegun = Layer == EWorldLayer::TrainRoutes
 					? Context.TrainsBudget != nullptr && Context.NativeReaders->BeginTrainsRead()
@@ -240,7 +354,16 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 			{
 				Context.NativeReaders->EndTrainsRead(); // frees what the reader buffered
 			}
+			if (WorldSenderIsSmall(Layer))
+			{
+				EndSmallLayer(Layer, Context);
+			}
 			ScheduleNext(Layer, Context.Now); // the source changed under a scan: drop it
+			return;
+		}
+		if (WorldSenderIsSmall(Layer))
+		{
+			StepSmallLayerScan(Layer, Context);
 			return;
 		}
 		if (Layer == EWorldLayer::TrainRoutes)
@@ -329,6 +452,7 @@ void SatisDash::FWorldSender::StepTrainRoutesScan(const FWorldContext& Context)
 	// Counts and times only; never an id or a name.
 	UE_LOG(LogSatisDash, Display, TEXT("Train routes read (game thread only): %d stations, %d trains in %d steps, longest step %.2f ms, total %.2f ms"),
 		Found->Stations.Num(), Found->Trains.Num(), Context.TrainsBudget->Steps(), Context.TrainsBudget->LongestMs(), Context.TrainsBudget->TotalMs());
+	LogLongestStep(TEXT("Train routes"), *Context.TrainsBudget);
 	if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
 		FNativeWorldBuilder([Snapshot = MoveTemp(Found.GetValue())](const FString& Observed) { return BuildNativeTrainRoutes(Observed, Snapshot.Stations, Snapshot.Trains); }), L.DataHash))
 	{
@@ -340,12 +464,112 @@ void SatisDash::FWorldSender::StepTrainRoutesScan(const FWorldContext& Context)
 	}
 }
 
+void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorldContext& Context)
+{
+	FLayer& L = Layers[int32(Layer)];
+	switch (Layer)
+	{
+	case EWorldLayer::MapMarkers:
+	{
+		if (Context.MarkersBudget == nullptr)
+		{
+			EndSmallLayer(Layer, Context);
+			ScheduleNext(Layer, Context.Now);
+			return;
+		}
+		// The game thread's whole part: a budgeted slice of the markers. The sort and the JSON text are built on the worker.
+		TOptional<FMapMarkersSnapshot> Found = Context.NativeReaders->StepMapMarkersRead(*Context.MarkersBudget);
+		if (!Found.IsSet())
+		{
+			return;
+		}
+		if (Context.NativeReaders->MapMarkersReadAbandoned())
+		{
+			// No map manager, or a world swapped mid-read: this is not an empty map. Nothing is posted (the backend keeps its good
+			// copy) and the read is tried again soon. No names in the log.
+			if (!L.bScanLogged && ShouldLog(Layer, TEXT("scan"), Context.Now))
+			{
+				UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's read was abandoned; nothing sent, will read again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
+			}
+			L.bScanLogged = true;
+			L.Phase = EPhase::Waiting;
+			L.NextAt = Context.Now + NodeScanRetrySeconds;
+			return;
+		}
+		L.bScanLogged = false;
+		// A finished read with no markers is a real, empty map (M1): an empty layer is posted. Counts and times only; never an id or a name.
+		UE_LOG(LogSatisDash, Display, TEXT("Map markers read (game thread only): %d markers, %d dropped in %d steps, longest step %.2f ms, total %.2f ms"),
+			Found->Counts.Read, Found->Counts.Dropped, Context.MarkersBudget->Steps(), Context.MarkersBudget->LongestMs(), Context.MarkersBudget->TotalMs());
+		LogLongestStep(TEXT("Map markers"), *Context.MarkersBudget);
+		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
+			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Markers)](const FString& Observed) { return BuildNativeMapMarkers(Observed, Snapshot); }), L.DataHash))
+		{
+			L.Phase = EPhase::Reading;
+		}
+		else
+		{
+			ScheduleNext(Layer, Context.Now);
+		}
+		return;
+	}
+	case EWorldLayer::DroneRoutes:
+	{
+		if (Context.DronesBudget == nullptr)
+		{
+			EndSmallLayer(Layer, Context);
+			ScheduleNext(Layer, Context.Now);
+			return;
+		}
+		// The game thread's whole part: a budgeted slice of the drone stations. The sort and the JSON text are built on the worker.
+		TOptional<FDroneRoutesSnapshot> Found = Context.NativeReaders->StepDroneRoutesRead(*Context.DronesBudget);
+		if (!Found.IsSet())
+		{
+			return;
+		}
+		if (Context.NativeReaders->DroneRoutesReadAbandoned())
+		{
+			// No subsystem, or a world swapped mid-read: this is not an empty layer. Nothing is posted (the backend keeps its good
+			// copy) and the read is tried again soon. No names in the log.
+			if (!L.bScanLogged && ShouldLog(Layer, TEXT("scan"), Context.Now))
+			{
+				UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's read was abandoned; nothing sent, will read again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
+			}
+			L.bScanLogged = true;
+			L.Phase = EPhase::Waiting;
+			L.NextAt = Context.Now + NodeScanRetrySeconds;
+			return;
+		}
+		L.bScanLogged = false;
+		// A finished read with no ports is a real, empty layer: it is posted. Counts and times only; never an id or a name.
+		UE_LOG(LogSatisDash, Display, TEXT("Drone routes read (game thread only): %d ports, %d dropped in %d steps, longest step %.2f ms, total %.2f ms"),
+			Found->Counts.Read, Found->Counts.Dropped, Context.DronesBudget->Steps(), Context.DronesBudget->LongestMs(), Context.DronesBudget->TotalMs());
+		LogLongestStep(TEXT("Drone routes"), *Context.DronesBudget);
+		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
+			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Ports)](const FString& Observed) { return BuildNativeDroneRoutes(Observed, Snapshot); }), L.DataHash))
+		{
+			L.Phase = EPhase::Reading;
+		}
+		else
+		{
+			ScheduleNext(Layer, Context.Now);
+		}
+		return;
+	}
+	default:
+		EndSmallLayer(Layer, Context); // unreachable (WorldSenderIsSmall gates the call): logs once, ends nothing
+		ScheduleNext(Layer, Context.Now);
+		return;
+	}
+}
+
 void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 {
 	constexpr EWorldLayer RailsLayer = EWorldLayer::Rails;
 	constexpr EWorldLayer ConveyorsLayer = EWorldLayer::Conveyors;
 	FLayer& Rails = Layers[int32(RailsLayer)];
 	FLayer& Conveyors = Layers[int32(ConveyorsLayer)];
+	constexpr EWorldLayer PowerLinesLayer = EWorldLayer::PowerLines;
+	FLayer& PowerLines = Layers[int32(PowerLinesLayer)];
 	IGameReader* Reader = Context.NativeReaders;
 	// An included layer whose source changed under the pass drops out of it.
 	if (bPassRails && !WorldSenderIsNative(RailsLayer, Context))
@@ -364,7 +588,15 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 			ScheduleNext(ConveyorsLayer, Context.Now);
 		}
 	}
-	if (Reader == nullptr || Context.LogisticsBudget == nullptr || (!bPassRails && !bPassConveyors))
+	if (bPassPowerLines && !WorldSenderIsNative(PowerLinesLayer, Context))
+	{
+		bPassPowerLines = false;
+		if (PowerLines.Phase == EPhase::Scanning)
+		{
+			ScheduleNext(PowerLinesLayer, Context.Now);
+		}
+	}
+	if (Reader == nullptr || Context.LogisticsBudget == nullptr || (!bPassRails && !bPassConveyors && !bPassPowerLines))
 	{
 		// Nothing native is left in the pass (or its reader is gone): the reader frees what it buffered, and the pass closes.
 		if (Reader != nullptr)
@@ -379,7 +611,11 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 		{
 			ScheduleNext(ConveyorsLayer, Context.Now);
 		}
-		bPassOpen = bPassRails = bPassConveyors = false;
+		if (bPassPowerLines && PowerLines.Phase == EPhase::Scanning)
+		{
+			ScheduleNext(PowerLinesLayer, Context.Now);
+		}
+		bPassOpen = bPassRails = bPassConveyors = bPassPowerLines = false;
 		return;
 	}
 	// The game thread's whole part: one budgeted slice of the buildables. Sorting and the JSON text are built on the worker.
@@ -390,14 +626,15 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	}
 	const bool bWasRails = bPassRails;
 	const bool bWasConveyors = bPassConveyors;
-	bPassOpen = bPassRails = bPassConveyors = false;
+	const bool bWasPowerLines = bPassPowerLines;
+	bPassOpen = bPassRails = bPassConveyors = bPassPowerLines = false;
 	if (Reader->LogisticsReadAbandoned())
 	{
 		// No subsystem, a world swapped mid-read, or no buildables at all: this is not an empty world. Nothing is posted (the backend
 		// keeps its good copy), FRM is never asked, and the read is tried again soon. Counts only in the log.
-		for (const EWorldLayer Each : { RailsLayer, ConveyorsLayer })
+		for (const EWorldLayer Each : { RailsLayer, ConveyorsLayer, PowerLinesLayer })
 		{
-			if (!(Each == RailsLayer ? bWasRails : bWasConveyors))
+			if (!(Each == RailsLayer ? bWasRails : Each == ConveyorsLayer ? bWasConveyors : bWasPowerLines))
 			{
 				continue;
 			}
@@ -414,12 +651,20 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	}
 	Rails.bScanLogged = false;
 	Conveyors.bScanLogged = false;
+	PowerLines.bScanLogged = false;
 	const FLogisticsCounts& C = Found->Counts;
 	const FStepBudget& Budget = *Context.LogisticsBudget;
-	// Counts and times only; never an id or a name.
-	UE_LOG(LogSatisDash, Display, TEXT("Logistics read (game thread only): layers rails=%d conveyors=%d, %d buildables, %d tracks, %d belts, %d lifts, %d pipes, %d open ends, %d ownerless ends in %d steps, longest step %.2f ms, total %.2f ms, expected tracks %d, dropped %d, over cap %d"),
-		bWasRails ? 1 : 0, bWasConveyors ? 1 : 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, Budget.Steps(), Budget.LongestMs(), Budget.TotalMs(),
-		C.ExpectedTracks, C.Dropped, C.Over);
+	// Counts and times only; never an id or a name. The wires fields sit before "in %d steps" so the step-cost regex still ends the line.
+	UE_LOG(LogSatisDash, Display, TEXT("Logistics read (game thread only): layers rails=%d conveyors=%d powerLines=%d, %d buildables, %d tracks, %d belts, %d lifts, %d pipes, %d open ends, %d ownerless ends, wires %d, expected wires %d in %d steps, longest step %.2f ms, total %.2f ms, expected tracks %d, dropped %d, over cap %d"),
+		bWasRails ? 1 : 0, bWasConveyors ? 1 : 0, bWasPowerLines ? 1 : 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, C.Wires, C.ExpectedWires,
+		Budget.Steps(), Budget.LongestMs(), Budget.TotalMs(), C.ExpectedTracks, C.Dropped, C.Over);
+	// If the longest step passed the ceiling: its element count and phase (0 Collect, 1 ReadRails, 2 ReadConveyors, 3 ReadPowerLines).
+	LogLongestStep(TEXT("Logistics"), Budget);
+	if (bWasPowerLines && WireCountSuspect(C.Wires, C.WiresDropped, C.ExpectedWires) && ShouldLog(PowerLinesLayer, TEXT("wires"), Context.Now))
+	{
+		// Counts only. A warning, never a change to the output: the parity id-set is the judge.
+		UE_LOG(LogSatisDash, Warning, TEXT("World layer powerLines: %d wires read, %d dropped, the subsystem counts %d; check that wires are in the buildable list"), C.Wires, C.WiresDropped, C.ExpectedWires);
+	}
 	if (bWasConveyors)
 	{
 		// Game class names and tier display names (game data), counts and speeds; never an id.
@@ -462,6 +707,18 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 		else
 		{
 			ScheduleNext(ConveyorsLayer, Context.Now);
+		}
+	}
+	if (bWasPowerLines)
+	{
+		if (Bridge.SubmitNativeWorld(PowerLinesLayer, Context.Utc.ToIso8601(),
+			FNativeWorldBuilder([Snapshot = MoveTemp(Found->PowerLines)](const FString& Observed) { return BuildNativePowerLines(Observed, Snapshot); }), PowerLines.DataHash))
+		{
+			PowerLines.Phase = EPhase::Reading;
+		}
+		else
+		{
+			ScheduleNext(PowerLinesLayer, Context.Now);
 		}
 	}
 }
@@ -560,7 +817,7 @@ void SatisDash::FWorldSender::Finish(EWorldLayer Layer, uint32 SentIn, const FHt
 	{
 		bAuthRejected = true;
 		bActive = false;
-		bPassOpen = bPassRails = bPassConveyors = false;
+		bPassOpen = bPassRails = bPassConveyors = bPassPowerLines = false;
 		for (FLayer& Each : Layers)
 		{
 			Each = FLayer();

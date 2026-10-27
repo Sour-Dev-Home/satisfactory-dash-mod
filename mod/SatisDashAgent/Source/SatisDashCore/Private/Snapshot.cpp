@@ -100,6 +100,19 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 	Root->SetStringField(TEXT("agentVersion"), Snapshot.AgentVersion);
 	Root->SetStringField(TEXT("observedAt"), Snapshot.ObservedAt.ToIso8601());
 	Root->SetBoolField(TEXT("reachable"), true);
+	// S4-A (R7): top level, beside reachable, never inside status (absent whenever the game can't be read).
+	if (Snapshot.bGameReachable.IsSet())
+	{
+		Root->SetBoolField(TEXT("gameReachable"), Snapshot.bGameReachable.GetValue());
+	}
+	if (Snapshot.LastGameReadAt.IsSet())
+	{
+		Root->SetStringField(TEXT("lastGameReadAt"), Snapshot.LastGameReadAt->ToIso8601());
+	}
+	if (!Snapshot.ModVersion.IsEmpty())
+	{
+		Root->SetStringField(TEXT("modVersion"), ClampStringTo(Snapshot.ModVersion, 64)); // SENDER_VERSION_MAX
+	}
 	if (Snapshot.Status.IsSet())
 	{
 		Root->SetBoolField(TEXT("paused"), Snapshot.Status->bGamePaused);

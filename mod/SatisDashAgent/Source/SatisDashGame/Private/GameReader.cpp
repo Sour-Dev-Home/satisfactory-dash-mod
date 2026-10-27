@@ -24,6 +24,8 @@
 #include "Components/SplineComponent.h"
 #include "Buildables/FGBuildableTrainPlatform.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
+#include "Buildables/FGBuildableWire.h"
+#include "FGCircuitConnectionComponent.h"
 #include "Controller/FGServerManagementController.h"
 #include "Controller/FGServerStateController.h"
 #include "Engine/Level.h"
@@ -33,6 +35,11 @@
 #include "FGPipeConnectionComponent.h"
 #include "FGCircuitSubsystem.h"
 #include "FGGameState.h"
+#include "FGMapManager.h"
+#include "FGBuildingTagInterface.h"
+#include "FGDroneStationInfo.h"
+#include "FGDroneSubsystem.h"
+#include "FGActorRepresentation.h"
 #include "FGInventoryComponent.h"
 #include "FGPowerCircuit.h"
 #include "FGFreightWagon.h"
@@ -231,6 +238,9 @@ bool SatisDash::FGameReader::BeginResourceNodeScan()
 	ScanActors = 0;
 	ScanSteps = 0;
 	ScanLongestStep = 0;
+	ScanLongestItems = 0;
+	ScanLongestStartLevel = 0;
+	ScanLongestEndLevel = 0;
 	ScanTotal = 0;
 	ScanFound.Reset();
 	return true;
@@ -242,6 +252,8 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 	// The node list is kept bounded whatever the world holds (twice the map's own cap).
 	const int32 MaxFound = 2 * MaxResourceNodes;
 	int32 Budget = MaxActors;
+	const int32 StartLevel = ScanLevel;
+	const int32 ActorsBefore = ScanActors;
 	while (Budget > 0 && ScanLevel < ScanLevels.Num())
 	{
 		const ULevel* Level = ScanLevels[ScanLevel].Get();
@@ -289,7 +301,13 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 	const double Spent = FPlatformTime::Seconds() - StepStart;
 	++ScanSteps;
 	ScanTotal += Spent;
-	ScanLongestStep = FMath::Max(ScanLongestStep, Spent);
+	if (Spent > ScanLongestStep)
+	{
+		ScanLongestStep = Spent;
+		ScanLongestItems = ScanActors - ActorsBefore;
+		ScanLongestStartLevel = StartLevel;
+		ScanLongestEndLevel = ScanLevel;
+	}
 	if (ScanLevel < ScanLevels.Num())
 	{
 		return {};
@@ -308,6 +326,8 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Resource node scan (game thread only): %d actors in %d steps, %d nodes, longest step %.2f ms, total %.2f ms"),
 			ScanActors, ScanSteps, ScanFound.Num(), ScanLongestStep * 1000.0, ScanTotal * 1000.0);
+		// The scan's phase is the level index; its elements are actors.
+		LogLongestStep(TEXT("Resource node"), ScanLongestStep * 1000.0, ScanLongestItems, ScanLongestStartLevel, ScanLongestEndLevel);
 	}
 	// A world with no levels, no actors or no nodes comes back empty, which the caller treats as "cannot read".
 	return MoveTemp(ScanFound);
@@ -476,6 +496,7 @@ TOptional<TArray<SatisDash::FFactoryReading>> SatisDash::FGameReader::StepFactor
 	UE_LOG(LogSatisDash, Display, TEXT("Factory read (game thread only): %d buildings in %d steps, %d machines, longest step %.2f ms, total %.2f ms, expected %d, boosted %d, productivity %.3f..%.3f"),
 		FactoryCursor, Budget.Steps(), FactoryFound.Num(), Budget.LongestMs(), Budget.TotalMs(), FactoryExpected, FactoryBoosted,
 		bAny ? FactoryProductivityMin : 0.0, bAny ? FactoryProductivityMax : 0.0);
+	LogLongestStep(TEXT("Factory"), Budget);
 	TArray<FFactoryReading> Done = MoveTemp(FactoryFound);
 	ResetFactoryRead();
 	return MoveTemp(Done);
@@ -700,6 +721,191 @@ TOptional<SatisDash::FTrainsSnapshot> SatisDash::FGameReader::StepTrainsRead(FSt
 	return MoveTemp(Done);
 }
 
+void SatisDash::FGameReader::ResetMapMarkersRead()
+{
+	MarkersWorld.Reset();
+	MarkersCopy.Empty(); // frees the strings, not just the count
+	MarkersCursor = 0;
+	bMarkersCopied = false;
+	MarkersFound = FMapMarkersSnapshot();
+	bMarkersOpen = false;
+}
+
+bool SatisDash::FGameReader::BeginMapMarkersRead()
+{
+	if (bMarkersOpen)
+	{
+		return false;
+	}
+	UWorld* Current = World.Get();
+	AFGMapManager* Manager = Current != nullptr ? AFGMapManager::Get(Current) : nullptr;
+	if (Manager == nullptr)
+	{
+		return false;
+	}
+	ResetMapMarkersRead();
+	bMarkersAbandoned = false;
+	MarkersWorld = Current;
+	bMarkersOpen = true;
+	return true;
+}
+
+TOptional<SatisDash::FMapMarkersSnapshot> SatisDash::FGameReader::StepMapMarkersRead(FStepBudget& Budget)
+{
+	UWorld* Current = World.Get();
+	// A different save was loaded while the slices ran (or the manager went away): "cannot read", empty and flagged.
+	AFGMapManager* Manager = Current != nullptr && Current == MarkersWorld.Get() ? AFGMapManager::Get(Current) : nullptr;
+	if (Manager == nullptr)
+	{
+		ResetMapMarkersRead();
+		bMarkersAbandoned = true;
+		return FMapMarkersSnapshot();
+	}
+	bool bFinished = false;
+	Budget.Begin();
+	if (!bMarkersCopied)
+	{
+		// The game's own cap is 250 markers; copied once, inside the first step so the budget times it, then sliced.
+		Manager->GetMapMarkers(MarkersCopy);
+		bMarkersCopied = true;
+	}
+	do
+	{
+		if (MarkersCursor < MarkersCopy.Num())
+		{
+			// Only these fields are read; the author fields (LastEditedBy, CreatedByPlayerID) never are.
+			const FMapMarker& Marker = MarkersCopy[MarkersCursor++];
+			FMapMarkerReading Reading;
+			if (Marker.HasValidID())
+			{
+				Reading.Id = Marker.MarkerGUID.ToString(EGuidFormats::Digits).ToUpper();
+			}
+			else
+			{
+				++MarkersFound.Counts.Dropped; // the builder also leaves out an empty id, so the reading still goes on
+			}
+			Reading.Name = Marker.Name;
+			Reading.Kind = Marker.MapMarkerType == ERepresentationType::RT_Stamp ? EMapMarkerKind::Stamp : EMapMarkerKind::Marker;
+			Reading.Icon = Marker.IconID;
+			Reading.Color = Marker.Color;
+			Reading.XCm = Marker.Location.X;
+			Reading.YCm = Marker.Location.Y;
+			MarkersFound.Markers.Add(MoveTemp(Reading));
+		}
+		else
+		{
+			bFinished = true;
+			break;
+		}
+	} while (!Budget.Spent());
+	Budget.End(); // straight after the loop: nothing else is done on the game thread this step
+	if (!bFinished)
+	{
+		return {};
+	}
+	FMapMarkersSnapshot Done = MoveTemp(MarkersFound);
+	Done.Counts.Read = Done.Markers.Num();
+	ResetMapMarkersRead();
+	return MoveTemp(Done);
+}
+
+void SatisDash::FGameReader::ResetDroneRoutesRead()
+{
+	DroneWorld.Reset();
+	DroneCursor = 0;
+	DroneFound = FDroneRoutesSnapshot();
+	bDroneOpen = false;
+}
+
+bool SatisDash::FGameReader::BeginDroneRoutesRead()
+{
+	if (bDroneOpen)
+	{
+		return false;
+	}
+	UWorld* Current = World.Get();
+	AFGDroneSubsystem* Subsystem = Current != nullptr ? AFGDroneSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		return false;
+	}
+	ResetDroneRoutesRead();
+	bDroneAbandoned = false;
+	DroneWorld = Current;
+	bDroneOpen = true;
+	return true;
+}
+
+TOptional<SatisDash::FDroneRoutesSnapshot> SatisDash::FGameReader::StepDroneRoutesRead(FStepBudget& Budget)
+{
+	UWorld* Current = World.Get();
+	// A different save was loaded while the slices ran (or the subsystem went away): "cannot read", empty and flagged.
+	AFGDroneSubsystem* Subsystem = Current != nullptr && Current == DroneWorld.Get() ? AFGDroneSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		ResetDroneRoutesRead();
+		bDroneAbandoned = true;
+		return FDroneRoutesSnapshot();
+	}
+	bool bFinished = false;
+	Budget.Begin();
+	do
+	{
+		// The list is re-fetched for every station: nothing from it is kept between iterations or ticks.
+		const TArray<AFGDroneStationInfo*>& Stations = Subsystem->GetAllStations();
+		if (DroneCursor >= Stations.Num())
+		{
+			bFinished = true;
+			break;
+		}
+		const AFGDroneStationInfo* Info = Stations[DroneCursor++];
+		if (!IsValid(Info))
+		{
+			++DroneFound.Counts.Dropped; // an invalid info counts like a station that is gone
+			continue;
+		}
+		const AFGBuildableDroneStation* Station = Info->GetStation(); // server-only; null on a client or when the building is gone
+		if (!IsValid(Station))
+		{
+			++DroneFound.Counts.Dropped; // V6
+			continue;
+		}
+		FDronePortReading Reading;
+		Reading.Id = Station->GetName();
+		Reading.Name = IFGBuildingTagInterface::Execute_GetBuildingTag(Info); // BlueprintNativeEvent: the generated wrapper, not _Implementation
+		const AFGDroneStationInfo* Partner = Info->GetPairedStation();
+		if (IsValid(Partner))
+		{
+			Reading.bPaired = true;
+			Reading.PairedName = IFGBuildingTagInterface::Execute_GetBuildingTag(Partner);
+			const AFGBuildableDroneStation* PartnerStation = Partner->GetStation();
+			if (IsValid(PartnerStation))
+			{
+				Reading.PairedId = PartnerStation->GetName();
+			}
+		}
+		// V9: the field comments (mInputInventory loads a drone, mOutputInventory unloads one) agree with the capture; the getter comments say the opposite.
+		// If the parity judge reports input/output swapped, swap these two getters.
+		TrainsReadItems(Station->GetInputInventory(), Reading.Input);
+		TrainsReadItems(Station->GetOutputInventory(), Reading.Output);
+		TrainsReadItems(Station->GetFuelInventory(), Reading.Fuel);
+		// V10: the actor's location (the info's GetStationLocation() is the one-line flip). Nothing here is logged.
+		const FVector Location = Station->GetActorLocation();
+		Reading.XCm = Location.X;
+		Reading.YCm = Location.Y;
+		DroneFound.Ports.Add(MoveTemp(Reading));
+	} while (!Budget.Spent());
+	Budget.End(); // straight after the loop: nothing else is done on the game thread this step
+	if (!bFinished)
+	{
+		return {};
+	}
+	FDroneRoutesSnapshot Done = MoveTemp(DroneFound);
+	Done.Counts.Read = Done.Ports.Num();
+	ResetDroneRoutesRead();
+	return MoveTemp(Done);
+}
+
 namespace
 {
 	/** Tracks one logistics pass keeps: above the contract's cap (MaxRailSegments, 5,000) so the builder, not the reader, counts the overflow it drops. */
@@ -709,6 +915,8 @@ namespace
 	 * anyway, so one more than the cap is enough to know it is over; the rest only go into Counts.Over (the owner's footprint goal).
 	 */
 	constexpr int32 MaxLogisticsConveyors = SatisDash::ConveyorsMaxEdges + 1;
+	/** One past the cap, so the builder's own Over count sees the overflow; the extra wires are only counted. */
+	constexpr int32 MaxLogisticsWires = SatisDash::PowerLinesMaxItems + 1;
 	/** Differing class names the kind check keeps. */
 	constexpr int32 ConvMaxDifferClasses = 8;
 
@@ -806,15 +1014,17 @@ void SatisDash::FGameReader::ResetLogisticsRead()
 	LogisticsBelts.Empty();
 	LogisticsLifts.Empty();
 	LogisticsPipes.Empty();
+	LogisticsWires.Empty();
 	LogisticsFound = FLogisticsSnapshot();
 	LogisticsPhase = ELogisticsPhase::Collect;
 	LogisticsCursor = 0;
 	bLogisticsRails = false;
 	bLogisticsConveyors = false;
+	bLogisticsPowerLines = false;
 	bLogisticsOpen = false;
 }
 
-bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors)
+bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines)
 {
 	if (bLogisticsOpen)
 	{
@@ -831,10 +1041,16 @@ bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors)
 	LogisticsWorld = Current;
 	bLogisticsRails = bRails;
 	bLogisticsConveyors = bConveyors;
+	bLogisticsPowerLines = bPowerLines;
 	if (bRails)
 	{
 		// Advisory only (the subsystem's own count of tracks, logged next to what was read).
 		LogisticsFound.Counts.ExpectedTracks = Subsystem->GetBuildableCount(AFGBuildableRailroadTrack::StaticClass());
+	}
+	if (bPowerLines)
+	{
+		// Advisory too: the class is Abstract, so subclasses are not assumed to be counted. The sender compares it with what was read.
+		LogisticsFound.Counts.ExpectedWires = Subsystem->GetBuildableCount(AFGBuildableWire::StaticClass());
 	}
 	bLogisticsOpen = true;
 	return true;
@@ -857,6 +1073,31 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 		return FLogisticsSnapshot();
 	}
 	bool bFinished = false;
+	// The next asked-for read phase after the given one (Collect, ReadRails, ReadConveyors, ReadPowerLines in that order), or the end.
+	const auto nextPhase = [this, &bFinished, &Budget](ELogisticsPhase After)
+	{
+		LogisticsCursor = 0;
+		if (After < ELogisticsPhase::ReadRails && bLogisticsRails)
+		{
+			LogisticsPhase = ELogisticsPhase::ReadRails;
+		}
+		else if (After < ELogisticsPhase::ReadConveyors && bLogisticsConveyors)
+		{
+			LogisticsPhase = ELogisticsPhase::ReadConveyors;
+		}
+		else if (After < ELogisticsPhase::ReadPowerLines && bLogisticsPowerLines)
+		{
+			LogisticsPhase = ELogisticsPhase::ReadPowerLines;
+		}
+		else
+		{
+			bFinished = true;
+		}
+		// The diagnostic's phase number (0 Collect, 1 ReadRails, 2 ReadConveyors, 3 ReadPowerLines): which phase a slow step was in.
+		Budget.SetTag(int32(LogisticsPhase));
+	};
+	// Set before Begin(), which records it as the step's starting phase.
+	Budget.SetTag(int32(LogisticsPhase));
 	Budget.Begin();
 	do
 	{
@@ -866,8 +1107,11 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const TArray<AFGBuildable*>& All = Subsystem->GetAllBuildablesRef();
 			if (LogisticsCursor >= All.Num())
 			{
-				LogisticsPhase = bLogisticsRails ? ELogisticsPhase::ReadRails : ELogisticsPhase::ReadConveyors;
-				LogisticsCursor = 0;
+				nextPhase(ELogisticsPhase::Collect);
+				if (bFinished)
+				{
+					break;
+				}
 				continue;
 			}
 			AFGBuildable* Building = All[LogisticsCursor++];
@@ -920,6 +1164,22 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					}
 				}
 			}
+			if (bLogisticsPowerLines)
+			{
+				// The wire class is Abstract: Cast reaches the concrete wires. Past the cap the extra counts in Over, and in WiresDropped too so the cast-count check still sees it.
+				if (AFGBuildableWire* Wire = Cast<AFGBuildableWire>(Building))
+				{
+					if (LogisticsWires.Num() < MaxLogisticsWires)
+					{
+						LogisticsWires.Add(Wire);
+					}
+					else
+					{
+						++LogisticsFound.Counts.Over;
+						++LogisticsFound.Counts.WiresDropped;
+					}
+				}
+			}
 			continue;
 		}
 		if (LogisticsPhase == ELogisticsPhase::ReadConveyors)
@@ -929,8 +1189,12 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const int32 LiftCount = LogisticsLifts.Num();
 			if (LogisticsCursor >= BeltCount + LiftCount + LogisticsPipes.Num())
 			{
-				bFinished = true;
-				break;
+				nextPhase(ELogisticsPhase::ReadConveyors);
+				if (bFinished)
+				{
+					break;
+				}
+				continue;
 			}
 			const int32 Slot = LogisticsCursor++;
 			FLogisticsCounts& Counts = LogisticsFound.Counts;
@@ -1008,11 +1272,48 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			LogisticsFound.Conveyors.Add(MoveTemp(Reading));
 			continue;
 		}
+		if (LogisticsPhase == ELogisticsPhase::ReadPowerLines)
+		{
+			// One wire per iteration, weak, checked at every use.
+			if (LogisticsCursor >= LogisticsWires.Num())
+			{
+				bFinished = true;
+				break;
+			}
+			const AFGBuildableWire* Wire = LogisticsWires[LogisticsCursor++].Get();
+			if (!IsValid(Wire))
+			{
+				++LogisticsFound.Counts.Dropped; // gone between Collect and here: counted in both, as a null-end wire is
+				++LogisticsFound.Counts.WiresDropped;
+				continue;
+			}
+			// Both ends must be there (a dangling wire has no line to draw); counted, not an error (rulings R-a, Q8).
+			if (!IsValid(Wire->GetConnection(0)) || !IsValid(Wire->GetConnection(1)))
+			{
+				++LogisticsFound.Counts.Dropped;
+				++LogisticsFound.Counts.WiresDropped;
+				continue;
+			}
+			const FVector L0 = Wire->GetConnectionLocation(0);
+			const FVector L1 = Wire->GetConnectionLocation(1);
+			FPowerLineReading Reading;
+			Reading.Id = Wire->GetName();
+			Reading.X0Cm = L0.X;
+			Reading.Y0Cm = L0.Y;
+			Reading.X1Cm = L1.X;
+			Reading.Y1Cm = L1.Y;
+			LogisticsFound.PowerLines.Add(MoveTemp(Reading));
+			++LogisticsFound.Counts.Wires;
+			continue;
+		}
 		// ReadRails: one track per iteration, weak, checked at every use.
 		if (LogisticsCursor >= LogisticsTracks.Num())
 		{
-			LogisticsPhase = ELogisticsPhase::ReadConveyors;
-			LogisticsCursor = 0;
+			nextPhase(ELogisticsPhase::ReadRails);
+			if (bFinished)
+			{
+				break;
+			}
 			continue;
 		}
 		const AFGBuildableRailroadTrack* Track = LogisticsTracks[LogisticsCursor++].Get();

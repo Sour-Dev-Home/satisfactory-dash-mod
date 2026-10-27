@@ -120,7 +120,12 @@ export interface RecorderOptions {
    * only for the Node agent (review of 9b60268).
    */
   trimOversizedFor?: ReadonlyArray<RecordedCall["agent"]>;
-  /** World layers whose posted `data` array is kept in `worldData` (a layer so named must not carry personal data: resourceNodes carries resource names; rails and conveyors carry only ids, class names and tier names). */
+  /**
+   * World layers whose posted `data` array is kept in `worldData` (a layer so named must not carry personal data: resourceNodes carries resource names;
+   * rails and conveyors carry only ids, class names and tier names). S4: mapMarkers and droneRoutes carry player text (marker and port names), so
+   * they may be kept in memory only: publicEntries drops `worldData`, and the drive replaces every name with sessionHash before anything is captured
+   * (s4LayerPosts). powerLines carries ids and coordinates only.
+   */
   keepWorldData?: readonly string[];
   /**
    * S2: the parts of each accepted snapshot (within the 2 MB recording cap) that the native-parity judge compares, kept on

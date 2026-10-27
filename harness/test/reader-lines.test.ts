@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, factoryLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
 const LINES = [line("Factory read", "0.30"), line("Trains read", "1.70"), line("Train routes read", "2.05")];
 
 describe("step costs", () => {
-  it("names the five sliced readers and the ceiling", () => {
-    expect(STEP_LINE_NAMES).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read"]);
+  it("names the seven sliced readers and the ceiling", () => {
+    expect(STEP_LINE_NAMES).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read"]);
     expect(MAX_NATIVE_STEP_MS).toBe(2.0);
+  });
+  it("parses the map markers line and holds it to the ceiling", () => {
+    const sample = `${P}Map markers read (game thread only): 12 markers, 1 dropped in 3 steps, longest step 0.40 ms, total 1.10 ms`;
+    expect(stepCosts([sample])).toEqual([{ reader: "Map markers read", longestStepMs: 0.4, totalMs: 1.1 }]);
+    expect(stepProblems([sample], ["Map markers read"])).toEqual([]);
+    const slow = `${P}Map markers read (game thread only): 12 markers, 0 dropped in 3 steps, longest step 2.05 ms, total 3.00 ms`;
+    expect(stepProblems([slow], ["Map markers read"]).length).toBeGreaterThan(0);
   });
   it("parses the shared logistics line and holds it to the ceiling", () => {
     const sample = `${P}Logistics read (game thread only): layers rails=1 conveyors=0, 5 buildables, 2 tracks, 0 belts, 0 lifts, 0 pipes, 0 open ends, 0 ownerless ends in 3 steps, longest step 1.20 ms, total 3.40 ms`;
@@ -17,6 +24,25 @@ describe("step costs", () => {
     const over = stepProblems([sample.replace("1.20 ms", "2.05 ms")], ["Logistics read"]);
     expect(over).toHaveLength(1);
     expect(over[0]).toMatch(/Logistics read/);
+  });
+  it("parses the S4-A logistics line with powerLines and the wires counts, still ending in the step cost", () => {
+    const s3 = `${P}Logistics read (game thread only): layers rails=1 conveyors=1, 900 buildables, 12 tracks, 340 belts, 6 lifts, 80 pipes, 14 open ends, 3 ownerless ends in 40 steps, longest step 1.20 ms, total 30.10 ms, expected tracks 12, dropped 0, over cap 0`;
+    const s4 = `${P}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 12 tracks, 340 belts, 6 lifts, 80 pipes, 14 open ends, 3 ownerless ends, wires 843, expected wires 850 in 40 steps, longest step 1.30 ms, total 31.20 ms, expected tracks 12, dropped 0, over cap 0`;
+    // S3 evidence (no powerLines= group) still parses, and says nothing about the new layer.
+    expect(logisticsLayers([s3])).toEqual({ rails: 1, conveyors: 1 });
+    expect(logisticsRead([s3])).toMatchObject({ rails: 1, conveyors: 1, buildables: 900, ownerlessEnds: 3 });
+    expect(logisticsRead([s3])).not.toHaveProperty("wires");
+    expect(logisticsLineProblems([s3], "rails")).toEqual([]);
+    expect(logisticsLineProblems([s3], "powerLines")).toEqual([`the mod's "Logistics read" line says powerLines=0, not 1: the pass did not serve the powerLines layer`]);
+    // The new line yields powerLines: 1 and the wires count.
+    expect(logisticsLayers([s4])).toEqual({ rails: 1, conveyors: 1, powerLines: 1 });
+    expect(logisticsRead([s4])).toMatchObject({ rails: 1, conveyors: 1, powerLines: 1, buildables: 900, belts: 340, ownerlessEnds: 3, wires: 843 });
+    expect(logisticsLineProblems([s4], "powerLines")).toEqual([]);
+    expect(logisticsLineProblems([s4.replace("powerLines=1", "powerLines=0")], "powerLines")).toHaveLength(1);
+    // The step regex still reads the cost off the end of the line.
+    expect(stepCosts([s4])).toEqual([{ reader: "Logistics read", longestStepMs: 1.3, totalMs: 31.2 }]);
+    expect(stepProblems([s4], ["Logistics read"])).toEqual([]);
+    expect(stepProblems([s4.replace("1.30 ms", "2.05 ms")], ["Logistics read"])).toHaveLength(1);
   });
   it("parses one StepCost per matching line, including S1's scan line", () => {
     expect(stepCosts(LINES)).toEqual([
@@ -54,6 +80,13 @@ describe("step costs", () => {
   });
   it("judges every logged line even when not required", () => {
     expect(stepProblems(LINES, [])).toHaveLength(1);
+  });
+  it("does not read the longest-step diagnostic line as a read line", () => {
+    const names = ["Logistics", "Resource node", "Factory", "Trains", "Train routes", "Map markers", "Drone routes"];
+    const lines = names.map((n) => `[2026.10.27-12.00.00:000][  0]LogSatisDash: ${n} read longest step: 9.71 ms over 1 elements, phase 2 to 2`);
+    expect(stepCosts(lines)).toEqual([]);
+    expect(scanCosts(lines)).toEqual([]);
+    expect(stepProblems(lines, [])).toEqual([]);
   });
 });
 
@@ -99,5 +132,28 @@ describe("the Readers line", () => {
     expect(conveyorsLogProblems([S3BothNative])).toEqual([]);
     expect(conveyorsLogProblems([S3BothBridge])).toEqual([expect.stringMatching(/conveyors=bridge, not native/)]);
     expect(conveyorsLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
+  });
+  const S4Native = `${S3BothNative} mapMarkers=native droneRoutes=native powerLines=native`;
+  const S4Bridge = `${S3BothNative} mapMarkers=bridge droneRoutes=bridge powerLines=bridge`;
+  it("parses the nine-field line; the six-field line leaves the S4-A fields undefined; a partial group is no line", () => {
+    expect(readerSources([S3BothNative])?.mapMarkers).toBeUndefined();
+    expect(readerSources([S3BothNative])?.droneRoutes).toBeUndefined();
+    expect(readerSources([S3BothNative])?.powerLines).toBeUndefined();
+    expect(readerSources([S4Native])).toEqual({ players: "native", resourceNodes: "native", factory: "native", trains: "native", rails: "native", conveyors: "native", mapMarkers: "native", droneRoutes: "native", powerLines: "native" });
+    expect(readerSources([S4Bridge])?.droneRoutes).toBe("bridge");
+    expect(readerSources([`${S3BothNative} mapMarkers=native`])).toBeNull();
+    expect(readerSources([`${S3BothNative} mapMarkers=native droneRoutes=native`])).toBeNull();
+  });
+  it("judges mapMarkers, droneRoutes and powerLines like conveyors", () => {
+    expect(mapMarkersLogProblems([S3BothNative])).toEqual([expect.stringMatching(/has no mapMarkers= field/)]);
+    expect(droneRoutesLogProblems([S3BothNative])).toEqual([expect.stringMatching(/has no droneRoutes= field/)]);
+    expect(powerLinesLogProblems([S3BothNative])).toEqual([expect.stringMatching(/has no powerLines= field/)]);
+    expect(mapMarkersLogProblems([S4Native])).toEqual([]);
+    expect(droneRoutesLogProblems([S4Native])).toEqual([]);
+    expect(powerLinesLogProblems([S4Native])).toEqual([]);
+    expect(mapMarkersLogProblems([S4Bridge])).toEqual([expect.stringMatching(/mapMarkers=bridge, not native/)]);
+    expect(droneRoutesLogProblems([S4Bridge])).toEqual([expect.stringMatching(/droneRoutes=bridge, not native/)]);
+    expect(powerLinesLogProblems([S4Bridge])).toEqual([expect.stringMatching(/powerLines=bridge, not native/)]);
+    expect(powerLinesLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
   });
 });

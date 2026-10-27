@@ -17,6 +17,13 @@ namespace SatisDash
 	/** worldReader.ts jitteredIntervalMs: Base x [0.9, 1.1]. Random01 is clamped to [0, 1]; NaN is the middle. */
 	SATISDASHCORE_API double JitteredSeconds(double BaseSeconds, double Random01);
 
+	/**
+	 * S4-A Q6: the cast-count check of the power wires. True (worth one Warning) when no wire was read, or when the wires read plus
+	 * the dropped ones differ from the subsystem's advisory count by more than max(5, 5% of it). An unknown count (negative)
+	 * only checks for zero. It never changes the output.
+	 */
+	SATISDASHCORE_API bool WireCountSuspect(int32 Wires, int32 Dropped, int32 Expected);
+
 	/** What one tick of the sender needs from the driver. The credential is used at once and never kept (Agent.h). */
 	struct FWorldContext
 	{
@@ -36,6 +43,10 @@ namespace SatisDash
 		FStepBudget* TrainsBudget = nullptr;
 		/** R5: times the shared logistics pass (the sender resets it when a pass begins). Null: a native logistics layer cannot read. */
 		FStepBudget* LogisticsBudget = nullptr;
+		/** S4-A R8: times the map-markers read (the sender resets it when a read begins). Null: that layer cannot read. */
+		FStepBudget* MarkersBudget = nullptr;
+		/** S4-A R9: the same for the drone-routes read. */
+		FStepBudget* DronesBudget = nullptr;
 	};
 
 	/**
@@ -92,6 +103,8 @@ namespace SatisDash
 		void TickLayer(EWorldLayer Layer, const FWorldContext& Context);
 		/** R3: one tick of the train-routes layer's native read (the game thread's part), then its hand-over to the worker. */
 		void StepTrainRoutesScan(const FWorldContext& Context);
+		/** S4-A: one tick of a small layer's native read (map markers, drone routes), then its hand-over to the worker. */
+		void StepSmallLayerScan(EWorldLayer Layer, const FWorldContext& Context);
 		/** R5: one tick of the shared logistics pass (the game thread's part), then its hand-over to the worker. */
 		void StepLogisticsPass(const FWorldContext& Context);
 		void Settle(EWorldLayer Layer, FWorldOutcome Outcome, const FWorldContext& Context);
@@ -113,6 +126,7 @@ namespace SatisDash
 		bool bPassOpen = false;
 		bool bPassRails = false;
 		bool bPassConveyors = false;
+		bool bPassPowerLines = false;
 		/** The one-off tier census lines have been written since Start. */
 		bool bConveyorCensusDone = false;
 		uint32 Generation = 0;

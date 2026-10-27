@@ -38,7 +38,7 @@ import { snapshotEnvelope } from "./envelope";
  * (65 segments, 17-127 points each, in the captured world) or resourceNodes (608 items).
  */
 
-export const KNOWN_MAP_WORLD_LAYERS = ["rails", "resourceNodes", "conveyors", "trainRoutes"] as const;
+export const KNOWN_MAP_WORLD_LAYERS = ["rails", "resourceNodes", "conveyors", "trainRoutes", "droneRoutes", "mapMarkers", "powerLines"] as const;
 export type MapWorldLayer = (typeof KNOWN_MAP_WORLD_LAYERS)[number];
 
 /** Measured on the serialized projected JSON, uncompressed, by the sender; enforced again at ingest (see above). */
@@ -203,12 +203,116 @@ export const TrainRouteTrainSchema = z.object({
 export const TrainRouteRecordSchema = z.discriminatedUnion("recordType", [TrainRouteStationSchema, TrainRouteTrainSchema]);
 export const TrainRoutesLayerDataSchema = z.array(TrainRouteRecordSchema).max(TRAIN_ROUTES_MAX_ITEMS);
 
+// ---------------------------------------------------------------------------------------------------------------------
+// droneRoutes (ADR-0055 Decision 1): drone ports with their pairing and cargo, from getDroneStation. FRM reports the
+// pairing on both ports as the partner's name, not its id (raw-sources/captured-responses/
+// frm-getDroneStation-2026-10-25-paired-*.json, added by PR #659), so `paired` is a name and may match more than one port. Item classes
+// only, no amounts or trip rates, so the hash is stable between reads (the rates move on every trip).
+// `pairedId` (S4-A): a native reader that sees the pairing itself (the mod) can send the partner's id; FRM gives only the
+// name, so the FRM mapper leaves it out. It is optional, so senders that only know the name stay valid, and null when the
+// port is unpaired or the pairing can't be resolved to exactly one port. `paired` (the name) is kept either way.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Sanity cap on drone ports in one layer, as `MAP_LIVE_MAX_STATIONS`. */
+export const DRONE_ROUTES_MAX_ITEMS = 2_000;
+
+export const DronePortSchema = z.object({
+  id: boundedString,
+  name: boundedString.describe("The port's in-game name, player-chosen; game text, rendered as text only. May repeat across ports."),
+  paired: boundedString.nullable().describe("The paired port's name as the game reports it; null when the port is not paired. Names may repeat, so a name matching more than one port is ambiguous"),
+  pairedId: boundedString
+    .nullable()
+    .optional()
+    .describe(
+      "The paired port's id, when the sender knows it (a native reader; FRM reports only the name). Null when the port is not paired or the pairing can't be resolved to exactly one port; absent when the sender doesn't report it",
+    ),
+  input: ItemClassNames.describe("Distinct item classes in the port's input inventory: the cargo it sends to its pair"),
+  output: ItemClassNames.describe("Distinct item classes in the port's output inventory: the cargo it received"),
+  fuel: ItemClassNames.describe("Distinct item classes in the port's fuel inventory: consumed by the drone, not carried"),
+  x: WholeMetreSchema,
+  y: WholeMetreSchema,
+});
+export const DroneRoutesLayerDataSchema = z.array(DronePortSchema).max(DRONE_ROUTES_MAX_ITEMS);
+
+// ---------------------------------------------------------------------------------------------------------------------
+// mapMarkers (ADR-0038 §1, #330): the players' map markers and stamps, from getMapMarkers
+// (raw-sources/captured-responses/frm-getMapMarkers-2026-09-27-full.json; frm-read-api.md lists the endpoint as not
+// game-thread). ADR-0038 keeps `{name ≤ 60 chars, icon, x, y}`; its 2026-10-26 amendment adds `id`, `kind` and `color`.
+// Dropped from FRM's item: z (the map is 2-D), `Category` ("" on every captured item), `Scale` and
+// `CompassViewDistance` (how the game's own HUD draws the marker, not where or what it is).
+// Names are player-written text: shown only to the server's members (every map route is members-only, as station
+// names are), rendered as text, and not logged by the ingest or serve paths (they never echo a body or its schema
+// issues; the logger has no redaction for world-layer data, so keep it that way).
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Sanity cap on markers in one layer: the captured save has 4. Over it, the ingest truncates (conform, don't reject). */
+export const MAP_MARKERS_MAX_ITEMS = 1_000;
+/** ADR-0038 §1: a marker's name is kept to 60 characters (the mapper trims and cuts it). */
+export const MAP_MARKER_NAME_MAX_CHARS = 60;
+
+/**
+ * Mapped from FRM's `MapMarkerType`. The capture shows exactly two values: "RT_Stamp" -> stamp and "RT_MapMarker" ->
+ * marker. Any other `MapMarkerType` [NEEDS VERIFICATION: none is captured or documented] is the mapper's job to fold
+ * into "marker", so this stays a closed set of what the capture evidences.
+ */
+export const MAP_MARKER_KINDS = ["stamp", "marker"] as const;
+export const MapMarkerKindSchema = z.enum(MAP_MARKER_KINDS);
+
+export const MapMarkerSchema = z.object({
+  id: z.string().min(1).max(200).describe("FRM's `ID` (32 hex characters in the capture); stable for a React key"),
+  name: z
+    .string()
+    .max(MAP_MARKER_NAME_MAX_CHARS)
+    .describe("Player-written label, trimmed and cut to 60 characters by the mapper; may be empty. Members only, text only, not logged by the ingest or serve paths"),
+  kind: MapMarkerKindSchema,
+  icon: z.number().int().min(0).max(1_000_000).describe("FRM's `IconID`, the game's icon number (660 and 349 in the capture)"),
+  color: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/)
+    .describe(
+      "#rrggbb from FRM's `ColorSlot` (8 hex digits, e.g. 6EA37BFF), read as RRGGBBAA with the alpha dropped (byte order verified by the owner in game on 2026-10-27: 6EA37BFF shows green); the colour players pick to tell their markers apart",
+    ),
+  x: WholeMetreSchema,
+  y: WholeMetreSchema,
+});
+export const MapMarkersLayerDataSchema = z.array(MapMarkerSchema).max(MAP_MARKERS_MAX_ITEMS);
+
+// ---------------------------------------------------------------------------------------------------------------------
+// powerLines (ADR-0038 §1, #330): every power line as a straight segment between its two ends, from getCables
+// (raw-sources/captured-responses/frm-getCables-2026-09-27-trimmed.json; frm-read-api.md lists the endpoint as not
+// game-thread). The capture's items have no spline: each is a power line with two end points (`location0`, `location1`)
+// and a `Length` in centimetres (wiki/frm-endpoint-volumes.md, CAP-2). Kept: the id and the two ends as whole-metre
+// [x, y]. Dropped: z (the map is 2-D), `Length` (the distance between the ends), `location`, `BoundingBox` and
+// `features` (the same points again), `ColorSlot` (paint), `Name` and `ClassName` ("Power Line" and `Build_PowerLine_C`
+// on every captured item). No circuit: the capture carries no circuit or network id [NEEDS VERIFICATION: whether a
+// newer FRM adds one], so a per-circuit colour is not part of this contract.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Sanity cap on power lines in one layer: the captured mid-size save has 843 (frm-endpoint-volumes.md, CAP-2), so the
+ * markers' 1,000 would already be tight. At about 75 bytes a projected line (an id near 30 characters and two whole-metre
+ * points) 20,000 lines is about 1.5 MB, inside the 2 MB `MAP_WORLD_LAYER_MAX_BYTES`. Over it, the ingest truncates
+ * (conform, don't reject).
+ */
+export const POWER_LINES_MAX_ITEMS = 20_000;
+
+export const PowerLineSchema = z.object({
+  id: z.string().min(1).max(200).describe("FRM's `ID` (e.g. Build_PowerLine_C_2147223283 in the capture); stable for a React key"),
+  points: z
+    .tuple([PolylinePointSchema, PolylinePointSchema])
+    .describe("The line's two ends as [x, y] whole metres (FRM's `location0` and `location1`, divided by 100 and rounded); a straight segment, no spline"),
+});
+export const PowerLinesLayerDataSchema = z.array(PowerLineSchema).max(POWER_LINES_MAX_ITEMS);
+
 /** Each layer's item cap: what the ingest truncates an over-cap `data` array to (conform, don't reject). */
 export const MAP_WORLD_LAYER_MAX_ITEMS = {
   rails: MAP_WORLD_MAX_ITEMS,
   resourceNodes: MAP_WORLD_MAX_ITEMS,
   conveyors: CONVEYORS_MAX_EDGES,
   trainRoutes: TRAIN_ROUTES_MAX_ITEMS,
+  droneRoutes: DRONE_ROUTES_MAX_ITEMS,
+  mapMarkers: MAP_MARKERS_MAX_ITEMS,
+  powerLines: POWER_LINES_MAX_ITEMS,
 } satisfies Record<MapWorldLayer, number>;
 
 /** Keyed by `MapWorldLayer`, so M3's route (`:layer` is a runtime string) can look up the right
@@ -218,6 +322,9 @@ export const MAP_WORLD_LAYER_DATA_SCHEMAS = {
   resourceNodes: ResourceNodesLayerDataSchema,
   conveyors: ConveyorsLayerDataSchema,
   trainRoutes: TrainRoutesLayerDataSchema,
+  droneRoutes: DroneRoutesLayerDataSchema,
+  mapMarkers: MapMarkersLayerDataSchema,
+  powerLines: PowerLinesLayerDataSchema,
 } satisfies Record<MapWorldLayer, z.ZodType>;
 
 /** The PER-ITEM schema for one layer (a single `RailSegment`/`ResourceNode`, not the capped array).
@@ -230,6 +337,9 @@ export const MAP_WORLD_LAYER_ITEM_SCHEMAS = {
   resourceNodes: ResourceNodeSchema,
   conveyors: ConveyorEdgeSchema,
   trainRoutes: TrainRouteRecordSchema,
+  droneRoutes: DronePortSchema,
+  mapMarkers: MapMarkerSchema,
+  powerLines: PowerLineSchema,
 } satisfies Record<MapWorldLayer, z.ZodType>;
 
 /** Exported (test-hunter, PR #374): the ingest route validates a body's `observedAt` FORMAT against
@@ -246,6 +356,9 @@ export const RailsWorldIngestRequestSchema = z.strictObject({ observedAt: IsoTim
 export const ResourceNodesWorldIngestRequestSchema = z.strictObject({ observedAt: IsoTimeSchema, data: ResourceNodesLayerDataSchema });
 export const ConveyorsWorldIngestRequestSchema = z.strictObject({ observedAt: IsoTimeSchema, data: ConveyorsLayerDataSchema });
 export const TrainRoutesWorldIngestRequestSchema = z.strictObject({ observedAt: IsoTimeSchema, data: TrainRoutesLayerDataSchema });
+export const DroneRoutesWorldIngestRequestSchema = z.strictObject({ observedAt: IsoTimeSchema, data: DroneRoutesLayerDataSchema });
+export const MapMarkersWorldIngestRequestSchema = z.strictObject({ observedAt: IsoTimeSchema, data: MapMarkersLayerDataSchema });
+export const PowerLinesWorldIngestRequestSchema = z.strictObject({ observedAt: IsoTimeSchema, data: PowerLinesLayerDataSchema });
 
 /** Why the conveyors projection has no layer this cycle (game-adapter's `mapConveyors` `skip`): an FRM without connection
  *  fields, or a graph over `CONVEYORS_MAX_EDGES`. */
@@ -266,6 +379,9 @@ export const MAP_WORLD_LAYER_INGEST_SCHEMAS = {
   resourceNodes: ResourceNodesWorldIngestRequestSchema,
   conveyors: ConveyorsWorldIngestRequestSchema,
   trainRoutes: TrainRoutesWorldIngestRequestSchema,
+  droneRoutes: DroneRoutesWorldIngestRequestSchema,
+  mapMarkers: MapMarkersWorldIngestRequestSchema,
+  powerLines: PowerLinesWorldIngestRequestSchema,
 } satisfies Record<MapWorldLayer, z.ZodType>;
 
 /** 200/202. What POST /agent/v1/world/:layer answers: `unchanged` is true when the content hash
@@ -283,7 +399,7 @@ export const WorldIngestResponseSchema = z.object({ accepted: z.boolean(), uncha
  */
 export function worldLayerResponseSchema<T extends z.ZodType>(dataSchema: T) {
   return z.object({
-    layer: z.string().describe("Known: rails, resourceNodes, conveyors, trainRoutes; more are added as their captures land (ADR-0038)"),
+    layer: z.string().describe("Known: rails, resourceNodes, conveyors, trainRoutes, droneRoutes, mapMarkers, powerLines; more are added as their captures land (ADR-0038)"),
     hash: z.string().min(1),
     observedAt: IsoTimeSchema,
     truncated: z.boolean(),
@@ -295,6 +411,9 @@ export const RailsWorldLayerResponseSchema = worldLayerResponseSchema(RailsLayer
 export const ResourceNodesWorldLayerResponseSchema = worldLayerResponseSchema(ResourceNodesLayerDataSchema);
 export const ConveyorsWorldLayerResponseSchema = worldLayerResponseSchema(ConveyorsLayerDataSchema);
 export const TrainRoutesWorldLayerResponseSchema = worldLayerResponseSchema(TrainRoutesLayerDataSchema);
+export const DroneRoutesWorldLayerResponseSchema = worldLayerResponseSchema(DroneRoutesLayerDataSchema);
+export const MapMarkersWorldLayerResponseSchema = worldLayerResponseSchema(MapMarkersLayerDataSchema);
+export const PowerLinesWorldLayerResponseSchema = worldLayerResponseSchema(PowerLinesLayerDataSchema);
 /** For the endpoint registry (endpoints.ts), which needs one static schema per route: the client
  *  re-validates against the specific layer's schema via `MAP_WORLD_LAYER_DATA_SCHEMAS`, same as the
  *  route itself does at write time. */
@@ -303,6 +422,9 @@ export const MapWorldLayerResponseSchema = z.union([
   ResourceNodesWorldLayerResponseSchema,
   ConveyorsWorldLayerResponseSchema,
   TrainRoutesWorldLayerResponseSchema,
+  DroneRoutesWorldLayerResponseSchema,
+  MapMarkersWorldLayerResponseSchema,
+  PowerLinesWorldLayerResponseSchema,
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -365,6 +487,19 @@ export type TrainRouteRecord = z.infer<typeof TrainRouteRecordSchema>;
 export type TrainRoutesLayerData = z.infer<typeof TrainRoutesLayerDataSchema>;
 export type TrainRoutesWorldIngestRequest = z.input<typeof TrainRoutesWorldIngestRequestSchema>;
 export type TrainRoutesWorldLayerResponse = z.infer<typeof TrainRoutesWorldLayerResponseSchema>;
+export type DronePort = z.infer<typeof DronePortSchema>;
+export type DroneRoutesLayerData = z.infer<typeof DroneRoutesLayerDataSchema>;
+export type DroneRoutesWorldIngestRequest = z.input<typeof DroneRoutesWorldIngestRequestSchema>;
+export type DroneRoutesWorldLayerResponse = z.infer<typeof DroneRoutesWorldLayerResponseSchema>;
+export type MapMarkerKind = z.infer<typeof MapMarkerKindSchema>;
+export type MapMarker = z.infer<typeof MapMarkerSchema>;
+export type MapMarkersLayerData = z.infer<typeof MapMarkersLayerDataSchema>;
+export type MapMarkersWorldIngestRequest = z.input<typeof MapMarkersWorldIngestRequestSchema>;
+export type MapMarkersWorldLayerResponse = z.infer<typeof MapMarkersWorldLayerResponseSchema>;
+export type PowerLine = z.infer<typeof PowerLineSchema>;
+export type PowerLinesLayerData = z.infer<typeof PowerLinesLayerDataSchema>;
+export type PowerLinesWorldIngestRequest = z.input<typeof PowerLinesWorldIngestRequestSchema>;
+export type PowerLinesWorldLayerResponse = z.infer<typeof PowerLinesWorldLayerResponseSchema>;
 export type MapTrain = z.infer<typeof MapTrainSchema>;
 export type MapTrainStation = z.infer<typeof MapTrainStationSchema>;
 export type MapLive = z.infer<typeof MapLiveSchema>;

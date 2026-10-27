@@ -91,8 +91,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	int32 BridgeLines = 0;
 	for (const FString& Line : Log.Take())
 	{
-		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native")) ? 1 : 0;
-		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native")) ? 1 : 0;
+		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Readers line for the default (native players) driver"), NativeLines, 1);
 	TestEqual(TEXT("one Readers line for the bridge-key driver"), BridgeLines, 1);
@@ -179,7 +179,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	for (const FString& Line : Log.Take())
 	{
 		ScanLines += Line.Contains(TEXT("Resource node scan")) || Line.Contains(TEXT("found no nodes")) ? 1 : 0;
-		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=bridge rails=bridge conveyors=bridge")) ? 1 : 0;
+		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=bridge rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("and logs nothing about a scan"), ScanLines, 0);
 	TestEqual(TEXT("one Readers line for the native-nodes driver"), ReadersLines, 1);
@@ -256,9 +256,9 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	int32 AllNative = 0;
 	for (const FString& Line : Log.Take())
 	{
-		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native")) ? 1 : 0;
+		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line shows all six native, the default driver's"), AllNative, 1);
+	TestEqual(TEXT("one Readers line shows the default driver's: six native, the three S4 layers bridge"), AllNative, 1);
 	return true;
 }
 
@@ -568,7 +568,7 @@ bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 	int32 Readers = 0;
 	for (const FString& Line : Log.Take())
 	{
-		Readers += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=bridge")) ? 1 : 0;
+		Readers += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows rails=native"), Readers, 1);
 
@@ -583,5 +583,126 @@ bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
 	H.run(Halted, 1.0);
 	TestTrue(TEXT("leaving Running ends the pass"), H.Game.LogisticsEnds >= 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativePowerLinesTest, "SatisDash.Core.Driver.NativeLogisticsPowerLines", SatisDash::Test::Flags)
+
+bool FDriverNativePowerLinesTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"powerLinesSource\":\"native\"");
+	const TCHAR* PowerLinesPost = TEXT("/agent/v1/world/powerLines");
+	FDriverFixture F;
+	FPowerLineReading Wire;
+	Wire.Id = TEXT("Build_PowerLine_C_1");
+	Wire.X1Cm = 1000.0;
+	F.Game.LogisticsPowerLines = { Wire };
+	F.Game.LogisticsCounts.Buildables = 3;
+	F.Game.LogisticsCounts.Wires = 1;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+
+	// The driver's jitter draw is 1.0, so the first read is 480 s x 1.1 = 528 s after Running.
+	TestTrue(TEXT("the pass begins through the whole driver"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.LogisticsBegins > 0; }, 560));
+	TestTrue(TEXT("not before 528 s after Running"), F.T - 1000.0 >= 528.0);
+	TestTrue(TEXT("with the powerLines flag only"), F.Game.bLastBeginPowerLines && !F.Game.bLastBeginRails && !F.Game.bLastBeginConveyors);
+	TestTrue(TEXT("and the layer is posted when it ends"), DriverNativeRunUntil(F, Driver, [&F, PowerLinesPost]
+	{
+		// The other native layers (nodes, trains) fall due with this one and post first: one world post at a time.
+		for (const TCHAR* Other : { TEXT("/agent/v1/world/resourceNodes"), TEXT("/agent/v1/world/trainRoutes") })
+		{
+			F.Net.answer(Other, SatisDash::Test::Reply(200, DriverNativeAccepted));
+		}
+		return F.Net.pending(PowerLinesPost) > 0;
+	}, 60));
+	TestEqual(TEXT("three steps"), F.Game.LogisticsStepCalls, 3);
+	TestTrue(TEXT("the body carries the wire"), F.Net.lastBody(PowerLinesPost).Contains(TEXT("\"id\":\"Build_PowerLine_C_1\"")));
+	TestEqual(TEXT("FRM is never asked for the wires"), F.Net.sent(TEXT("/getCables")), 0);
+	TestTrue(TEXT("the snapshot flow is unchanged"), F.Net.sent(DriverNativeSnapshots) > 0);
+
+	int32 Readers = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Readers += Line.EndsWith(TEXT("rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=native")) ? 1 : 0;
+	}
+	TestEqual(TEXT("the Readers line shows powerLines=native"), Readers, 1);
+
+	// Leaving Running (a 401 halts the agent) ends an open pass.
+	FDriverFixture H;
+	H.Game.LogisticsStepsToFinish = 1000000;
+	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a pass is open"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.LogisticsStepCalls >= 1; }, 560));
+	TestEqual(TEXT("not ended yet"), H.Game.LogisticsEnds, 0);
+	TestTrue(TEXT("a snapshot is waiting for an answer"), H.runUntil(Halted, [&H] { return H.Net.pending(DriverNativeSnapshots) > 0; }, 30));
+	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
+	H.run(Halted, 1.0);
+	TestTrue(TEXT("leaving Running ends the pass"), H.Game.LogisticsEnds >= 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeMapMarkersTest, "SatisDash.Core.Driver.NativeMapMarkers", SatisDash::Test::Flags)
+
+bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"mapMarkersSource\":\"native\"");
+	const TCHAR* MarkersPost = TEXT("/agent/v1/world/mapMarkers");
+	FDriverFixture F;
+	FMapMarkerReading Marker;
+	Marker.Id = TEXT("AAAA0000");
+	Marker.Name = TEXT("Base");
+	Marker.Icon = 2;
+	F.Game.Markers = { Marker };
+	F.Game.MarkersCounts.Read = 1;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+
+	// The driver's jitter draw is 1.0, so the first read is 480 s x 1.1 = 528 s after Running.
+	TestTrue(TEXT("the read begins through the whole driver"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.MarkersBegins > 0; }, 560));
+	TestTrue(TEXT("not before 528 s after Running"), F.T - 1000.0 >= 528.0);
+	TestTrue(TEXT("and the layer is posted when it ends"), DriverNativeRunUntil(F, Driver, [&F, MarkersPost]
+	{
+		// The other native layers (nodes, trains, rails, conveyors) fall due with this one and post first: one world post at a time.
+		for (const TCHAR* Other : { TEXT("/agent/v1/world/resourceNodes"), TEXT("/agent/v1/world/trainRoutes"), TEXT("/agent/v1/world/rails"), TEXT("/agent/v1/world/conveyors") })
+		{
+			F.Net.answer(Other, SatisDash::Test::Reply(200, DriverNativeAccepted));
+		}
+		return F.Net.pending(MarkersPost) > 0;
+	}, 60));
+	TestEqual(TEXT("three steps"), F.Game.MarkersStepCalls, 3);
+	TestTrue(TEXT("the body carries the marker"), F.Net.lastBody(MarkersPost).Contains(TEXT("\"id\":\"AAAA0000\"")));
+	TestEqual(TEXT("FRM is never asked for map markers"), F.Net.sent(TEXT("/getMapMarkers")), 0);
+	TestTrue(TEXT("the snapshot flow is unchanged"), F.Net.sent(DriverNativeSnapshots) > 0);
+
+	int32 Readers = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Readers += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+	}
+	TestEqual(TEXT("the Readers line shows mapMarkers=native"), Readers, 1);
+
+	// Leaving Running (a 401 halts the agent) ends an open read.
+	FDriverFixture H;
+	H.Game.MarkersStepsToFinish = 1000000;
+	H.Game.DronesStepsToFinish = 1000000;
+	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"native\""));
+	TestTrue(TEXT("a read is open"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.MarkersStepCalls >= 1; }, 560));
+	TestEqual(TEXT("not ended yet"), H.Game.MarkersEnds, 0);
+	TestTrue(TEXT("the drone-routes read is open beside it"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.DronesStepCalls >= 1; }, 60));
+	TestEqual(TEXT("and not ended yet"), H.Game.DronesEnds, 0);
+	TestTrue(TEXT("a snapshot is waiting for an answer"), H.runUntil(Halted, [&H] { return H.Net.pending(DriverNativeSnapshots) > 0; }, 30));
+	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
+	H.run(Halted, 1.0);
+	TestTrue(TEXT("leaving Running ends the read"), H.Game.MarkersEnds >= 1);
+	TestTrue(TEXT("and the drone-routes read"), H.Game.DronesEnds >= 1);
+	int32 BothNative = 0;
+	for (const FString& Line : Log.Take())
+	{
+		BothNative += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=native powerLines=bridge")) ? 1 : 0;
+	}
+	TestEqual(TEXT("the Readers line shows droneRoutes=native"), BothNative, 1);
 	return true;
 }

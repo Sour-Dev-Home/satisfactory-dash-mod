@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FGMapMarker.h"
 #include "SatisDash/Ports.h"
 
 class UWorld;
@@ -10,6 +11,7 @@ class AFGTrain;
 class AFGBuildableRailroadTrack;
 class AFGBuildableConveyorBase;
 class AFGBuildablePipeline;
+class AFGBuildableWire;
 class AFGTrainStationIdentifier;
 
 namespace SatisDash
@@ -36,7 +38,17 @@ namespace SatisDash
 		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandoned; }
 		virtual void EndTrainsRead() override { ResetTrainsRead(); }
 		virtual bool IsTrainsReadOpen() const override { return bTrainsOpen; }
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) override;
+		virtual bool BeginMapMarkersRead() override;
+		virtual TOptional<FMapMarkersSnapshot> StepMapMarkersRead(FStepBudget& Budget) override;
+		virtual bool MapMarkersReadAbandoned() const override { return bMarkersAbandoned; }
+		virtual void EndMapMarkersRead() override { ResetMapMarkersRead(); }
+		virtual bool IsMapMarkersReadOpen() const override { return bMarkersOpen; }
+		virtual bool BeginDroneRoutesRead() override;
+		virtual TOptional<FDroneRoutesSnapshot> StepDroneRoutesRead(FStepBudget& Budget) override;
+		virtual bool DroneRoutesReadAbandoned() const override { return bDroneAbandoned; }
+		virtual void EndDroneRoutesRead() override { ResetDroneRoutesRead(); }
+		virtual bool IsDroneRoutesReadOpen() const override { return bDroneOpen; }
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) override;
 		virtual TOptional<FLogisticsSnapshot> StepLogisticsRead(FStepBudget& Budget) override;
 		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
 		virtual void EndLogisticsRead() override { ResetLogisticsRead(); }
@@ -48,6 +60,10 @@ namespace SatisDash
 		void ResetLogisticsRead();
 		/** Ends the trains read and frees what it holds. */
 		void ResetTrainsRead();
+		/** Ends the map-markers read and frees its copy. */
+		void ResetMapMarkersRead();
+		/** Ends the drone-routes read and frees what it holds. */
+		void ResetDroneRoutesRead();
 		/** Ends the factory read and frees what it holds. */
 		void ResetFactoryRead();
 		UFGServerSubsystem* Server() const;
@@ -62,6 +78,10 @@ namespace SatisDash
 		int32 ScanActors = 0;
 		int32 ScanSteps = 0;
 		double ScanLongestStep = 0;
+		/** The diagnostic for the longest scan step: its actor count and the level index (its "phase") at its start and end. */
+		int32 ScanLongestItems = 0;
+		int32 ScanLongestStartLevel = 0;
+		int32 ScanLongestEndLevel = 0;
 		double ScanTotal = 0;
 		TArray<FResourceNodeReading> ScanFound;
 
@@ -96,21 +116,50 @@ namespace SatisDash
 		FTrainsSnapshot TrainsFound;
 
 		/**
+		 * The map-markers read (R8): the manager's markers copied once when the read begins (at most 250 small structs, the only
+		 * game struct held across ticks; the strings are freed on end), a cursor into the copy, and the world it began in.
+		 * The copy also holds fields the reader never reads (LastEditedBy, CreatedByPlayerID); it is freed at Reset and End.
+		 * It is taken in the first step, not in Begin, so the step budget times it.
+		 */
+		TWeakObjectPtr<UWorld> MarkersWorld;
+		TArray<FMapMarker> MarkersCopy;
+		bool bMarkersCopied = false;
+		int32 MarkersCursor = 0;
+		bool bMarkersOpen = false;
+		/** The read that just returned was abandoned (no manager, or a world swap), not finished. */
+		bool bMarkersAbandoned = false;
+		FMapMarkersSnapshot MarkersFound;
+
+		/**
+		 * The drone-routes read (R9): an index into the subsystem's station list, never a pointer into it (the list is re-fetched
+		 * for every station), and the world it began in. Nothing else is held across ticks.
+		 */
+		TWeakObjectPtr<UWorld> DroneWorld;
+		int32 DroneCursor = 0;
+		bool bDroneOpen = false;
+		/** The read that just returned was abandoned (no subsystem, or a world swap), not finished. */
+		bool bDroneAbandoned = false;
+		FDroneRoutesSnapshot DroneFound;
+
+		/**
 		 * The logistics pass (R5): an index into the buildable list (never a pointer into it) and, once collected, one weak pointer
 		 * per track, belt, lift and pipeline. The world it began in: a pass that ends in another is abandoned. One pass is open at a time.
 		 */
-		enum class ELogisticsPhase : uint8 { Collect, ReadRails, ReadConveyors };
+		enum class ELogisticsPhase : uint8 { Collect, ReadRails, ReadConveyors, ReadPowerLines };
 		TWeakObjectPtr<UWorld> LogisticsWorld;
 		TArray<TWeakObjectPtr<AFGBuildableRailroadTrack>> LogisticsTracks;
 		/** R6: one weak pointer per belt, lift and pipeline (the ReadConveyors cursor runs over belts, then lifts, then pipes). */
 		TArray<TWeakObjectPtr<AFGBuildableConveyorBase>> LogisticsBelts;
 		TArray<TWeakObjectPtr<AFGBuildableConveyorBase>> LogisticsLifts;
 		TArray<TWeakObjectPtr<AFGBuildablePipeline>> LogisticsPipes;
+		/** R10: one weak pointer per power wire. */
+		TArray<TWeakObjectPtr<AFGBuildableWire>> LogisticsWires;
 		FLogisticsSnapshot LogisticsFound;
 		ELogisticsPhase LogisticsPhase = ELogisticsPhase::Collect;
 		int32 LogisticsCursor = 0;
 		bool bLogisticsRails = false;
 		bool bLogisticsConveyors = false;
+		bool bLogisticsPowerLines = false;
 		bool bLogisticsOpen = false;
 		/** The pass that just returned was abandoned (no subsystem, a world swap, or zero buildables), not finished. */
 		bool bLogisticsAbandoned = false;

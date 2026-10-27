@@ -8,11 +8,12 @@ export const READERS_LINE = "Readers:";
 export const SCAN_LINE = "Resource node scan (game thread only):";
 
 /** factory and trains are absent on the S1 two-field line. */
-export interface ReaderSources { players: string; resourceNodes: string; factory?: string; trains?: string; rails?: string; conveyors?: string }
+export interface ReaderSources { players: string; resourceNodes: string; factory?: string; trains?: string; rails?: string; conveyors?: string; mapMarkers?: string; droneRoutes?: string; powerLines?: string }
 export interface ScanCost { actors: number; steps: number; nodes: number; longestStepMs: number; totalMs: number }
 
-// The S1 two-field form, the S2 four-field form, the S3 five-field form, or the S3 six-field form (conveyors after rails).
-const READERS = /\bReaders: players=(\S+) resourceNodes=(\S+)(?: factory=(\S+) trains=(\S+)(?: rails=(\S+)(?: conveyors=(\S+))?)?)?\s*$/;
+// The S1 two-field form, the S2 four-field form, the S3 five-field form, the S3 six-field form (conveyors after rails), or the S4-A
+// nine-field form (mapMarkers, droneRoutes and powerLines after conveyors, all three or none).
+const READERS = /\bReaders: players=(\S+) resourceNodes=(\S+)(?: factory=(\S+) trains=(\S+)(?: rails=(\S+)(?: conveyors=(\S+)(?: mapMarkers=(\S+) droneRoutes=(\S+) powerLines=(\S+))?)?)?)?\s*$/;
 const SCAN = /Resource node scan \(game thread only\): (\d+) actors in (\d+) steps, (\d+) nodes, longest step (\d+(?:\.\d+)?) ms, total (\d+(?:\.\d+)?) ms/;
 
 /** The last `Readers:` line (a later Running entry replaces an earlier one), or null when there is none. */
@@ -24,7 +25,8 @@ export function readerSources(lines: readonly string[]): ReaderSources | null {
     const base = { players: m[1]!, resourceNodes: m[2]! };
     const withTrains = m[3] === undefined ? base : { ...base, factory: m[3], trains: m[4]! };
     const withRails = m[5] === undefined ? withTrains : { ...withTrains, rails: m[5] };
-    found = m[6] === undefined ? withRails : { ...withRails, conveyors: m[6] };
+    const withConveyors = m[6] === undefined ? withRails : { ...withRails, conveyors: m[6] };
+    found = m[7] === undefined ? withConveyors : { ...withConveyors, mapMarkers: m[7], droneRoutes: m[8]!, powerLines: m[9]! };
   }
   return found;
 }
@@ -40,7 +42,7 @@ export function scanCosts(lines: readonly string[]): ScanCost[] {
 }
 
 // The 2 ms step ceiling (owner, 2026-10-26): every sliced native read logs `<Name> (game thread only): ... longest step X ms, total Y ms`.
-export const STEP_LINE_NAMES = ["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read"] as const;
+export const STEP_LINE_NAMES = ["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read"] as const;
 export const MAX_NATIVE_STEP_MS = 2.0;
 export interface StepCost { reader: string; longestStepMs: number; totalMs: number }
 
@@ -83,7 +85,7 @@ export function playersLogProblems(lines: readonly string[]): string[] {
   return s.players === "native" ? [] : [`the mod's "${READERS_LINE}" line says players=${s.players}, not native`];
 }
 
-function partLogProblems(lines: readonly string[], part: "factory" | "trains" | "rails" | "conveyors"): string[] {
+function partLogProblems(lines: readonly string[], part: "factory" | "trains" | "rails" | "conveyors" | "mapMarkers" | "droneRoutes" | "powerLines"): string[] {
   const s = readerSources(lines);
   if (!s) return [`the mod's log has no "${READERS_LINE}" line: the run cannot show the ${part} reader was native, not the bridge`];
   const source = s[part];
@@ -102,6 +104,15 @@ export const railsLogProblems = (lines: readonly string[]): string[] => partLogP
 
 /** Why the log does not show the conveyors reader native (empty: it does). */
 export const conveyorsLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "conveyors");
+
+/** Why the log does not show the map markers reader native (empty: it does). */
+export const mapMarkersLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "mapMarkers");
+
+/** Why the log does not show the drone routes reader native (empty: it does). */
+export const droneRoutesLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "droneRoutes");
+
+/** Why the log does not show the power lines reader native (empty: it does). */
+export const powerLinesLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "powerLines");
 
 /** Why the log does not show the resource-node reader native and at work (empty: it does). */
 export function nodesLogProblems(lines: readonly string[]): string[] {
@@ -157,27 +168,31 @@ export function censusLines(lines: readonly string[]): Census {
   return out;
 }
 
-/** The counts on the shared pass's `Logistics read (game thread only): layers rails=%d conveyors=%d, ...` line. */
-export interface LogisticsRead { rails: number; conveyors: number; buildables: number; tracks: number; belts: number; lifts: number; pipes: number; openEnds: number; ownerlessEnds: number }
-const LOGISTICS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+), (\d+) buildables, (\d+) tracks, (\d+) belts, (\d+) lifts, (\d+) pipes, (\d+) open ends, (\d+) ownerless ends/;
+/**
+ * The counts on the shared pass's `Logistics read (game thread only): layers rails=%d conveyors=%d[ powerLines=%d], ...` line.
+ * The S4-A fields (`powerLines`, `wires`) are absent on an S3 line, which has neither group.
+ */
+export interface LogisticsRead { rails: number; conveyors: number; powerLines?: number; buildables: number; tracks: number; belts: number; lifts: number; pipes: number; openEnds: number; ownerlessEnds: number; wires?: number }
+const LOGISTICS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+)(?: powerLines=(\d+))?, (\d+) buildables, (\d+) tracks, (\d+) belts, (\d+) lifts, (\d+) pipes, (\d+) open ends, (\d+) ownerless ends(?:, wires (\d+), expected wires -?\d+)?/;
 
-const LOGISTICS_LAYERS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+)/;
+const LOGISTICS_LAYERS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+)(?: powerLines=(\d+))?/;
 
-/** The layers the shared logistics pass served, from its `Logistics read` line (the last one wins), or null when there is none. */
-export function logisticsLayers(lines: readonly string[]): { rails: number; conveyors: number } | null {
-  let found: { rails: number; conveyors: number } | null = null;
+/** The layers the shared logistics pass served, from its `Logistics read` line (the last one wins), or null when there is none. `powerLines` is absent on an S3 line. */
+export function logisticsLayers(lines: readonly string[]): { rails: number; conveyors: number; powerLines?: number } | null {
+  let found: { rails: number; conveyors: number; powerLines?: number } | null = null;
   for (const line of lines) {
     const m = LOGISTICS_LAYERS.exec(line);
-    if (m) found = { rails: Number(m[1]), conveyors: Number(m[2]) };
+    if (m) found = { rails: Number(m[1]), conveyors: Number(m[2]), ...(m[3] !== undefined ? { powerLines: Number(m[3]) } : {}) };
   }
   return found;
 }
 
-/** Why the log does not show the shared pass serving this layer (empty: a `Logistics read` line with `<layer>=1`). */
-export function logisticsLineProblems(lines: readonly string[], layer: "rails" | "conveyors"): string[] {
+/** Why the log does not show the shared pass serving this layer (empty: a `Logistics read` line with `<layer>=1`). A line without the layer's group did not serve it. */
+export function logisticsLineProblems(lines: readonly string[], layer: "rails" | "conveyors" | "powerLines"): string[] {
   const l = logisticsLayers(lines);
   if (!l) return [`the mod's log has no "Logistics read (game thread only):" line: the shared logistics pass never completed`];
-  return l[layer] === 1 ? [] : [`the mod's "Logistics read" line says ${layer}=${l[layer]}, not 1: the pass did not serve the ${layer} layer`];
+  const served = l[layer] ?? 0;
+  return served === 1 ? [] : [`the mod's "Logistics read" line says ${layer}=${served}, not 1: the pass did not serve the ${layer} layer`];
 }
 
 /** The `Conveyor kinds:` census line (the last one), or null: how many belt/lift/pipe ends the class table classified differently. */
@@ -188,8 +203,12 @@ export function logisticsRead(lines: readonly string[]): LogisticsRead | null {
   for (const line of lines) {
     const m = LOGISTICS.exec(line);
     if (m) {
-      const n = m.slice(1).map(Number);
-      return { rails: n[0]!, conveyors: n[1]!, buildables: n[2]!, tracks: n[3]!, belts: n[4]!, lifts: n[5]!, pipes: n[6]!, openEnds: n[7]!, ownerlessEnds: n[8]! };
+      const n = (i: number) => Number(m[i]);
+      return {
+        rails: n(1), conveyors: n(2), ...(m[3] !== undefined ? { powerLines: n(3) } : {}),
+        buildables: n(4), tracks: n(5), belts: n(6), lifts: n(7), pipes: n(8), openEnds: n(9), ownerlessEnds: n(10),
+        ...(m[11] !== undefined ? { wires: n(11) } : {}),
+      };
     }
   }
   return null;

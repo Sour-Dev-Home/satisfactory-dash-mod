@@ -3,7 +3,10 @@
 #include "CoreMinimal.h"
 #include "SatisDash/FrmPlayers.h"
 #include "SatisDash/Native/Conveyors/NativeConveyors.h"
+#include "SatisDash/Native/DroneRoutes/NativeDroneRoutes.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
+#include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
+#include "SatisDash/Native/PowerLines/NativePowerLines.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/StepBudget.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
@@ -30,6 +33,11 @@ namespace SatisDash
 		int32 Over = 0;
 		/** Advisory GetBuildableCount of the track class, -1 when not asked. */
 		int32 ExpectedTracks = -1;
+		/** Power lines only: wires read, and the advisory GetBuildableCount of the wire class (-1 when not asked). */
+		int32 Wires = 0;
+		int32 ExpectedWires = -1;
+		/** Power lines only: wires that were left out (an end missing, the wire gone between collecting and reading, or past the cap); the cast-count check uses this. The first two also count in the pass-wide Dropped; the over-cap ones count in Over. */
+		int32 WiresDropped = 0;
 		/** Conveyors only (all zero when that layer was not asked): ends whose kind was checked against the class table, and those that differed. */
 		int32 KindChecked = 0, KindDiffer = 0;
 		/** The first game class names that differed (the sender logs a few). */
@@ -47,7 +55,35 @@ namespace SatisDash
 		TArray<FRailReading> Rails;
 		/** Empty when conveyors were not asked for. */
 		TArray<FConveyorReading> Conveyors;
+		/** Empty when power lines were not asked for. */
+		TArray<FPowerLineReading> PowerLines;
 		FLogisticsCounts Counts;
+	};
+
+	/** S4-A R8: counts of one map-markers read (numbers only: they go to the log line and nowhere else). */
+	struct FMapMarkersCounts
+	{
+		int32 Read = 0, Dropped = 0;
+	};
+
+	/** What a finished map-markers read hands over; the readings are freed once the body is built. */
+	struct FMapMarkersSnapshot
+	{
+		TArray<FMapMarkerReading> Markers;
+		FMapMarkersCounts Counts;
+	};
+
+	/** S4-A R9: counts of one drone-routes read. Dropped: stations skipped game-side (a null buildable). */
+	struct FDroneRoutesCounts
+	{
+		int32 Read = 0, Dropped = 0;
+	};
+
+	/** What a finished drone-routes read hands over; the readings are freed once the body is built. */
+	struct FDroneRoutesSnapshot
+	{
+		TArray<FDronePortReading> Ports;
+		FDroneRoutesCounts Counts;
 	};
 
 	using FReplyHandler = TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
@@ -130,9 +166,9 @@ namespace SatisDash
 		/**
 		 * R5: starts the shared, time-sliced logistics pass over the buildables, for the rails layer and/or the conveyors layer.
 		 * False when there is no world or subsystem, or when a pass is already open. Call StepLogisticsRead every tick until it returns
-		 * a value. Bridge-sourced layers never reach this. bConveyors asks for the belts, lifts and pipes too.
+		 * a value. Bridge-sourced layers never reach this. bConveyors asks for the belts, lifts and pipes too; bPowerLines (S4-A R10) for the wires.
 		 */
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) { return false; }
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) { return false; }
 		/**
 		 * Reads buildables until the budget is spent, on the game thread. Unset until the pass has seen every one, then the
 		 * snapshot (once). Sorting and building the bodies are not done here.
@@ -144,6 +180,32 @@ namespace SatisDash
 		virtual void EndLogisticsRead() {}
 		/** True while a logistics pass is open (begun, not finished or ended). */
 		virtual bool IsLogisticsReadOpen() const { return false; }
+		/**
+		 * S4-A R8: starts the time-sliced read of the map markers. False when there is no world or no map manager, or when a read is
+		 * already open. Call StepMapMarkersRead every tick until it returns a value. Only called when mapMarkersSource is "native".
+		 */
+		virtual bool BeginMapMarkersRead() { return false; }
+		/** Reads markers until the budget is spent, on the game thread. Unset until all are read, then the snapshot (once; empty is a real, empty map). */
+		virtual TOptional<FMapMarkersSnapshot> StepMapMarkersRead(FStepBudget& Budget) { return {}; }
+		/** True when the read StepMapMarkersRead just ended was abandoned (no manager, or the world changed): its value is not a map. */
+		virtual bool MapMarkersReadAbandoned() const { return false; }
+		/** The caller drops an open read (source changed, left Running): frees what the reader buffered. */
+		virtual void EndMapMarkersRead() {}
+		/** True while a map-markers read is open (begun, not finished or ended). */
+		virtual bool IsMapMarkersReadOpen() const { return false; }
+		/**
+		 * S4-A R9: starts the time-sliced read of the drone ports. False when there is no world, or when a read is already open.
+		 * Call StepDroneRoutesRead every tick until it returns a value. Only called when droneRoutesSource is "native".
+		 */
+		virtual bool BeginDroneRoutesRead() { return false; }
+		/** Reads stations until the budget is spent, on the game thread. Unset until all are read, then the snapshot (once; empty is a real, empty layer). */
+		virtual TOptional<FDroneRoutesSnapshot> StepDroneRoutesRead(FStepBudget& Budget) { return {}; }
+		/** True when the read StepDroneRoutesRead just ended was abandoned (no subsystem, or the world changed): its value is not a layer. */
+		virtual bool DroneRoutesReadAbandoned() const { return false; }
+		/** The caller drops an open read (source changed, left Running): frees what the reader buffered. */
+		virtual void EndDroneRoutesRead() {}
+		/** True while a drone-routes read is open (begun, not finished or ended). */
+		virtual bool IsDroneRoutesReadOpen() const { return false; }
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

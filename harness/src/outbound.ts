@@ -113,3 +113,20 @@ export async function sampleOutbound(rootPid: number, exec: PwshExec = realExec)
   for (const a of [...byAddress.keys()].sort()) names[a] = [...byAddress.get(a)!].sort();
   return { endpoints, names, dnsFailed: v.dnsFailed ?? false };
 }
+
+export const RESOLVE_TIMEOUT_MS = 10_000;
+
+/** The sorted addresses the system resolver gives a name now (S12, owner 2026-10-27); rejects on a failed or timed-out lookup. */
+export async function resolveHost(name: string, timeoutMs = RESOLVE_TIMEOUT_MS): Promise<string[]> {
+  const { lookup } = await import("node:dns/promises");
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const found = await Promise.race([
+      lookup(name, { all: true }),
+      new Promise<never>((_, reject) => void (timer = setTimeout(() => reject(new Error(`lookup of ${name} timed out`)), timeoutMs))),
+    ]);
+    return [...new Set(found.map((f) => normalizeAddress(f.address)))].sort();
+  } finally {
+    clearTimeout(timer);
+  }
+}

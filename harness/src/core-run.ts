@@ -13,7 +13,7 @@ import { createServerApi } from "./server-api";
 import { readApiStatus } from "./status";
 import { type ProcessMemory, readProcessMemory, removeMod, type ServerProcess, whileRunning } from "./server-control";
 import { readTickRate, sampleTicks, TICK_INTERVAL_MS, type TickSeries } from "./ticks";
-import { type OutboundSample, sampleOutbound } from "./outbound";
+import { type OutboundSample, resolveHost, sampleOutbound } from "./outbound";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
@@ -34,12 +34,18 @@ export interface NativeSources {
   /** S3 key: absent in S1's and S2's constants. */
   railsSource?: "bridge" | "native";
   conveyorsSource?: "bridge" | "native";
+  /** S4-A keys: absent in S1's to S3's constants. */
+  mapMarkersSource?: "bridge" | "native";
+  droneRoutesSource?: "bridge" | "native";
+  powerLinesSource?: "bridge" | "native";
 }
 export const NATIVE_SOURCES: NativeSources = { playersSource: "native", resourceNodesSource: "native" };
 /** S2: all four readers native. */
 export const NATIVE_SOURCES_S2: NativeSources = { ...NATIVE_SOURCES, factorySource: "native", trainsSource: "native" };
 /** S3: the four S2 readers plus rails and conveyors native. */
 export const NATIVE_SOURCES_S3: NativeSources = { ...NATIVE_SOURCES_S2, railsSource: "native", conveyorsSource: "native" };
+/** S4-A: the six S3 readers plus map markers, drone routes and power lines native. */
+export const NATIVE_SOURCES_S4: NativeSources = { ...NATIVE_SOURCES_S3, mapMarkersSource: "native", droneRoutesSource: "native", powerLinesSource: "native" };
 
 /** The credential the mod writes (spec "Shape"; FPaths::ProjectSavedDir() on a dedicated server is FactoryGame/Saved). */
 export const credentialPath = (serverDir: string) => join(serverDir, "FactoryGame", "Saved", "SatisDash", "credential.json");
@@ -137,6 +143,8 @@ export type CoreDeps = Pick<RunDeps,
   sampleTickWindow?: (opts: { warmupMs: number; durationMs: number; stopped?: () => boolean }) => Promise<TickSeries>;
   /** S12: the outbound endpoints of the process tree under pid now (outbound.ts); rejects when they can't be read. */
   sampleOutbound?: (pid: number) => Promise<OutboundSample>;
+  /** S12 (owner, 2026-10-27): the addresses the system resolver gives a name now; rejects when the lookup fails. */
+  resolveHost?: (name: string) => Promise<string[]>;
 };
 
 const ResultSchema = z.strictObject({
@@ -489,6 +497,7 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
       return sampleTicks(() => readTickRate(api), { ...opts, intervalMs: TICK_INTERVAL_MS, sleep, now: Date.now });
     },
     sampleOutbound: (pid) => sampleOutbound(pid),
+    resolveHost: (name) => resolveHost(name),
     sleep,
     buildMod: () =>
       new Promise((resolve, reject) => {

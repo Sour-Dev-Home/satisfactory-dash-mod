@@ -1,5 +1,7 @@
 #include "DriverFakes.h"
 #include "SatisDash/Driver.h"
+#include "SatisDash/JsonUtil.h"
+#include "SatisDash/Version.h"
 
 using namespace SatisDash;
 using SatisDash::Test::FDriverFixture;
@@ -256,5 +258,66 @@ bool FDriverStaleCadenceTest::RunTest(const FString& Parameters)
 		TEXT("{\"cadence\":{\"statusSeconds\":20,\"powerSeconds\":60,\"factorySeconds\":30},\"commandsPending\":false}")));
 	TestEqual(TEXT("A's late cadence is not taken"), Agent.GetCadence().StatusSeconds, 5);
 	TestTrue(TEXT("still running on B"), Agent.GetState() == EAgentState::Running);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverReachabilityFieldsTest, "SatisDash.Core.Driver.ReachabilityFields", SatisDash::Test::Flags)
+
+bool FDriverReachabilityFieldsTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	auto answerAll = [&F] { while (F.Net.answer(DriverSnapshots, SatisDash::Test::SnapshotOk(false))) {} };
+	auto lastBody = [&F] { return SatisDash::Json::ParseObject(F.Net.lastBody(DriverSnapshots)); };
+
+	// A good pass: gameReachable true, lastGameReadAt set, modVersion the agent's own.
+	for (int32 I = 0; I < 12; ++I) { F.run(Driver, 0.5); answerAll(); }
+	TSharedPtr<FJsonObject> Good = lastBody();
+	TestTrue(TEXT("a body"), Good.IsValid());
+	if (!Good.IsValid())
+	{
+		return false;
+	}
+	TestTrue(TEXT("gameReachable true"), Good->HasTypedField<EJson::Boolean>(TEXT("gameReachable")) && Good->GetBoolField(TEXT("gameReachable")));
+	TestTrue(TEXT("lastGameReadAt set"), Good->HasTypedField<EJson::String>(TEXT("lastGameReadAt")));
+	SatisDash::Test::SameText(*this, TEXT("modVersion is AgentVersion()"), Good->GetStringField(TEXT("modVersion")), AgentVersion());
+	const FString LastGood = Good->GetStringField(TEXT("lastGameReadAt"));
+
+	// A failed status read: false, and the time of the last good read stays.
+	F.Game.Status.Reset();
+	for (int32 I = 0; I < 12; ++I) { F.run(Driver, 0.5); answerAll(); }
+	const TSharedPtr<FJsonObject> Bad = lastBody();
+	TestTrue(TEXT("a body while failing"), Bad.IsValid());
+	if (!Bad.IsValid())
+	{
+		return false;
+	}
+	TestTrue(TEXT("gameReachable false"), Bad->HasTypedField<EJson::Boolean>(TEXT("gameReachable")) && !Bad->GetBoolField(TEXT("gameReachable")));
+	const FString Stuck = Bad->GetStringField(TEXT("lastGameReadAt"));
+	TestTrue(TEXT("lastGameReadAt is not older than the first good body's"), Stuck >= LastGood); // ISO UTC text sorts by time
+	SatisDash::Test::SameText(*this, TEXT("modVersion still sent"), Bad->GetStringField(TEXT("modVersion")), AgentVersion());
+	// It stays put while reads keep failing (the last good read's time, not this pass's).
+	for (int32 I = 0; I < 12; ++I) { F.run(Driver, 0.5); answerAll(); }
+	const TSharedPtr<FJsonObject> Later = lastBody();
+	TestTrue(TEXT("a later body"), Later.IsValid() && Later->GetStringField(TEXT("observedAt")) > Bad->GetStringField(TEXT("observedAt")));
+	if (Later.IsValid())
+	{
+		SatisDash::Test::SameText(*this, TEXT("lastGameReadAt does not advance"), Later->GetStringField(TEXT("lastGameReadAt")), Stuck);
+	}
+
+	// A status that fails before any read ever succeeded: unreachable, and lastGameReadAt is omitted (never null).
+	FDriverFixture E;
+	FDriver Fresh{ E.ConfigPath, E.CredentialPath, E.Net, E.Game, E.Worker, E.clock() };
+	E.enrol(Fresh, SatisDash::Test::FakeSecret());
+	E.Game.Status.Reset();
+	for (int32 I = 0; I < 12; ++I) { E.run(Fresh, 0.5); while (E.Net.answer(DriverSnapshots, SatisDash::Test::SnapshotOk(false))) {} }
+	const TSharedPtr<FJsonObject> Never = SatisDash::Json::ParseObject(E.Net.lastBody(DriverSnapshots));
+	TestTrue(TEXT("a body before any good read"), Never.IsValid());
+	if (Never.IsValid())
+	{
+		TestTrue(TEXT("gameReachable false before any good read"), Never->HasTypedField<EJson::Boolean>(TEXT("gameReachable")) && !Never->GetBoolField(TEXT("gameReachable")));
+		TestFalse(TEXT("no lastGameReadAt before any good read"), Never->HasField(TEXT("lastGameReadAt")));
+	}
 	return true;
 }

@@ -175,8 +175,11 @@ bool FFrmWorldLayerTableTest::RunTest(const FString&)
 		{ EWorldLayer::ResourceNodes, TEXT("resourceNodes"), true, 480.0, 1800.0, 0.0 },
 		{ EWorldLayer::TrainRoutes, TEXT("trainRoutes"), false, 480.0, 600.0, 0.0 },
 		{ EWorldLayer::Conveyors, TEXT("conveyors"), false, 480.0, 600.0, 0.0 },
+		{ EWorldLayer::MapMarkers, TEXT("mapMarkers"), false, 480.0, 600.0, 0.0 },
+		{ EWorldLayer::DroneRoutes, TEXT("droneRoutes"), false, 480.0, 600.0, 0.0 },
+		{ EWorldLayer::PowerLines, TEXT("powerLines"), false, 480.0, 600.0, 0.0 },
 	};
-	TestEqual(TEXT("four layers"), WorldLayerCount, 4);
+	TestEqual(TEXT("seven layers"), WorldLayerCount, 7);
 	for (const FExpected& E : Table)
 	{
 		const FWorldLayerSpec& Spec = WorldLayer(E.Layer);

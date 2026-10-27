@@ -121,6 +121,48 @@ bool FSnapshotShapeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotReachabilityFieldsTest, "SatisDash.Core.Snapshot.ReachabilityFields", SatisDash::Test::Flags)
+
+bool FSnapshotReachabilityFieldsTest::RunTest(const FString& Parameters)
+{
+	// With none set, the body is exactly what it was before S4-A.
+	const FString Old = SnapshotToJson(Base());
+	TestFalse(TEXT("no gameReachable key"), Old.Contains(TEXT("gameReachable")));
+	TestFalse(TEXT("no lastGameReadAt key"), Old.Contains(TEXT("lastGameReadAt")));
+	TestFalse(TEXT("no modVersion key"), Old.Contains(TEXT("modVersion")));
+
+	FSnapshot Full = Base();
+	Full.bGameReachable = true;
+	Full.LastGameReadAt = FDateTime(2026, 10, 27, 12, 0, 0, 0);
+	Full.ModVersion = TEXT("mod/0.1.0");
+	const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(SnapshotToJson(Full));
+	TestTrue(TEXT("parses"), Parsed.IsValid());
+	if (!Parsed.IsValid())
+	{
+		return false;
+	}
+	TestTrue(TEXT("gameReachable true"), SatisDash::Json::Field(Parsed, TEXT("gameReachable"), EJson::Boolean).IsValid() && Parsed->GetBoolField(TEXT("gameReachable")));
+	SatisDash::Test::SameText(*this, TEXT("lastGameReadAt is UTC ISO"), Parsed->GetStringField(TEXT("lastGameReadAt")), TEXT("2026-10-27T12:00:00.000Z"));
+	SatisDash::Test::SameText(*this, TEXT("modVersion"), Parsed->GetStringField(TEXT("modVersion")), TEXT("mod/0.1.0"));
+	TestTrue(TEXT("reachable stays true"), Parsed->GetBoolField(TEXT("reachable")));
+	TestFalse(TEXT("not inside status"), Parsed->HasField(TEXT("status")));
+
+	FSnapshot Long = Full;
+	Long.ModVersion = FString::ChrN(70, TEXT('v'));
+	TestEqual(TEXT("modVersion cut to 64"), SatisDash::Json::ParseObject(SnapshotToJson(Long))->GetStringField(TEXT("modVersion")).Len(), 64);
+
+	FSnapshot Empty = Full;
+	Empty.ModVersion.Empty();
+	TestFalse(TEXT("empty modVersion writes no key"), SatisDash::Json::ParseObject(SnapshotToJson(Empty))->HasField(TEXT("modVersion")));
+
+	FSnapshot Failed = Base();
+	Failed.bGameReachable = false;
+	const TSharedPtr<FJsonObject> F = SatisDash::Json::ParseObject(SnapshotToJson(Failed));
+	TestTrue(TEXT("gameReachable false is written"), SatisDash::Json::Field(F, TEXT("gameReachable"), EJson::Boolean).IsValid() && !F->GetBoolField(TEXT("gameReachable")));
+	TestFalse(TEXT("and no lastGameReadAt before a good read"), F->HasField(TEXT("lastGameReadAt")));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotSpliceTest, "SatisDash.Core.Snapshot.Splice", SatisDash::Test::Flags)
 
 bool FSnapshotSpliceTest::RunTest(const FString& Parameters)

@@ -15,6 +15,9 @@ ADR-0058 (satisfactory-dash) replaces FicsitRemoteMonitoring (FRM) reader by rea
 | Trains and stations (R3) | S2 | `native` (default) | passed `native-parity` (run 40403583987: 60 rounds; NOT EXERCISED: a parked train, a stationary train) and `tick-cost-native` (run 40396146628: longest step 0.1 ms): a sliced read of the railroad subsystem's trains and stations on the game thread (one budgeted step per driver tick, 1 ms), joined into the `mapLive` part on the worker at the factory cadence. The same reader also feeds a new, native-only world layer, `trainRoutes` (stations with their cargo and empty platforms, trains with their timetable stops and cargo; first read 8 minutes (+/-10%, as resource nodes) after Running, then every 10 minutes), which is never requested from FRM and is not scheduled at all while `trainsSource` is `bridge`. A world with no trains and no stations sends empty arrays; only an abandoned read (world swapped, no railroad subsystem) leaves the part out. With `native`, the bridge never starts the `getTrains`/`getTrainStation` pair |
 | Rails (R5) | S3 | `bridge` (default; `railsSource`) | the switch exists and the mod logs `rails=` on its `Readers:` line; the shared logistics pass (port, sender, driver wiring) is in and a native rails layer waits 480 s (x jitter) for its first read and logs one `Logistics read (game thread only):` line per pass; the game side is a sliced pass over the buildable list (tracks filtered from it, each sampled a metre apart along its spline); native rails follow `railsSource`, first scan 480 s; not yet judged by a parity run, so keep `railsSource` on `bridge` |
 | Conveyors (R6) | S3 | `bridge` (default; `conveyorsSource`) | a new world layer the bridge never sent, so `bridge` means the layer is not sent (no schedule, no FRM request, no log) and `native` sends it; the switch exists and the mod logs `conveyors=` after `rails=` on its `Readers:` line. A native conveyors layer rides the same logistics pass as rails (a pass carries whichever of the two are native; either one falling due takes the other with it), first read 480 s (x jitter) after Running, then every 10 minutes. The pass logs `layers rails=%d conveyors=%d` on its one `Logistics read` line, and, when conveyors rode in it, a `Conveyor kinds:` and a `Conveyor drone ports:` line, plus (first pass after Running only) one `Conveyor tier census:` line per belt, lift and pipe tier (game class names and tier display names, no ids). The game-side read (belts and lifts through the conveyor base, pipes through the pipeline class so hypertubes cannot enter; one weak pointer per element, end ids from the connected building's name, a class-tree cross-check of each end kind that never changes the output) is in; not yet judged by a parity run, so keep `conveyorsSource` on `bridge` |
+| Map markers | S4-A | `bridge` (default; `mapMarkersSource`) | the switch exists and the mod logs `mapMarkers=` after `conveyors=` on its `Readers:` line; `bridge` means the layer is not sent. The small-read path (port, sender scheduling, driver wiring) is in: a native layer waits 480 s (x jitter) for its first read, then reads every 10 minutes, and logs one `Map markers read (game thread only):` line per read (counts and times only); an abandoned read is retried after 30 s. The game-side read is in: one small sliced read of the map manager's markers (copied once, at most 250; id, name, kind, icon, colour and position only; first read 480 s). Not yet judged by `native-parity`, so keep `mapMarkersSource` on `bridge` until it is |
+| Drone routes | S4-A | `bridge` (default; `droneRoutesSource`) | the switch exists and the mod logs `droneRoutes=` on its `Readers:` line; `bridge` means the layer is not sent. The pure body builder and the sender's small-read path are in (the same schedule as map markers: first read 480 s x jitter, then every 10 minutes, one `Drone routes read (game thread only):` log line per read with counts and times only, an abandoned read retried after 30 s). The game-side read is in (one station per step iteration from the drone subsystem's list, re-fetched each time; the id is the buildable's name, the name the building tag, the position the actor's; input and output follow the header's fields); not yet judged by a parity run, so keep `droneRoutesSource` on `bridge` |
+| Power lines | S4-A | `bridge` (default; `powerLinesSource`) | the switch exists and the mod logs `powerLines=` on its `Readers:` line; `bridge` means the layer is not sent. `native` rides the shared logistics pass (the wires through `AFGBuildableWire`; a wire with a missing end is dropped and counted; a Warning when no wire is read or the count differs from the subsystem's by more than max(5, 5%)); not yet judged by a parity run, so keep `powerLinesSource` on `bridge` |
 
 ## The hidden source override (a stopgap, not a setting)
 
@@ -27,9 +30,12 @@ Until the bridge is removed (ADR-0058, R7) a host can force a reader's source in
     "trainsSource": "bridge"
     "railsSource": "bridge"
     "conveyorsSource": "bridge"
+    "mapMarkersSource": "native"
+    "droneRoutesSource": "native"
+    "powerLinesSource": "native"
 
 The value is exactly `bridge` or `native` (anything else makes the config Broken, as a bad `frmPort` does). With no key a
-reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource`, `DefaultConveyorsSource` in `Config.h`; all six are `native`: the factory and trains ones since the S2 switch, the rails and conveyors ones since the S3 switch). `bridge` needs FRM installed.
+reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource`, `DefaultConveyorsSource` in `Config.h`; all six are `native`: the factory and trains ones since the S2 switch, the rails and conveyors ones since the S3 switch). The S4-A keys (`mapMarkersSource`, `droneRoutesSource`, `powerLinesSource`; `DefaultMapMarkersSource`, `DefaultDroneRoutesSource`, `DefaultPowerLinesSource`) default to `bridge`, which for these three layers means the layer is not sent. `bridge` needs FRM installed.
 The keys are deleted with the bridge in the removal release; do not build on them. There is no key for power: it has no
 bridge path.
 
@@ -46,6 +52,9 @@ What changes for a host on the new defaults:
 - Rails and conveyors share one logistics pass on the game thread (a sliced read of the buildable list, one budgeted step per
   driver tick). A pass carries whichever of the two layers are native, and either one falling due takes the other with it
   (the pulled-forward rule). It logs one `Logistics read (game thread only):` line per pass.
+- S4-A: `powerLinesSource` is a third flag on the same pass. With it `native`, the wires are read in the same pass as rails and
+  conveyors (a layer falling due takes the other native layers with it), and the pass line gains `powerLines=` and a wires
+  count (`wires N, expected wires M`). With `bridge`, the default, the layer is not sent and the line reads `powerLines=0`.
 - Ids of rebuilt belts change.
 - The first native post of each layer changes that layer's content hash once.
 
@@ -53,10 +62,28 @@ The S2 switch followed `native-parity` run
 40403583987 and `tick-cost-native` run 40396146628 on `Test2` (owner, 2026-10-26). TrainRoutes has no bridge path: it is
 native-only and runs only when `trainsSource` is `native`, so a host that sets `trainsSource` to `bridge` turns it off.
 
+## Where each reader stands (S4-A, after Task 17)
+
+Map markers (R8), drone routes (R9) and power lines (R10) are built, and all three are still `bridge`, so by default their
+layers are not sent. FRM is not involved in them either way; `bridge` here only means "off". None has been judged by a parity
+run yet. The switch PR comes after `native-parity` passes on `Test3`, on the owner's word. A native layer reads on a schedule
+of its own (markers and drone routes: first read 480 s x jitter, then every 10 minutes); the logistics pass pulls `powerLines`
+forward with rails and conveyors. The first native post of each layer changes its content hash once, ids of rebuilt wires
+and ports change, and `droneRoutes` posts carry `pairedId`.
+
+The three snapshot fields below are different: they are sent on every snapshot, whatever the layer sources.
+
+## The snapshot's game-connection fields (S4-A, R7)
+
+Every snapshot carries three top-level fields beside `reachable` (never inside `status`): `gameReachable` (this pass's status
+read succeeded), `lastGameReadAt` (UTC time of the last successful status read; left out until the first one, never null) and
+`modVersion` (`AgentVersion()`, cut to 64 characters). `reachable` stays `true`. The contract's snapshot schema is strict, so
+a backend without dash #740 answers 4xx to a body that carries them: deploy the backend first (plan Open questions 6 to 8).
+
 ## The step ceiling (owner, 2026-10-26)
 
 No single native game-thread step may take over 2 ms (`MaxNativeStepMs = 2.0`). Every sliced read (node scan, factory, trains,
-train routes, and the shared `Logistics read` pass) stops at a 1 ms budget (`NativeStepBudgetSeconds = 0.001`) and logs `<Name> (game thread only): ... longest
+train routes, the shared `Logistics read` pass, `Map markers read`, and `Drone routes read`) stops at a 1 ms budget (`NativeStepBudgetSeconds = 0.001`) and logs `<Name> (game thread only): ... longest
 step X ms, total Y ms`. `tick-cost-native` fails when any logged longest step is over 2.0 ms (2.00 passes), when a reader that
 the config made native logged no line, and, for the S2 readers, when no line falls inside the measured window. One-shot reads
 that are not sliced (status, auto-pause, players, power's circuit-id probe) are S0/S1 code outside this rule. The total time is
@@ -84,6 +111,30 @@ Reported, not rules; none of them changes a pass condition.
   +/-1,000,000 m; unrepresentable tracks are listed and are in neither id set).
 - Duplicate ids fail only on the mod's side, as in S2; FRM's duplicates are reported.
 
+## Before reading the S4 results
+
+Reported, not rules; none of them changes a pass condition. The judges are in `runs/native-parity/pass-s4.ts`.
+
+- Id-set exemptions: when both sides are exactly at the layer cap, the ids sorting after the earlier of the two last ids are
+  reported, not failed; clamped mod ids are reported too, but no more of them than FRM's derived ids. Any other id difference
+  fails.
+- `pairedId` rules: an unpaired FRM port needs the mod's `pairedId` null or absent; an ambiguous FRM name allows null, absent
+  or one of FRM's candidate ids; a unique FRM partner must equal the mod's id.
+- Marker positions are compared after rounding to whole metres, with a 0.01 m boundary tolerance (`S4_MARKER_BOUNDARY_TOL_M`):
+  a value that close to a .5 m boundary may round one metre apart.
+- An FRM-only wire with a null end shows as FRM-only: the mod drops such a wire and the judge is not told, so check the `wires`
+  count in the Logistics read line before blaming the reader.
+- Drone input, output and fuel item-class sets are reported when they differ (a count and the first three), never failed,
+  because the drones fly during the run; an input/output swap still fails.
+- Each layer has NOT EXERCISED lines for what the save does not hold (for example a layer with no records); they are reported,
+  never failed.
+- An input/output "swapped" hint on drone ports is a reading aid for the fix, printed with the failure.
+- Marker colour is compared on a guess at the sRGB conversion; read a colour difference with that in mind.
+- `expected wires` is 0 in practice: `GetBuildableCount` returns 0 for the abstract wire class (S4 native-parity run
+  40528626676 on Test3: 1498 wires read, expected 0). A 0 is treated as "no count", so the wire-count Warning only fires
+  when no wire is read or a real count disagrees. The parity id-set check is what proves the wires are in the list.
+- The S4 FRM samplers poll every 90 s. The dropped-wire count is not judged (no wires-only dropped parser).
+
 ## The Test3 note
 
 The S3 runs (`native-parity`, `tick-cost-native`) load the owner's `Test3` save through the runner config's `sprint3World`
@@ -91,6 +142,17 @@ The S3 runs (`native-parity`, `tick-cost-native`) load the owner's `Test3` save 
 thread only):` line, with its longest step at 2.0 ms or less, inside the measured window. The native first read is 480 s
 (+/-10%) after Running, so it lands 3 to 13 minutes into the measurement. A config with only one logistics layer native still
 needs the line, but `tick-cost-native` fails it as an S3 run.
+
+For S4-A both runs write all nine keys (`NATIVE_SOURCES_S4`). The marker, drone-route and wire counts on `Test3` are pending
+the `s4-capture` run (PR #67); nothing here is guessed.
+
+## Follow-ups after S4-A
+
+- S4-B: extractors, generators, train transfer rates and storage, once the dash contracts for them land.
+- A wires-only dropped parser, so `judgeWires` can apply the dropped-wire check.
+- `IsValid` on the subsystem checks across all readers.
+- The switch PR for markers, drone routes and power lines, after `native-parity` passes on `Test3`.
+- R7, the bridge removal, on the owner's word only.
 
 ## The Test2 note
 

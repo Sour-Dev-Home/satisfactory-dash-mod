@@ -220,7 +220,10 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
 - `tick-cost` needs the backend host and the staged world, and takes about twice as long as the others: it boots once
   without the mod (world loaded, auto-pause off) and once with it, and measures each for the warmup plus 10 minutes. Every
   30 s it samples the outbound TCP connections and the working set of the server's process tree, by the spawned pid
-  (`tick-cost.json`). No FRM poller runs during it.
+  (`tick-cost.json`). No FRM poller runs during it. For S12, after the with-mod window the harness also forward-resolves
+  (system resolver) each name the baseline's DNS cache gave to an address it contacted, and records it as
+  `outboundForwardWithMod`; a new with-mod endpoint passes when its address is in the forward set of a name the baseline
+  contacted on the same port (owner, 2026-10-27; a failed lookup matches nothing).
 - `parity` needs the backend host, the staged world (`s3World`, `frmBaseUrl`) and `parity.agentCjs` (below). With the
   world running and auto-pause off, it enrols the mod through the recorder, then makes a game API token on the test
   server (`server.GenerateAPIToken`, through the HTTPS API's `RunCommand` on loopback) and sets up satisfactory-dash's
@@ -281,8 +284,23 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   `rails`, `conveyors`). An S1 or S2 capture is judged as before. Rails endpoint rule (owner, 2026-10-27): the mod's first and
   last point of a track pass within 1 m plus the length of FRM's own segment at that end, that extra capped at 1 m (new); every other mod point and every FRM
   point keep the strict 1 m rule.
+
+  **Sprint S4-A (ADR-0058; the run writes all nine keys, `NATIVE_SOURCES_S4`).** Three more readers are judged, each alone, in
+  `runs/native-parity/pass-s4.ts`: `mapMarkers` (R8), `droneRoutes` (R9) and `powerLines` (R10), against FRM's `/getMapMarkers`
+  (10 s timeout), `/getDroneStation` (10 s, full mapping, beside S3's ids-only sampler) and `/getCables` (20 s), each sampled every
+  90 s (inside the judge's 120 s gap, as the sampler sleeps the full interval after each read) and at once after each accepted mod post of that layer. Only accepted (status 200) posts since
+  the start of enrolment enter the evidence, and **every marker and port name and every `paired` string is replaced by its
+  `sessionHash` before the post is captured**, so `native-parity.json` and `recorder.json` carry ids, numbers, class names and
+  hashes only (the recorder keeps the three layers' posts in memory; `publicEntries` drops them). The readers also need the
+  `Readers:` line to say `mapMarkers=native droneRoutes=native powerLines=native`, `Map markers read` and `Drone routes read`
+  lines, and a `Logistics read` line with `powerLines=1`. `readers.json` gains `mapMarkers`, `droneRoutes` and `powerLines`; an S1
+  to S3 capture is judged as before. Known gap: `judgeWires` is called without its optional `{ dropped }` count, because there is no
+  wires-only dropped parser, so the dropped-wire check is not applied (the dropped-wire count is not judged). Both
+  `native-parity` and `tick-cost-native` write `NATIVE_SOURCES_S4`. The backend images must be built from the contract pin
+  `27911fb` or a descendant, or the image guard refuses the run (see "The backend host"). The marker, drone-route and wire
+  counts on `Test3` are pending the `s4-capture` run (PR #67).
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
-  config (`mod-config.json`, `NATIVE_SOURCES_S3`: the players, resource-node, factory, trains, rails and conveyors readers),
+  config (`mod-config.json`, `NATIVE_SOURCES_S4`: the S3 set plus the map markers, drone routes and power lines readers),
   loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`
   and `conveyorsSource` to be `native` (config and `Readers:` line) and a `Logistics read (game thread only):` line inside the
   measured window, its longest step at 2.0 ms or less; S1- and S2-shaped evidence is judged as before. It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
@@ -293,7 +311,10 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   after the warmup. The mod logs one line per resource-node scan (actors, steps, longest step, total, in `result.json`'s
   `modLines`), which is the scan's cost. Since the owner's ruling of 2026-10-26 the longest step of every sliced native read
   (node scan, `Factory read`, `Trains read`, `Train routes read`) is judged: over 2.0 ms fails, and so does a native reader
-  whose line is missing. With the S2 keys in the config the judge also needs `factorySource` and `trainsSource` to be
+  whose line is missing. When a longest step passes 2.0 ms the mod also logs one diagnostic line, `<Name> read longest step: <x.xx> ms
+  over <n> elements, phase <a> to <b>` (the judge does not read it; the phase is 0 Collect, 1 ReadRails, 2 ReadConveyors,
+  3 ReadPowerLines for `Logistics`, the level index for `Resource node`, 0 for the others). One element at about 9 ms
+  means a stall outside the mod's code, not a slow element of ours. With the S2 keys in the config the judge also needs `factorySource` and `trainsSource` to be
   `native` (in the config and in the mod's `Readers:` line) and a `Factory read`, `Trains read` and `Train routes read` line
   whose time falls inside the measured window. S1-shaped evidence (no S2 keys) is judged as before. The routes layer follows the
   resource-node layer's first-read rule (first scan 8 minutes, +/-10%, after Running, then every 10 minutes), so its first post

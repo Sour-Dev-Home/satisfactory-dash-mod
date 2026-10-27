@@ -22,6 +22,17 @@ describe("the core mod's snapshot fixtures, against the pinned contract (spec S1
     const r = SnapshotRequestSchema.safeParse(load("snapshot-frm.json"));
     expect(r.success ? [] : r.error.issues).toEqual([]);
   });
+  it("a snapshot with gameReachable, lastGameReadAt and modVersion at the top level is valid (S4-A, R7)", () => {
+    const body = { ...load("snapshot-world.json"), gameReachable: true, lastGameReadAt: "2026-10-27T12:00:00.000Z", modVersion: "mod/0.1.0" };
+    const r = SnapshotRequestSchema.safeParse(body);
+    expect(r.success ? [] : r.error.issues).toEqual([]);
+    expect(SnapshotRequestSchema.safeParse({ ...body, modVersion: "" }).success).toBe(false);
+    expect(SnapshotRequestSchema.safeParse({ ...body, modVersion: "v".repeat(65) }).success).toBe(false);
+    // The unreachable shape: the game never answered, so there is no lastGameReadAt (omitted, never null).
+    const { lastGameReadAt: _omit, ...rest } = body;
+    const unreachable = SnapshotRequestSchema.safeParse({ ...rest, gameReachable: false });
+    expect(unreachable.success ? [] : unreachable.error.issues).toEqual([]);
+  });
   it("frm-mapLive.expected.json is a valid mapLive part (the contract's caps and shapes)", () => {
     const r = MapLiveSchema.safeParse(load("frm-mapLive.expected.json"));
     expect(r.success ? [] : r.error.issues).toEqual([]);

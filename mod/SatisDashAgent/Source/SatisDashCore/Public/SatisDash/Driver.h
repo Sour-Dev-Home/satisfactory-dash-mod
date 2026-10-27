@@ -88,6 +88,8 @@ namespace SatisDash
 		FStepBudget RoutesBudget;
 		/** R5: times the shared logistics pass (the world sender resets it when a pass begins). */
 		FStepBudget LogisticsBudget;
+		/** S4-A: times the sender's map-markers and drone-routes reads. */
+		FStepBudget MarkersBudget, DronesBudget;
 		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */
 		bool bTrainsReadOpen = false;
 		/** A factory-cadence tick found the reader's one trains cursor busy (the sender's read): the read starts on the first tick it is free. */
@@ -103,6 +105,8 @@ namespace SatisDash
 		bool bRunning = false;
 		/** The last status pass said a game is running (the native node scan waits for it, as the native players do). */
 		bool bGameRunning = false;
+		/** UTC time of the last successful status read (snapshot lastGameReadAt); reset when Running starts. */
+		TOptional<FDateTime> LastGameReadAt;
 		bool bSendInFlight = false;
 		/** Leaving Running asks for a Clear; it happens once no send is in flight (Pusher.h). */
 		bool bClearPending = false;

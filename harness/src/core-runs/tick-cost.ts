@@ -87,6 +87,23 @@ export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promis
   return { ticks, outbound: [...endpoints].sort(), outboundNames, outboundSamples, memory, session: state?.running ? state.session : null };
 }
 
+/**
+ * Owner, 2026-10-27 (S12): forward-resolves, once the with-mod window is over, every name the baseline boot's DNS cache gave
+ * to an address the baseline contacted. name -> its sorted addresses; [] for a lookup that failed (the judge reads that as no match).
+ */
+export async function forwardResolve(resolve: (name: string) => Promise<string[]>, base: Measured | undefined): Promise<Record<string, string[]>> {
+  const contacted = new Set((base?.outbound ?? []).map((x) => x.slice(0, x.lastIndexOf(":")).replace(/^\[(.*)\]$/, "$1")));
+  const wanted = new Set<string>();
+  for (const [address, ns] of Object.entries(base?.outboundNames ?? {})) {
+    if (contacted.has(address)) for (const n of ns) wanted.add(n);
+  }
+  const out: Record<string, string[]> = {};
+  for (const name of [...wanted].sort()) {
+    out[name] = await resolve(name).then((a) => [...new Set(a)].sort(), () => []);
+  }
+  return out;
+}
+
 /** Circuit groups in the mod's last accepted snapshot (evidence on the reader's circuit scan). */
 function circuitGroups(snapshot: unknown): number | null {
   const circuits = (snapshot as { power?: { circuits?: unknown } } | undefined)?.power?.circuits;
@@ -129,6 +146,18 @@ export const tickCost: CoreRunSpec = {
   drive: (ctx) => driveTickCost(ctx, "enrol-first"),
 };
 
+/**
+ * Names the step a with-mod failure came from. A socket error such as "read ECONNRESET" carries no harness frame in its
+ * stack (run 40562669608 failed with only that message), so the step is the only clue.
+ */
+export async function step<T>(what: string, p: Promise<T>): Promise<T> {
+  try {
+    return await p;
+  } catch (e) {
+    throw new Error(`${what}: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+  }
+}
+
 export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?: WorldKey): Promise<void> {
   {
     const base = ctx.baseline as Measured | undefined;
@@ -154,15 +183,15 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?
     };
     let measured: { from: string; to: string } | null = null;
     try {
-      if (order === "enrol-first") await enrolPhase(ctx, host, recorder);
-      await ctx.deps.loadWorld!(key);
-      await ctx.deps.waitHealthy();
-      ctx.rememberAutoPause(await ctx.deps.readAutoPause!());
-      await ctx.deps.setAutoPause!(false);
-      if (order === "world-first") await enrolPhase(ctx, host, recorder);
+      if (order === "enrol-first") await step("enrolling the mod", enrolPhase(ctx, host, recorder));
+      await step("loading the world", ctx.deps.loadWorld!(key));
+      await step("waiting for the server to answer", ctx.deps.waitHealthy());
+      ctx.rememberAutoPause(await step("reading auto-pause", ctx.deps.readAutoPause!()));
+      await step("turning auto-pause off", ctx.deps.setAutoPause!(false));
+      if (order === "world-first") await step("enrolling the mod", enrolPhase(ctx, host, recorder));
       // The same staged world as the baseline boot (loadWorld uploads the keyed world each time); the session hash checks it.
       const measureFrom = ctx.deps.now().toISOString();
-      const w = await measureWindow(ctx.deps, ctx.proc.pid, ctx.proc.exited);
+      const w = await step("measuring the with-mod window", measureWindow(ctx.deps, ctx.proc.pid, ctx.proc.exited));
       measured = { from: measureFrom, to: ctx.deps.now().toISOString() };
       capture.withMod = w.ticks;
       capture.outboundWithMod = w.outbound;
@@ -170,6 +199,7 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?
       capture.memoryWithMod = w.memory;
       capture.sessionWithMod = w.session;
       capture.outboundNamesWithMod = w.outboundNames;
+      if (ctx.deps.resolveHost) capture.outboundForwardWithMod = await forwardResolve(ctx.deps.resolveHost, base);
     } finally {
       const last = accepted(recorder).at(-1);
       capture.circuitGroups = last ? circuitGroups(last.snapshot) : null;

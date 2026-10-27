@@ -14,9 +14,9 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 const zero = { reads: 0, failed: 0 };
 
 describe("native-parity drive (S3)", () => {
-  it("runs on the sprint3 world with all six readers native", () => {
+  it("runs on the sprint3 world with all six S1 to S3 readers native (S4 adds three keys on top)", () => {
     expect(nativeParity.worldKey).toBe("sprint3");
-    expect(nativeParity.modConfig).toEqual(NATIVE_SOURCES_S3);
+    expect(nativeParity.modConfig).toMatchObject(NATIVE_SOURCES_S3);
   });
 
   it("starts the three samplers (one read each at once), takes an extra rails sample on demand, and stops them", async () => {

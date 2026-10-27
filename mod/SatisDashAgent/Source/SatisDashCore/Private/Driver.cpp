@@ -17,6 +17,8 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, TrainsBudget{[this] { return Clock.Now(); }}
 	, RoutesBudget{[this] { return Clock.Now(); }}
 	, LogisticsBudget{[this] { return Clock.Now(); }}
+	, MarkersBudget{[this] { return Clock.Now(); }}
+	, DronesBudget{[this] { return Clock.Now(); }}
 {
 }
 
@@ -56,6 +58,8 @@ void SatisDash::FDriver::Tick()
 		bTrainsBeginPending = false;
 		Game.EndTrainsRead();
 		Game.EndLogisticsRead(); // the sender's pass is dropped by its Stop; the reader frees what it buffered
+		Game.EndMapMarkersRead();
+		Game.EndDroneRoutesRead();
 	}
 	if (!bRunning && bNowRunning)
 	{
@@ -67,15 +71,19 @@ void SatisDash::FDriver::Tick()
 		PollFailures = 0;
 		WorldLayers.Start(Now);
 		bGameRunning = false;
+		LastGameReadAt.Reset();
 		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
 		const FAgentConfig& Sources = Agent.GetConfig();
-		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s conveyors=%s"),
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s conveyors=%s mapMarkers=%s droneRoutes=%s powerLines=%s"),
 			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetFactorySource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetTrainsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetRailsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetConveyorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
+			Sources.GetConveyorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetMapMarkersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetDroneRoutesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetPowerLinesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -97,7 +105,7 @@ void SatisDash::FDriver::Tick()
 	// World layers (spec "Timing"): posted one at a time, and only while no snapshot is queued, in flight or being encoded.
 	if (const FCredential* Credential = Agent.GetCredential())
 	{
-		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning, &RoutesBudget, &LogisticsBudget });
+		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning, &RoutesBudget, &LogisticsBudget, &MarkersBudget, &DronesBudget });
 	}
 	if (WorldLayers.TakeAuthRejected())
 	{
@@ -201,6 +209,7 @@ void SatisDash::FDriver::TickTrainsRead(double Now)
 	// Counts and times only; never an id or a name (both are player-chosen text).
 	UE_LOG(LogSatisDash, Display, TEXT("Trains read (game thread only): %d trains, %d stations in %d steps, longest step %.2f ms, total %.2f ms"),
 		Found->Trains.Num(), Found->Stations.Num(), TrainsBudget.Steps(), TrainsBudget.LongestMs(), TrainsBudget.TotalMs());
+	LogLongestStep(TEXT("Trains"), TrainsBudget);
 	if (!Bridge.SubmitNativeMapLive(MoveTemp(Found.GetValue()), Now) && TrainsLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Trains read finished while the last one is still being built: it is dropped"));
@@ -225,6 +234,13 @@ void SatisDash::FDriver::TickSample(double Now)
 	Snapshot.AgentVersion = AgentVersion();
 	Snapshot.ObservedAt = Clock.UtcNow();
 	Snapshot.Status = Game.ReadStatus();
+	Snapshot.ModVersion = AgentVersion();
+	Snapshot.bGameReachable = Snapshot.Status.IsSet();
+	if (Snapshot.Status.IsSet())
+	{
+		LastGameReadAt = Snapshot.ObservedAt; // the same UtcNow() reading as observedAt
+	}
+	Snapshot.LastGameReadAt = LastGameReadAt;
 	bGameRunning = Snapshot.Status.IsSet() && Snapshot.Status->bIsGameRunning;
 	if (!Snapshot.Status.IsSet())
 	{
