@@ -267,6 +267,16 @@ bool SatisDash::FFrmBridge::SubmitNativeFactory(TArray<FFactoryReading> Readings
 	return true;
 }
 
+bool SatisDash::FFrmBridge::SubmitNativeExtractors(TArray<FExtractorReading> Readings, double ReadAt)
+{
+	if (ExtractorsTask.IsValid())
+	{
+		return false;
+	}
+	ExtractorsTask = MakeShared<FExtractorsJob>(MoveTemp(Readings), ReadAt);
+	return true;
+}
+
 TOptional<SatisDash::FWorldOutcome> SatisDash::FFrmBridge::TakeWorld(EWorldLayer Layer)
 {
 	FWorldSlot& Slot = World[int32(Layer)];
@@ -307,6 +317,11 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 			UE_LOG(LogSatisDash, Warning, TEXT("mapLive is over its %lld-byte cap; leaving it out of the snapshot"), MapLiveMaxBytes);
 		}
 		NativeMapLive.Reset();
+	}
+	if (ExtractorsTask.IsValid() && ExtractorsTask->bRan)
+	{
+		ExtractorsReady = FReady{ MoveTemp(ExtractorsTask->Fragment), ExtractorsTask->ReadAt };
+		ExtractorsTask.Reset();
 	}
 	if (Factory.IsValid() && Factory->bRan)
 	{
@@ -393,6 +408,17 @@ void SatisDash::FFrmBridge::LaunchNext()
 			Job->bRan = true;
 		});
 	}
+	else if (ExtractorsTask.IsValid() && !ExtractorsTask->bRan)
+	{
+		Worker.Launch([Job = ExtractorsTask]
+		{
+			// The whole fragment in one task: sorted, capped and written by the one record writer; the readings are freed after.
+			int32 Dropped = 0, Over = 0;
+			Job->Fragment = NativeExtractorsFragment(MoveTemp(Job->Readings), Dropped, Over);
+			Job->Readings = TArray<FExtractorReading>();
+			Job->bRan = true;
+		});
+	}
 	else if (Factory.IsValid() && !Factory->bRan)
 	{
 		Worker.Launch([Job = Factory]
@@ -461,7 +487,24 @@ TOptional<FString> SatisDash::FFrmBridge::TakePlayers(double Now, double MaxAgeS
 
 TOptional<FString> SatisDash::FFrmBridge::TakeFactory(double Now, double MaxAgeSeconds)
 {
-	return TakeFresh(FactoryReady, Now, MaxAgeSeconds);
+	if (ExtractorsTask.IsValid())
+	{
+		return {}; // the extractors fragment is a few ticks from ready: the part waits for it (not consumed), so the two travel together
+	}
+	TOptional<FString> Part = TakeFresh(FactoryReady, Now, MaxAgeSeconds);
+	if (Part.IsSet() && ExtractorsReady.IsSet())
+	{
+		// A held fragment is consumed once, by the first factory part that is taken after it; a stale one is dropped, not sent.
+		if (Now - ExtractorsReady->At <= 1.5 * MaxAgeSeconds && Part->EndsWith(TEXT("}")))
+		{
+			Part->LeftChopInline(1);
+			Part->Append(TEXT(",\"extractors\":"));
+			Part->Append(ExtractorsReady->Json);
+			Part->AppendChar(TEXT('}'));
+		}
+		ExtractorsReady.Reset();
+	}
+	return Part;
 }
 
 void SatisDash::FFrmBridge::EncodeSnapshot(FSnapshot Snapshot)
@@ -482,6 +525,8 @@ void SatisDash::FFrmBridge::Stop()
 	FrmLanes.Cancel();
 	Players.Reset();
 	Factory.Reset();
+	ExtractorsTask.Reset();
+	ExtractorsReady.Reset();
 	Encode.Reset();
 	NativeMapLive.Reset();
 	PlayersReady.Reset();

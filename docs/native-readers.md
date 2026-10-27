@@ -94,7 +94,7 @@ a backend without dash #740 answers 4xx to a body that carries them: deploy the 
 ## The step ceiling (owner, 2026-10-26)
 
 No single native game-thread step may take over 2 ms (`MaxNativeStepMs = 2.0`). Every sliced read (node scan, factory, trains,
-train routes, the shared `Logistics read` pass, `Map markers read`, and `Drone routes read`) stops at a 1 ms budget (`NativeStepBudgetSeconds = 0.001`) and logs `<Name> (game thread only): ... longest
+train routes, the shared `Logistics read` pass, `Map markers read`, `Drone routes read`, and the S4-B `Buildables read`, a separate pass that starts on the same factory-cadence tick when any of `extractorsSource`, `generatorsSource` or `storageSource` is native; `Buildables read (game thread only): <n> elements, <n> extractors, <n> generators, <n> containers in <n> steps, longest step X ms, total Y ms`. The extractors fragment it yields is spliced into the factory part as `"extractors":[...]` only when it is not older than 1.5 x `FactorySeconds`, and is used once) stops at a 1 ms budget (`NativeStepBudgetSeconds = 0.001`) and logs `<Name> (game thread only): ... longest
 step X ms, total Y ms`. `tick-cost-native` fails when any logged longest step is over 2.0 ms (2.00 passes), when a reader that
 the config made native logged no line, and, for the S2 readers, when no line falls inside the measured window. One-shot reads
 that are not sliced (status, auto-pause, players, power's circuit-id probe) are S0/S1 code outside this rule. The total time is

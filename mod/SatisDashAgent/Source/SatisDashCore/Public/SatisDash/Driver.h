@@ -61,6 +61,8 @@ namespace SatisDash
 		void NoteFailedPart(const TCHAR* Part, double Now);
 		/** R2a: steps an open native factory read once, every tick, and hands a finished one to the bridge. */
 		void TickFactoryRead(double Now);
+		/** S4-B: the same for the separate Buildables pass (extractors now; generators and storage later). */
+		void TickBuildablesRead(double Now);
 		/** R3: the same for the trains read behind the mapLive part. */
 		void TickTrainsRead(double Now);
 		/** commandRunner.ts: poll, run each command, report its result, one thing at a time (DriverCommands.cpp). */
@@ -90,6 +92,14 @@ namespace SatisDash
 		FStepBudget LogisticsBudget;
 		/** S4-A: times the sender's map-markers and drone-routes reads. */
 		FStepBudget MarkersBudget, DronesBudget;
+		/** S4-B: times the Buildables pass (reset when a pass begins). */
+		FStepBudget BuildablesBudget;
+		/** A native Buildables pass is open: StepBuildablesRead is called every tick until it returns. */
+		bool bBuildablesReadOpen = false;
+		/** The readers the open pass was begun for. */
+		FBuildablesFlags BuildablesAsked;
+		/** Bounded: one key ("busy"), at most once per 60 s. */
+		FRateLimitedLog BuildablesLog{ 60.0 };
 		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */
 		bool bTrainsReadOpen = false;
 		/** A factory-cadence tick found the reader's one trains cursor busy (the sender's read): the read starts on the first tick it is free. */

@@ -16,7 +16,7 @@ describe("mod-test.yml (the self-hosted runner's second door)", () => {
 
   it("holds the UE test-count floor at 209 (the suite has 209 tests)", () => {
     const steps = Object.values(wf.jobs).flatMap((j) => (j as unknown as { steps: Array<{ run?: string }> }).steps);
-    expect(steps.some((s) => /test-mod .*--min 209\b/.test(s.run ?? ""))).toBe(true);
+    expect(steps.some((s) => /test-mod .*--min 211\b/.test(s.run ?? ""))).toBe(true);
   });
 
   it("triggers only on workflow_dispatch and pushes to main, never on a pull request", () => {

@@ -4,6 +4,7 @@
 #include "SatisDash/FrmPlayers.h"
 #include "SatisDash/Native/Conveyors/NativeConveyors.h"
 #include "SatisDash/Native/DroneRoutes/NativeDroneRoutes.h"
+#include "SatisDash/Native/Extractors/NativeExtractors.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
 #include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
 #include "SatisDash/Native/PowerLines/NativePowerLines.h"
@@ -58,6 +59,25 @@ namespace SatisDash
 		/** Empty when power lines were not asked for. */
 		TArray<FPowerLineReading> PowerLines;
 		FLogisticsCounts Counts;
+	};
+
+	/** S4-B: which readers the Buildables pass is asked for (each is on when its source is native). */
+	struct FBuildablesFlags
+	{
+		bool bExtractors = false, bGenerators = false, bStorage = false;
+	};
+
+	/** Counts of one Buildables pass (numbers only: they go to the log line and nowhere else). */
+	struct FBuildablesCounts
+	{
+		int32 Elements = 0, Extractors = 0, Generators = 0, Containers = 0;
+	};
+
+	/** What a finished Buildables pass hands over; the readings are freed once the fragments are built. */
+	struct FBuildablesSnapshot
+	{
+		TArray<FExtractorReading> Extractors;
+		FBuildablesCounts Counts;
 	};
 
 	/** S4-A R8: counts of one map-markers read (numbers only: they go to the log line and nowhere else). */
@@ -180,6 +200,18 @@ namespace SatisDash
 		virtual void EndLogisticsRead() {}
 		/** True while a logistics pass is open (begun, not finished or ended). */
 		virtual bool IsLogisticsReadOpen() const { return false; }
+		/**
+		 * S4-B: starts the separate, time-sliced Buildables pass for the readers whose flag is on (extractors, generators, storage).
+		 * False when there is no world or subsystem, or when a pass is already open. Call StepBuildablesRead every tick until it
+		 * returns a value. Only called when a flag's source is "native".
+		 */
+		virtual bool BeginBuildablesRead(const FBuildablesFlags& Asked) { return false; }
+		/** Reads buildables until the budget is spent, on the game thread. Unset until the pass has seen every one, then the snapshot (once). */
+		virtual TOptional<FBuildablesSnapshot> StepBuildablesRead(FStepBudget& Budget) { return {}; }
+		/** True when the pass StepBuildablesRead just ended was abandoned (no subsystem, or the world changed): its value is not a world. */
+		virtual bool BuildablesReadAbandoned() const { return false; }
+		/** The caller drops an open pass (source changed, left Running): frees what the reader buffered. */
+		virtual void EndBuildablesRead() {}
 		/**
 		 * S4-A R8: starts the time-sliced read of the map markers. False when there is no world or no map manager, or when a read is
 		 * already open. Call StepMapMarkersRead every tick until it returns a value. Only called when mapMarkersSource is "native".

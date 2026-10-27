@@ -83,6 +83,13 @@ namespace SatisDash
 		 * is the part's age start. False while a factory job is held (the readings are then dropped).
 		 */
 		bool SubmitNativeFactory(TArray<FFactoryReading> Readings, double ReadAt);
+		/**
+		 * S4-B: the extractors a native Buildables pass finished, moved into a job. The worker builds the fragment
+		 * (NativeExtractorsFragment) and holds it (the readings are freed). TakeFactory splices it into the next factory part as
+		 * ,"extractors":[...] when it is not older than 1.5 x that call's MaxAgeSeconds, and consumes it; while the job is
+		 * outstanding TakeFactory waits for it. False while a fragment job is held (the readings are then dropped).
+		 */
+		bool SubmitNativeExtractors(TArray<FExtractorReading> Readings, double ReadAt);
 		/** The layer's finished outcome, once. */
 		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
@@ -108,7 +115,16 @@ namespace SatisDash
 			/** The native part's text, written by the worker. */
 			FString NativeJson;
 		};
-		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
+		/** S4-B: the extractors readings, then (worker) the fragment text; the readings are freed once it is built. */
+		struct FExtractorsJob
+		{
+			FExtractorsJob(TArray<FExtractorReading> InReadings, double InReadAt) : Readings{MoveTemp(InReadings)}, ReadAt{InReadAt} {}
+			TArray<FExtractorReading> Readings;
+			double ReadAt = 0;
+			FString Fragment;
+			bool bRan = false;
+		};
+		struct FEncodeJob {FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
 		/** R3: the game's own trains and stations; the worker writes the joined part (Json, or Ok false when it is over its cap). */
 		struct FNativeMapLiveJob
 		{
@@ -177,6 +193,9 @@ namespace SatisDash
 		FFrmQueue FrmLanes;
 		TSharedPtr<FPlayersJob> Players;
 		TSharedPtr<FFactoryJob> Factory;
+		/** At most one extractors job, and one built fragment held until the next factory part takes it (bounded by the 5000-record cap). */
+		TSharedPtr<FExtractorsJob> ExtractorsTask;
+		TOptional<FReady> ExtractorsReady;
 		TSharedPtr<FEncodeJob> Encode;
 		TSharedPtr<FNativeMapLiveJob> NativeMapLive;
 		TOptional<FReady> PlayersReady;

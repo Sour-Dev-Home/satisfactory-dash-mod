@@ -44,7 +44,7 @@ export function scanCosts(lines: readonly string[]): ScanCost[] {
 }
 
 // The 2 ms step ceiling (owner, 2026-10-26): every sliced native read logs `<Name> (game thread only): ... longest step X ms, total Y ms`.
-export const STEP_LINE_NAMES = ["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read"] as const;
+export const STEP_LINE_NAMES = ["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read", "Buildables read"] as const;
 export const MAX_NATIVE_STEP_MS = 2.0;
 export interface StepCost { reader: string; longestStepMs: number; totalMs: number }
 

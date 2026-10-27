@@ -6,9 +6,16 @@ const line = (name: string, longest: string) => `${P}${name} (game thread only):
 const LINES = [line("Factory read", "0.30"), line("Trains read", "1.70"), line("Train routes read", "2.05")];
 
 describe("step costs", () => {
-  it("names the seven sliced readers and the ceiling", () => {
-    expect(STEP_LINE_NAMES).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read"]);
+  it("names the eight sliced readers and the ceiling", () => {
+    expect(STEP_LINE_NAMES).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read", "Buildables read"]);
     expect(MAX_NATIVE_STEP_MS).toBe(2.0);
+  });
+  it("parses the Buildables line and holds it to the ceiling", () => {
+    const sample = `${P}Buildables read (game thread only): 4000 elements, 120 extractors, 0 generators, 0 containers in 6 steps, longest step 0.90 ms, total 4.10 ms`;
+    expect(stepCosts([sample])).toEqual([{ reader: "Buildables read", longestStepMs: 0.9, totalMs: 4.1 }]);
+    expect(stepProblems([sample], ["Buildables read"])).toEqual([]);
+    const slow = `${P}Buildables read (game thread only): 4000 elements, 120 extractors, 0 generators, 0 containers in 6 steps, longest step 2.05 ms, total 4.10 ms`;
+    expect(stepProblems([slow], ["Buildables read"]).length).toBeGreaterThan(0);
   });
   it("parses the map markers line and holds it to the ceiling", () => {
     const sample = `${P}Map markers read (game thread only): 12 markers, 1 dropped in 3 steps, longest step 0.40 ms, total 1.10 ms`;
