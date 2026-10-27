@@ -698,6 +698,18 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGBuildablePipelinePump | Source/FactoryGame/Public/Buildables/FGBuildablePipelinePump.h:36 | header only (Cast target) |
 | Buildables/FGBuildableResourceExtractorBase.h | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractorBase.h:1 | header only |
 | AFGBuildableResourceExtractorBase | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractorBase.h:65 | header only (Cast target) |
+| AFGBuildableResourceExtractorBase::GetExtractableResource | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractorBase.h:103 | header only (S4-B Task 5; returns a TScriptInterface to the node or well: its GetInterface() is null for an unoccupied or unknown resource, checked) |
+| Buildables/FGBuildableResourceExtractor.h | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractor.h:1 | header only (S4-B Task 5) |
+| AFGBuildableResourceExtractor | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractor.h:13 | header only (Cast target; Abstract, covers miners, pumps and the Blueprint oil pump: the parity id-set check judges that last, plan V2) |
+| AFGBuildableResourceExtractor::GetOutputInventory | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractor.h:35 | header only (returns mOutputInventory; may be null: checked. The survey's :117 is the base, which returns nullptr) |
+| AFGBuildableResourceExtractor::GetNumExtractedItemsPerCycle | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractor.h:39 | header only (int32 mItemsPerCycle :101; the header does not say whether a fluid's count is in litres, so it is read as litres like every other fluid amount: NEEDS VERIFICATION, the parity run judges) |
+| AFGBuildableResourceExtractor::GetProductionCycleTime | Source/FactoryGame/Public/Buildables/FGBuildableResourceExtractor.h:29 | header only (override of AFGBuildableFactory::GetProductionCycleTime, FGBuildableFactory.h:197, "with potential multiplier applied"; the headers do not say whether purity is inside it. OnExtractableResourceSet :78 is an override, read as "the cycle depends on the resource", so purity is NOT applied again: NEEDS VERIFICATION, the parity run judges, ruling B4) |
+| Resources/FGExtractableResourceInterface.h | Source/FactoryGame/Public/Resources/FGExtractableResourceInterface.h:1 | header only (S4-B Task 5) |
+| IFGExtractableResourceInterface | Source/FactoryGame/Public/Resources/FGExtractableResourceInterface.h:18 | header only |
+| IFGExtractableResourceInterface::GetResourceClass | Source/FactoryGame/Public/Resources/FGExtractableResourceInterface.h:41 | header only ("the descriptor for the resource being mined"; a null class is treated as unoccupied) |
+| UObject/ScriptInterface.h | Engine/Source/Runtime/CoreUObject/Public/UObject/ScriptInterface.h:1 | header only |
+| TScriptInterface | Engine/Source/Runtime/CoreUObject/Public/UObject/ScriptInterface.h:138 | header only |
+| TScriptInterface::GetInterface | Engine/Source/Runtime/CoreUObject/Public/UObject/ScriptInterface.h:335 | header only (the typed pointer; null when the object does not natively implement the interface, so an unoccupied extractor reads as no resource) |
 | Buildables/FGBuildableGenerator.h | Source/FactoryGame/Public/Buildables/FGBuildableGenerator.h:1 | header only |
 | AFGBuildableGenerator | Source/FactoryGame/Public/Buildables/FGBuildableGenerator.h:60 | header only (Cast target) |
 | Buildables/FGBuildableResourceSink.h | Source/FactoryGame/Public/Buildables/FGBuildableResourceSink.h:1 | header only |
