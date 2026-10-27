@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -80,6 +80,13 @@ describe("step costs", () => {
   });
   it("judges every logged line even when not required", () => {
     expect(stepProblems(LINES, [])).toHaveLength(1);
+  });
+  it("does not read the longest-step diagnostic line as a read line", () => {
+    const names = ["Logistics", "Resource node", "Factory", "Trains", "Train routes", "Map markers", "Drone routes"];
+    const lines = names.map((n) => `[2026.10.27-12.00.00:000][  0]LogSatisDash: ${n} read longest step: 9.71 ms over 1 elements, phase 2 to 2`);
+    expect(stepCosts(lines)).toEqual([]);
+    expect(scanCosts(lines)).toEqual([]);
+    expect(stepProblems(lines, [])).toEqual([]);
   });
 });
 

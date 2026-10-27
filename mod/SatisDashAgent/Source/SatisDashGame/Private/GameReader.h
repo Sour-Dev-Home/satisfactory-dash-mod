@@ -78,6 +78,10 @@ namespace SatisDash
 		int32 ScanActors = 0;
 		int32 ScanSteps = 0;
 		double ScanLongestStep = 0;
+		/** The diagnostic for the longest scan step: its actor count and the level index (its "phase") at its start and end. */
+		int32 ScanLongestItems = 0;
+		int32 ScanLongestStartLevel = 0;
+		int32 ScanLongestEndLevel = 0;
 		double ScanTotal = 0;
 		TArray<FResourceNodeReading> ScanFound;
 

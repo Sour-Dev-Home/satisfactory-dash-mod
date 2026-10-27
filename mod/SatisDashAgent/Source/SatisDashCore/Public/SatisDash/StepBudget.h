@@ -33,6 +33,13 @@ namespace SatisDash
 		int32 Steps() const { return StepCount; }
 		double LongestMs() const { return Longest * 1000.0; }
 		double TotalMs() const { return Total * 1000.0; }
+		/** Says which phase of its read the reader is in (a small number, 0 unless the reader sets it). Recorded at Begin() and at End(). */
+		void SetTag(int32 Tag) { CurrentTag = Tag; }
+		/** Spent() calls in the longest step so far: one per element, so the count is the longest step's element count (a loop that leaves on its cursor skips the last call). */
+		int32 LongestItems() const { return LongestItemCount; }
+		/** The tag current at Begin() and at End() of the longest step. */
+		int32 LongestStartTag() const { return LongestStartTagValue; }
+		int32 LongestEndTag() const { return LongestEndTagValue; }
 		void Reset();
 
 	private:
@@ -42,5 +49,19 @@ namespace SatisDash
 		int32 StepCount = 0;
 		double Longest = 0.0;
 		double Total = 0.0;
+		/** Spent() is const, so the per-step counter is mutable. */
+		mutable int32 StepItems = 0;
+		int32 CurrentTag = 0;
+		int32 StepStartTag = 0;
+		int32 LongestItemCount = 0;
+		int32 LongestStartTagValue = 0;
+		int32 LongestEndTagValue = 0;
 	};
+
+	/**
+	 * Owner, 2026-10-27: when a budget's longest step passes MaxNativeStepMs, one extra Display line says what that step was doing:
+	 * "<Name> read longest step: <x.xx> ms over <n> elements, phase <a> to <b>". Counts only, never a name or an id. Logs nothing at or below the ceiling.
+	 */
+	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, double LongestMs, int32 Items, int32 StartTag, int32 EndTag);
+	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, const FStepBudget& Budget);
 }

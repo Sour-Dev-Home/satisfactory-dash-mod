@@ -308,7 +308,10 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   after the warmup. The mod logs one line per resource-node scan (actors, steps, longest step, total, in `result.json`'s
   `modLines`), which is the scan's cost. Since the owner's ruling of 2026-10-26 the longest step of every sliced native read
   (node scan, `Factory read`, `Trains read`, `Train routes read`) is judged: over 2.0 ms fails, and so does a native reader
-  whose line is missing. With the S2 keys in the config the judge also needs `factorySource` and `trainsSource` to be
+  whose line is missing. When a longest step passes 2.0 ms the mod also logs one diagnostic line, `<Name> read longest step: <x.xx> ms
+  over <n> elements, phase <a> to <b>` (the judge does not read it; the phase is 0 Collect, 1 ReadRails, 2 ReadConveyors,
+  3 ReadPowerLines for `Logistics`, the level index for `Resource node`, 0 for the others). One element at about 9 ms
+  means a stall outside the mod's code, not a slow element of ours. With the S2 keys in the config the judge also needs `factorySource` and `trainsSource` to be
   `native` (in the config and in the mod's `Readers:` line) and a `Factory read`, `Trains read` and `Train routes read` line
   whose time falls inside the measured window. S1-shaped evidence (no S2 keys) is judged as before. The routes layer follows the
   resource-node layer's first-read rule (first scan 8 minutes, +/-10%, after Running, then every 10 minutes), so its first post

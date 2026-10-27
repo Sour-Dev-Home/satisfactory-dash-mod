@@ -236,9 +236,22 @@ namespace SatisDash::Test
 			bOpenPowerLines = bPowerLines;
 			return true;
 		}
+		/** Diagnostic tests: each step counts this many elements, sits in this phase, and runs the work hook (a test advances the fake clock there). */
+		TFunction<void()> LogisticsStepWork;
+		int32 LogisticsStepElements = 0;
+		int32 LogisticsStepTag = 0;
 		virtual TOptional<SatisDash::FLogisticsSnapshot> StepLogisticsRead(SatisDash::FStepBudget& Budget) override
 		{
+			Budget.SetTag(LogisticsStepTag);
 			Budget.Begin();
+			for (int32 Element = 0; Element < LogisticsStepElements; ++Element)
+			{
+				Budget.Spent();
+			}
+			if (LogisticsStepWork)
+			{
+				LogisticsStepWork();
+			}
 			Budget.End();
 			if (++LogisticsStepCalls < LogisticsStepsToFinish)
 			{

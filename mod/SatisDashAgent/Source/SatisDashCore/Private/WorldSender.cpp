@@ -452,6 +452,7 @@ void SatisDash::FWorldSender::StepTrainRoutesScan(const FWorldContext& Context)
 	// Counts and times only; never an id or a name.
 	UE_LOG(LogSatisDash, Display, TEXT("Train routes read (game thread only): %d stations, %d trains in %d steps, longest step %.2f ms, total %.2f ms"),
 		Found->Stations.Num(), Found->Trains.Num(), Context.TrainsBudget->Steps(), Context.TrainsBudget->LongestMs(), Context.TrainsBudget->TotalMs());
+	LogLongestStep(TEXT("Train routes"), *Context.TrainsBudget);
 	if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
 		FNativeWorldBuilder([Snapshot = MoveTemp(Found.GetValue())](const FString& Observed) { return BuildNativeTrainRoutes(Observed, Snapshot.Stations, Snapshot.Trains); }), L.DataHash))
 	{
@@ -499,6 +500,7 @@ void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorld
 		// A finished read with no markers is a real, empty map (M1): an empty layer is posted. Counts and times only; never an id or a name.
 		UE_LOG(LogSatisDash, Display, TEXT("Map markers read (game thread only): %d markers, %d dropped in %d steps, longest step %.2f ms, total %.2f ms"),
 			Found->Counts.Read, Found->Counts.Dropped, Context.MarkersBudget->Steps(), Context.MarkersBudget->LongestMs(), Context.MarkersBudget->TotalMs());
+		LogLongestStep(TEXT("Map markers"), *Context.MarkersBudget);
 		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
 			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Markers)](const FString& Observed) { return BuildNativeMapMarkers(Observed, Snapshot); }), L.DataHash))
 		{
@@ -541,6 +543,7 @@ void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorld
 		// A finished read with no ports is a real, empty layer: it is posted. Counts and times only; never an id or a name.
 		UE_LOG(LogSatisDash, Display, TEXT("Drone routes read (game thread only): %d ports, %d dropped in %d steps, longest step %.2f ms, total %.2f ms"),
 			Found->Counts.Read, Found->Counts.Dropped, Context.DronesBudget->Steps(), Context.DronesBudget->LongestMs(), Context.DronesBudget->TotalMs());
+		LogLongestStep(TEXT("Drone routes"), *Context.DronesBudget);
 		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
 			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Ports)](const FString& Observed) { return BuildNativeDroneRoutes(Observed, Snapshot); }), L.DataHash))
 		{
@@ -655,6 +658,8 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	UE_LOG(LogSatisDash, Display, TEXT("Logistics read (game thread only): layers rails=%d conveyors=%d powerLines=%d, %d buildables, %d tracks, %d belts, %d lifts, %d pipes, %d open ends, %d ownerless ends, wires %d, expected wires %d in %d steps, longest step %.2f ms, total %.2f ms, expected tracks %d, dropped %d, over cap %d"),
 		bWasRails ? 1 : 0, bWasConveyors ? 1 : 0, bWasPowerLines ? 1 : 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, C.Wires, C.ExpectedWires,
 		Budget.Steps(), Budget.LongestMs(), Budget.TotalMs(), C.ExpectedTracks, C.Dropped, C.Over);
+	// If the longest step passed the ceiling: its element count and phase (0 Collect, 1 ReadRails, 2 ReadConveyors, 3 ReadPowerLines).
+	LogLongestStep(TEXT("Logistics"), Budget);
 	if (bWasPowerLines && WireCountSuspect(C.Wires, C.WiresDropped, C.ExpectedWires) && ShouldLog(PowerLinesLayer, TEXT("wires"), Context.Now))
 	{
 		// Counts only. A warning, never a change to the output: the parity id-set is the judge.

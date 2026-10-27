@@ -1,5 +1,7 @@
 #include "SatisDash/StepBudget.h"
 
+#include "SatisDash/Log.h"
+
 namespace SatisDash
 {
 	FStepBudget::FStepBudget(TFunction<double()> InClock, double InBudgetSeconds)
@@ -10,10 +12,13 @@ namespace SatisDash
 	void FStepBudget::Begin()
 	{
 		StepStart = TimeSource.Read();
+		StepItems = 0;
+		StepStartTag = CurrentTag;
 	}
 
 	bool FStepBudget::Spent() const
 	{
+		++StepItems;
 		return TimeSource.Read() - StepStart >= BudgetSeconds;
 	}
 
@@ -24,7 +29,13 @@ namespace SatisDash
 		const double Took = FMath::Max(0.0, TimeSource.Read() - StepStart);
 		++StepCount;
 		Total += Took;
-		Longest = FMath::Max(Longest, Took);
+		if (Took > Longest)
+		{
+			Longest = Took;
+			LongestItemCount = StepItems;
+			LongestStartTagValue = StepStartTag;
+			LongestEndTagValue = CurrentTag;
+		}
 	}
 
 	void FStepBudget::Reset()
@@ -33,5 +44,23 @@ namespace SatisDash
 		StepCount = 0;
 		Longest = 0.0;
 		Total = 0.0;
+		StepItems = 0;
+		StepStartTag = 0;
+		LongestItemCount = 0;
+		LongestStartTagValue = 0;
+		LongestEndTagValue = 0;
+	}
+
+	void LogLongestStep(const TCHAR* ReaderName, double LongestMs, int32 Items, int32 StartTag, int32 EndTag)
+	{
+		if (LongestMs > MaxNativeStepMs)
+		{
+			UE_LOG(LogSatisDash, Display, TEXT("%s read longest step: %.2f ms over %d elements, phase %d to %d"), ReaderName, LongestMs, Items, StartTag, EndTag);
+		}
+	}
+
+	void LogLongestStep(const TCHAR* ReaderName, const FStepBudget& Budget)
+	{
+		LogLongestStep(ReaderName, Budget.LongestMs(), Budget.LongestItems(), Budget.LongestStartTag(), Budget.LongestEndTag());
 	}
 }

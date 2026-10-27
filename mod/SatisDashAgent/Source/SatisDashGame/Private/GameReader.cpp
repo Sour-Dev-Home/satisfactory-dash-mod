@@ -238,6 +238,9 @@ bool SatisDash::FGameReader::BeginResourceNodeScan()
 	ScanActors = 0;
 	ScanSteps = 0;
 	ScanLongestStep = 0;
+	ScanLongestItems = 0;
+	ScanLongestStartLevel = 0;
+	ScanLongestEndLevel = 0;
 	ScanTotal = 0;
 	ScanFound.Reset();
 	return true;
@@ -249,6 +252,8 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 	// The node list is kept bounded whatever the world holds (twice the map's own cap).
 	const int32 MaxFound = 2 * MaxResourceNodes;
 	int32 Budget = MaxActors;
+	const int32 StartLevel = ScanLevel;
+	const int32 ActorsBefore = ScanActors;
 	while (Budget > 0 && ScanLevel < ScanLevels.Num())
 	{
 		const ULevel* Level = ScanLevels[ScanLevel].Get();
@@ -296,7 +301,13 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 	const double Spent = FPlatformTime::Seconds() - StepStart;
 	++ScanSteps;
 	ScanTotal += Spent;
-	ScanLongestStep = FMath::Max(ScanLongestStep, Spent);
+	if (Spent > ScanLongestStep)
+	{
+		ScanLongestStep = Spent;
+		ScanLongestItems = ScanActors - ActorsBefore;
+		ScanLongestStartLevel = StartLevel;
+		ScanLongestEndLevel = ScanLevel;
+	}
 	if (ScanLevel < ScanLevels.Num())
 	{
 		return {};
@@ -315,6 +326,8 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Resource node scan (game thread only): %d actors in %d steps, %d nodes, longest step %.2f ms, total %.2f ms"),
 			ScanActors, ScanSteps, ScanFound.Num(), ScanLongestStep * 1000.0, ScanTotal * 1000.0);
+		// The scan's phase is the level index; its elements are actors.
+		LogLongestStep(TEXT("Resource node"), ScanLongestStep * 1000.0, ScanLongestItems, ScanLongestStartLevel, ScanLongestEndLevel);
 	}
 	// A world with no levels, no actors or no nodes comes back empty, which the caller treats as "cannot read".
 	return MoveTemp(ScanFound);
@@ -483,6 +496,7 @@ TOptional<TArray<SatisDash::FFactoryReading>> SatisDash::FGameReader::StepFactor
 	UE_LOG(LogSatisDash, Display, TEXT("Factory read (game thread only): %d buildings in %d steps, %d machines, longest step %.2f ms, total %.2f ms, expected %d, boosted %d, productivity %.3f..%.3f"),
 		FactoryCursor, Budget.Steps(), FactoryFound.Num(), Budget.LongestMs(), Budget.TotalMs(), FactoryExpected, FactoryBoosted,
 		bAny ? FactoryProductivityMin : 0.0, bAny ? FactoryProductivityMax : 0.0);
+	LogLongestStep(TEXT("Factory"), Budget);
 	TArray<FFactoryReading> Done = MoveTemp(FactoryFound);
 	ResetFactoryRead();
 	return MoveTemp(Done);
@@ -1060,7 +1074,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 	}
 	bool bFinished = false;
 	// The next asked-for read phase after the given one (Collect, ReadRails, ReadConveyors, ReadPowerLines in that order), or the end.
-	const auto nextPhase = [this, &bFinished](ELogisticsPhase After)
+	const auto nextPhase = [this, &bFinished, &Budget](ELogisticsPhase After)
 	{
 		LogisticsCursor = 0;
 		if (After < ELogisticsPhase::ReadRails && bLogisticsRails)
@@ -1079,7 +1093,11 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 		{
 			bFinished = true;
 		}
+		// The diagnostic's phase number (0 Collect, 1 ReadRails, 2 ReadConveyors, 3 ReadPowerLines): which phase a slow step was in.
+		Budget.SetTag(int32(LogisticsPhase));
 	};
+	// Set before Begin(), which records it as the step's starting phase.
+	Budget.SetTag(int32(LogisticsPhase));
 	Budget.Begin();
 	do
 	{

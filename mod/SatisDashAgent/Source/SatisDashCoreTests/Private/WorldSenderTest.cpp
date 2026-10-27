@@ -981,6 +981,32 @@ bool FWorldSenderLogisticsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("one Logistics read line a pass"), ReadLines, 2);
 	TestEqual(TEXT("no id in the log"), Leaks, 0);
 
+	// The longest-step diagnostic: a step over the 2 ms ceiling logs one extra line with its element count and phase; one under it logs none.
+	for (const double StepSeconds : { 0.00971, 0.0015 })
+	{
+		SatisDash::Test::FLogCapture StepLog;
+		FWorldFixture S;
+		worldLogisticsNative(S);
+		worldLogisticsReadings(S.Game);
+		S.Game.LogisticsStepElements = 7;
+		S.Game.LogisticsStepTag = 2;
+		S.Game.LogisticsStepWork = [&S, StepSeconds] { if (S.Game.LogisticsStepCalls == 1) { S.T += StepSeconds; } };
+		S.Sender.Start(S.T);
+		TestTrue(TEXT("diagnostic: the pass posts"), S.until([&S] { return S.Net.pending(WorldRailsPost) > 0; }, 450));
+		int32 Exact = 0;
+		int32 AnyLongest = 0;
+		int32 ReadLine = 0;
+		for (const FString& Line : StepLog.Take())
+		{
+			Exact += Line.Contains(TEXT("Logistics read longest step: 9.71 ms over 7 elements, phase 2 to 2")) ? 1 : 0;
+			AnyLongest += Line.Contains(TEXT("read longest step: ")) ? 1 : 0;
+			ReadLine += Line.Contains(TEXT("Logistics read (game thread only): ")) ? 1 : 0;
+		}
+		TestEqual(TEXT("a step over the ceiling logs one diagnostic line with its counts, a step under it none"), Exact, StepSeconds > 0.002 ? 1 : 0);
+		TestEqual(TEXT("and no other longest-step line"), AnyLongest, Exact);
+		TestEqual(TEXT("and the existing read line is still there"), ReadLine, 1);
+	}
+
 	// An abandoned read (a world swap, no subsystem) posts nothing, warns once and is retried after NodeScanRetrySeconds.
 	F.Game.bLogisticsAbandoned = true;
 	const int32 Posts = F.Net.sent(WorldRailsPost);
