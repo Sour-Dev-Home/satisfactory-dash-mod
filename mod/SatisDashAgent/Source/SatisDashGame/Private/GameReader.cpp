@@ -845,6 +845,7 @@ TOptional<SatisDash::FDroneRoutesSnapshot> SatisDash::FGameReader::StepDroneRout
 		const AFGDroneStationInfo* Info = Stations[DroneCursor++];
 		if (!IsValid(Info))
 		{
+			++DroneFound.Counts.Dropped; // an invalid info counts like a station that is gone
 			continue;
 		}
 		const AFGBuildableDroneStation* Station = Info->GetStation(); // server-only; null on a client or when the building is gone

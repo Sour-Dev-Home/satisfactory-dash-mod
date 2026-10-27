@@ -8,7 +8,7 @@ Captures: frm-getDroneStation-2026-10-25-paired-*-trimmed.json (satisfactory-das
 Captures: frm-getDroneStation-2026-10-25-unpaired-trimmed.json (the same, for the unpaired port)
 Facts: the contract (DronePortSchema at harness/contract/src/map.ts:216, with the optional nullable pairedId of dash #739, DRONE_ROUTES_MAX_ITEMS, TRAIN_ROUTES_MAX_ITEM_CLASSES, the 200-character boundedString) and the dash droneRoutesMapper.ts (our own code, at 27911fb) are the rules for the key order, the distinct sorted item classes, the drops and the sort; no field name is taken from FRM source
 Facts: pairedId is the partner port's id and is written always: null when the port is unpaired, the partner's buildable is gone, or the partner is not in the kept layer (dropped, capped or absent), so it never names a port outside the layer; paired stays the partner's name as the game reports it
-Author: Task 7 implementer subagent (Sprint S4-A, 2026-10-28)
+Author: Task 7 and Task 9 implementer subagents (Sprint S4-A, 2026-10-28)
 Date: 2026-10-28
 
 FRM source was not opened
