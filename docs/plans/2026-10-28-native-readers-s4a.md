@@ -583,3 +583,18 @@ Nothing else is run.
 13. **The pass log line gains `powerLines=` and `wires` fields;** S3 evidence still parses (optional group).
 14. **Owner step:** the backend images must be rebuilt from the new contract pin before `native-parity`, or the image guard refuses the run.
 15. **A port named "None":** FRM's sentinel makes the oracle read it as unpaired while the mod sends the real name; a one-port edge case reported, not failed. Accept?
+
+**Added during execution (the judges' review, 2026-10-28):**
+16. **Id-set exemptions** (reported, never failed). Two cases:
+    - when both sides are exactly at the layer cap, the ids that sort after the earlier of the two last ids;
+    - clamped mod ids, but no more of them than FRM's derived ids.
+
+    Any other id difference fails. Accept?
+17. **`pairedId` tightened.**
+    - An unpaired FRM port needs the mod's `pairedId` to be null or absent.
+    - An ambiguous FRM name allows null, absent, or one of FRM's candidate ids.
+    - A unique FRM partner must equal the mod's id.
+
+    Accept?
+18. **`S4_MARKER_BOUNDARY_TOL_M` = 0.01 m:** a marker whose FRM value sits within 0.01 m of a .5 m rounding boundary may round one metre apart without failing. Accept?
+19. **Drone x/y** is a straight-line distance ≤ 1 m (not per axis). **Power lines** take the better of the two end orders.

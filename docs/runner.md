@@ -292,9 +292,12 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   `Readers:` line to say `mapMarkers=native droneRoutes=native powerLines=native`, `Map markers read` and `Drone routes read`
   lines, and a `Logistics read` line with `powerLines=1`. `readers.json` gains `mapMarkers`, `droneRoutes` and `powerLines`; an S1
   to S3 capture is judged as before. Known gap: `judgeWires` is called without its optional `{ dropped }` count, because there is no
-  wires-only dropped parser, so the dropped-wire check is not applied. `tick-cost-native` still uses `NATIVE_SOURCES_S3`.
+  wires-only dropped parser, so the dropped-wire check is not applied (the dropped-wire count is not judged). Both
+  `native-parity` and `tick-cost-native` write `NATIVE_SOURCES_S4`. The backend images must be built from the contract pin
+  `27911fb` or a descendant, or the image guard refuses the run (see "The backend host"). The marker, drone-route and wire
+  counts on `Test3` are pending the `s4-capture` run (PR #67).
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
-  config (`mod-config.json`, `NATIVE_SOURCES_S3`: the players, resource-node, factory, trains, rails and conveyors readers),
+  config (`mod-config.json`, `NATIVE_SOURCES_S4`: the S3 set plus the map markers, drone routes and power lines readers),
   loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`
   and `conveyorsSource` to be `native` (config and `Readers:` line) and a `Logistics read (game thread only):` line inside the
   measured window, its longest step at 2.0 ms or less; S1- and S2-shaped evidence is judged as before. It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged

@@ -62,6 +62,17 @@ The S2 switch followed `native-parity` run
 40403583987 and `tick-cost-native` run 40396146628 on `Test2` (owner, 2026-10-26). TrainRoutes has no bridge path: it is
 native-only and runs only when `trainsSource` is `native`, so a host that sets `trainsSource` to `bridge` turns it off.
 
+## Where each reader stands (S4-A, after Task 17)
+
+Map markers (R8), drone routes (R9) and power lines (R10) are built, and all three are still `bridge`, so by default their
+layers are not sent. FRM is not involved in them either way; `bridge` here only means "off". None has been judged by a parity
+run yet. The switch PR comes after `native-parity` passes on `Test3`, on the owner's word. A native layer reads on a schedule
+of its own (markers and drone routes: first read 480 s x jitter, then every 10 minutes); the logistics pass pulls `powerLines`
+forward with rails and conveyors. The first native post of each layer changes its content hash once, ids of rebuilt wires
+and ports change, and `droneRoutes` posts carry `pairedId`.
+
+The three snapshot fields below are different: they are sent on every snapshot, whatever the layer sources.
+
 ## The snapshot's game-connection fields (S4-A, R7)
 
 Every snapshot carries three top-level fields beside `reachable` (never inside `status`): `gameReachable` (this pass's status
@@ -100,6 +111,25 @@ Reported, not rules; none of them changes a pass condition.
   +/-1,000,000 m; unrepresentable tracks are listed and are in neither id set).
 - Duplicate ids fail only on the mod's side, as in S2; FRM's duplicates are reported.
 
+## Before reading the S4 results
+
+Reported, not rules; none of them changes a pass condition. The judges are in `runs/native-parity/pass-s4.ts`.
+
+- Id-set exemptions: when both sides are exactly at the layer cap, the ids sorting after the earlier of the two last ids are
+  reported, not failed; clamped mod ids are reported too, but no more of them than FRM's derived ids. Any other id difference
+  fails.
+- `pairedId` rules: an unpaired FRM port needs the mod's `pairedId` null or absent; an ambiguous FRM name allows null, absent
+  or one of FRM's candidate ids; a unique FRM partner must equal the mod's id.
+- Marker positions are compared after rounding to whole metres, with a 0.01 m boundary tolerance (`S4_MARKER_BOUNDARY_TOL_M`):
+  a value that close to a .5 m boundary may round one metre apart.
+- Each layer has NOT EXERCISED lines for what the save does not hold (for example a layer with no records); they are reported,
+  never failed.
+- An input/output "swapped" hint on drone ports is a reading aid for the fix, printed with the failure.
+- Marker colour is compared on a guess at the sRGB conversion; read a colour difference with that in mind.
+- The expected-wires warning (`wires N, expected wires M`) may fire if `GetBuildableCount` returns 0 for the abstract wire
+  class. It is a Warning in the mod's log, not a verdict.
+- The S4 FRM samplers poll every 90 s. The dropped-wire count is not judged (no wires-only dropped parser).
+
 ## The Test3 note
 
 The S3 runs (`native-parity`, `tick-cost-native`) load the owner's `Test3` save through the runner config's `sprint3World`
@@ -107,6 +137,17 @@ The S3 runs (`native-parity`, `tick-cost-native`) load the owner's `Test3` save 
 thread only):` line, with its longest step at 2.0 ms or less, inside the measured window. The native first read is 480 s
 (+/-10%) after Running, so it lands 3 to 13 minutes into the measurement. A config with only one logistics layer native still
 needs the line, but `tick-cost-native` fails it as an S3 run.
+
+For S4-A both runs write all nine keys (`NATIVE_SOURCES_S4`). The marker, drone-route and wire counts on `Test3` are pending
+the `s4-capture` run (PR #67); nothing here is guessed.
+
+## Follow-ups after S4-A
+
+- S4-B: extractors, generators, train transfer rates and storage, once the dash contracts for them land.
+- A wires-only dropped parser, so `judgeWires` can apply the dropped-wire check.
+- `IsValid` on the subsystem checks across all readers.
+- The switch PR for markers, drone routes and power lines, after `native-parity` passes on `Test3`.
+- R7, the bridge removal, on the owner's word only.
 
 ## The Test2 note
 
