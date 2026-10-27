@@ -82,7 +82,22 @@ describe("judgeRails", () => {
     expect(S3.judgeRails(railsEv({ post: moved, after: [track("T1", [[0, 5], [10, 5]])] })).pass).toBe(true);
   });
   it("fails when FRM reads failed and no sample succeeded", () => {
-    expect(S3.judgeRails(railsEv({ frmSamples: [], failed: 3 })).pass).toBe(false);
+    const v = S3.judgeRails(railsEv({ frmSamples: [], failed: 3 }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no FRM getTrainRails sample succeeded");
+  });
+  it("a duplicate track id on either side fails", () => {
+    const m = S3.judgeRails(railsEv({ post: [modTrack("T1", [[0, 0], [10, 0]]), modTrack("T1", [[0, 0], [10, 0]])] }));
+    expect(m.pass).toBe(false);
+    expect(text(m)).toContain("the mod sent track id(s) twice");
+    const f = S3.judgeRails(railsEv({ frm: [track("T1", [[0, 0], [10, 0]]), track("T1", [[0, 0], [10, 0]])] }));
+    expect(f.pass).toBe(false);
+    expect(text(f)).toContain("FRM listed track id(s) twice");
+  });
+  it("a mod track whose id FRM marks not representable is in neither set (reported, not failed)", () => {
+    const v = S3.judgeRails(railsEv({ frm: [track("T1", [[0, 0], [10, 0]]), track("T2", [[1, 1], [1.2, 1.2]], false)], post: [modTrack("T1", [[0, 0], [10, 0]]), modTrack("T2", [[1, 1], [2, 2]])] }));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("1 FRM tracks the contract cannot hold");
   });
   it("reports NOT EXERCISED for a curved track and a track over 999 m, and a bent FRM track removes the first line", () => {
     const flat = S3.judgeRails(railsEv({}));
@@ -131,6 +146,8 @@ describe("judgeConveyors", () => {
   it.each([
     ["kind", { kind: "lift" }, "kind mod=lift frm=belt"],
     ["tier", { tier: "Conveyor Belt Mk.3" }, "tier mod=Conveyor Belt Mk.3 frm=Conveyor Belt Mk.2"],
+    ["from", { from: "Build_MinerMk1_C_9" }, "from mod=Build_MinerMk1_C_9 frm=Build_MinerMk1_C_1"],
+    ["toKind", { toKind: "other" }, "toKind mod=other frm=machine"],
     ["fromKind", { fromKind: "other" }, "fromKind mod=other frm=extractor"],
     ["to", { to: "Build_ConstructorMk1_C_3" }, "to mod=Build_ConstructorMk1_C_3"],
   ])("a differing %s fails and names the field", (_f, over, line) => {
@@ -199,6 +216,29 @@ describe("judgeConveyors", () => {
     expect(S3.judgeConveyors(late).pass).toBe(false);
     const dead = convEv({ failed: 2 });
     dead.frmSamples = [];
-    expect(S3.judgeConveyors(dead).pass).toBe(false);
+    const v = S3.judgeConveyors(dead);
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no FRM getBelts+getLifts+getPipes sample succeeded");
+  });
+  it("a duplicate edge id on either side fails", () => {
+    const m = S3.judgeConveyors(convEv({ post: [modEdge(), modEdge()] }));
+    expect(m.pass).toBe(false);
+    expect(text(m)).toContain("the mod sent edge id(s) twice");
+    const f = S3.judgeConveyors(convEv({ frm: [frmEdge(), frmEdge()] }));
+    expect(f.pass).toBe(false);
+    expect(text(f)).toContain("FRM listed edge id(s) twice");
+  });
+  it("reports FRM records the oracle dropped, and does not fail on them", () => {
+    const ev = convEv();
+    ev.distinct.s!.dropped = 2;
+    const v = S3.judgeConveyors(ev);
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("2 FRM records dropped by the adapter's rules");
+    expect(text(S3.judgeConveyors(convEv()))).not.toContain("FRM records dropped");
+  });
+  it("a failed drone read alone does not fail a layer with no port end", () => {
+    const ev = convEv();
+    ev.drone = { ids: [], frm: { reads: 0, failed: 3 } };
+    expect(S3.judgeConveyors(ev).pass).toBe(true);
   });
 });

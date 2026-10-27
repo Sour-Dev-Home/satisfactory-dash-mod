@@ -31,7 +31,7 @@ export interface FrmRail { id: string; points: Array<[number, number]>; represen
 
 /**
  * getTrainRails' body to tracks: ID and SplineData x/y (centimetres) as metres rounded to 0.01 (M3). `representable` is whether the
- * contract can hold the track: at least two distinct consecutive whole-metre points (JS Math.round) inside +/-1,000,000 m.
+ * contract can hold the track (NEW rule, ruling M3, Open questions): at least two distinct consecutive whole-metre points (JS Math.round) inside +/-1,000,000 m.
  * A record without a string ID or a SplineData array is skipped; a non-array body throws.
  */
 export function mapFrmRails(body: unknown): FrmRail[] {
