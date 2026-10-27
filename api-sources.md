@@ -257,6 +257,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | TOptional::Get | Engine/Source/Runtime/Core/Public/Misc/Optional.h:389 | header only (the default-value overload) |
 | TArray | Engine/Source/Runtime/Core/Public/Containers/Array.h:651 | header only |
 | TArray::Num | Engine/Source/Runtime/Core/Public/Containers/Array.h:1116 | header only |
+| TArray::Swap | Engine/Source/Runtime/Core/Public/Containers/Array.h:3307 | header only |
 | TArray::SetNum | Engine/Source/Runtime/Core/Public/Containers/Array.h:2320 | header only |
 | TArray::Shrink | Engine/Source/Runtime/Core/Public/Containers/Array.h:1269 | header only |
 | FString::AppendChar | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:447 | header only |
@@ -699,3 +700,10 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGBuildableDroneStation | Source/FactoryGame/Public/Buildables/FGBuildableDroneStation.h:37 | header only (Cast target) |
 | Buildables/FGBuildableDockingStation.h | Source/FactoryGame/Public/Buildables/FGBuildableDockingStation.h:1 | header only |
 | AFGBuildableDockingStation | Source/FactoryGame/Public/Buildables/FGBuildableDockingStation.h:63 | header only (Cast target) |
+| FLinearColor | Engine/Source/Runtime/Core/Public/Math/Color.h:47 | header only (the marker colour: FGMapMarker's color slot is a linear colour) |
+| FLinearColor::White | Engine/Source/Runtime/Core/Public/Math/Color.h:465 | header only |
+| FLinearColor::FromSRGBColor | Engine/Source/Runtime/Core/Public/Math/Color.h:123 | header only (the inverse of ToFColor(true): used by the tests to build a colour with a known sRGB byte value) |
+| FLinearColor::ToFColor | Engine/Source/Runtime/Core/Public/Math/Color.h:381 | header only (bSRGB true = ToFColorSRGB, false = QuantizeRound; the NativeMarkerColorSRGB constant picks) |
+| FColor | Engine/Source/Runtime/Core/Public/Math/Color.h:494 | header only |
+| FColor::ToHex | Engine/Source/Runtime/Core/Public/Math/Color.h:706 | header only (RRGGBBAA, upper case; Color.cpp:585) |
+| TestNotEqual | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:1972 | header only (the FString overload) |
