@@ -27,19 +27,24 @@ import { ResourceNodesLayerDataSchema } from "../../harness/contract/src/map";
 import type { FrmCircuitGroup } from "../../harness/src/frm";
 import { canonNodes, type CanonNode } from "../../harness/src/frm-native";
 import {
-  conveyorsLogProblems, factoryLogProblems, kindCheck, logisticsLineProblems, nodesLogProblems, playersLogProblems, railsLogProblems, stepCosts,
-  trainsLogProblems, withProblems,
+  conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, kindCheck, logisticsLineProblems, mapMarkersLogProblems, nodesLogProblems,
+  playersLogProblems, powerLinesLogProblems, railsLogProblems, stepCosts, trainsLogProblems, withProblems,
 } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import { judgeFactory, judgeRates, judgeRoutes, judgeStations, judgeTrains, productivityRange, type S2Evidence, type S2Result } from "./pass-s2";
 import { judgeConveyors, judgeRails, type S3Evidence } from "./pass-s3";
+import { judgeDrone, judgeMarkers, judgeWires, type S4Evidence, type S4Result } from "./pass-s4";
 import type { Circuit, Posted, ServerState } from "../parity/pass";
 import { inBracket, NEED_PAIRS, PARITY_POWER_TOLERANCE, WINDOW_MINUTES as PARITY_WINDOW_MINUTES } from "../parity/pass";
 
 export * from "./pass-s2";
 export * from "./pass-s3";
+export * from "./pass-s4";
 
-export const requirements = ["native-parity", "R0-power", "R1-players", "R4-resource-nodes", "R2a-factory", "R2b-rates", "R3-trains", "R3-stations", "R3-train-routes", "R5-rails", "R6-conveyors"];
+export const requirements = [
+  "native-parity", "R0-power", "R1-players", "R4-resource-nodes", "R2a-factory", "R2b-rates", "R3-trains", "R3-stations", "R3-train-routes", "R5-rails", "R6-conveyors",
+  "R8-map-markers", "R9-drone-routes", "R10-power-lines",
+];
 export const WINDOW_MINUTES = PARITY_WINDOW_MINUTES;
 /** The parity run's bar: ceil(1800 / 5 x 0.8) rounds. */
 export const NEED_ROUNDS = NEED_PAIRS;
@@ -77,6 +82,8 @@ export interface NativeParity {
   s2?: S2Evidence;
   /** Sprint S3's evidence (pass-s3.ts); absent in an S1 or S2 capture. */
   s3?: S3Evidence;
+  /** Sprint S4-A's evidence (pass-s4.ts); absent in an S1 to S3 capture. */
+  s4?: S4Evidence;
 }
 export interface ReaderVerdicts {
   power: Verdict; players: Verdict; resourceNodes: Verdict;
@@ -84,6 +91,8 @@ export interface ReaderVerdicts {
   factory?: Verdict; rates?: Verdict; trains?: Verdict; stations?: Verdict; trainRoutes?: Verdict;
   /** S3: present exactly when the capture has `s3`. */
   rails?: Verdict; conveyors?: Verdict;
+  /** S4-A: present exactly when the capture has `s4`. */
+  mapMarkers?: Verdict; droneRoutes?: Verdict; powerLines?: Verdict;
 }
 
 const ms = (iso: string) => Date.parse(iso);
@@ -254,7 +263,7 @@ export function judgeNodes(n: NativeParity["nodes"]): Verdict {
 
 // ------------------------------------------------------------------------------------------------------------- the run
 
-const finish = (r: S2Result): Verdict => (r.pass ? passing(r.reasons, r.never) : { pass: false, reasons: r.reasons });
+const finish = (r: S2Result | S4Result): Verdict => (r.pass ? passing(r.reasons, r.never) : { pass: false, reasons: r.reasons });
 
 /**
  * The verdicts, each computed from its own evidence only: S1's three unchanged, and S2's five when the capture has them. `lines`
@@ -276,6 +285,8 @@ export function judgeReaders(c: NativeParity, lines: readonly string[] = []): Re
   }
   // S3's two judges read only their own evidence (the conveyors judge also takes the mod's `Conveyor kinds:` census line, when logged).
   if (c.s3) out = { ...out, rails: finish(judgeRails(c.s3.rails)), conveyors: finish(judgeConveyors(c.s3.conveyors, kindCheck(lines))) };
+  // S4-A's three judges read only their own evidence; one failing leaves the others' verdicts alone.
+  if (c.s4) out = { ...out, mapMarkers: finish(judgeMarkers(c.s4.markers)), droneRoutes: finish(judgeDrone(c.s4.drone)), powerLines: finish(judgeWires(c.s4.wires)) };
   return out;
 }
 
@@ -293,6 +304,12 @@ const expectsS2 = (c: NativeParity, sources: unknown): boolean => {
 const expectsS3 = (c: NativeParity, sources: unknown): boolean => {
   const s = sources as { railsSource?: unknown; conveyorsSource?: unknown } | undefined | null;
   return c.s3 !== undefined || s?.railsSource !== undefined || s?.conveyorsSource !== undefined;
+};
+
+/** S4-A is expected when the capture has its evidence or the config asked for any of the three S4 sources (so a drive that lost the evidence fails closed). */
+const expectsS4 = (c: NativeParity, sources: unknown): boolean => {
+  const s = sources as { mapMarkersSource?: unknown; droneRoutesSource?: unknown; powerLinesSource?: unknown } | undefined | null;
+  return c.s4 !== undefined || s?.mapMarkersSource !== undefined || s?.droneRoutesSource !== undefined || s?.powerLinesSource !== undefined;
 };
 
 /** What must hold for any verdict to mean anything: the window, the mod enrolled, nothing refused or unreadable. */
@@ -313,6 +330,13 @@ function runReasons(c: NativeParity, sources: unknown): string[] {
     const t = sources as { railsSource?: string; conveyorsSource?: string } | undefined | null;
     if (t?.railsSource !== "native" || t?.conveyorsSource !== "native") out.push("the run did not write railsSource and conveyorsSource as native into the mod's config");
     if (!c.s3) out.push("the S3 evidence (rails, conveyors) was not captured");
+  }
+  if (expectsS4(c, sources)) {
+    const t = sources as { mapMarkersSource?: string; droneRoutesSource?: string; powerLinesSource?: string } | undefined | null;
+    if (t?.mapMarkersSource !== "native" || t?.droneRoutesSource !== "native" || t?.powerLinesSource !== "native") {
+      out.push("the run did not write mapMarkersSource, droneRoutesSource and powerLinesSource as native into the mod's config");
+    }
+    if (!c.s4) out.push("the S4 evidence (mapMarkers, droneRoutes, powerLines) was not captured");
   }
   if (!c.state) out.push("the mod's server state was not read");
   else {
@@ -357,6 +381,15 @@ export function evaluate(e: CoreEvidence): Verdict {
     names.push(
       ["R5 rails", "rails", withProblems(v.rails ?? none, [...railsLogProblems(e.lines), ...logisticsLineProblems(e.lines, "rails")])],
       ["R6 conveyors", "conveyors", withProblems(v.conveyors ?? none, [...conveyorsLogProblems(e.lines), ...logisticsLineProblems(e.lines, "conveyors")])],
+    );
+  }
+  if (expectsS4(c, e.captures["mod-config.json"])) {
+    // S4-A's readers: native by the Readers line and having completed a read (the shared logistics pass serves powerLines).
+    const none: Verdict = { pass: false, reasons: ["no S4 evidence in the capture"] };
+    names.push(
+      ["R8 mapMarkers", "mapMarkers", withProblems(v.mapMarkers ?? none, [...mapMarkersLogProblems(e.lines), ...readLineProblems(e.lines, "Map markers read")])],
+      ["R9 droneRoutes", "droneRoutes", withProblems(v.droneRoutes ?? none, [...droneRoutesLogProblems(e.lines), ...readLineProblems(e.lines, "Drone routes read")])],
+      ["R10 powerLines", "powerLines", withProblems(v.powerLines ?? none, [...powerLinesLogProblems(e.lines), ...logisticsLineProblems(e.lines, "powerLines")])],
     );
   }
   // readers.json is these same final verdicts, the ones the PASS/FAIL lines come from: the drive wrote a first version without the

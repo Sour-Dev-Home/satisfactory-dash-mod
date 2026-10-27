@@ -182,7 +182,22 @@ describe("recorder (ruling 11)", () => {
     expect(rec.entries[2]).not.toHaveProperty("worldData");
   });
 
-  const parts = { settings: { autoPause: false }, power: { circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
+  it("keeps mapMarkers, droneRoutes and powerLines posts in memory only, and publicEntries leaves the data out (S4)", async () => {
+    const up = await upstream(() => ({ status: 200, body: '{"accepted":true,"unchanged":false}' }));
+    const headers = { "user-agent": MOD_UA, "content-type": "application/json" };
+    const rec = await recorderFor(up.url, { keepWorldData: ["mapMarkers", "droneRoutes", "powerLines"] });
+    for (const [layer, item] of [["mapMarkers", { id: "M1", name: "Alpha" }], ["droneRoutes", { id: "P1", name: "Beta" }], ["powerLines", { id: "W1" }]] as const) {
+      await send(rec.url, "POST", `/agent/v1/world/${layer}`, { headers, body: JSON.stringify({ observedAt: "t", data: [item] }) });
+    }
+    await send(rec.url, "POST", "/agent/v1/world/rails", { headers, body: JSON.stringify({ observedAt: "t", data: [{ id: "R1" }] }) });
+    expect(rec.entries[0]).toMatchObject({ worldData: [{ id: "M1", name: "Alpha" }] });
+    expect(rec.entries[1]).toMatchObject({ worldData: [{ id: "P1", name: "Beta" }] });
+    expect(rec.entries[2]).toMatchObject({ worldData: [{ id: "W1" }] });
+    expect(rec.entries[3]).not.toHaveProperty("worldData");
+    expect(JSON.stringify(publicEntries(rec.entries))).not.toMatch(/Alpha|Beta/);
+  });
+
+  const parts = { settings: { autoPause: false }, power:{ circuits: [{ circuitGroupId: 1, productionMW: 5 }] } };
   const factory = { buildings: Array.from({ length: 30_000 }, (_, i) => ({ id: `b${i}`, name: "Constructor", className: "Build_ConstructorMk1_C", pad: "p".repeat(60) })) };
   const big = JSON.stringify({ ...snapshot, ...parts, factory, players: { available: true, players: [{ name: "Someone", online: true }] } });
 

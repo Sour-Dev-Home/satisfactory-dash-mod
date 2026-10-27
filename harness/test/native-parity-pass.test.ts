@@ -299,3 +299,91 @@ describe("native-parity judge (S3 wiring)", () => {
     expect(badConv.rails!.pass).toBe(true);
   });
 });
+
+// ------------------------------------------------------------------------------------------------------------------ S4 wiring
+
+// Like S3_SOURCES, the S2 keys are left out so these captures need no S2 evidence.
+const S4_SOURCES = { ...S3_SOURCES, mapMarkersSource: "native", droneRoutesSource: "native", powerLinesSource: "native" };
+const S4_LINES = [
+  ...S3_LINES.filter((l) => !l.includes("Logistics read")),
+  `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native`,
+  `${PREFIX}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, wires 5, expected wires 5 in 4 steps, longest step 0.80 ms, total 12.00 ms, expected tracks 4, dropped 0, over cap 0`,
+  `${PREFIX}Map markers read (game thread only): 1 markers, 0 dropped in 2 steps, longest step 0.50 ms, total 1.00 ms`,
+  `${PREFIX}Drone routes read (game thread only): 1 ports, 0 dropped in 2 steps, longest step 0.50 ms, total 1.00 ms`,
+];
+// A synthetic name hash: the judge compares strings and requires the 12-hex shape.
+const NAME_HASH = "0123456789ab";
+function s4Evidence(over: { markers?: unknown; drone?: unknown; wires?: unknown } = {}): NonNullable<Pass.NativeParity["s4"]> {
+  const sample = (v: string) => [{ startedAt: iso(T0 + 7 * 60_000), endedAt: iso(T0 + 7 * 60_000 + 500), value: v }];
+  const at = iso(T0 + 8 * 60_000);
+  const marker = { id: "M1", name: NAME_HASH, kind: "marker", icon: 1, color: "#ffffff", x: 10, y: 20 };
+  const port = { id: "P1", name: NAME_HASH, paired: null, input: [], output: [], fuel: [], x: 5, y: 6 };
+  return {
+    markers: {
+      posts: [{ at, status: 200, data: over.markers ?? [marker] }], frmSamples: sample("m1"),
+      distinct: { m1: [{ id: "M1", nameHash: NAME_HASH, kind: "marker", icon: 1, color: "#ffffff", xM: 10, yM: 20 }] }, frm: { reads: 3, failed: 0 },
+    },
+    drone: {
+      posts: [{ at, status: 200, data: over.drone ?? [port] }], frmSamples: sample("d1"),
+      distinct: { d1: [{ id: "P1", nameHash: NAME_HASH, pairedHash: null, input: [], output: [], fuel: [], xM: 5, yM: 6, pairedIds: [] }] }, frm: { reads: 3, failed: 0 },
+    },
+    wires: {
+      posts: [{ at, status: 200, data: over.wires ?? [{ id: "W1", points: [[0, 0], [10, 0]] }] }], frmSamples: sample("w1"),
+      distinct: { w1: [{ id: "W1", ends: [[0, 0], [10, 0]] }] }, frm: { reads: 3, failed: 0 },
+    },
+  };
+}
+const s4Capture = (over: Parameters<typeof s4Evidence>[0] = {}): Pass.NativeParity => ({ ...s3Capture(), s4: s4Evidence(over) });
+
+describe("native-parity judge (S4 wiring)", () => {
+  it("an S3-shaped capture and config re-judge as before: no S4 verdicts, no R8 to R10 lines", () => {
+    expect(Object.keys(Pass.judgeReaders(s3Capture())).sort()).toEqual(["conveyors", "players", "power", "rails", "resourceNodes"]);
+    const e = Pass.evaluate(evidence(s3Capture(), S3_SOURCES, S3_LINES));
+    expect(e.pass).toBe(true);
+    expect(e.reasons.join("\n")).not.toMatch(/R8 mapMarkers|R9 droneRoutes|R10 powerLines/);
+  });
+
+  it("an S4 capture with the three keys native gives three verdicts and readers.json holds them", () => {
+    const ev = evidence(s4Capture(), S4_SOURCES, S4_LINES);
+    const v = Pass.evaluate(ev);
+    expect(v.reasons.filter((r) => r.includes("FAIL"))).toEqual([]);
+    expect(v.pass).toBe(true);
+    const readers = ev.captures["readers.json"] as Record<string, { pass: boolean }>;
+    expect(Object.keys(readers)).toEqual(["power", "players", "resourceNodes", "rails", "conveyors", "mapMarkers", "droneRoutes", "powerLines"]);
+    expect(readers.mapMarkers!.pass && readers.droneRoutes!.pass && readers.powerLines!.pass).toBe(true);
+    expect(Pass.requirements).toEqual(expect.arrayContaining(["R8-map-markers", "R9-drone-routes", "R10-power-lines"]));
+  });
+
+  it("a missing Map markers read line fails markers with the log problem, the others keep their verdicts", () => {
+    const lines = S4_LINES.filter((l) => !l.includes("Map markers read"));
+    const text = Pass.evaluate(evidence(s4Capture(), S4_SOURCES, lines)).reasons.join("\n");
+    expect(text).toMatch(/R8 mapMarkers FAIL: .*no "Map markers read \(game thread only\):" line/);
+    expect(text).toMatch(/R9 droneRoutes PASS/);
+    expect(text).toMatch(/R10 powerLines PASS/);
+  });
+
+  it("a Logistics read line without powerLines=1 fails powerLines alone", () => {
+    const lines = S4_LINES.map((l) => l.replace("powerLines=1", "powerLines=0"));
+    const text = Pass.evaluate(evidence(s4Capture(), S4_SOURCES, lines)).reasons.join("\n");
+    expect(text).toMatch(/R10 powerLines FAIL: .*powerLines=0, not 1/);
+    expect(text).toMatch(/R8 mapMarkers PASS/);
+  });
+
+  it("powerLinesSource bridge, a missing S4 key, or lost S4 evidence fails the run reasons", () => {
+    expect(Pass.evaluate(evidence(s4Capture(), { ...S4_SOURCES, powerLinesSource: "bridge" }, S4_LINES)).pass).toBe(false);
+    const text = Pass.evaluate(evidence(s4Capture(), { ...S3_SOURCES, mapMarkersSource: "native" }, S4_LINES)).reasons.join("\n");
+    expect(text).toContain("mapMarkersSource, droneRoutesSource and powerLinesSource as native");
+    const lost = Pass.evaluate(evidence(s3Capture(), S4_SOURCES, S4_LINES));
+    expect(lost.pass).toBe(false);
+    expect(lost.reasons.join("\n")).toContain("the S4 evidence (mapMarkers, droneRoutes, powerLines) was not captured");
+    expect(lost.reasons.join("\n")).toMatch(/R8 mapMarkers FAIL: no S4 evidence/);
+  });
+
+  it("one failing reader leaves the other two verdicts unchanged", () => {
+    const good = Pass.judgeReaders(s4Capture());
+    const bad = Pass.judgeReaders(s4Capture({ wires: [{ id: "W1", points: [[0, 50], [10, 50]] }] }));
+    expect(bad.powerLines!.pass).toBe(false);
+    expect(bad.mapMarkers).toEqual(good.mapMarkers);
+    expect(bad.droneRoutes).toEqual(good.droneRoutes);
+  });
+});
