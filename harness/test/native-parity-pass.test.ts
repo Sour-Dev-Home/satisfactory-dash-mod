@@ -206,3 +206,88 @@ describe("native-parity judge", () => {
     for (const key of Object.keys(NATIVE_SOURCES_S3)) expect(cpp).toContain(`TEXT("${key}")`);
   });
 });
+
+// ------------------------------------------------------------------------------------------------------------------ S3 wiring
+
+const S3_SOURCES = { ...NATIVE_SOURCES, railsSource: "native", conveyorsSource: "native" };
+const S3_LINES = [
+  ...NATIVE_LINES,
+  `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native`,
+  `${PREFIX}Logistics read (game thread only): layers rails=1 conveyors=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, longest step 0.80 ms, total 12.00 ms`,
+];
+const edge = { id: "B1", kind: "belt", from: "Build_MinerMk1_C_1", fromKind: "extractor", to: "Build_ConstructorMk1_C_2", toKind: "machine", capacityPerMinute: 300, tier: "Conveyor Belt Mk.2", at: { x: 10, y: 20 } };
+function s3Evidence(over: { rails?: unknown; conveyors?: unknown } = {}): NonNullable<Pass.NativeParity["s3"]> {
+  const sample = (v: string) => [{ startedAt: iso(T0 + 7 * 60_000), endedAt: iso(T0 + 7 * 60_000 + 500), value: v }];
+  return {
+    rails: {
+      posts: [{ at: iso(T0 + 8 * 60_000), status: 200, data: over.rails ?? [{ id: "T1", points: [[0, 0], [10, 0]] }] }],
+      frmSamples: sample("r1"), distinct: { r1: [{ id: "T1", points: [[0, 0], [10, 0]], representable: true }] }, frm: { reads: 3, failed: 0 },
+    },
+    conveyors: {
+      posts: [{ at: iso(T0 + 8 * 60_000), status: 200, data: over.conveyors ?? [edge] }],
+      frmSamples: sample("c1"),
+      distinct: { c1: { edges: [{ id: "B1", kind: "belt", from: edge.from, fromKind: "extractor", to: edge.to, toKind: "machine", capacityPerMinute: 300, tier: edge.tier, atX: 10, atY: 20 }], filtered: [], dropped: 0 } },
+      frm: { reads: 3, failed: 0 }, drone: { ids: [], frm: { reads: 3, failed: 0 } },
+    },
+  };
+}
+const s3Capture = (over: Parameters<typeof s3Evidence>[0] = {}): Pass.NativeParity => ({ ...capture(), s3: s3Evidence(over) });
+
+describe("native-parity judge (S3 wiring)", () => {
+  it("an S1/S2-shaped capture is judged exactly as before: no rails or conveyors verdict, no R5/R6 line", () => {
+    const v = Pass.judgeReaders(capture());
+    expect(Object.keys(v).sort()).toEqual(["players", "power", "resourceNodes"]);
+    const e = Pass.evaluate(evidence(capture()));
+    expect(e.pass).toBe(true);
+    expect(e.reasons.join("\n")).not.toMatch(/R5 rails|R6 conveyors/);
+    expect(Pass.requirements).toEqual(expect.arrayContaining(["R5-rails", "R6-conveyors"]));
+  });
+
+  it("an S3 capture gives rails and conveyors verdicts, and readers.json holds them", () => {
+    const ev = evidence(s3Capture(), S3_SOURCES, S3_LINES);
+    const v = Pass.evaluate(ev);
+    expect(v.reasons.filter((r) => r.includes("FAIL"))).toEqual([]);
+    expect(v.pass).toBe(true);
+    expect(v.reasons.some((r) => r.startsWith("R5 rails PASS"))).toBe(true);
+    expect(v.reasons.some((r) => r.startsWith("R6 conveyors PASS"))).toBe(true);
+    const readers = ev.captures["readers.json"] as Record<string, { pass: boolean }>;
+    expect(Object.keys(readers)).toEqual(["power", "players", "resourceNodes", "rails", "conveyors"]);
+    expect(readers.rails!.pass && readers.conveyors!.pass).toBe(true);
+  });
+
+  it("a missing Logistics read line fails both S3 readers with the log problem, S1 keeps its verdicts", () => {
+    const lines = S3_LINES.filter((l) => !l.includes("Logistics read"));
+    const v = Pass.evaluate(evidence(s3Capture(), S3_SOURCES, lines));
+    const text = v.reasons.join("\n");
+    expect(v.pass).toBe(false);
+    expect(text).toMatch(/R5 rails FAIL: .*no "Logistics read \(game thread only\):" line/);
+    expect(text).toMatch(/R6 conveyors FAIL: .*no "Logistics read \(game thread only\):" line/);
+    expect(text).toMatch(/R0 power PASS/);
+  });
+
+  it("a Logistics read line that did not serve the layer fails that layer alone", () => {
+    const lines = S3_LINES.map((l) => l.replace("layers rails=1 conveyors=1", "layers rails=0 conveyors=1"));
+    const text = Pass.evaluate(evidence(s3Capture(), S3_SOURCES, lines)).reasons.join("\n");
+    expect(text).toMatch(/R5 rails FAIL: .*rails=0, not 1/);
+    expect(text).toMatch(/R6 conveyors PASS/);
+  });
+
+  it("railsSource bridge, a missing S3 key, or lost S3 evidence fails the run reasons", () => {
+    expect(Pass.evaluate(evidence(s3Capture(), { ...S3_SOURCES, railsSource: "bridge" }, S3_LINES)).pass).toBe(false);
+    const text = Pass.evaluate(evidence(s3Capture(), { ...NATIVE_SOURCES, railsSource: "bridge" }, S3_LINES)).reasons.join("\n");
+    expect(text).toContain("railsSource and conveyorsSource as native");
+    const lost = Pass.evaluate(evidence(capture(), S3_SOURCES, S3_LINES));
+    expect(lost.pass).toBe(false);
+    expect(lost.reasons.join("\n")).toContain("the S3 evidence (rails, conveyors) was not captured");
+    expect(lost.reasons.join("\n")).toMatch(/R5 rails FAIL: no S3 evidence/);
+  });
+
+  it("rails failing does not change the conveyors verdict, and the reverse", () => {
+    const badRails = Pass.judgeReaders(s3Capture({ rails: [{ id: "T1", points: [[0, 5], [10, 5]] }] }));
+    expect(badRails.rails!.pass).toBe(false);
+    expect(badRails.conveyors!.pass).toBe(true);
+    const badConv = Pass.judgeReaders(s3Capture({ conveyors: [{ ...edge, tier: "Conveyor Belt Mk.3" }] }));
+    expect(badConv.conveyors!.pass).toBe(false);
+    expect(badConv.rails!.pass).toBe(true);
+  });
+});

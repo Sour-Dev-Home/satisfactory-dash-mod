@@ -266,6 +266,19 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   Evidence holds names as hashes only. The reader verdicts also need the mod's log to show the readers native
   (`factoryLogProblems`, `trainsLogProblems`) and a completed `Factory read`, `Trains read` and `Train routes read` line. S1's
   three judges are unchanged; an S1 capture is judged as before.
+
+  **Sprint S3 (ADR-0058; the run now loads `Test3` (`sprint3World`) and writes all six keys, `NATIVE_SOURCES_S3`).** One combined run
+  judges every S1, S2 and S3 reader. Two more are judged, each alone, in `runs/native-parity/pass-s3.ts`: `rails` (R5) and
+  `conveyors` (R6), against FRM's `/getTrainRails` (15 s timeout) and `/getBelts`, `/getLifts`, `/getPipes` (three reads back to
+  back, 20 s each), each sampled every 2 minutes (the judge's 120 s gap) and at once after each accepted mod post of that layer,
+  plus `/getDroneStation` every minute (ids only; a port's label never enters evidence). The world layers post about every 10
+  minutes, so the S3 samplers are slow on purpose (S1's power and players judges fail on any FRM read over 2 s). They start with
+  the other FRM samplers, before the mod enrols. The evidence takes the mod's rails and conveyors posts **since the start of
+  enrolment** (the first native read, 8 minutes +/-10% after Running, can land before the window opens); FRM samples are kept as
+  a hash each with the distinct mapped body once. Both readers also need the mod's `Readers:` line to say `rails=native` and
+  `conveyors=native`, and a `Logistics read (game thread only):` line with `layers ... <layer>=1`. `readers.json` holds the
+  final verdicts of every reader (`power`, `players`, `resourceNodes`, `factory`, `rates`, `trains`, `stations`, `trainRoutes`,
+  `rails`, `conveyors`). An S1 or S2 capture is judged as before.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S2`), loading the `Test2` save in both boots. It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
   by the same limits (tick median at least 95% of the baseline's, S12, same save, memory within 100 MB and no more than 25 MB
