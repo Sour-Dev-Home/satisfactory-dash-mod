@@ -124,3 +124,51 @@ export function describeScanCost(costs: readonly ScanCost[]): string {
   const total = Math.max(...costs.map((c) => c.totalMs));
   return `native node scan cost (longest step judged against the ${MAX_NATIVE_STEP_MS} ms ceiling, total recorded only): ${costs.length} scan(s); longest single step ${longest} ms; longest total ${total} ms (game thread only)`;
 }
+
+// The one-off conveyor census (Task 8's lines, read by the s3-census run). Game class names and tier display names are game data;
+// the lines carry no id. A line that does not parse is ignored.
+export interface CensusTier { kind: string; name: string; speed: number; count: number }
+export interface Census {
+  tiers: CensusTier[];
+  kinds: { checked: number; differ: number; classes: string[] } | null;
+  ports: { into: number; outOf: number } | null;
+}
+const CENSUS_TIER = /Conveyor tier census: (belt|lift|pipe) \| (.*) \| speed (-?\d+(?:\.\d+)?) \| count (\d+)\s*$/;
+const CENSUS_KINDS = /Conveyor kinds: (\d+) ends checked, (\d+) differ from the class table \(first classes: (.*)\)\s*$/;
+const CENSUS_PORTS = /Conveyor drone ports: (\d+) edges end at a port, (\d+) start at one\s*$/;
+
+/** The census lines in the log; the last kinds and ports lines win. */
+export function censusLines(lines: readonly string[]): Census {
+  const out: Census = { tiers: [], kinds: null, ports: null };
+  for (const line of lines) {
+    const t = CENSUS_TIER.exec(line);
+    if (t) {
+      out.tiers.push({ kind: t[1]!, name: t[2]!, speed: Number(t[3]), count: Number(t[4]) });
+      continue;
+    }
+    const k = CENSUS_KINDS.exec(line);
+    if (k) {
+      out.kinds = { checked: Number(k[1]), differ: Number(k[2]), classes: k[3]!.trim() === "" ? [] : k[3]!.split(", ") };
+      continue;
+    }
+    const p = CENSUS_PORTS.exec(line);
+    if (p) out.ports = { into: Number(p[1]), outOf: Number(p[2]) };
+  }
+  return out;
+}
+
+/** The counts on the shared pass's `Logistics read (game thread only): layers rails=%d conveyors=%d, ...` line. */
+export interface LogisticsRead { rails: number; conveyors: number; buildables: number; tracks: number; belts: number; lifts: number; pipes: number; openEnds: number; ownerlessEnds: number }
+const LOGISTICS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+), (\d+) buildables, (\d+) tracks, (\d+) belts, (\d+) lifts, (\d+) pipes, (\d+) open ends, (\d+) ownerless ends/;
+
+/** The first `Logistics read` line's counts (the first pass), or null when there is none. */
+export function logisticsRead(lines: readonly string[]): LogisticsRead | null {
+  for (const line of lines) {
+    const m = LOGISTICS.exec(line);
+    if (m) {
+      const n = m.slice(1).map(Number);
+      return { rails: n[0]!, conveyors: n[1]!, buildables: n[2]!, tracks: n[3]!, belts: n[4]!, lifts: n[5]!, pipes: n[6]!, openEnds: n[7]!, ownerlessEnds: n[8]! };
+    }
+  }
+  return null;
+}
