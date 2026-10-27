@@ -15,6 +15,15 @@ namespace
 	const TCHAR* WorldNodesPost = TEXT("/agent/v1/world/resourceNodes");
 	const TCHAR* WorldAccepted = TEXT("{\"accepted\":true,\"unchanged\":false}");
 
+	/** Map markers, drone routes and power lines default to native since the S4 switch; a test about another layer keeps them out of its reads. */
+	template <typename Fixture>
+	void worldS4LayersBridge(Fixture& F)
+	{
+		F.Config.MapMarkersSource = SatisDash::ESource::Bridge;
+		F.Config.DroneRoutesSource = SatisDash::ESource::Bridge;
+		F.Config.PowerLinesSource = SatisDash::ESource::Bridge;
+	}
+
 	/** A bridge, a sender whose jitter is the top of its range (x1.1: rails at 132 s then every 660 s, nodes and train routes at 528 s then every 1980 s and 660 s), and a fake clock. */
 	struct FWorldFixture
 	{
@@ -497,6 +506,7 @@ bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
 	F.Config.ResourceNodesSource = ESource::Bridge;
 	F.Config.RailsSource = ESource::Bridge; // rails and conveyors default to native since the S3 switch; keep their pass out of this layer's reads
 	F.Config.ConveyorsSource = ESource::Bridge;
+	worldS4LayersBridge(F);
 	F.bNativeReaders = true;
 	worldTrainRoutesReadings(F.Game);
 	F.Sender.Start(F.T);
@@ -583,6 +593,7 @@ bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
 	G.Config.ResourceNodesSource = ESource::Bridge;
 	G.Config.TrainsSource = ESource::Bridge;
 	G.Config.RailsSource = ESource::Bridge; // the last assertion is about the bridge rails; the default is native since the S3 switch
+	worldS4LayersBridge(G);
 	worldTrainRoutesReadings(G.Game);
 	G.Sender.Start(G.T);
 	G.tick(2000);
@@ -605,6 +616,7 @@ namespace
 		F.Config.TrainsSource = ESource::Bridge;
 		F.Config.RailsSource = ESource::Bridge;
 		F.Config.ConveyorsSource = ESource::Bridge;
+		worldS4LayersBridge(F);
 		F.bNativeReaders = true;
 		// Two markers given out of order: the body sorts them by id.
 		FMapMarkerReading B;
@@ -684,7 +696,7 @@ bool FWorldSenderMapMarkersTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("one warning for the abandoned reads"), countLines(Log, TEXT("World layer mapMarkers: the game's read was abandoned")), 1);
 	F.Game.bMarkersAbandoned = false;
 
-	// The default config (key unset = bridge): the layer is never begun, posted, requested or logged.
+	// The key on bridge (the fixture pins it; the default is native since the S4 switch): the layer is never begun, posted, requested or logged.
 	const int32 LoggedBefore = countLines(Log, TEXT("arker")); // the capture keeps every line: count what the native section wrote
 	FWorldFixture G;
 	worldMapMarkersFixture(G);
@@ -739,6 +751,7 @@ namespace
 		F.Config.TrainsSource = ESource::Bridge;
 		F.Config.RailsSource = ESource::Bridge;
 		F.Config.ConveyorsSource = ESource::Bridge;
+		worldS4LayersBridge(F);
 		F.bNativeReaders = true;
 		// Two ports given out of order, paired to each other: the body sorts them by id.
 		FDronePortReading B;
@@ -820,7 +833,7 @@ bool FWorldSenderDroneRoutesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("one warning for the abandoned reads"), countLines(Log, TEXT("World layer droneRoutes: the game's read was abandoned")), 1);
 	F.Game.bDronesAbandoned = false;
 
-	// The default config (key unset = bridge): the layer is never begun, posted, requested or logged.
+	// The key on bridge (the fixture pins it; the default is native since the S4 switch): the layer is never begun, posted, requested or logged.
 	const int32 LoggedBefore = countLines(Log, TEXT("Drone routes"));
 	FWorldFixture G;
 	worldDroneRoutesFixture(G);
@@ -926,6 +939,7 @@ namespace
 		F.Config.ConveyorsSource = ESource::Bridge;
 		F.Config.ResourceNodesSource = ESource::Bridge;
 		F.Config.TrainsSource = ESource::Bridge;
+		worldS4LayersBridge(F);
 		F.bNativeReaders = true;
 		F.Random01 = 0.0;
 	}
@@ -1039,6 +1053,7 @@ bool FWorldSenderLogisticsBridgeRailsTest::RunTest(const FString& Parameters)
 	FWorldFixture F;
 	F.Config.RailsSource = ESource::Bridge;
 	F.Config.ConveyorsSource = ESource::Bridge; // conveyors default to native since the S3 switch, and would enter the pass
+	worldS4LayersBridge(F);
 	F.bNativeReaders = true;
 	F.Random01 = 0.0;
 	worldLogisticsReadings(F.Game);
@@ -1336,6 +1351,7 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 	G.Config.ConveyorsSource = ESource::Native;
 	G.Config.ResourceNodesSource = ESource::Bridge;
 	G.Config.TrainsSource = ESource::Bridge;
+	worldS4LayersBridge(G);
 	G.bNativeReaders = true;
 	G.Random01 = 0.0;
 	worldConveyorsReadings(G.Game);
@@ -1357,6 +1373,7 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 	A.Config.ConveyorsSource = ESource::Bridge;
 	A.Config.ResourceNodesSource = ESource::Bridge;
 	A.Config.TrainsSource = ESource::Bridge;
+	worldS4LayersBridge(A);
 	A.bNativeReaders = true;
 	A.Random01 = 0.0;
 	worldConveyorsReadings(A.Game);
@@ -1375,6 +1392,7 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 	B.Config.ConveyorsSource = ESource::Native;
 	B.Config.ResourceNodesSource = ESource::Bridge;
 	B.Config.TrainsSource = ESource::Bridge;
+	worldS4LayersBridge(B);
 	B.bNativeReaders = true;
 	B.Random01 = 0.0;
 	worldConveyorsReadings(B.Game);
@@ -1391,6 +1409,7 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 	C.Config.ConveyorsSource = ESource::Native;
 	C.Config.ResourceNodesSource = ESource::Bridge;
 	C.Config.TrainsSource = ESource::Bridge;
+	worldS4LayersBridge(C);
 	C.bNativeReaders = true;
 	C.Random01 = 0.0;
 	worldConveyorsReadings(C.Game);
@@ -1445,6 +1464,7 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 	O.Config.ConveyorsSource = ESource::Native;
 	O.Config.ResourceNodesSource = ESource::Bridge;
 	O.Config.TrainsSource = ESource::Bridge;
+	worldS4LayersBridge(O);
 	O.bNativeReaders = true;
 	O.Random01 = 0.0;
 	O.Game.LogisticsConveyors.Reset();
@@ -1494,6 +1514,8 @@ namespace
 		F.Config.ConveyorsSource = ESource::Bridge;
 		F.Config.ResourceNodesSource = ESource::Bridge;
 		F.Config.TrainsSource = ESource::Bridge;
+		F.Config.MapMarkersSource = ESource::Bridge;
+		F.Config.DroneRoutesSource = ESource::Bridge;
 		F.Config.PowerLinesSource = ESource::Native;
 		F.bNativeReaders = true;
 		F.Random01 = 0.0;
@@ -1690,7 +1712,7 @@ bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("abandoned: powerLines posts nothing"), Z.Net.sent(WorldPowerLinesPost), 0);
 	TestEqual(TEXT("abandoned: one warning per layer"), countLines(AbandonLog, TEXT("World layer logistics: the game's read was abandoned")), 3);
 
-	// (e) the default config (powerLinesSource unset): a rails-only pass never asks for the wires and nothing is posted for them.
+	// (e) powerLinesSource bridge (native by default since the S4 switch; the fixture pins it): a rails-only pass never asks for the wires and nothing is posted for them.
 	FWorldFixture D;
 	worldLogisticsNative(D);
 	worldAllThreeReadings(D.Game);
