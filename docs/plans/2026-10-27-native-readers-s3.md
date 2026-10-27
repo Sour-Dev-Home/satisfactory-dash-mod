@@ -555,7 +555,7 @@ Nothing else is run.
 
 **After S3 (named, not planned):**
 - One small switch PR per passing reader: `DefaultRailsSource` and `DefaultConveyorsSource` (each flips `Bridge` to `Native`; a reader that missed stays `bridge`), with a `mod-claims.md` row each; and a dash evidence PR (`raw-sources/mod-native-readers/` results, the S3 note's folder).
-- **R7, the removal release (ADR-0058 Decision 4)** is a separate PR that deletes the bridge, `frmPort`/`frmToken`, the per-reader overrides, the FRM fixtures and the dependency declaration. It merges **only on the owner's explicit word** after R0-R6 have passed, one 24-hour soak and the full-source similarity check. It is not in this plan.
+- **R7, the removal release (ADR-0058 Decision 4)** is a separate PR that deletes the bridge, `frmPort`/`frmToken`, the per-reader overrides, the FRM fixtures and the dependency declaration. It merges **only on the owner's explicit word** after R0-R6 have passed, one 24-hour soak and the full-source similarity check. It is not in this plan. After the two switch PRs, R7 is the only next step.
 - A `skipped: "tooManyEdges"` conveyors body for a layer over the cap (the contract has the alternative body) is not built here; an over-cap layer is simply not posted.
 
 ## Self-review

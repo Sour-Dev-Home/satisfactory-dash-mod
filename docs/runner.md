@@ -157,8 +157,8 @@ runner config names it as `"sprint3World"`, beside `"s2World"` and `"s3World"`:
 { "s3World": "<path to the S3 save>", "s2World": "<path to the Test2 copy>", "sprint3World": "<path to the Test3 copy>" }
 ```
 
-- Only `native-parity` and `tick-cost-native` use `sprint3World`, once they switch to the `sprint3` world key (Sprint S3,
-  Tasks 13 and 14). Until then no run uses it. The spikes keep `s3World`.
+- `native-parity`, `tick-cost-native` and the one-off `s3-census` use `sprint3World` (the `sprint3` world key). The spikes
+  keep `s3World`.
 - A run that needs `sprint3World` and finds none in the config is refused before the build: `<id> needs sprint3World in
   the runner config`.
 - The staged file lives outside the repository, like `s3World`. The same `satis-runner` rules apply: each run uploads it
@@ -280,7 +280,10 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   final verdicts of every reader (`power`, `players`, `resourceNodes`, `factory`, `rates`, `trains`, `stations`, `trainRoutes`,
   `rails`, `conveyors`). An S1 or S2 capture is judged as before.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
-  config (`mod-config.json`, `NATIVE_SOURCES_S2`), loading the `Test2` save in both boots. It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
+  config (`mod-config.json`, `NATIVE_SOURCES_S3`: the players, resource-node, factory, trains, rails and conveyors readers),
+  loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`
+  and `conveyorsSource` to be `native` (config and `Readers:` line) and a `Logistics read (game thread only):` line inside the
+  measured window, its longest step at 2.0 ms or less; S1- and S2-shaped evidence is judged as before. It boots once without the mod and once with it and measures each for the warmup plus 10 minutes, judged
   by the same limits (tick median at least 95% of the baseline's, S12, same save, memory within 100 MB and no more than 25 MB
   growth) plus proof that the native readers were live in the measured window (`runs/tick-cost-native/pass.ts`). Unlike
   `tick-cost`, the mod enrols after the world is loaded and auto-pause is off, just before the measurement starts, so its first
@@ -310,7 +313,12 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   (game class names and tier display names only there and in `census.json`), and each belt/lift tier named `Mk.1` to `Mk.4`
   shows `speed / 2` beside the expected 60/120/270/480 with `match` or `NO MATCH`, each pipe tier `Mk.1`/`Mk.2` shows
   `flow x 60` beside 300/600. If a belt/lift tier prints `NO MATCH`, a small ruling PR sets `NativeConveyorCapacityMode` to
-  `ECapacityMode::ClassTable`. Dispatch: `gh workflow run core-run.yml -f run=s3-census`.
+  `ECapacityMode::ClassTable`. Start it through the runner config's `run-backend.ps1` script (in its `scripts` folder) with
+  `-Runs s3-census`, like the other backend runs, because it needs the backend host: a bare `gh workflow run core-run.yml -f
+  run=s3-census` dispatch refuses with "reading the backend's images".
+
+  **The order of the sprint's runs** (each once, the owner dispatches): `mod-test` on each PR branch, then `s3-census` (above),
+  then one `native-parity`, then one `tick-cost-native`, all on `Test3`. Nothing else is run.
 
 ### The parity run's Node agent
 

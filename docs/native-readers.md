@@ -33,18 +33,32 @@ reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `
 The keys are deleted with the bridge in the removal release; do not build on them. There is no key for power: it has no
 bridge path.
 
-## Where each reader stands (S2, after Task 11)
+## Where each reader stands (S3, after Task 15)
 
-Status, auto-pause and power are native. Every reader with a bridge path (players, resource nodes, factory with rates, trains
-with stations) is native by default. FRM is still needed for the rails world layer (`getTrainRails`), which has no native
-reader yet. The S2 switch followed `native-parity` run
+Status, auto-pause and power are native. Players, resource nodes, factory with rates, and trains with stations are native by
+default (the S2 switch). The two S3 readers, Rails (R5) and Conveyors (R6), are built but both are still `bridge`
+(`DefaultRailsSource` and `DefaultConveyorsSource`), and neither has been judged by a parity run yet. Until Rails' own switch
+PR, FRM is still needed for the rails world layer (`getTrainRails`). Conveyors has no bridge path: `bridge` means the layer is
+not sent, so once it is native FRM is needed for nothing else. Each switch is a separate small PR on the owner's word, after
+that reader's `native-parity` pass. The next step after the switches is R7 (the bridge removal), its own PR on the owner's
+word only; it is not part of S3.
+
+What changes for a host that turns them on:
+
+- Rails and conveyors share one logistics pass on the game thread (a sliced read of the buildable list, one budgeted step per
+  driver tick). A pass carries whichever of the two layers are native, and either one falling due takes the other with it
+  (the pulled-forward rule). It logs one `Logistics read (game thread only):` line per pass.
+- Ids of rebuilt belts change.
+- The first native post of each layer changes that layer's content hash once.
+
+The S2 switch followed `native-parity` run
 40403583987 and `tick-cost-native` run 40396146628 on `Test2` (owner, 2026-10-26). TrainRoutes has no bridge path: it is
 native-only and runs only when `trainsSource` is `native`, so a host that sets `trainsSource` to `bridge` turns it off.
 
 ## The step ceiling (owner, 2026-10-26)
 
 No single native game-thread step may take over 2 ms (`MaxNativeStepMs = 2.0`). Every sliced read (node scan, factory, trains,
-train routes) stops at a 1 ms budget (`NativeStepBudgetSeconds = 0.001`) and logs `<Name> (game thread only): ... longest
+train routes, and the shared `Logistics read` pass) stops at a 1 ms budget (`NativeStepBudgetSeconds = 0.001`) and logs `<Name> (game thread only): ... longest
 step X ms, total Y ms`. `tick-cost-native` fails when any logged longest step is over 2.0 ms (2.00 passes), when a reader that
 the config made native logged no line, and, for the S2 readers, when no line falls inside the measured window. One-shot reads
 that are not sliced (status, auto-pause, players, power's circuit-id probe) are S0/S1 code outside this rule. The total time is
@@ -58,6 +72,25 @@ Four things to know first. They are reported, not rules; none of them changes a 
 - The moving-train rule passes a position anywhere on FRM's track in the window. Read the "a stationary train" NOT EXERCISED line before switching Trains.
 - The 5% FRM read-failure rule is new and was not set by the owner.
 - In one game tick the native steps can add up to about 3-4 ms in total (each step stays under 2 ms), and `tick-cost-native` measures the median tick.
+
+## Before reading the S3 results
+
+Reported, not rules; none of them changes a pass condition.
+
+- FRM's rail geometry is rounded to 0.01 m before the 1 m checks. The owner's rule says "unrounded", so the rounding can add at
+  most 0.0071 m of slack to a distance (half a centimetre on each axis).
+- Two numbers are new in the S3 judges: `S3_GAP_MS` (120 s, reused from S2's routes rule: the FRM sample before and after a post
+  must be within it) and the representable rule (an FRM track counts only with at least two distinct whole-metre points inside
+  +/-1,000,000 m; unrepresentable tracks are listed and are in neither id set).
+- Duplicate ids fail only on the mod's side, as in S2; FRM's duplicates are reported.
+
+## The Test3 note
+
+The S3 runs (`native-parity`, `tick-cost-native`) load the owner's `Test3` save through the runner config's `sprint3World`
+(see `docs/runner.md`). `tick-cost-native` writes all six keys (`NATIVE_SOURCES_S3`) and requires the `Logistics read (game
+thread only):` line, with its longest step at 2.0 ms or less, inside the measured window. The native first read is 480 s
+(+/-10%) after Running, so it lands 3 to 13 minutes into the measurement. A config with only one logistics layer native still
+needs the line, but `tick-cost-native` fails it as an S3 run.
 
 ## The Test2 note
 
