@@ -1,11 +1,11 @@
 {
   "repo": "Sour-Dev-Home/satisfactory-dash",
   "dir": "packages/shared/src",
-  "commit": "27911fb454f8e2021ce85c26c86ae63b33276502",
+  "commit": "c161d43c0d347a439660e99fe836bd6b1b49c0f4",
   "files": {
-    "agent.ts": "cac77f4e7f6ec37311b05313a666fd4cda1e30587c1363f60cdd09ad7cf7d656",
+    "agent.ts": "53a778eff4509b036165609529a21a607768e6eb2815713d7c07f8c95071a1c3",
     "envelope.ts": "36c6cad05f3e757e7d8a040c1b31a611872cfaf68e5f493131ed773bbdb0441c",
-    "factory.ts": "95a6695494752d89f284826f52cee546c9d4b24fbff90ef4afc839b699761a64",
+    "factory.ts": "1ed0e81563d3b372cb8154f7b1986fe8b3015a200c819ed4b4b2adf2439177fb",
     "ids.ts": "b5492e9e19489d8b52b816c1d36911b252d4d3d0d9be3c8f77509a1b5672c409",
     "map.ts": "c6b2ca27f67ca925ebd1dd6f8cbcce4702661e38b30cf39964c028773fca2d27",
     "players.ts": "ee0fc1f713dc47a4aa6195b6a3537c4f50702aa40c2ac298c453f4ad38b59b47",
