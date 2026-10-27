@@ -71,6 +71,7 @@ void SatisDash::FDriver::Tick()
 		PollFailures = 0;
 		WorldLayers.Start(Now);
 		bGameRunning = false;
+		LastGameReadAt.Reset();
 		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
 		const FAgentConfig& Sources = Agent.GetConfig();
 		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s conveyors=%s mapMarkers=%s droneRoutes=%s powerLines=%s"),
@@ -232,6 +233,13 @@ void SatisDash::FDriver::TickSample(double Now)
 	Snapshot.AgentVersion = AgentVersion();
 	Snapshot.ObservedAt = Clock.UtcNow();
 	Snapshot.Status = Game.ReadStatus();
+	Snapshot.ModVersion = AgentVersion();
+	Snapshot.bGameReachable = Snapshot.Status.IsSet();
+	if (Snapshot.Status.IsSet())
+	{
+		LastGameReadAt = Snapshot.ObservedAt; // the same UtcNow() reading as observedAt
+	}
+	Snapshot.LastGameReadAt = LastGameReadAt;
 	bGameRunning = Snapshot.Status.IsSet() && Snapshot.Status->bIsGameRunning;
 	if (!Snapshot.Status.IsSet())
 	{

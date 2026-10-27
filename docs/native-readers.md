@@ -62,6 +62,13 @@ The S2 switch followed `native-parity` run
 40403583987 and `tick-cost-native` run 40396146628 on `Test2` (owner, 2026-10-26). TrainRoutes has no bridge path: it is
 native-only and runs only when `trainsSource` is `native`, so a host that sets `trainsSource` to `bridge` turns it off.
 
+## The snapshot's game-connection fields (S4-A, R7)
+
+Every snapshot carries three top-level fields beside `reachable` (never inside `status`): `gameReachable` (this pass's status
+read succeeded), `lastGameReadAt` (UTC time of the last successful status read; left out until the first one, never null) and
+`modVersion` (`AgentVersion()`, cut to 64 characters). `reachable` stays `true`. The contract's snapshot schema is strict, so
+a backend without dash #740 answers 4xx to a body that carries them: deploy the backend first (plan Open questions 6 to 8).
+
 ## The step ceiling (owner, 2026-10-26)
 
 No single native game-thread step may take over 2 ms (`MaxNativeStepMs = 2.0`). Every sliced read (node scan, factory, trains,

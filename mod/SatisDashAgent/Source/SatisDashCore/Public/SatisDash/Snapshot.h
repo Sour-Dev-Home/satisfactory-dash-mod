@@ -56,6 +56,12 @@ namespace SatisDash
 		FString AgentVersion;
 		/** Must be UTC (FDateTime::UtcNow()), not local time: the wire format and expiresAt are both UTC. */
 		FDateTime ObservedAt;
+		/** S4-A (R7), top level beside reachable: this pass's status read succeeded. Unset writes no key. */
+		TOptional<bool> bGameReachable;
+		/** UTC time of the last successful status read; unset until the first one (no key, never null). */
+		TOptional<FDateTime> LastGameReadAt;
+		/** The sender's version (AgentVersion()), cut to 64 characters; empty writes no key. */
+		FString ModVersion;
 		TOptional<FAutoPauseReading> AutoPause;
 		TOptional<FStatusReading> Status;
 		TOptional<TArray<FCircuitReading>> Power;
