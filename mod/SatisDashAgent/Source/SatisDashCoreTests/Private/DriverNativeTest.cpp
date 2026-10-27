@@ -91,8 +91,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	int32 BridgeLines = 0;
 	for (const FString& Line : Log.Take())
 	{
-		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=bridge conveyors=bridge")) ? 1 : 0;
-		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=bridge conveyors=bridge")) ? 1 : 0;
+		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native")) ? 1 : 0;
+		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Readers line for the default (native players) driver"), NativeLines, 1);
 	TestEqual(TEXT("one Readers line for the bridge-key driver"), BridgeLines, 1);
@@ -165,7 +165,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	F.Game.Nodes.Add(Iron);
 	F.Game.bHasWorld = false; // no world yet: the scan can't start
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\",\"trainsSource\":\"bridge\"")); // trains on the bridge keeps trainRoutes off, so only nodes post
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\",\"trainsSource\":\"bridge\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\"")); // trains, rails and conveyors on the bridge keep their layers off, so only nodes post
 
 	// Ruling F18: no game running (an idle server) means no scan starts, past the first read's due time (528 s) and the log
 	// stays quiet; it starts once a game runs.
@@ -256,9 +256,9 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	int32 AllNative = 0;
 	for (const FString& Line : Log.Take())
 	{
-		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=bridge conveyors=bridge")) ? 1 : 0;
+		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line shows all four native, the default driver's"), AllNative, 1);
+	TestEqual(TEXT("one Readers line shows all six native, the default driver's"), AllNative, 1);
 	return true;
 }
 
@@ -267,7 +267,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeTrainsTest, "SatisDash.Core.Driver
 bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"trainsSource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"trainsSource\":\"native\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\"");
 	FDriverFixture F;
 	FTrainReading Train;
 	Train.Id = TEXT("BP_Train_C_1");
@@ -543,7 +543,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeLogisticsTest, "SatisDash.Core.Dri
 bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"railsSource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"railsSource\":\"native\",\"conveyorsSource\":\"bridge\"");
 	const TCHAR* RailsPost = TEXT("/agent/v1/world/rails");
 	FDriverFixture F;
 	FRailReading Track;

@@ -493,6 +493,8 @@ bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
 	FWorldFixture F;
 	F.Config.TrainsSource = ESource::Native;
 	F.Config.ResourceNodesSource = ESource::Bridge;
+	F.Config.RailsSource = ESource::Bridge; // rails and conveyors default to native since the S3 switch; keep their pass out of this layer's reads
+	F.Config.ConveyorsSource = ESource::Bridge;
 	F.bNativeReaders = true;
 	worldTrainRoutesReadings(F.Game);
 	F.Sender.Start(F.T);
@@ -578,6 +580,7 @@ bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
 	G.bNativeReaders = true;
 	G.Config.ResourceNodesSource = ESource::Bridge;
 	G.Config.TrainsSource = ESource::Bridge;
+	G.Config.RailsSource = ESource::Bridge; // the last assertion is about the bridge rails; the default is native since the S3 switch
 	worldTrainRoutesReadings(G.Game);
 	G.Sender.Start(G.T);
 	G.tick(2000);
@@ -604,10 +607,11 @@ namespace
 		Game.LogisticsCounts.Tracks = 2;
 	}
 
-	/** A fixture whose rails are native, the other native-capable layers on the bridge, the jitter at the bottom of its range. */
+	/** A fixture whose rails are native, the other native-capable layers on the bridge (conveyors too: they default to native since the S3 switch), the jitter at the bottom of its range. */
 	void worldLogisticsNative(FWorldFixture& F)
 	{
 		F.Config.RailsSource = ESource::Native;
+		F.Config.ConveyorsSource = ESource::Bridge;
 		F.Config.ResourceNodesSource = ESource::Bridge;
 		F.Config.TrainsSource = ESource::Bridge;
 		F.bNativeReaders = true;
@@ -696,6 +700,7 @@ bool FWorldSenderLogisticsBridgeRailsTest::RunTest(const FString& Parameters)
 	// railsSource bridge: FRM is asked at the first due time (120 s x 0.9 = 108 s here) and the pass is never entered.
 	FWorldFixture F;
 	F.Config.RailsSource = ESource::Bridge;
+	F.Config.ConveyorsSource = ESource::Bridge; // conveyors default to native since the S3 switch, and would enter the pass
 	F.bNativeReaders = true;
 	F.Random01 = 0.0;
 	worldLogisticsReadings(F.Game);
@@ -966,7 +971,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderConveyorsOffUnlessNativeTest, "Sati
 bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	// The default config (conveyorsSource unset = bridge): the layer is never scheduled, whatever the rails do.
+	// conveyorsSource bridge (the fixture pins it; the default is native since the S3 switch): the layer is never scheduled, whatever the rails do.
 	FWorldFixture F;
 	worldLogisticsNative(F);
 	worldLogisticsReadings(F.Game);
@@ -1010,6 +1015,8 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 
 	// Flip bridge to native mid-run (before any pass): the layer is scheduled at the first-read rule (432 s here), nothing is sent before it.
 	FWorldFixture A;
+	A.Config.RailsSource = ESource::Bridge; // rails default to native since the S3 switch; these flips are about conveyors alone
+	A.Config.ConveyorsSource = ESource::Bridge;
 	A.Config.ResourceNodesSource = ESource::Bridge;
 	A.Config.TrainsSource = ESource::Bridge;
 	A.bNativeReaders = true;
@@ -1026,6 +1033,7 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 
 	// Flip native to bridge before the pass: nothing is ever begun or posted.
 	FWorldFixture B;
+	B.Config.RailsSource = ESource::Bridge;
 	B.Config.ConveyorsSource = ESource::Native;
 	B.Config.ResourceNodesSource = ESource::Bridge;
 	B.Config.TrainsSource = ESource::Bridge;
@@ -1041,6 +1049,7 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 
 	// Flip native to bridge under an open pass that holds only conveyors: the reader is told, nothing is posted, the layer waits a cycle.
 	FWorldFixture C;
+	C.Config.RailsSource = ESource::Bridge;
 	C.Config.ConveyorsSource = ESource::Native;
 	C.Config.ResourceNodesSource = ESource::Bridge;
 	C.Config.TrainsSource = ESource::Bridge;
@@ -1094,6 +1103,7 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 	// A body over the layer cap is not posted, and warns once.
 	SatisDash::Test::FLogCapture CapLog;
 	FWorldFixture O;
+	O.Config.RailsSource = ESource::Bridge;
 	O.Config.ConveyorsSource = ESource::Native;
 	O.Config.ResourceNodesSource = ESource::Bridge;
 	O.Config.TrainsSource = ESource::Bridge;

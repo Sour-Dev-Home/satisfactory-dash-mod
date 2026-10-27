@@ -29,21 +29,19 @@ Until the bridge is removed (ADR-0058, R7) a host can force a reader's source in
     "conveyorsSource": "bridge"
 
 The value is exactly `bridge` or `native` (anything else makes the config Broken, as a bad `frmPort` does). With no key a
-reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource`, `DefaultConveyorsSource` in `Config.h`; the first four are `native`, the factory and trains ones since the S2 switch; `DefaultRailsSource` and `DefaultConveyorsSource` are `bridge` until their switch PRs). `bridge` needs FRM installed.
+reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource`, `DefaultConveyorsSource` in `Config.h`; all six are `native`: the factory and trains ones since the S2 switch, the rails and conveyors ones since the S3 switch). `bridge` needs FRM installed.
 The keys are deleted with the bridge in the removal release; do not build on them. There is no key for power: it has no
 bridge path.
 
-## Where each reader stands (S3, after Task 15)
+## Where each reader stands (the S3 switch)
 
-Status, auto-pause and power are native. Players, resource nodes, factory with rates, and trains with stations are native by
-default (the S2 switch). The two S3 readers, Rails (R5) and Conveyors (R6), are built but both are still `bridge`
-(`DefaultRailsSource` and `DefaultConveyorsSource`), and neither has been judged by a parity run yet. Until Rails' own switch
-PR, FRM is still needed for the rails world layer (`getTrainRails`). Conveyors has no bridge path: `bridge` means the layer is
-not sent, so once it is native FRM is needed for nothing else. Each switch is a separate small PR on the owner's word, after
-that reader's `native-parity` pass. The next step after the switches is R7 (the bridge removal), its own PR on the owner's
-word only; it is not part of S3.
+Every reader is native by default. Status, auto-pause and power have no bridge path. Players, resource nodes, factory with
+rates, and trains with stations switched in S2; Rails (R5) and Conveyors (R6) switched in S3, after `native-parity` run
+40447299909 (every reader passed), `tick-cost-native` run 40442596123 and `s3-census` run 40437494703, all on `Test3`. With
+the defaults a host needs FRM for nothing. Conveyors has no bridge path: `conveyorsSource` `bridge` means the layer is not
+sent. The next step is R7 (the bridge removal), its own PR on the owner's word only; it is not part of S3.
 
-What changes for a host that turns them on:
+What changes for a host on the new defaults:
 
 - Rails and conveyors share one logistics pass on the game thread (a sliced read of the buildable list, one budgeted step per
   driver tick). A pass carries whichever of the two layers are native, and either one falling due takes the other with it
