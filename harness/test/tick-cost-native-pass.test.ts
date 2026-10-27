@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { snapshotParts } from "../src/core-runs/tick-cost";
-import { NATIVE_SOURCES, NATIVE_SOURCES_S2, NATIVE_SOURCES_S3 } from "../src/core-run";
+import { NATIVE_SOURCES, NATIVE_SOURCES_S2, NATIVE_SOURCES_S3, NATIVE_SOURCES_S4 } from "../src/core-run";
 import type { CoreEvidence } from "../src/core-run";
 import { TICK_WARMUP_MS, type TickSeries } from "../src/ticks";
 import * as Native from "../../runs/tick-cost-native/pass";
@@ -266,6 +266,62 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
     it("S1- and S2-shaped evidence needs no Logistics read line", () => {
       expect(Native.evaluate(evidence()).pass).toBe(true);
       expect(Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines() })).pass).toBe(true);
+    });
+
+    describe("S4-A: the markers and drone steps and the powerLines pass (Task 16)", () => {
+      const S4_SOURCES = NATIVE_SOURCES_S4;
+      const READERS_S4 = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native`;
+      const logisticsS4 = (longest = "0.80", prefix = IN) =>
+        `${prefix}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, wires 843, expected wires 843, longest step ${longest} ms, total 12.00 ms`;
+      const markers = (longest = "0.50", prefix = IN) => `${prefix}Map markers read (game thread only): 120 markers, 0 dropped in 3 steps, longest step ${longest} ms, total 1.00 ms`;
+      const drones = (longest = "0.60", prefix = IN) => `${prefix}Drone routes read (game thread only): 8 ports, 0 dropped in 2 steps, longest step ${longest} ms, total 1.00 ms`;
+      const s4Lines = (m = "0.50", d = "0.60", logLongest = "0.80") => [READERS_S4, ...s2Lines().slice(1), logisticsS4(logLongest), markers(m), drones(d)];
+
+      it("passes S4-shaped evidence when all lines are present and each longest step is 1.9 ms or less", () => {
+        const v = Native.evaluate(evidence({ sources: S4_SOURCES, lines: s4Lines("1.90", "1.90", "1.90") }));
+        expect(v.reasons.join("\n")).toMatch(/Map markers read longest step 1\.9 ms/);
+        expect(v.pass).toBe(true);
+        expect(v.reasons.join("\n")).toMatch(/Drone routes read longest step 1\.9 ms/);
+      });
+      it("fails a Drone routes read step of 2.1 ms, and a Map markers read step of 2.1 ms", () => {
+        const d = Native.evaluate(evidence({ sources: S4_SOURCES, lines: s4Lines("0.5", "2.10") }));
+        expect(d.pass).toBe(false);
+        expect(d.reasons.join("\n")).toMatch(/Drone routes read: longest step 2\.1 ms exceeds the 2 ms ceiling/);
+        expect(Native.evaluate(evidence({ sources: S4_SOURCES, lines: s4Lines("2.10") })).reasons.join("\n")).toMatch(/Map markers read: longest step 2\.1 ms/);
+      });
+      it("fails a missing Map markers read line (or Drone routes read line) when the key is native", () => {
+        const noMarkers = s4Lines().filter((l) => !l.includes("Map markers read"));
+        const v = Native.evaluate(evidence({ sources: S4_SOURCES, lines: noMarkers }));
+        expect(v.pass).toBe(false);
+        expect(v.reasons.join("\n")).toMatch(/no "Map markers read \(game thread only\):" line/);
+        const noDrones = s4Lines().filter((l) => !l.includes("Drone routes read"));
+        expect(Native.evaluate(evidence({ sources: S4_SOURCES, lines: noDrones })).reasons.join("\n")).toMatch(/no "Drone routes read \(game thread only\):" line/);
+      });
+      it("does not count a Map markers read line outside the measured span (the S2 window rule)", () => {
+        const lines = [...s4Lines().filter((l) => !l.includes("Map markers read")), markers("0.5", stamp(FROM + 60_000))];
+        const v = Native.evaluate(evidence({ sources: S4_SOURCES, lines }));
+        expect(v.pass).toBe(false);
+        expect(v.reasons.join("\n")).toMatch(/Map markers read.*inside the measured window/);
+      });
+      it("fails powerLinesSource bridge (or any S4 key not native) in an S4-shaped config", () => {
+        const p = Native.evaluate(evidence({ sources: { ...S4_SOURCES, powerLinesSource: "bridge" }, lines: s4Lines() }));
+        expect(p.pass).toBe(false);
+        expect(p.reasons.join("\n")).toMatch(/powerLinesSource/);
+        expect(Native.evaluate(evidence({ sources: { ...S4_SOURCES, mapMarkersSource: "bridge" }, lines: s4Lines() })).reasons.join("\n")).toMatch(/mapMarkersSource/);
+        expect(Native.evaluate(evidence({ sources: { ...S4_SOURCES, droneRoutesSource: "bridge" }, lines: s4Lines() })).reasons.join("\n")).toMatch(/droneRoutesSource/);
+      });
+      it("fails when the Readers line says powerLines is bridge, or the Logistics read line did not serve powerLines", () => {
+        const bridge = [READERS_S4.replace("powerLines=native", "powerLines=bridge"), ...s4Lines().slice(1)];
+        expect(Native.evaluate(evidence({ sources: S4_SOURCES, lines: bridge })).reasons.join("\n")).toMatch(/powerLines=bridge/);
+        expect(Native.evaluate(evidence({ sources: S4_SOURCES, lines: [...s4Lines().slice(0, 5), logistics("0.8"), markers(), drones()] })).reasons.join("\n")).toMatch(/powerLines=0/);
+      });
+      it("requiredStepReaders adds the S4 lines only when the S4 keys are native; S2- and S3-shaped sources are unchanged", () => {
+        expect(Native.requiredStepReaders(S4_SOURCES)).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read"]);
+        expect(Native.requiredStepReaders(NATIVE_SOURCES_S3)).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read"]);
+        expect(Native.requiredStepReaders(NATIVE_SOURCES_S2)).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read"]);
+        expect(Native.requiredStepReaders({ powerLinesSource: "native" })).toEqual(["Resource node scan", "Logistics read"]);
+        expect(Native.requiredStepReaders({ ...S4_SOURCES, mapMarkersSource: "bridge", droneRoutesSource: "bridge" })).not.toContain("Map markers read");
+      });
     });
   });
 });
