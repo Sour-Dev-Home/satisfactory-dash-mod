@@ -6,27 +6,29 @@
 // Pure: evidence in, verdict out.
 import { DroneRoutesLayerDataSchema, MapMarkersLayerDataSchema, PowerLinesLayerDataSchema } from "../../harness/contract/src/map";
 import type { FrmDronePort, FrmMarker, FrmWire } from "../../harness/src/frm-s4";
-import { DRONE_ROUTES_MAX_ITEMS, MAP_MARKERS_MAX_ITEMS, POWER_LINES_MAX_ITEMS } from "../../harness/src/frm-s4";
+import { byCodeUnit, DERIVED_ID_PREFIX, DRONE_ROUTES_MAX_ITEMS, evidenceId, MAP_MARKERS_MAX_ITEMS, MAX_STRING, POWER_LINES_MAX_ITEMS } from "../../harness/src/frm-s4";
 import type { Bracket, Counts } from "./pass-s2";
 
 export type { Bracket, Counts };
 
 /** NEW for S4 (reuses S3_GAP_MS and the routes rule; plan Open questions): a post is compared with an FRM sample taken within this of it. */
 export const S4_GAP_MS = 120_000;
-/** Owner R-d (provisional): drone x/y and each power-line end are within 1 m of FRM's unrounded value. */
+/** Owner R-d (provisional): drone x/y (straight-line distance) and each power-line end are within 1 m of FRM's unrounded value. */
 export const S4_XY_MAX_M = 1;
 /** NEW (controller, provisional; plan Open questions): a marker's whole-metre x/y may differ by up to 1 m from Math.round(FRM) when FRM's value is at a .5 m boundary. */
 export const S4_MARKER_ROUND_MAX_M = 1;
-/** NEW (controller, provisional): how close to .5 FRM's fraction must be (0.01 m is FRM's own rounding) to count as a boundary. */
+/** NEW, provisional, owner to confirm (plan Open questions): how close to .5 FRM's fraction must be (0.01 m is FRM's own rounding) to count as a boundary. */
 export const S4_MARKER_BOUNDARY_TOL_M = 0.01;
-/** How many differences a reason lists. */
+/** How many differences a reason lists (display only, set by the judge author as S3_SHOW; it never decides a verdict). */
 export const S4_SHOW = 10;
 /** NEW (comparison float slack, not a threshold): added to the metre limits so a distance of exactly the limit passes. */
 const EPS = 1e-9;
-/** The id length where the native readers clamp (the contract's id maximum); reporting only. */
-const ID_MAX = 200;
-/** The prefix the oracles give an id they derive (empty or over-long FRM id); reporting only. */
-const DERIVED_PREFIX = "derived-";
+/** The id length where the native readers clamp (the contract's id maximum, taken from the oracle); reporting only. */
+const ID_MAX = MAX_STRING;
+/** The prefix the oracles give an id they derive (empty or over-long FRM id), taken from the oracle; reporting only. */
+const DERIVED_PREFIX = DERIVED_ID_PREFIX;
+/** The shape of a posted name: sessionHash (12 hex characters, harness/src/status.ts) or empty. Anything else is a raw name. */
+const HASHED_NAME = /^(?:[0-9a-f]{12})?$/;
 
 type Post = { at: string; status: number; data: unknown };
 export interface MarkersEvidence { posts: Post[]; frmSamples: Array<Bracket<string>>; distinct: Record<string, FrmMarker[]>; frm: Counts }
@@ -46,10 +48,13 @@ const show = (v: unknown) => (v === null ? "null" : v === undefined ? "absent" :
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /** The FRM samples before (ended within S4_GAP_MS) and after (started within it) a post, as judgeRoutes pairs them. */
-function sidesOf<T>(at: string, samples: readonly Bracket<string>[], distinct: Record<string, T>, empty: T): T[] {
+function sidesOf<T>(at: string, samples: readonly Bracket<string>[], distinct: Record<string, T>): { sides: T[]; missing: string | null } {
   const before = samples.filter((s) => ms(s.endedAt) <= ms(at) && ms(at) - ms(s.endedAt) <= S4_GAP_MS).at(-1) ?? null;
   const after = samples.find((s) => ms(s.startedAt) >= ms(at) && ms(s.startedAt) - ms(at) <= S4_GAP_MS) ?? null;
-  return [before, after].filter((s): s is Bracket<string> => s !== null).map((s) => distinct[s.value] ?? empty);
+  const found = [before, after].filter((s): s is Bracket<string> => s !== null);
+  // A sample whose distinct layer is missing is an evidence bug: it must fail, never count as an empty FRM layer.
+  const gone = found.find((s) => !Object.hasOwn(distinct, s.value));
+  return { sides: found.map((s) => distinct[s.value]!), missing: gone === undefined ? null : gone.value };
 }
 
 /** The ids that occur more than once. */
@@ -68,8 +73,9 @@ interface LayerCmp<M, F> { failures: string[]; notes: string[]; pairs: Array<[M,
 /**
  * Id sets equal (exact) and per-id field differences from `diff`. The native readers' known divergences are reported, never
  * failed, when they explain an id-set difference: FRM ids the oracle derived (empty or over-long FRM id; the native reader drops
- * or clamps), a mod id clamped to the id maximum, and any id difference when either side is at the layer cap (the mapper cuts the
- * id-sorted list, the native readers send the rest to `Over`). FRM's repeated ids are reported (the native readers keep the first;
+ * or clamps), mod ids clamped to the id maximum (no more of them than derived FRM ids), and, when BOTH sides hold exactly the layer
+ * cap, the ids sorting after the earlier side's last id (the mapper cuts the id-sorted list, the native readers keep the sorted head
+ * and send the rest to `Over`). An empty or short mod layer against a capped FRM one therefore fails. FRM's repeated ids are reported (the native readers keep the first;
  * the best-matching FRM item is the one compared). The mod's own repeated ids fail.
  */
 function compareLayer<M extends { id: string }, F extends { id: string }>(
@@ -89,14 +95,17 @@ function compareLayer<M extends { id: string }, F extends { id: string }>(
   if (derived.length) {
     out.notes.push(`${derived.length} FRM ${label}(s) have a derived id (empty or over-long FRM id), reported and not failed (the native reader drops or clamps them)`);
     frmOnly = frmOnly.filter((id) => !id.startsWith(DERIVED_PREFIX));
+    // At most one clamped mod id per derived FRM id: more than that is not explained by the derived ids and fails.
     const clamped = modOnly.filter((id) => id.length >= ID_MAX);
-    if (clamped.length) {
+    if (clamped.length > 0 && clamped.length <= derived.length) {
       out.notes.push(`${clamped.length} mod ${label}(s) have a clamped id, reported and not failed`);
       modOnly = modOnly.filter((id) => id.length < ID_MAX);
     }
   }
-  if (frmOnly.length) out.failures.push(...idSetLine(`${frmOnly.length} ${label} ids in FRM only`, frmOnly, frm.length, mod.length, cap, out.notes));
-  if (modOnly.length) out.failures.push(...idSetLine(`${modOnly.length} ${label} ids in the mod only`, modOnly, frm.length, mod.length, cap, out.notes));
+  // At the cap, only when BOTH sides hold exactly `cap` items, and only ids after the earlier of the two last ids are excused.
+  const cut = frm.length === cap && mod.length === cap ? earlier(lastId(frm.map((f) => f.id)), lastId(mod.map((m) => m.id))) : null;
+  out.failures.push(...idSetLines(`${label} ids in FRM only`, frmOnly, cut, cap, out.notes));
+  out.failures.push(...idSetLines(`${label} ids in the mod only`, modOnly, cut, cap, out.notes));
   const diffs: string[] = [];
   for (const [id, m] of modById) {
     const cands = frmById.get(id);
@@ -116,12 +125,19 @@ function compareLayer<M extends { id: string }, F extends { id: string }>(
   return out;
 }
 
-function idSetLine(head: string, ids: string[], frmN: number, modN: number, cap: number, notes: string[]): string[] {
-  if (frmN >= cap || modN >= cap) {
-    notes.push(`${head}, reported and not failed: a side is at the layer cap of ${cap} (the mapper cuts the id-sorted list, the native readers send the rest to Over)`);
-    return [];
-  }
-  return [`${head} (first ${S4_SHOW}): ${ids.slice(0, S4_SHOW).join(" ")}`];
+/** The largest id by code unit, leaving out derived ids (the oracle orders those by their raw form, which never leaves it). */
+const lastId = (ids: readonly string[]): string | null => ids.filter((id) => !id.startsWith(DERIVED_PREFIX)).reduce<string | null>((a, id) => (a === null || byCodeUnit(id, a) > 0 ? id : a), null);
+const earlier = (a: string | null, b: string | null): string | null => (a === null || b === null ? null : byCodeUnit(a, b) <= 0 ? a : b);
+
+/**
+ * The failure line for ids on one side only. With `cut` (both sides at the cap) the ids after it are reported and not failed:
+ * the native readers keep the id-sorted head, so a cut can differ from FRM's only in the tail (FRM's kept repeats move its cut earlier).
+ */
+function idSetLines(what: string, ids: string[], cut: string | null, cap: number, notes: string[]): string[] {
+  const late = new Set(cut === null ? [] : ids.filter((id) => byCodeUnit(id, cut) > 0));
+  if (late.size) notes.push(`${late.size} ${what}, reported and not failed: both sides are at the layer cap of ${cap} and these sort after the earlier side's last id (the native readers keep the sorted head)`);
+  const early = ids.filter((id) => !late.has(id));
+  return early.length ? [`${early.length} ${what} (first ${S4_SHOW}): ${early.slice(0, S4_SHOW).join(" ")}`] : [];
 }
 
 interface Accepted<M, F> { mod: M[]; frm: F[]; cmp: LayerCmp<M, F> }
@@ -129,10 +145,11 @@ interface Accepted<M, F> { mod: M[]; frm: F[]; cmp: LayerCmp<M, F> }
 /** The posts loop all three judges share. Returns the failure reasons, or the accepted posts. */
 function runPosts<M extends { id: string }, F extends { id: string }>(
   e: { posts: Post[]; frmSamples: Array<Bracket<string>>; distinct: Record<string, F[]>; frm: Counts },
-  o: { layer: string; endpoint: string; label: string; schema: { safeParse: (d: unknown) => { success: true; data: unknown } | { success: false; error: { issues: Array<{ message: string }> } } }; cap: number; diff: (mod: M[]) => (m: M, f: F, st: Stats) => string[]; hint?: (st: Stats) => string[] },
+  o: { layer: string; endpoint: string; label: string; schema: { safeParse: (d: unknown) => { success: true; data: unknown } | { success: false; error: { issues: Array<{ message: string }> } } }; cap: number; names?: (m: M) => Array<string | null>; diff: (mod: M[]) => (m: M, f: F, st: Stats) => string[]; hint?: (st: Stats) => string[] },
 ): { reasons: string[]; ok: Array<Accepted<M, F>> } {
   const reasons: string[] = [];
   const ok: Array<Accepted<M, F>> = [];
+  // Task 15 must put only ACCEPTED layer posts (status 200) in `posts`: `status` is not read here, so a refused post would be judged.
   if (e.posts.length === 0) reasons.push(`the mod posted no ${o.layer} layer in the window`);
   for (const post of e.posts) {
     const parsed = o.schema.safeParse(post.data);
@@ -140,12 +157,25 @@ function runPosts<M extends { id: string }, F extends { id: string }>(
       reasons.push(`${post.at}: the posted layer is not valid against the pinned contract (${parsed.error.issues[0]?.message ?? "?"})`);
       continue;
     }
-    const sides = sidesOf<F[]>(post.at, e.frmSamples, e.distinct, []);
+    const { sides, missing } = sidesOf<F[]>(post.at, e.frmSamples, e.distinct);
+    if (missing !== null) {
+      reasons.push(`${post.at}: FRM sample ${missing} has no recorded layer`);
+      continue;
+    }
     if (sides.length === 0) {
       reasons.push(`${post.at}: no FRM ${o.endpoint} sample within ${S4_GAP_MS / 1000} s`);
       continue;
     }
-    const mod = parsed.data as M[];
+    // The same id space as the oracle's: a mod id that starts with `derived-` is hashed as FRM's derived ids are (evidenceId).
+    const mod = (parsed.data as M[]).map((m) => {
+      const p = m as M & { pairedId?: string | null };
+      return { ...m, id: evidenceId(m.id), ...(typeof p.pairedId === "string" ? { pairedId: evidenceId(p.pairedId) } : {}) };
+    });
+    // A name that is not hash-shaped fails the layer; the value is never printed.
+    if (mod.some((m) => (o.names?.(m) ?? []).some((n) => n !== null && !HASHED_NAME.test(n)))) {
+      reasons.push(`${post.at}: a posted name is not a hash (the value is not printed)`);
+      continue;
+    }
     const cmps = sides.map((s) => compareLayer(o.label, mod, s, o.cap, o.diff(mod)));
     const i = cmps.findIndex((c) => c.failures.length === 0);
     if (i < 0) {
@@ -180,7 +210,7 @@ function markerAxis(id: string, k: "x" | "y", mod: number, frm: number, st: Stat
  */
 export function judgeMarkers(e: MarkersEvidence): S4Result {
   const { reasons, ok } = runPosts<ModMarker, FrmMarker>(e, {
-    layer: "mapMarkers", endpoint: "getMapMarkers", label: "marker", schema: MapMarkersLayerDataSchema, cap: MAP_MARKERS_MAX_ITEMS,
+    layer: "mapMarkers", endpoint: "getMapMarkers", label: "marker", schema: MapMarkersLayerDataSchema, cap: MAP_MARKERS_MAX_ITEMS, names: (m) => [m.name],
     diff: () => (m, f, st) => {
       const d: string[] = [];
       if (m.kind !== f.kind) d.push(`${m.id} kind mod=${m.kind} frm=${f.kind}`);
@@ -194,7 +224,7 @@ export function judgeMarkers(e: MarkersEvidence): S4Result {
   if (reasons.length) return failing(reasons);
   const pairs = ok.flatMap((a) => a.cmp.pairs);
   const modAll = ok.flatMap((a) => a.mod);
-  const bothEmpty = ok.every((a) => a.mod.length === 0 && a.frm.length === 0);
+  const bothEmpty = pairs.length === 0;
   const rounding = Math.max(0, ...ok.map((a) => a.cmp.stats.rounding ?? 0));
   const never = bothEmpty
     ? ["any marker (both sides empty)"]
@@ -218,13 +248,14 @@ export function judgeMarkers(e: MarkersEvidence): S4Result {
 
 /**
  * droneRoutes (plan rule R-d, provisional): valid against the contract; id set equal; name hash, paired hash and the input,
- * output and fuel sets exactly equal; x/y each within 1 m. pairedId (controller rule): when FRM's paired name matches exactly one
- * port the mod's pairedId must be that id (null fails when that port is in the layer); otherwise it is reported, not judged.
- * A pairedId outside the layer fails.
+ * output and fuel sets exactly equal (sorted); x/y within 1 m in a straight line. pairedId (controller rule): when FRM's paired name
+ * matches exactly one port the mod's pairedId must be that id (null fails when that port is in the layer); for an unpaired FRM port
+ * it must be null or absent; for an ambiguous name it must be null, absent or one of FRM's candidates; otherwise it is reported,
+ * not judged. A pairedId outside the layer fails. A reader that never sends one is flagged in NOT EXERCISED.
  */
 export function judgeDrone(e: DroneEvidence): S4Result {
   const { reasons, ok } = runPosts<ModPort, FrmDronePort>(e, {
-    layer: "droneRoutes", endpoint: "getDroneStation", label: "port", schema: DroneRoutesLayerDataSchema, cap: DRONE_ROUTES_MAX_ITEMS,
+    layer: "droneRoutes", endpoint: "getDroneStation", label: "port", schema: DroneRoutesLayerDataSchema, cap: DRONE_ROUTES_MAX_ITEMS, names: (m) => [m.name, m.paired],
     // Controller (V9): input and output equal only when swapped, on every port where they differ, means the getters are swapped.
     hint: (st) => ((st.ioDiff ?? 0) > 0 && st.ioDiff === st.ioSwapped ? ["input/output look swapped (V9: swap the getters in Task 9)"] : []),
     diff: (mod) => {
@@ -233,16 +264,21 @@ export function judgeDrone(e: DroneEvidence): S4Result {
         const d: string[] = [];
         if (m.name !== f.nameHash) d.push(`${m.id} nameHash mod=${m.name} frm=${f.nameHash}`);
         if (m.paired !== f.pairedHash) d.push(`${m.id} paired mod=${show(m.paired)} frm=${show(f.pairedHash)}`);
-        for (const k of ["input", "output", "fuel"] as const) if (!same(m[k], f[k])) d.push(`${m.id} ${k} mod=${show(m[k])} frm=${show(f[k])}`);
-        if (!same(m.input, f.input) || !same(m.output, f.output)) {
+        // The sets are compared sorted by code unit on both sides, so a sort change in the reader is not a cargo difference.
+        const mi = [...m.input].sort(byCodeUnit), mo = [...m.output].sort(byCodeUnit), mf = [...m.fuel].sort(byCodeUnit);
+        const fi = [...f.input].sort(byCodeUnit), fo = [...f.output].sort(byCodeUnit), ff = [...f.fuel].sort(byCodeUnit);
+        for (const [k, mv, fv] of [["input", mi, fi], ["output", mo, fo], ["fuel", mf, ff]] as const) if (!same(mv, fv)) d.push(`${m.id} ${k} mod=${show(mv)} frm=${show(fv)}`);
+        if (!same(mi, fi) || !same(mo, fo)) {
           st.ioDiff = (st.ioDiff ?? 0) + 1;
-          if (same(m.input, f.output) && same(m.output, f.input)) st.ioSwapped = (st.ioSwapped ?? 0) + 1;
+          if (same(mi, fo) && same(mo, fi)) st.ioSwapped = (st.ioSwapped ?? 0) + 1;
         }
-        for (const [k, mv, fv] of [["x", m.x, f.xM], ["y", m.y, f.yM]] as const) {
-          if (!(Math.abs(mv - fv) <= S4_XY_MAX_M + EPS)) d.push(`${m.id} ${k} mod=${mv} frm=${fv}`);
-        }
-        const only = f.pairedIds.length === 1 ? f.pairedIds[0]! : null;
+        // Controller ruling: a straight-line (Euclidean) distance, not per axis.
+        if (!(Math.hypot(m.x - f.xM, m.y - f.yM) <= S4_XY_MAX_M + EPS)) d.push(`${m.id} xy mod=(${m.x},${m.y}) frm=(${f.xM},${f.yM})`);
+        const partners = new Set(f.pairedIds);
+        const only = partners.size === 1 ? [...partners][0]! : null;
         if (typeof m.pairedId === "string" && !modIds.has(m.pairedId)) d.push(`${m.id} pairedId names an id that is not in the layer`);
+        else if (f.pairedHash === null && typeof m.pairedId === "string") d.push(`${m.id} pairedId mod=${m.pairedId} but the port is unpaired in FRM`);
+        else if (partners.size >= 2 && typeof m.pairedId === "string" && !partners.has(m.pairedId)) d.push(`${m.id} pairedId mod=${m.pairedId} is none of FRM's ${partners.size} candidates`);
         else if (only !== null && m.pairedId !== undefined) {
           st.pairedJudged = (st.pairedJudged ?? 0) + 1;
           if (m.pairedId === null && modIds.has(only)) d.push(`${m.id} pairedId mod=null frm=${only} (FRM resolves exactly one port in the layer)`);
@@ -259,7 +295,8 @@ export function judgeDrone(e: DroneEvidence): S4Result {
 function finishDrone(ok: Array<Accepted<ModPort, FrmDronePort>>): S4Result {
   const pairs = ok.flatMap((a) => a.cmp.pairs);
   const frmAll = pairs.map(([, f]) => f);
-  const bothEmpty = ok.every((a) => a.mod.length === 0 && a.frm.length === 0);
+  const bothEmpty = pairs.length === 0;
+  const judgedAny = ok.some((a) => (a.cmp.stats.pairedJudged ?? 0) > 0);
   const never = bothEmpty
     ? ["any drone port (both sides empty)"]
     : [
@@ -268,7 +305,9 @@ function finishDrone(ok: Array<Accepted<ModPort, FrmDronePort>>): S4Result {
         frmAll.some((f) => f.input.length > 0) ? null : "cargo in an input inventory",
         frmAll.some((f) => f.output.length > 0) ? null : "cargo in an output inventory",
         frmAll.some((f) => f.fuel.length > 0) ? null : "fuel",
-        frmAll.some((f) => f.pairedIds.length >= 2) ? null : "two ports sharing a name (pairing ambiguous)",
+        frmAll.some((f) => new Set(f.pairedIds).size >= 2) ? null : "two ports sharing a name (pairing ambiguous)",
+        // I-4: a reader that loses the field passes silently otherwise.
+        judgedAny || !frmAll.some((f) => new Set(f.pairedIds).size === 1) ? null : "a pairedId the mod sent (FRM resolved a unique partner, the mod sent none)",
       ].filter((x): x is string => x !== null);
   const last = ok.at(-1)!.cmp.stats;
   const out = [
@@ -304,13 +343,13 @@ export function judgeWires(e: WiresEvidence, log: { dropped: number } | null = n
         return [];
       }
       const sum = (d: number[]) => d[0]! + d[1]!;
-      return [`${m.id} ends are over ${S4_XY_MAX_M} m from FRM's in either order (${fmt2(Math.max(sum(straight), sum(swapped)))} m total)`];
+      return [`${m.id} ends are over ${S4_XY_MAX_M} m from FRM's in either order (${fmt2(Math.min(sum(straight), sum(swapped)))} m total, the better order)`];
     },
   });
   const droppedNote = log !== null && log.dropped > 0 ? [`the mod's log counted ${log.dropped} dropped wire(s) (an end that was null)`] : [];
   if (reasons.length) return failing([...reasons, ...droppedNote]);
   const pairs = ok.flatMap((a) => a.cmp.pairs);
-  const bothEmpty = ok.every((a) => a.mod.length === 0 && a.frm.length === 0);
+  const bothEmpty = pairs.length === 0;
   const swapped = Math.max(0, ...ok.map((a) => a.cmp.stats.swapped ?? 0));
   const never = bothEmpty
     ? ["any wire (both sides empty)"]

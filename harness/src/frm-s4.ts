@@ -20,7 +20,8 @@ import { createHash } from "node:crypto";
 import { sessionHash } from "./status";
 
 const LIMIT_METRES = 1_000_000;
-const MAX_STRING = 200;
+/** The contract's string maximum, also the id maximum (map.ts boundedString). */
+export const MAX_STRING = 200;
 const MAX_ITEM_CLASSES = 64;
 const MAX_ICON = 1_000_000;
 const MAP_MARKER_NAME_MAX_CHARS = 60;
@@ -29,12 +30,12 @@ export const MAP_MARKERS_MAX_ITEMS = 1_000;
 export const DRONE_ROUTES_MAX_ITEMS = 2_000;
 export const POWER_LINES_MAX_ITEMS = 20_000;
 const DEFAULT_MARKER_COLOR = "#ffffff";
-const DERIVED_ID_PREFIX = "derived-";
+export const DERIVED_ID_PREFIX = "derived-";
 const UNPAIRED = "None";
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+export const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 /** Centimetres to metres, rounded to 0.01 m, -0 written 0 (the same form as frm-s3). */
 const metres2 = (cm: number): number => {
   const v = Math.round(cm) / 100;
