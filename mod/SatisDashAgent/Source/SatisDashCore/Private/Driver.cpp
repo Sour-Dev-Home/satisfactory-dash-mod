@@ -224,6 +224,10 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d extractors past the list cap were dropped"), Found->Counts.ExtractorsOverCap);
 	}
+	if (Found->Counts.GeneratorsOverCap > 0)
+	{
+		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d generators past the list cap were dropped"), Found->Counts.GeneratorsOverCap);
+	}
 	if (BuildablesAsked.bExtractors && !Bridge.SubmitNativeExtractors(MoveTemp(Found->Extractors), Now) && BuildablesLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last extractors fragment is still being built: it is dropped"));

@@ -8,6 +8,7 @@
 #include "Buildables/FGBuildableDockingStation.h"
 #include "Buildables/FGBuildableDroneStation.h"
 #include "Buildables/FGBuildableGenerator.h"
+#include "Buildables/FGBuildableGeneratorFuel.h"
 #include "Buildables/FGBuildableManufacturer.h"
 #include "Buildables/FGBuildableMergerPriority.h"
 #include "Buildables/FGBuildablePipeline.h"
@@ -64,6 +65,7 @@
 #include "SatisDash/GameValues.h"
 #include "SatisDash/Log.h"
 #include "SatisDash/Native/Extractors/NativeExtractors.h"
+#include "SatisDash/Native/Generators/NativeGenerators.h"
 #include "SatisDash/Native/Rates/NativeRates.h"
 #include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
 
@@ -1434,6 +1436,51 @@ namespace
 		}
 		return false;
 	}
+
+	/**
+	 * The item held in one slot of a generator's fuel inventory, if any (FGBuildableGeneratorFuel.h:116 and :117 give the slot
+	 * indexes). The class is the Preferred one when the game names it (GetCurrentFuelClass :103, GetSupplementalResourceClass :111),
+	 * else the held stack's own class; the amount is the count in the slot, a fluid scaled litres to m3 by MakeSlotReading
+	 * ("1 unit equates to 1 Liter", FGBuildableGeneratorFuel.h:176). An empty or out-of-range slot gives false.
+	 */
+	bool BuildablesReadFuelSlot(const UFGInventoryComponent& Inventory, int32 SlotIndex, const TSubclassOf<UFGItemDescriptor>& Preferred, SatisDash::FFuelReading& Out)
+	{
+		FInventoryStack Stack;
+		if (SlotIndex < 0 || SlotIndex >= Inventory.GetSizeLinear() || !Inventory.GetStackFromIndex(SlotIndex, Stack) || Stack.NumItems <= 0)
+		{
+			return false;
+		}
+		const TSubclassOf<UFGItemDescriptor> Held = Stack.Item.GetItemClass();
+		const TSubclassOf<UFGItemDescriptor> ItemClass = Preferred ? Preferred : Held;
+		if (!ItemClass)
+		{
+			return false;
+		}
+		Out.ClassName = ItemClass->GetName();
+		Out.Name = UFGItemDescriptor::GetItemName(ItemClass).ToString();
+		Out.Amount = SatisDash::MakeSlotReading(Out.ClassName, Stack.NumItems, 0, FactoryReadIsFluid(ItemClass)).Amount;
+		return true;
+	}
+
+	/**
+	 * S4-B generator MW (V4, survey Q3), both in MW:
+	 *   Current  = power info GetBaseProduction() (FGPowerInfoComponent.h:137, "the power we always provide to the circuit") plus
+	 *              GetRegulatedDynamicProduction() (:160, "the dynamic power production we provide to the circuit").
+	 *   Capacity = CalcPowerProductionCapacityForPotential(GetCurrentPotential()) (FGBuildableGenerator.h:95, "with a given potential",
+	 *              mPowerProduction :126 "in MW"). GetPowerProductionCapacity :87 does not say it follows the clock, so it is not used.
+	 * NEEDS VERIFICATION (the parity run judges, a failure goes to a ruling PR, never a weakened judge): the power-info getters state no
+	 * unit (MW assumed), nor whether a generator's output sits in the base or the dynamic part (the sum is read), and the headers do not
+	 * say what a geothermal generator gives through this path (no min/max invented, survey Q4).
+	 */
+	void BuildablesReadGeneratorPower(const AFGBuildableGenerator& Generator, SatisDash::FGeneratorReading& Out)
+	{
+		const UFGPowerInfoComponent* PowerInfo = Generator.GetPowerInfo();
+		if (IsValid(PowerInfo))
+		{
+			Out.CurrentMW = static_cast<double>(PowerInfo->GetBaseProduction()) + static_cast<double>(PowerInfo->GetRegulatedDynamicProduction());
+		}
+		Out.CapacityMW = static_cast<double>(Generator.CalcPowerProductionCapacityForPotential(Generator.GetCurrentPotential()));
+	}
 }
 
 void SatisDash::FGameReader::ResetBuildablesRead()
@@ -1483,6 +1530,7 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 	}
 	// The list is kept bounded whatever the world holds (twice the fragment's own cap).
 	const int32 MaxExtractors = 2 * ExtractorsMaxItems;
+	const int32 MaxGenerators = 2 * GeneratorsMaxItems;
 	bool bFinished = false;
 	Budget.Begin();
 	do
@@ -1540,6 +1588,64 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 				Reading.bBackedUp = BuildablesReadOutputFull(Extractor->GetOutputInventory());
 				BuildablesFound.Extractors.Add(MoveTemp(Reading));
 				++BuildablesFound.Counts.Extractors;
+			}
+		}
+		if (BuildablesAsked.bGenerators)
+		{
+			const AFGBuildableGenerator* Generator = Cast<AFGBuildableGenerator>(Buildable);
+			if (Generator != nullptr && BuildablesFound.Generators.Num() >= MaxGenerators)
+			{
+				++BuildablesFound.Counts.GeneratorsOverCap;
+			}
+			else if (Generator != nullptr)
+			{
+				FGeneratorReading Reading;
+				Reading.Id = Generator->GetName();
+				Reading.Name = Generator->mDisplayName.ToString();
+				Reading.ClassName = Generator->GetClass()->GetName();
+				Reading.bProducing = Generator->IsProducing();
+				Reading.ClockPercent = 100.0 * Generator->GetCurrentPotential();
+				const FVector Location = Generator->GetActorLocation();
+				Reading.bHasLocation = true;
+				Reading.XCm = Location.X;
+				Reading.YCm = Location.Y;
+				Reading.ZCm = Location.Z;
+				Reading.YawDeg = Generator->GetActorRotation().Yaw;
+				const UFGPowerInfoComponent* PowerInfo = Generator->GetPowerInfo();
+				const UFGPowerCircuit* Circuit = PowerInfo != nullptr ? PowerInfo->GetPowerCircuit() : nullptr;
+				Reading.CircuitGroupId = Circuit != nullptr ? Circuit->GetCircuitGroupID() : -1;
+				BuildablesReadGeneratorPower(*Generator, Reading);
+				// Only a fuel generator has a fuel (geothermal does not: Fuel stays unset, written as null). Waste is never read.
+				// The supplement is "read" for every generator that was read; an unset value is then null. Only a Fuel generator
+				// whose fuel inventory is missing (null on a client, FGBuildableGeneratorFuel.h:51) is a failed read: absent.
+				const AFGBuildableGeneratorFuel* FuelGenerator = Cast<AFGBuildableGeneratorFuel>(Generator);
+				if (FuelGenerator == nullptr)
+				{
+					Reading.bSupplementRead = true;
+				}
+				else
+				{
+					const UFGInventoryComponent* FuelInventory = FuelGenerator->GetFuelInventory();
+					if (IsValid(FuelInventory))
+					{
+						Reading.bSupplementRead = true;
+						FFuelReading Fuel;
+						if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetFuelInventoryIndex(), FuelGenerator->GetCurrentFuelClass(), Fuel))
+						{
+							Reading.Fuel = MoveTemp(Fuel);
+						}
+						if (FuelGenerator->GetRequiresSupplementalResource())
+						{
+							FFuelReading Supplement;
+							if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetSupplementalResourceInventoryIndex(), FuelGenerator->GetSupplementalResourceClass(), Supplement))
+							{
+								Reading.Supplement = MoveTemp(Supplement);
+							}
+						}
+					}
+				}
+				BuildablesFound.Generators.Add(MoveTemp(Reading));
+				++BuildablesFound.Counts.Generators;
 			}
 		}
 	} while (!Budget.Spent());
