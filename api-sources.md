@@ -704,6 +704,24 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FLinearColor::White | Engine/Source/Runtime/Core/Public/Math/Color.h:465 | header only |
 | FLinearColor::FromSRGBColor | Engine/Source/Runtime/Core/Public/Math/Color.h:123 | header only (the inverse of ToFColor(true): used by the tests to build a colour with a known sRGB byte value) |
 | FLinearColor::ToFColor | Engine/Source/Runtime/Core/Public/Math/Color.h:381 | header only (bSRGB true = ToFColorSRGB, false = QuantizeRound; the NativeMarkerColorSRGB constant picks) |
+| FGMapManager.h | Source/FactoryGame/Public/FGMapManager.h:1 | header only |
+| AFGMapManager | Source/FactoryGame/Public/FGMapManager.h:70 | header only (the map-markers manager) |
+| AFGMapManager::Get | Source/FactoryGame/Public/FGMapManager.h:95 | header only (the UWorld* overload; :99 is the UObject* one; null-checked) |
+| AFGMapManager::GetMapMarkers | Source/FactoryGame/Public/FGMapManager.h:118 | header only (public, non-const, fills a copy; the cap is mMaxNumMapMarkers = 250 at :299) |
+| FGMapMarker.h | Source/FactoryGame/Public/FGMapMarker.h:1 | header only |
+| FMapMarker | Source/FactoryGame/Public/FGMapMarker.h:13 | header only (copied once per read) |
+| FMapMarker::MarkerGUID | Source/FactoryGame/Public/FGMapMarker.h:37 | header only |
+| FMapMarker::Location | Source/FactoryGame/Public/FGMapMarker.h:40 | header only (centimetres; FVector_NetQuantize, X and Y read) |
+| FMapMarker::Name | Source/FactoryGame/Public/FGMapMarker.h:43 | header only |
+| FMapMarker::MapMarkerType | Source/FactoryGame/Public/FGMapMarker.h:49 | header only |
+| FMapMarker::IconID | Source/FactoryGame/Public/FGMapMarker.h:52 | header only |
+| FMapMarker::Color | Source/FactoryGame/Public/FGMapMarker.h:55 | header only (FLinearColor) |
+| FMapMarker::HasValidID | Source/FactoryGame/Public/FGMapMarker.h:71 | header only (MarkerGUID.IsValid()) |
+| FGActorRepresentation.h | Source/FactoryGame/Public/FGActorRepresentation.h:1 | header only |
+| ERepresentationType | Source/FactoryGame/Public/FGActorRepresentation.h:14 | header only |
+| ERepresentationType::RT_Stamp | Source/FactoryGame/Public/FGActorRepresentation.h:33 | header only (a stamp; every other type is a marker) |
+| EGuidFormats::Digits | Engine/Source/Runtime/Core/Public/Misc/Guid.h:39 | header only (32 hex digits, no hyphens) |
+| FGuid::ToString | Engine/Source/Runtime/Core/Public/Misc/Guid.h:329 | header only (EGuidFormats::Digits, defined at :39 in the same header: 32 hex digits) |
 | FColor | Engine/Source/Runtime/Core/Public/Math/Color.h:494 | header only |
 | FColor::ToHex | Engine/Source/Runtime/Core/Public/Math/Color.h:706 | header only (RRGGBBAA, upper case; Color.cpp:585) |
 | TestNotEqual | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:1972 | header only (the FString overload) |

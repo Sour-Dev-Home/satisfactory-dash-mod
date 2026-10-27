@@ -33,6 +33,8 @@
 #include "FGPipeConnectionComponent.h"
 #include "FGCircuitSubsystem.h"
 #include "FGGameState.h"
+#include "FGMapManager.h"
+#include "FGActorRepresentation.h"
 #include "FGInventoryComponent.h"
 #include "FGPowerCircuit.h"
 #include "FGFreightWagon.h"
@@ -697,6 +699,81 @@ TOptional<SatisDash::FTrainsSnapshot> SatisDash::FGameReader::StepTrainsRead(FSt
 	}
 	FTrainsSnapshot Done = MoveTemp(TrainsFound);
 	ResetTrainsRead();
+	return MoveTemp(Done);
+}
+
+void SatisDash::FGameReader::ResetMapMarkersRead()
+{
+	MarkersWorld.Reset();
+	MarkersCopy.Empty(); // frees the strings, not just the count
+	MarkersCursor = 0;
+	MarkersFound = FMapMarkersSnapshot();
+	bMarkersOpen = false;
+}
+
+bool SatisDash::FGameReader::BeginMapMarkersRead()
+{
+	if (bMarkersOpen)
+	{
+		return false;
+	}
+	UWorld* Current = World.Get();
+	AFGMapManager* Manager = Current != nullptr ? AFGMapManager::Get(Current) : nullptr;
+	if (Manager == nullptr)
+	{
+		return false;
+	}
+	ResetMapMarkersRead();
+	bMarkersAbandoned = false;
+	MarkersWorld = Current;
+	Manager->GetMapMarkers(MarkersCopy); // the game's own cap is 250 markers; copied once, then sliced
+	bMarkersOpen = true;
+	return true;
+}
+
+TOptional<SatisDash::FMapMarkersSnapshot> SatisDash::FGameReader::StepMapMarkersRead(FStepBudget& Budget)
+{
+	UWorld* Current = World.Get();
+	// A different save was loaded while the slices ran (or the manager went away): "cannot read", empty and flagged.
+	const AFGMapManager* Manager = Current != nullptr && Current == MarkersWorld.Get() ? AFGMapManager::Get(Current) : nullptr;
+	if (Manager == nullptr)
+	{
+		ResetMapMarkersRead();
+		bMarkersAbandoned = true;
+		return FMapMarkersSnapshot();
+	}
+	bool bFinished = false;
+	Budget.Begin();
+	do
+	{
+		if (MarkersCursor < MarkersCopy.Num())
+		{
+			// Only these fields are read; the author fields (LastEditedBy, CreatedByPlayerID) never are.
+			const FMapMarker& Marker = MarkersCopy[MarkersCursor++];
+			FMapMarkerReading Reading;
+			Reading.Id = Marker.HasValidID() ? Marker.MarkerGUID.ToString(EGuidFormats::Digits).ToUpper() : FString();
+			Reading.Name = Marker.Name;
+			Reading.Kind = Marker.MapMarkerType == ERepresentationType::RT_Stamp ? EMapMarkerKind::Stamp : EMapMarkerKind::Marker;
+			Reading.Icon = Marker.IconID;
+			Reading.Color = Marker.Color;
+			Reading.XCm = Marker.Location.X;
+			Reading.YCm = Marker.Location.Y;
+			MarkersFound.Markers.Add(MoveTemp(Reading));
+		}
+		else
+		{
+			bFinished = true;
+			break;
+		}
+	} while (!Budget.Spent());
+	Budget.End(); // straight after the loop: nothing else is done on the game thread this step
+	if (!bFinished)
+	{
+		return {};
+	}
+	FMapMarkersSnapshot Done = MoveTemp(MarkersFound);
+	Done.Counts.Read = Done.Markers.Num();
+	ResetMapMarkersRead();
 	return MoveTemp(Done);
 }
 

@@ -5,6 +5,8 @@ Code: mod/SatisDashAgent/Source/SatisDashGame/Private/GameReader.cpp
 Code: mod/SatisDashAgent/Source/SatisDashCore/Private/WorldSender.cpp
 Headers: Source/FactoryGame/Public/FGMapManager.h:70 (AFGMapManager), :95 (Get), :111 (GetNumMapMarkers), :118 (GetMapMarkers: public, returns a copy), :299 (mMaxNumMapMarkers = 250)
 Headers: Source/FactoryGame/Public/FGMapMarker.h:13 (FMapMarker), :37 (MarkerGUID), :40 (Location, centimetres), :43 (Name), :49 (MapMarkerType), :52 (IconID), :55 (Color, FLinearColor), :71 (HasValidID)
+Headers: Source/FactoryGame/Public/FGActorRepresentation.h:14 (ERepresentationType), :33 (RT_Stamp)
+Headers: Engine/Source/Runtime/Core/Public/Misc/Guid.h:39 (EGuidFormats::Digits), :329 (FGuid::ToString); Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1553 (FString::ToUpper)
 Headers: Engine/Source/Runtime/Core/Public/Math/Color.h:47 (FLinearColor), :123 (FromSRGBColor), :381 (ToFColor), :494 (FColor), :706 (ToHex)
 Survey: mod-native-readers-s4a-headers-2026-10-27.md
 Captures: frm-getMapMarkers-2026-09-27-full.json (satisfactory-dash captured-responses; FRM HTTP output only; the fixture is synthetic in its shape)

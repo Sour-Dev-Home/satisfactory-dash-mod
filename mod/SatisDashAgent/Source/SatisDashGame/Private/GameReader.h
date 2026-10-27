@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FGMapMarker.h"
 #include "SatisDash/Ports.h"
 
 class UWorld;
@@ -36,6 +37,11 @@ namespace SatisDash
 		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandoned; }
 		virtual void EndTrainsRead() override { ResetTrainsRead(); }
 		virtual bool IsTrainsReadOpen() const override { return bTrainsOpen; }
+		virtual bool BeginMapMarkersRead() override;
+		virtual TOptional<FMapMarkersSnapshot> StepMapMarkersRead(FStepBudget& Budget) override;
+		virtual bool MapMarkersReadAbandoned() const override { return bMarkersAbandoned; }
+		virtual void EndMapMarkersRead() override { ResetMapMarkersRead(); }
+		virtual bool IsMapMarkersReadOpen() const override { return bMarkersOpen; }
 		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) override;
 		virtual TOptional<FLogisticsSnapshot> StepLogisticsRead(FStepBudget& Budget) override;
 		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
@@ -48,6 +54,8 @@ namespace SatisDash
 		void ResetLogisticsRead();
 		/** Ends the trains read and frees what it holds. */
 		void ResetTrainsRead();
+		/** Ends the map-markers read and frees its copy. */
+		void ResetMapMarkersRead();
 		/** Ends the factory read and frees what it holds. */
 		void ResetFactoryRead();
 		UFGServerSubsystem* Server() const;
@@ -94,6 +102,18 @@ namespace SatisDash
 		/** The read that just returned was abandoned (no subsystem, or a world swap), not finished. */
 		bool bTrainsAbandoned = false;
 		FTrainsSnapshot TrainsFound;
+
+		/**
+		 * The map-markers read (R8): the manager's markers copied once when the read begins (at most 250 small structs, the only
+		 * game struct held across ticks; the strings are freed on end), a cursor into the copy, and the world it began in.
+		 */
+		TWeakObjectPtr<UWorld> MarkersWorld;
+		TArray<FMapMarker> MarkersCopy;
+		int32 MarkersCursor = 0;
+		bool bMarkersOpen = false;
+		/** The read that just returned was abandoned (no manager, or a world swap), not finished. */
+		bool bMarkersAbandoned = false;
+		FMapMarkersSnapshot MarkersFound;
 
 		/**
 		 * The logistics pass (R5): an index into the buildable list (never a pointer into it) and, once collected, one weak pointer
