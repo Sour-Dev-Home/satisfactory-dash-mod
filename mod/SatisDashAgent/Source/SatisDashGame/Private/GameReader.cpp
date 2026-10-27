@@ -2,6 +2,8 @@
 
 #include "Buildables/FGBuildableManufacturer.h"
 #include "Buildables/FGBuildableRailroadStation.h"
+#include "Buildables/FGBuildableRailroadTrack.h"
+#include "Components/SplineComponent.h"
 #include "Buildables/FGBuildableTrainPlatform.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "Controller/FGServerManagementController.h"
@@ -675,5 +677,148 @@ TOptional<SatisDash::FTrainsSnapshot> SatisDash::FGameReader::StepTrainsRead(FSt
 	}
 	FTrainsSnapshot Done = MoveTemp(TrainsFound);
 	ResetTrainsRead();
+	return MoveTemp(Done);
+}
+
+void SatisDash::FGameReader::ResetLogisticsRead()
+{
+	LogisticsWorld.Reset();
+	LogisticsTracks.Empty();
+	LogisticsFound = FLogisticsSnapshot();
+	LogisticsPhase = ELogisticsPhase::Collect;
+	LogisticsCursor = 0;
+	bLogisticsRails = false;
+	bLogisticsOpen = false;
+}
+
+bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors)
+{
+	if (bLogisticsOpen)
+	{
+		return false; // one cursor: a pass is still open
+	}
+	UWorld* Current = World.Get();
+	const AFGBuildableSubsystem* Subsystem = Current != nullptr ? AFGBuildableSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		return false;
+	}
+	ResetLogisticsRead();
+	bLogisticsAbandoned = false;
+	LogisticsWorld = Current;
+	bLogisticsRails = bRails;
+	// The conveyors reader has not landed: bConveyors is accepted and ignored.
+	if (bRails)
+	{
+		// Advisory only (the subsystem's own count of tracks, logged next to what was read).
+		LogisticsFound.Counts.ExpectedTracks = Subsystem->GetBuildableCount(AFGBuildableRailroadTrack::StaticClass());
+	}
+	bLogisticsOpen = true;
+	return true;
+}
+
+TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRead(FStepBudget& Budget)
+{
+	if (!bLogisticsOpen)
+	{
+		return {};
+	}
+	UWorld* Current = World.Get();
+	// A different save was loaded while the slices ran (or the world or its subsystem went away): what was read is the old world's
+	// or a mix, so the pass is abandoned (empty and flagged), never a partial snapshot.
+	const AFGBuildableSubsystem* Subsystem = Current != nullptr && Current == LogisticsWorld.Get() ? AFGBuildableSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		ResetLogisticsRead();
+		bLogisticsAbandoned = true;
+		return FLogisticsSnapshot();
+	}
+	bool bFinished = false;
+	Budget.Begin();
+	do
+	{
+		if (LogisticsPhase == ELogisticsPhase::Collect)
+		{
+			// Re-fetched for every element and never kept: buildables come and go between ticks.
+			const TArray<AFGBuildable*>& All = Subsystem->GetAllBuildablesRef();
+			if (LogisticsCursor >= All.Num())
+			{
+				LogisticsPhase = ELogisticsPhase::ReadRails;
+				LogisticsCursor = 0;
+				continue;
+			}
+			AFGBuildable* Building = All[LogisticsCursor++];
+			++LogisticsFound.Counts.Buildables;
+			if (!IsValid(Building))
+			{
+				continue;
+			}
+			if (bLogisticsRails)
+			{
+				if (AFGBuildableRailroadTrack* Track = Cast<AFGBuildableRailroadTrack>(Building))
+				{
+					LogisticsTracks.Add(Track);
+				}
+			}
+			continue;
+		}
+		// ReadRails: one track per iteration, weak, checked at every use.
+		if (LogisticsCursor >= LogisticsTracks.Num())
+		{
+			bFinished = true;
+			break;
+		}
+		const AFGBuildableRailroadTrack* Track = LogisticsTracks[LogisticsCursor++].Get();
+		if (!IsValid(Track))
+		{
+			continue;
+		}
+		const double LengthCm = Track->GetLength();
+		const int32 Intervals = RailSampleIntervals(LengthCm);
+		const USplineComponent* Spline = nullptr;
+		if (NativeRailSampler == ERailSampler::SplineComponent)
+		{
+			Spline = Track->GetSplineComponent();
+			if (!IsValid(Spline))
+			{
+				++LogisticsFound.Counts.Dropped;
+				continue;
+			}
+		}
+		FRailReading Reading;
+		Reading.Id = Track->GetName();
+		Reading.Points.Reserve(Intervals + 1);
+		for (int32 Index = 0; Index <= Intervals; ++Index)
+		{
+			const float DistanceCm = static_cast<float>(RailSampleDistanceCm(LengthCm, Intervals, Index));
+			FVector Location = FVector::ZeroVector;
+			if (Spline != nullptr)
+			{
+				Location = Spline->GetLocationAtDistanceAlongSpline(DistanceCm, ESplineCoordinateSpace::World);
+			}
+			else
+			{
+				FVector Direction = FVector::ZeroVector;
+				Track->GetWorldLocationAndDirectionAtDistance(DistanceCm, Location, Direction);
+			}
+			Reading.Points.Add(FRailPointCm{Location.X, Location.Y});
+		}
+		LogisticsFound.Rails.Add(MoveTemp(Reading));
+		++LogisticsFound.Counts.Tracks;
+	} while (!Budget.Spent());
+	Budget.End(); // straight after the loop: nothing else is done on the game thread this step
+	if (!bFinished)
+	{
+		return {};
+	}
+	if (LogisticsFound.Counts.Buildables == 0)
+	{
+		// Ruling M5: a world with no buildables at all is "cannot read", not an empty railway.
+		ResetLogisticsRead();
+		bLogisticsAbandoned = true;
+		return FLogisticsSnapshot();
+	}
+	FLogisticsSnapshot Done = MoveTemp(LogisticsFound);
+	ResetLogisticsRead(); // closes the pass: the sender does not call EndLogisticsRead after a finished one
 	return MoveTemp(Done);
 }

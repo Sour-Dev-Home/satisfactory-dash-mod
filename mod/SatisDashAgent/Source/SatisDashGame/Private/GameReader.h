@@ -7,6 +7,7 @@ class UWorld;
 class ULevel;
 class UFGServerSubsystem;
 class AFGTrain;
+class AFGBuildableRailroadTrack;
 class AFGTrainStationIdentifier;
 
 namespace SatisDash
@@ -33,9 +34,16 @@ namespace SatisDash
 		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandoned; }
 		virtual void EndTrainsRead() override { ResetTrainsRead(); }
 		virtual bool IsTrainsReadOpen() const override { return bTrainsOpen; }
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) override;
+		virtual TOptional<FLogisticsSnapshot> StepLogisticsRead(FStepBudget& Budget) override;
+		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
+		virtual void EndLogisticsRead() override { ResetLogisticsRead(); }
+		virtual bool IsLogisticsReadOpen() const override { return bLogisticsOpen; }
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) override;
 
 	private:
+		/** Ends the logistics pass and frees what it holds (also called when a step returns a finished or abandoned value). */
+		void ResetLogisticsRead();
 		/** Ends the trains read and frees what it holds. */
 		void ResetTrainsRead();
 		/** Ends the factory read and frees what it holds. */
@@ -84,5 +92,20 @@ namespace SatisDash
 		/** The read that just returned was abandoned (no subsystem, or a world swap), not finished. */
 		bool bTrainsAbandoned = false;
 		FTrainsSnapshot TrainsFound;
+
+		/**
+		 * The logistics pass (R5): an index into the buildable list (never a pointer into it) and, once collected, one weak pointer
+		 * per track. The world it began in: a pass that ends in another is abandoned. One pass is open at a time.
+		 */
+		enum class ELogisticsPhase : uint8 { Collect, ReadRails };
+		TWeakObjectPtr<UWorld> LogisticsWorld;
+		TArray<TWeakObjectPtr<AFGBuildableRailroadTrack>> LogisticsTracks;
+		FLogisticsSnapshot LogisticsFound;
+		ELogisticsPhase LogisticsPhase = ELogisticsPhase::Collect;
+		int32 LogisticsCursor = 0;
+		bool bLogisticsRails = false;
+		bool bLogisticsOpen = false;
+		/** The pass that just returned was abandoned (no subsystem, a world swap, or zero buildables), not finished. */
+		bool bLogisticsAbandoned = false;
 	};
 }

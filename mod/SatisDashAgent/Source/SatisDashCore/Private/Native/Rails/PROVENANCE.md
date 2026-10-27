@@ -3,7 +3,7 @@ Code: mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Native/Rails/Nati
 Code: mod/SatisDashAgent/Source/SatisDashCore/Private/Native/Rails/NativeRails.cpp
 Code: mod/SatisDashAgent/Source/SatisDashGame/Private/GameReader.cpp
 Code: mod/SatisDashAgent/Source/SatisDashCore/Private/WorldSender.cpp
-Headers: Task 6 adds the game-side read (GameReader.cpp, the track walk and sampling); this task (R5, pure sampling plan and layer builder) calls no game symbol. The rows below are the ones that read uses, opened and confirmed in the pinned checkout
+Headers: Source/FactoryGame/Public/FGBuildableSubsystem.h:272 (Get), :360 (GetAllBuildablesRef), :363 (GetBuildableCount): GameReader.cpp walks the buildable list and filters to tracks; the railroad track list is private
 Headers: Source/FactoryGame/Public/Buildables/FGBuildableRailroadTrack.h:99, :100 (UCLASS( Abstract ), the class: filter with Cast)
 Headers: Source/FactoryGame/Public/Buildables/FGBuildableRailroadTrack.h:150 (GetLength), :156 (GetIsOwnedByPlatform), :171 (GetWorldLocationAndDirectionAtDistance), :247 (GetSplineComponent)
 Headers: Engine/Classes/Components/SplineComponent.h:284 (USplineComponent), :731 (GetSplineLength), :763 (GetLocationAtDistanceAlongSpline), :35-41 (ESplineCoordinateSpace)
