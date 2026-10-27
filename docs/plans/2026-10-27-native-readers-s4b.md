@@ -61,7 +61,7 @@ Everything in the S1 to S4-A plans' Global Constraints still holds (pure Core, t
 - **Reflection (R2).** Read-only; `FindFunction`/`FindFProperty` results cached once per class in the game module, never per call; `ProcessEvent` only on the game thread with a valid, non-pending-kill object; a `BlueprintPure` function with no parameters but a float/int return is the only call made.
 - **Test counts.** The floor is 205 (`mod-test.yml` `--min 205`, 205 macros, S4-A included). Running ledger: T3 +4 = 209, T4 +2 = 211, T7 +4 = 215, T8 +2 = 217, T11 +3 = 220, T14 +4 = 224, T15 +2 = 226. The floor and `harness/test/workflows.test.ts` rise in the task whose tests land.
 - **Runs.** Executors never start runs. The owner dispatches `mod-test` on each PR branch, then **one** `native-parity` and **one** `tick-cost-native` on `Test3`.
-- Commits end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. No personal data, no local paths in anything committed.
+- Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. No personal data, no local paths in anything committed.
 
 ## Lookups made for this plan (header wins)
 
