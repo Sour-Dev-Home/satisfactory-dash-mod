@@ -1,5 +1,6 @@
 #include "DriverFakes.h"
 #include "SatisDash/Driver.h"
+#include "SatisDash/JsonUtil.h"
 
 using namespace SatisDash;
 using SatisDash::Test::FDriverFixture;
@@ -739,6 +740,8 @@ bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("a finished pass is not stepped again"), F.Game.BuildablesStepCalls, 3);
 	const TArray<FString> Bodies = DriverNativeRun(F, Driver, 10);
 	TestTrue(TEXT("the factory part carries the extractors fragment"), DriverNativeAny(Bodies, TEXT("\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
+	TestEqual(TEXT("the generators are never cast with their flag off"), F.Game.GeneratorCasts, 0);
+	TestEqual(TEXT("and the power part has no generators key"), DriverNativeAny(Bodies, TEXT("\"generators\":")) ? 1 : 0, 0);
 	TestEqual(TEXT("still one begin inside the cadence"), F.Game.BuildablesBegins, 1);
 	TestTrue(TEXT("the next cadence tick begins another"), F.runUntil(Driver, [&F] { return F.Game.BuildablesBegins >= 2; }, 60));
 
@@ -822,5 +825,105 @@ bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
 	H.run(Halted, 1.0);
 	TestTrue(TEXT("leaving Running ends the pass"), H.Game.BuildablesEnds >= 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeGeneratorsTest, "SatisDash.Core.Driver.NativeGenerators", SatisDash::Test::Flags)
+
+bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"generatorsSource\":\"native\"");
+	const TCHAR* InPower = TEXT("\"power\":{\"circuits\":[");
+	const TCHAR* Attached = TEXT("],\"generators\":[{\"id\":\"Test_Coal_1\"");
+	FGeneratorReading Coal;
+	Coal.Id = TEXT("Test_Coal_1");
+	Coal.Name = TEXT("Coal");
+	Coal.ClassName = TEXT("Build_GeneratorCoal_C");
+	Coal.CapacityMW = 75;
+
+	// The pass runs with only the generators flag, and the fragment rides inside power, on every power part, until stale.
+	FDriverFixture F;
+	F.Game.Generators.Add(Coal);
+	F.Game.BuildablesCounts.Elements = 4;
+	F.Game.BuildablesCounts.Generators = 1;
+	FExtractorReading Miner;
+	Miner.Id = TEXT("Build_MinerMk1_C_1");
+	Miner.Name = TEXT("Miner");
+	Miner.ClassName = TEXT("Build_MinerMk1_C");
+	F.Game.Extractors.Add(Miner);
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("the first factory-cadence tick begins a pass"), F.runUntil(Driver, [&F] { return F.Game.BuildablesBegins >= 1; }, 20));
+	TestTrue(TEXT("with the generators flag only"), F.Game.LastBuildablesFlags.bGenerators && !F.Game.LastBuildablesFlags.bExtractors && !F.Game.LastBuildablesFlags.bStorage);
+	const TArray<FString> Early = DriverNativeRun(F, Driver, 20);
+	TestEqual(TEXT("the extractors are not cast"), F.Game.ExtractorCasts, 0);
+	TestTrue(TEXT("but the generators are"), F.Game.GeneratorCasts >= 3);
+	int32 WithFragment = 0, PowerParts = 0;
+	for (const FString& Body : Early)
+	{
+		PowerParts += Body.Contains(InPower) ? 1 : 0;
+		WithFragment += Body.Contains(Attached) ? 1 : 0;
+		TestFalse(TEXT("no top-level generators key"), Body.Contains(TEXT("}},\"generators\":")));
+	}
+	TestTrue(TEXT("the fragment is inside power on the next power part"), WithFragment >= 1);
+	TestTrue(TEXT("and on later power parts too (held, not consumed)"), WithFragment >= 2 && PowerParts >= WithFragment);
+	TestFalse(TEXT("no extractors key: that source is bridge"), DriverNativeAny(Early, TEXT("\"extractors\":")));
+	TestTrue(TEXT("the factory part is unchanged"), DriverNativeAny(Early, TEXT("\"factory\":{\"buildings\":[]}")));
+	TestTrue(TEXT("the body parses as JSON with generators inside power"), [&Early, Attached]
+	{
+		for (const FString& Body : Early)
+		{
+			if (Body.Contains(Attached))
+			{
+				const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(Body);
+				return Parsed.IsValid() && Parsed->HasTypedField<EJson::Object>(TEXT("power")) && Parsed->GetObjectField(TEXT("power"))->HasTypedField<EJson::Array>(TEXT("generators"));
+			}
+		}
+		return false;
+	}());
+
+	// No new fragment: after 3 x FactorySeconds (90 s) the key is gone, and the power part is still sent.
+	F.Game.bBeginBuildablesOk = false;
+	DriverNativeRun(F, Driver, 100);
+	const TArray<FString> Late = DriverNativeRun(F, Driver, 20);
+	int32 LatePower = 0;
+	for (const FString& Body : Late)
+	{
+		LatePower += Body.Contains(InPower) ? 1 : 0;
+	}
+	TestTrue(TEXT("power parts are still sent"), LatePower >= 1);
+	TestFalse(TEXT("but a fragment older than 3 x FactorySeconds is not attached"), DriverNativeAny(Late, TEXT("\"generators\":")));
+
+	// With the generators source bridge the power part is as it was, and no pass begins.
+	FDriverFixture B;
+	B.Game.Generators.Add(Coal);
+	FDriver Plain{ B.ConfigPath, B.CredentialPath, B.Net, B.Game, B.Worker, B.clock() };
+	B.enrol(Plain, SatisDash::Test::FakeSecret(), TEXT(",\"generatorsSource\":\"bridge\""));
+	const TArray<FString> PlainBodies = DriverNativeRun(B, Plain, 80);
+	TestEqual(TEXT("the bridge source never begins a pass"), B.Game.BuildablesBegins, 0);
+	TestTrue(TEXT("the power part is sent"), DriverNativeAny(PlainBodies, InPower));
+	TestFalse(TEXT("byte-identical to today: no generators key"), DriverNativeAny(PlainBodies, TEXT("generators")));
+
+	// Both flags in one pass: one begin, both fragments.
+	FDriverFixture Dual;
+	Dual.Game.Generators.Add(Coal);
+	Dual.Game.Extractors.Add(Miner);
+	FDriver Both{ Dual.ConfigPath, Dual.CredentialPath, Dual.Net, Dual.Game, Dual.Worker, Dual.clock() };
+	Dual.enrol(Both, SatisDash::Test::FakeSecret(), TEXT(",\"generatorsSource\":\"native\",\"extractorsSource\":\"native\""));
+	const TArray<FString> BothBodies = DriverNativeRun(Dual, Both, 20);
+	TestEqual(TEXT("one pass for both readers"), Dual.Game.BuildablesBegins, 1);
+	TestTrue(TEXT("both flags are on"), Dual.Game.LastBuildablesFlags.bGenerators && Dual.Game.LastBuildablesFlags.bExtractors);
+	TestTrue(TEXT("generators in power"), DriverNativeAny(BothBodies, Attached));
+	// The extractors fragment rides the factory part, whose snapshot is over 1 KB and so gzipped (the fake keeps its bytes): the
+	// bridge test (FrmBridge.Extractors) pins that both fragments and the part come out together.
+
+	// The source flips to bridge: the held fragment is no longer attached.
+	Dual.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"generatorsSource\":\"bridge\",\"extractorsSource\":\"native\""));
+	DriverNativeRun(Dual, Both, 130); // the config is read again on its own cadence; the held fragment is dropped on the next tick after
+	const TArray<FString> Flipped = DriverNativeRun(Dual, Both, 20);
+	TestTrue(TEXT("power parts are still sent after the flip"), DriverNativeAny(Flipped, InPower));
+	TestFalse(TEXT("without generators"), DriverNativeAny(Flipped, TEXT("\"generators\":")));
+	Log.Take();
 	return true;
 }

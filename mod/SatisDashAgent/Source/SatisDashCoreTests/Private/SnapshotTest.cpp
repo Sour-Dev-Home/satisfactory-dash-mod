@@ -184,7 +184,48 @@ bool FSnapshotSpliceTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotMapLiveTest, "SatisDash.Core.Snapshot.MapLive", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotGeneratorsTest, "SatisDash.Core.Snapshot.Generators", SatisDash::Test::Flags)
+
+bool FSnapshotGeneratorsTest::RunTest(const FString& Parameters)
+{
+	const TCHAR* Fragment = TEXT("[{\"id\":\"G1\",\"fuel\":null}]");
+	FSnapshot Plain = Base();
+	Plain.Power = TArray<FCircuitReading>{ FCircuitReading() };
+	Plain.PlayersJson = TEXT("{\"available\":false,\"players\":[]}");
+	const FString PlainJson = SnapshotToJson(Plain);
+
+	FSnapshot With = Plain;
+	With.GeneratorsJson = Fragment;
+	const FString Json = SnapshotToJson(With);
+	const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(Json);
+	if (!TestTrue(TEXT("valid JSON"), Parsed.IsValid()) || !TestTrue(TEXT("with a power object"), Parsed->HasTypedField<EJson::Object>(TEXT("power"))))
+	{
+		return false;
+	}
+	const TSharedPtr<FJsonObject> Power = Parsed->GetObjectField(TEXT("power"));
+	TestTrue(TEXT("the circuits array is still there"), Power->HasTypedField<EJson::Array>(TEXT("circuits")) && Power->GetArrayField(TEXT("circuits")).Num() == 1);
+	TestTrue(TEXT("and the generators array is inside power"), Power->HasTypedField<EJson::Array>(TEXT("generators")) && Power->GetArrayField(TEXT("generators")).Num() == 1);
+	TestFalse(TEXT("not at the top level"), Parsed->HasField(TEXT("generators")));
+	TestTrue(TEXT("the other parts are kept, after power"), Parsed->HasField(TEXT("players")) && Json.Find(TEXT("\"power\":")) < Json.Find(TEXT("\"players\":")));
+	// The circuits array's bytes are the ones the plain snapshot has; only the generators key is added.
+	const int32 PlainStart = PlainJson.Find(TEXT("\"circuits\":"));
+	const int32 PlainEnd = PlainJson.Find(TEXT("},\"players\":")); // power's closing brace
+	const FString PlainCircuits = PlainJson.Mid(PlainStart, PlainEnd - PlainStart);
+	TestTrue(TEXT("the circuits bytes are unchanged"), PlainStart > 0 && Json.Contains(PlainCircuits + TEXT(",\"generators\":") + Fragment + TEXT("}")));
+	TestEqual(TEXT("everything before power is unchanged"), Json.Left(Json.Find(TEXT("\"power\":"))), PlainJson.Left(PlainJson.Find(TEXT("\"power\":"))));
+
+	// Without the fragment the bytes are those of today; without power the fragment is ignored.
+	FSnapshot NoFragment = Plain;
+	NoFragment.GeneratorsJson.Reset();
+	SatisDash::Test::SameText(*this, TEXT("no fragment, same bytes"), SnapshotToJson(NoFragment), PlainJson);
+	TestFalse(TEXT("and no generators key"), PlainJson.Contains(TEXT("generators")));
+	FSnapshot NoPower = Base();
+	NoPower.GeneratorsJson = Fragment;
+	SatisDash::Test::SameText(*this, TEXT("a fragment without a power part is ignored"), SnapshotToJson(NoPower), SnapshotToJson(Base()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotMapLiveTest,"SatisDash.Core.Snapshot.MapLive", SatisDash::Test::Flags)
 
 bool FSnapshotMapLiveTest::RunTest(const FString& Parameters)
 {

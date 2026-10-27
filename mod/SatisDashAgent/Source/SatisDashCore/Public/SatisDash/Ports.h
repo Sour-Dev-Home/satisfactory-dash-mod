@@ -6,6 +6,7 @@
 #include "SatisDash/Native/DroneRoutes/NativeDroneRoutes.h"
 #include "SatisDash/Native/Extractors/NativeExtractors.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
+#include "SatisDash/Native/Generators/NativeGenerators.h"
 #include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
 #include "SatisDash/Native/PowerLines/NativePowerLines.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
@@ -79,6 +80,8 @@ namespace SatisDash
 	struct FBuildablesSnapshot
 	{
 		TArray<FExtractorReading> Extractors;
+		/** Empty unless the generators flag was on. */
+		TArray<FGeneratorReading> Generators;
 		FBuildablesCounts Counts;
 	};
 

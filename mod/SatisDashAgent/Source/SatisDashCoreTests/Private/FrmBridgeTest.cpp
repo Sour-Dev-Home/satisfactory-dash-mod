@@ -247,6 +247,76 @@ bool FFrmBridgeExtractorsTest::RunTest(const FString& Parameters)
 		F.tick(4);
 		TestTrue(TEXT("an empty list is spliced as []"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).EndsWith(TEXT(",\"extractors\":[]}")));
 	}
+
+	// S4-B ruling B3, generators (the power part's fragment, same fixture): held and handed out again and again until stale.
+	FGeneratorReading Coal;
+	Coal.Id = TEXT("Gen_Coal_1");
+	Coal.Name = TEXT("Coal");
+	Coal.ClassName = TEXT("Build_GeneratorCoal_C");
+	FGeneratorReading Fuel;
+	Fuel.Id = TEXT("Gen_Fuel_2");
+	Fuel.Name = TEXT("Fuel");
+	Fuel.ClassName = TEXT("Build_GeneratorFuel_C");
+	{
+		FFrmBridgeFixture F;
+		TestFalse(TEXT("nothing held yet"), F.Bridge.TakeGenerators(F.T, 30).IsSet());
+		const double At = F.T;
+		TestTrue(TEXT("a fragment job is taken"), F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, At));
+		TestFalse(TEXT("a second is refused while one is outstanding"), F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, At));
+		F.tick(3);
+		const TOptional<FString> First = F.Bridge.TakeGenerators(F.T, 30);
+		TestTrue(TEXT("the built fragment is handed out"), First.IsSet() && First->StartsWith(TEXT("[{\"id\":\"Gen_Coal_1\"")) && First->EndsWith(TEXT("]")));
+		TestTrue(TEXT("and again, not consumed"), F.Bridge.TakeGenerators(F.T + 5, 30).Get(FString()) == First.Get(FString()));
+		TestTrue(TEXT("exactly 3 x the factory cadence old it is still sent"), F.Bridge.TakeGenerators(At + 90, 30).IsSet());
+		TestFalse(TEXT("older than 3 x the factory cadence it is not read"), F.Bridge.TakeGenerators(At + 90.5, 30).IsSet());
+		TestFalse(TEXT("and it is forgotten, not brought back"), F.Bridge.TakeGenerators(At, 30).IsSet());
+		TestTrue(TEXT("a new job is taken once the old fragment is gone"), F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T));
+	}
+	{
+		// A newer fragment replaces the older; the older one stays on the power parts while the newer is on the worker.
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
+		F.tick(3);
+		F.Worker.bHold = true;
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T);
+		F.tick();
+		TestTrue(TEXT("the older fragment is still sent while the newer is built"), F.Bridge.TakeGenerators(F.T, 30).Get(FString()).Contains(TEXT("Gen_Coal_1")));
+		F.Worker.release();
+		F.tick(2);
+		const FString Newer = F.Bridge.TakeGenerators(F.T, 30).Get(FString());
+		TestTrue(TEXT("then the newer replaces it"), Newer.Contains(TEXT("Gen_Fuel_2")) && !Newer.Contains(TEXT("Gen_Coal_1")));
+	}
+	{
+		// The source flips to bridge: neither a held fragment nor a pending job survives DropGenerators. Stop drops them too.
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
+		F.tick(3);
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T);
+		F.Bridge.DropGenerators();
+		F.tick(3);
+		TestFalse(TEXT("a dropped fragment and job are gone"), F.Bridge.TakeGenerators(F.T, 30).IsSet());
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
+		F.tick(3);
+		F.Bridge.Stop();
+		TestFalse(TEXT("Stop forgets the held fragment"), F.Bridge.TakeGenerators(F.T, 30).IsSet());
+	}
+	{
+		// Both fragments and the factory part are in flight together: the part comes out with the extractors, the generators are held.
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
+		F.tick(6);
+		TestTrue(TEXT("the factory part carries the extractors"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT(",\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
+		TestTrue(TEXT("and the generators fragment is held for the power part"), F.Bridge.TakeGenerators(F.T, 30).Get(FString()).StartsWith(TEXT("[{\"id\":\"Gen_Coal_1\"")));
+	}
+	{
+		// An empty list is a real, empty fragment.
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>(), F.T);
+		F.tick(3);
+		SatisDash::Test::SameText(*this, TEXT("an empty list is []"), F.Bridge.TakeGenerators(F.T, 30).Get(FString()), TEXT("[]"));
+	}
 	return true;
 }
 

@@ -108,6 +108,10 @@ void SatisDash::FDriver::Tick()
 	{
 		Bridge.DropExtractors(); // the source flipped to bridge: no held fragment or pending job is spliced after it
 	}
+	if (Config.GetGeneratorsSource() != ESource::Native)
+	{
+		Bridge.DropGenerators(); // the same for the generators fragment held for the power part
+	}
 	Bridge.Tick(Now, Config.GetFrmPort(), Config.FrmToken);
 	if (TOptional<FEncodedBody> Encoded = Bridge.TakeEncoded())
 	{
@@ -224,6 +228,10 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last extractors fragment is still being built: it is dropped"));
 	}
+	if (BuildablesAsked.bGenerators && !Bridge.SubmitNativeGenerators(MoveTemp(Found->Generators), Now) && BuildablesLog.ShouldLog(TEXT("heldGenerators"), Now))
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last generators fragment is still being built: it is dropped"));
+	}
 }
 
 void SatisDash::FDriver::TickTrainsRead(double Now)
@@ -328,6 +336,11 @@ void SatisDash::FDriver::TickSample(double Now)
 			{
 				NoteFailedPart(TEXT("power"), Now);
 			}
+			else if (Config.GetGeneratorsSource() == ESource::Native)
+			{
+				// Ruling B3: the held fragment rides every power part until it is older than GeneratorsStaleFactor x FactorySeconds.
+				Snapshot.GeneratorsJson = Bridge.TakeGenerators(Now, Cadence.FactorySeconds);
+			}
 		}
 		// FRM bridge spec: players every pass, the factory on its cadence; both arrive in a later pass's snapshot.
 		const bool bFactoryDue = !LastFactoryAt.IsSet() || Now - LastFactoryAt.GetValue() >= Cadence.FactorySeconds - DueSlackSeconds;
@@ -431,7 +444,7 @@ void SatisDash::FDriver::TickSample(double Now)
 		Snapshot.FactoryJson = Bridge.TakeFactory(Now, Cadence.FactorySeconds);
 		Snapshot.MapLiveJson = Bridge.TakeMapLive(Now, Cadence.FactorySeconds);
 	}
-	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet())
+	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsSet())
 	{
 		Bridge.EncodeSnapshot(MoveTemp(Snapshot)); // up to megabytes of JSON, or up to 256 KB of mapLive: serialised and gzipped on the worker
 	}
