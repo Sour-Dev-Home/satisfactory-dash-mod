@@ -132,9 +132,11 @@ bool SatisDash::WireCountSuspect(int32 Wires, int32 Dropped, int32 Expected)
 	{
 		return true;
 	}
-	if (Expected < 0)
+	// No usable advisory count. GetBuildableCount on the abstract wire class gives 0 on a world full of wires (S4 native-parity
+	// run 40528626676 on Test3: 1498 wires read, the subsystem counted 0), so a 0 is "unknown", never "no wires".
+	if (Expected <= 0)
 	{
-		return false; // no advisory count to compare with
+		return false;
 	}
 	const int64 Tolerance = FMath::Max<int64>(5, int64(Expected) / 20); // 5% rounded down, at least 5 wires
 	const int64 Difference = int64(Wires) + int64(Dropped) - int64(Expected);

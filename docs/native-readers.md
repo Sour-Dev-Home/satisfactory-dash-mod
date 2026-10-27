@@ -130,8 +130,9 @@ Reported, not rules; none of them changes a pass condition. The judges are in `r
   never failed.
 - An input/output "swapped" hint on drone ports is a reading aid for the fix, printed with the failure.
 - Marker colour is compared on a guess at the sRGB conversion; read a colour difference with that in mind.
-- The expected-wires warning (`wires N, expected wires M`) may fire if `GetBuildableCount` returns 0 for the abstract wire
-  class. It is a Warning in the mod's log, not a verdict.
+- `expected wires` is 0 in practice: `GetBuildableCount` returns 0 for the abstract wire class (S4 native-parity run
+  40528626676 on Test3: 1498 wires read, expected 0). A 0 is treated as "no count", so the wire-count Warning only fires
+  when no wire is read or a real count disagrees. The parity id-set check is what proves the wires are in the list.
 - The S4 FRM samplers poll every 90 s. The dropped-wire count is not judged (no wires-only dropped parser).
 
 ## The Test3 note

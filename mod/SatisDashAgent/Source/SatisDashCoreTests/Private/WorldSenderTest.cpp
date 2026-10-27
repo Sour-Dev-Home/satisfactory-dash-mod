@@ -1535,6 +1535,8 @@ bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("zero wires read is suspect"), SatisDash::WireCountSuspect(0, 0, 3));
 	TestTrue(TEXT("zero wires read is suspect when the count is unknown"), SatisDash::WireCountSuspect(0, 0, -1));
 	TestFalse(TEXT("an unknown count checks nothing else"), SatisDash::WireCountSuspect(10, 0, -1));
+	TestFalse(TEXT("a subsystem count of 0 is unknown too (the abstract wire class counts 0 on Test3)"), SatisDash::WireCountSuspect(1498, 0, 0));
+	TestTrue(TEXT("zero wires read with a count of 0 is still suspect"), SatisDash::WireCountSuspect(0, 0, 0));
 	TestFalse(TEXT("a gap of 5 is allowed"), SatisDash::WireCountSuspect(95, 0, 100));
 	TestTrue(TEXT("a gap of 6 on 100 is suspect"), SatisDash::WireCountSuspect(94, 0, 100));
 	TestFalse(TEXT("dropped wires count as seen"), SatisDash::WireCountSuspect(90, 10, 100));
