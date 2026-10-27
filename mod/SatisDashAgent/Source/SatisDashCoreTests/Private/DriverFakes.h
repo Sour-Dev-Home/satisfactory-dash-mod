@@ -257,6 +257,47 @@ namespace SatisDash::Test
 		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
 		virtual void EndLogisticsRead() override { ++LogisticsEnds; bLogisticsOpen = false; }
 		virtual bool IsLogisticsReadOpen() const override { return bLogisticsOpen; }
+		/** S4-A R8: what a finished map-markers read returns. A read finishes on its MarkersStepsToFinish-th step. */
+		int32 MarkersStepsToFinish = 3;
+		TArray<SatisDash::FMapMarkerReading> Markers;
+		SatisDash::FMapMarkersCounts MarkersCounts;
+		bool bMarkersAbandoned = false;
+		bool bBeginMarkersOk = true;
+		int32 MarkersBegins = 0;
+		int32 MarkersEnds = 0;
+		int32 MarkersStepCalls = 0;
+		bool bMarkersOpen = false;
+		virtual bool BeginMapMarkersRead() override
+		{
+			++MarkersBegins;
+			if (!bBeginMarkersOk || bMarkersOpen)
+			{
+				return false;
+			}
+			MarkersStepCalls = 0;
+			bMarkersOpen = true;
+			return true;
+		}
+		virtual TOptional<SatisDash::FMapMarkersSnapshot> StepMapMarkersRead(SatisDash::FStepBudget& Budget) override
+		{
+			Budget.Begin();
+			Budget.End();
+			if (++MarkersStepCalls < MarkersStepsToFinish)
+			{
+				return {};
+			}
+			bMarkersOpen = false;
+			SatisDash::FMapMarkersSnapshot Out;
+			if (!bMarkersAbandoned)
+			{
+				Out.Markers = Markers;
+				Out.Counts = MarkersCounts;
+			}
+			return Out;
+		}
+		virtual bool MapMarkersReadAbandoned() const override { return bMarkersAbandoned; }
+		virtual void EndMapMarkersRead() override { ++MarkersEnds; bMarkersOpen = false; }
+		virtual bool IsMapMarkersReadOpen() const override { return bMarkersOpen; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);

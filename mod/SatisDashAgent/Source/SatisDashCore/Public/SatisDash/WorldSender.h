@@ -36,6 +36,10 @@ namespace SatisDash
 		FStepBudget* TrainsBudget = nullptr;
 		/** R5: times the shared logistics pass (the sender resets it when a pass begins). Null: a native logistics layer cannot read. */
 		FStepBudget* LogisticsBudget = nullptr;
+		/** S4-A R8: times the map-markers read (the sender resets it when a read begins). Null: that layer cannot read. */
+		FStepBudget* MarkersBudget = nullptr;
+		/** S4-A R9: the same for the drone-routes read. */
+		FStepBudget* DronesBudget = nullptr;
 	};
 
 	/**
@@ -92,6 +96,8 @@ namespace SatisDash
 		void TickLayer(EWorldLayer Layer, const FWorldContext& Context);
 		/** R3: one tick of the train-routes layer's native read (the game thread's part), then its hand-over to the worker. */
 		void StepTrainRoutesScan(const FWorldContext& Context);
+		/** S4-A: one tick of a small layer's native read (map markers; drone routes join in R9), then its hand-over to the worker. */
+		void StepSmallLayerScan(EWorldLayer Layer, const FWorldContext& Context);
 		/** R5: one tick of the shared logistics pass (the game thread's part), then its hand-over to the worker. */
 		void StepLogisticsPass(const FWorldContext& Context);
 		void Settle(EWorldLayer Layer, FWorldOutcome Outcome, const FWorldContext& Context);

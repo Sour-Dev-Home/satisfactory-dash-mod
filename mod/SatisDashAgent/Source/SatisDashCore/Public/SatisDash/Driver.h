@@ -88,6 +88,8 @@ namespace SatisDash
 		FStepBudget RoutesBudget;
 		/** R5: times the shared logistics pass (the world sender resets it when a pass begins). */
 		FStepBudget LogisticsBudget;
+		/** S4-A: times the sender's map-markers and drone-routes reads. */
+		FStepBudget MarkersBudget, DronesBudget;
 		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */
 		bool bTrainsReadOpen = false;
 		/** A factory-cadence tick found the reader's one trains cursor busy (the sender's read): the read starts on the first tick it is free. */

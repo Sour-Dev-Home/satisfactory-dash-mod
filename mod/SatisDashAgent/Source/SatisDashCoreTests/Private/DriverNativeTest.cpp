@@ -585,3 +585,58 @@ bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("leaving Running ends the pass"), H.Game.LogisticsEnds >= 1);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeMapMarkersTest, "SatisDash.Core.Driver.NativeMapMarkers", SatisDash::Test::Flags)
+
+bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"mapMarkersSource\":\"native\"");
+	const TCHAR* MarkersPost = TEXT("/agent/v1/world/mapMarkers");
+	FDriverFixture F;
+	FMapMarkerReading Marker;
+	Marker.Id = TEXT("AAAA0000");
+	Marker.Name = TEXT("Base");
+	Marker.Icon = 2;
+	F.Game.Markers = { Marker };
+	F.Game.MarkersCounts.Read = 1;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+
+	// The driver's jitter draw is 1.0, so the first read is 480 s x 1.1 = 528 s after Running.
+	TestTrue(TEXT("the read begins through the whole driver"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.MarkersBegins > 0; }, 560));
+	TestTrue(TEXT("not before 528 s after Running"), F.T - 1000.0 >= 528.0);
+	TestTrue(TEXT("and the layer is posted when it ends"), DriverNativeRunUntil(F, Driver, [&F, MarkersPost]
+	{
+		// The other native layers (nodes, trains, rails, conveyors) fall due with this one and post first: one world post at a time.
+		for (const TCHAR* Other : { TEXT("/agent/v1/world/resourceNodes"), TEXT("/agent/v1/world/trainRoutes"), TEXT("/agent/v1/world/rails"), TEXT("/agent/v1/world/conveyors") })
+		{
+			F.Net.answer(Other, SatisDash::Test::Reply(200, DriverNativeAccepted));
+		}
+		return F.Net.pending(MarkersPost) > 0;
+	}, 60));
+	TestEqual(TEXT("three steps"), F.Game.MarkersStepCalls, 3);
+	TestTrue(TEXT("the body carries the marker"), F.Net.lastBody(MarkersPost).Contains(TEXT("\"id\":\"AAAA0000\"")));
+	TestEqual(TEXT("FRM is never asked for map markers"), F.Net.sent(TEXT("/getMapMarkers")), 0);
+	TestTrue(TEXT("the snapshot flow is unchanged"), F.Net.sent(DriverNativeSnapshots) > 0);
+
+	int32 Readers = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Readers += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+	}
+	TestEqual(TEXT("the Readers line shows mapMarkers=native"), Readers, 1);
+
+	// Leaving Running (a 401 halts the agent) ends an open read.
+	FDriverFixture H;
+	H.Game.MarkersStepsToFinish = 1000000;
+	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a read is open"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.MarkersStepCalls >= 1; }, 560));
+	TestEqual(TEXT("not ended yet"), H.Game.MarkersEnds, 0);
+	TestTrue(TEXT("a snapshot is waiting for an answer"), H.runUntil(Halted, [&H] { return H.Net.pending(DriverNativeSnapshots) > 0; }, 30));
+	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
+	H.run(Halted, 1.0);
+	TestTrue(TEXT("leaving Running ends the read"), H.Game.MarkersEnds >= 1);
+	return true;
+}

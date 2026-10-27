@@ -4,6 +4,7 @@
 #include "SatisDash/FrmPlayers.h"
 #include "SatisDash/Native/Conveyors/NativeConveyors.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
+#include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/StepBudget.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
@@ -50,7 +51,20 @@ namespace SatisDash
 		FLogisticsCounts Counts;
 	};
 
-	using FReplyHandler = TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
+	/** S4-A R8: counts of one map-markers read (numbers only: they go to the log line and nowhere else). */
+	struct FMapMarkersCounts
+	{
+		int32 Read = 0, Dropped = 0;
+	};
+
+	/** What a finished map-markers read hands over; the readings are freed once the body is built. */
+	struct FMapMarkersSnapshot
+	{
+		TArray<FMapMarkerReading> Markers;
+		FMapMarkersCounts Counts;
+	};
+
+	using FReplyHandler =TFunction<void(FHttpReply&)>; // non-const: a handler may take the body (MoveTemp) instead of copying up to 16 MB
 
 	/** How a request reaches the backend: the mod's own libcurl in the game (SatisDashGame), a fake in the tests. */
 	class ITransport
@@ -144,6 +158,19 @@ namespace SatisDash
 		virtual void EndLogisticsRead() {}
 		/** True while a logistics pass is open (begun, not finished or ended). */
 		virtual bool IsLogisticsReadOpen() const { return false; }
+		/**
+		 * S4-A R8: starts the time-sliced read of the map markers. False when there is no world or no map manager, or when a read is
+		 * already open. Call StepMapMarkersRead every tick until it returns a value. Only called when mapMarkersSource is "native".
+		 */
+		virtual bool BeginMapMarkersRead() { return false; }
+		/** Reads markers until the budget is spent, on the game thread. Unset until all are read, then the snapshot (once; empty is a real, empty map). */
+		virtual TOptional<FMapMarkersSnapshot> StepMapMarkersRead(FStepBudget& Budget) { return {}; }
+		/** True when the read StepMapMarkersRead just ended was abandoned (no manager, or the world changed): its value is not a map. */
+		virtual bool MapMarkersReadAbandoned() const { return false; }
+		/** The caller drops an open read (source changed, left Running): frees what the reader buffered. */
+		virtual void EndMapMarkersRead() {}
+		/** True while a map-markers read is open (begun, not finished or ended). */
+		virtual bool IsMapMarkersReadOpen() const { return false; }
 		/** Sets FG.DSAutoPause and returns the read-back (unset when it can't be read); the caller judges it. */
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) = 0;
 	};

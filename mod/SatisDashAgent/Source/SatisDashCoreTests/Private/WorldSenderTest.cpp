@@ -39,6 +39,7 @@ namespace
 		SatisDash::Test::FFakeGame Game;
 		FStepBudget TrainsBudget{ [this] { return T; } };
 		FStepBudget LogisticsBudget{ [this] { return T; } };
+		FStepBudget MarkersBudget{ [this] { return T; } };
 
 		FWorldFixture()
 		{
@@ -62,7 +63,7 @@ namespace
 					Net.answer(WorldRailsRead, SatisDash::Test::Reply(0, FString()));
 				}
 				Bridge.Tick(T, 8080, FString());
-				Sender.Tick({ T, Utc, &Config, &Credential, bSnapshotsIdle, bNativeReaders ? &Game : nullptr, true, &TrainsBudget, &LogisticsBudget });
+				Sender.Tick({ T, Utc, &Config, &Credential, bSnapshotsIdle, bNativeReaders ? &Game : nullptr, true, &TrainsBudget, &LogisticsBudget, &MarkersBudget });
 			}
 		}
 
@@ -588,6 +589,124 @@ bool FWorldSenderTrainRoutesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("bridge: no post"), G.Net.sent(WorldTrainRoutesPost), 0);
 	TestEqual(TEXT("bridge: FRM is not asked for it either"), worldFrmTrainReads(G.Net), 0);
 	TestTrue(TEXT("bridge: rails still ask FRM on their own schedule"), G.Net.sent(WorldRailsRead) > 0);
+	return true;
+}
+
+namespace
+{
+	const TCHAR* WorldMapMarkersPost = TEXT("/agent/v1/world/mapMarkers");
+
+	/** A fixture with only mapMarkers native (every other layer on the bridge) and the jitter at the bottom of its range (x0.9: 432 s, then every 540 s). */
+	void worldMapMarkersFixture(FWorldFixture& F)
+	{
+		F.Random01 = 0;
+		F.Config.ResourceNodesSource = ESource::Bridge;
+		F.Config.TrainsSource = ESource::Bridge;
+		F.Config.RailsSource = ESource::Bridge;
+		F.Config.ConveyorsSource = ESource::Bridge;
+		F.bNativeReaders = true;
+		// Two markers given out of order: the body sorts them by id.
+		FMapMarkerReading B;
+		B.Id = TEXT("BBBB0000");
+		B.Name = TEXT("Secret base");
+		B.Icon = 3;
+		FMapMarkerReading A = B;
+		A.Id = TEXT("AAAA0000");
+		A.Name = TEXT("Hidden cave");
+		F.Game.Markers = { B, A };
+		F.Game.MarkersCounts.Read = 2;
+		F.Game.MarkersCounts.Dropped = 1;
+	}
+
+	int32 worldFrmMapMarkerReads(const SatisDash::Test::FFakeTransport& Net)
+	{
+		return Net.sent(TEXT("/getMapMarkers"));
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderMapMarkersTest, "SatisDash.Core.WorldSender.MapMarkers", SatisDash::Test::Flags)
+
+bool FWorldSenderMapMarkersTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FWorldFixture F;
+	worldMapMarkersFixture(F);
+	F.Config.MapMarkersSource = ESource::Native;
+	F.Sender.Start(F.T);
+	TestFalse(TEXT("no read before 8 minutes less the jitter (432 s)"), F.until([&F] { return F.Game.MarkersBegins > 0; }, 420));
+	TestTrue(TEXT("the read begins at 433 s"), F.until([&F] { return F.Game.MarkersBegins > 0; }, 20));
+	TestEqual(TEXT("one begin"), F.Game.MarkersBegins, 1);
+	F.tick(0.5);
+	TestEqual(TEXT("one step a tick"), F.Game.MarkersStepCalls, 1);
+	TestTrue(TEXT("the layer is posted"), F.until([&F] { return F.Net.pending(WorldMapMarkersPost) > 0; }, 20));
+	TestEqual(TEXT("three steps in all"), F.Game.MarkersStepCalls, 3);
+	const FString Body = F.Net.lastBody(WorldMapMarkersPost);
+	const int32 First = Body.Find(TEXT("\"id\":\"AAAA0000\""));
+	const int32 Second = Body.Find(TEXT("\"id\":\"BBBB0000\""));
+	TestTrue(TEXT("both markers are in the body, sorted by id"), First != INDEX_NONE && Second != INDEX_NONE && First < Second);
+	F.Net.answer(WorldMapMarkersPost, SatisDash::Test::Reply(200, WorldAccepted));
+	F.tick(2);
+	TestEqual(TEXT("the accepted body is not held"), F.Sender.Held(), 0);
+
+	// Counts and times only in the log (no id, no name).
+	int32 ReadLines = 0;
+	int32 Leaks = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ReadLines += Line.Contains(TEXT("Map markers read (game thread only): 2 markers, 1 dropped in 3 steps, longest step ")) ? 1 : 0;
+		Leaks += Line.Contains(TEXT("Secret")) || Line.Contains(TEXT("Hidden")) || Line.Contains(TEXT("AAAA")) || Line.Contains(TEXT("BBBB")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one Map markers read line"), ReadLines, 1);
+	TestEqual(TEXT("no id or name in the log"), Leaks, 0);
+
+	// The next cycle reads the same markers again: the same data hash, nothing is posted.
+	TestTrue(TEXT("the next cycle reads again"), F.until([&F] { return F.Game.MarkersBegins >= 2 && F.Game.MarkersStepCalls >= 3; }, 700));
+	F.tick(10);
+	TestEqual(TEXT("an unchanged body is not posted again"), F.Net.sent(WorldMapMarkersPost), 1);
+	TestEqual(TEXT("FRM is never asked for the layer"), worldFrmMapMarkerReads(F.Net), 0);
+
+	// A finished read with no markers is a real, empty map: an empty layer is posted (M1).
+	F.Game.Markers.Reset();
+	TestTrue(TEXT("an empty map posts an empty layer"), F.until([&F] { return F.Net.pending(WorldMapMarkersPost) > 0; }, 700));
+	TestTrue(TEXT("with data:[]"), F.Net.lastBody(WorldMapMarkersPost).Contains(TEXT("\"data\":[]")));
+	F.Net.answer(WorldMapMarkersPost, SatisDash::Test::Reply(200, WorldAccepted));
+
+	// An abandoned read posts nothing, warns once and is read again after NodeScanRetrySeconds.
+	F.Game.bMarkersAbandoned = true;
+	const int32 Posts = F.Net.sent(WorldMapMarkersPost);
+	const int32 Begun = F.Game.MarkersBegins;
+	TestTrue(TEXT("the next read begins"), F.until([&F, Begun] { return F.Game.MarkersBegins > Begun && F.Game.MarkersStepCalls >= 3; }, 700));
+	F.tick(1);
+	TestTrue(TEXT("and is retried soon, not after a whole cycle"), F.until([&F, Begun] { return F.Game.MarkersBegins > Begun + 1; }, 60));
+	TestEqual(TEXT("an abandoned read posts nothing"), F.Net.sent(WorldMapMarkersPost), Posts);
+	TestEqual(TEXT("and FRM is not asked"), worldFrmMapMarkerReads(F.Net), 0);
+	TestEqual(TEXT("one warning for the abandoned reads"), countLines(Log, TEXT("World layer mapMarkers: the game's read was abandoned")), 1);
+	F.Game.bMarkersAbandoned = false;
+
+	// The default config (key unset = bridge): the layer is never begun, posted, requested or logged.
+	const int32 LoggedBefore = countLines(Log, TEXT("arker")); // the capture keeps every line: count what the native section wrote
+	FWorldFixture G;
+	worldMapMarkersFixture(G);
+	G.Sender.Start(G.T);
+	G.tick(2000);
+	TestEqual(TEXT("default: no game read"), G.Game.MarkersBegins, 0);
+	TestEqual(TEXT("default: no post"), G.Net.sent(WorldMapMarkersPost), 0);
+	TestEqual(TEXT("default: FRM is not asked either"), worldFrmMapMarkerReads(G.Net), 0);
+	TestEqual(TEXT("default: nothing logged"), countLines(Log, TEXT("arker")), LoggedBefore);
+
+	// The source flips to bridge under an open read: the read is dropped and the layer rescheduled (never read again).
+	FWorldFixture H;
+	worldMapMarkersFixture(H);
+	H.Config.MapMarkersSource = ESource::Native;
+	H.Sender.Start(H.T);
+	TestTrue(TEXT("a read is open"), H.until([&H] { return H.Game.MarkersBegins > 0; }, 440));
+	H.Config.MapMarkersSource = ESource::Bridge;
+	H.tick(1);
+	TestEqual(TEXT("the open read was ended"), H.Game.MarkersEnds, 1);
+	TestFalse(TEXT("and is no longer open"), H.Game.bMarkersOpen);
+	H.tick(1500);
+	TestEqual(TEXT("flipped: no second read"), H.Game.MarkersBegins, 1);
+	TestEqual(TEXT("flipped: no post"), H.Net.sent(WorldMapMarkersPost), 0);
 	return true;
 }
 

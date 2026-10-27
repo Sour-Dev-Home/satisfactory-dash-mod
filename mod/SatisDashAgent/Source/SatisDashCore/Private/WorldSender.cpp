@@ -2,6 +2,7 @@
 
 #include "SatisDash/Log.h"
 #include "SatisDash/Native/Conveyors/NativeConveyors.h"
+#include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
@@ -30,10 +31,10 @@ namespace
 		case SatisDash::EWorldLayer::TrainRoutes: return Context.Config->GetTrainsSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::Rails: return Context.Config->GetRailsSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::Conveyors: return Context.Config->GetConveyorsSource() == SatisDash::ESource::Native;
+		case SatisDash::EWorldLayer::MapMarkers: return Context.Config->GetMapMarkersSource() == SatisDash::ESource::Native;
 		// S4-A: the getters exist (Task 2) but no scheduler branch reads these layers yet, so each stays false (a native layer
-		// with no branch must not be reachable). Tasks 5, 8 and 11 turn them on:
-		// MapMarkers: Context.Config->GetMapMarkersSource() == Native; DroneRoutes: GetDroneRoutesSource(); PowerLines: GetPowerLinesSource().
-		case SatisDash::EWorldLayer::MapMarkers:
+		// with no branch must not be reachable). Tasks 8 and 11 turn them on:
+		// DroneRoutes: GetDroneRoutesSource() == Native; PowerLines: GetPowerLinesSource() == Native.
 		case SatisDash::EWorldLayer::DroneRoutes:
 		case SatisDash::EWorldLayer::PowerLines: return false;
 		default: return false;
@@ -212,6 +213,23 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					}
 					return;
 				}
+				if (Layer == EWorldLayer::MapMarkers)
+				{
+					if (Context.NativeReaders->IsMapMarkersReadOpen())
+					{
+						return; // a read is open: look again next tick, not a failed read
+					}
+					if (Context.MarkersBudget != nullptr && Context.NativeReaders->BeginMapMarkersRead())
+					{
+						Context.MarkersBudget->Reset();
+						L.Phase = EPhase::Scanning;
+					}
+					else
+					{
+						L.NextAt = Context.Now + NodeScanRetrySeconds; // no world or no manager yet; FRM is not asked
+					}
+					return;
+				}
 				const bool bBegun = Layer == EWorldLayer::TrainRoutes
 					? Context.TrainsBudget != nullptr && Context.NativeReaders->BeginTrainsRead()
 					: Context.NativeReaders->BeginResourceNodeScan();
@@ -246,7 +264,16 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 			{
 				Context.NativeReaders->EndTrainsRead(); // frees what the reader buffered
 			}
+			if (Layer == EWorldLayer::MapMarkers && Context.NativeReaders != nullptr)
+			{
+				Context.NativeReaders->EndMapMarkersRead();
+			}
 			ScheduleNext(Layer, Context.Now); // the source changed under a scan: drop it
+			return;
+		}
+		if (Layer == EWorldLayer::MapMarkers)
+		{
+			StepSmallLayerScan(Layer, Context);
 			return;
 		}
 		if (Layer == EWorldLayer::TrainRoutes)
@@ -343,6 +370,60 @@ void SatisDash::FWorldSender::StepTrainRoutesScan(const FWorldContext& Context)
 	else
 	{
 		ScheduleNext(Layer, Context.Now);
+	}
+}
+
+void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorldContext& Context)
+{
+	FLayer& L = Layers[int32(Layer)];
+	switch (Layer)
+	{
+	case EWorldLayer::MapMarkers:
+	{
+		if (Context.MarkersBudget == nullptr)
+		{
+			Context.NativeReaders->EndMapMarkersRead();
+			ScheduleNext(Layer, Context.Now);
+			return;
+		}
+		// The game thread's whole part: a budgeted slice of the markers. The sort and the JSON text are built on the worker.
+		TOptional<FMapMarkersSnapshot> Found = Context.NativeReaders->StepMapMarkersRead(*Context.MarkersBudget);
+		if (!Found.IsSet())
+		{
+			return;
+		}
+		if (Context.NativeReaders->MapMarkersReadAbandoned())
+		{
+			// No map manager, or a world swapped mid-read: this is not an empty map. Nothing is posted (the backend keeps its good
+			// copy) and the read is tried again soon. No names in the log.
+			if (!L.bScanLogged && ShouldLog(Layer, TEXT("scan"), Context.Now))
+			{
+				UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's read was abandoned; nothing sent, will read again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
+			}
+			L.bScanLogged = true;
+			L.Phase = EPhase::Waiting;
+			L.NextAt = Context.Now + NodeScanRetrySeconds;
+			return;
+		}
+		L.bScanLogged = false;
+		// A finished read with no markers is a real, empty map (M1): an empty layer is posted. Counts and times only; never an id or a name.
+		UE_LOG(LogSatisDash, Display, TEXT("Map markers read (game thread only): %d markers, %d dropped in %d steps, longest step %.2f ms, total %.2f ms"),
+			Found->Counts.Read, Found->Counts.Dropped, Context.MarkersBudget->Steps(), Context.MarkersBudget->LongestMs(), Context.MarkersBudget->TotalMs());
+		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
+			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Markers)](const FString& Observed) { return BuildNativeMapMarkers(Observed, Snapshot); }), L.DataHash))
+		{
+			L.Phase = EPhase::Reading;
+		}
+		else
+		{
+			ScheduleNext(Layer, Context.Now);
+		}
+		return;
+	}
+	default:
+		Context.NativeReaders->EndMapMarkersRead(); // unreachable: no other layer is routed here yet
+		ScheduleNext(Layer, Context.Now);
+		return;
 	}
 }
 
