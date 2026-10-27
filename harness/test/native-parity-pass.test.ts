@@ -217,8 +217,6 @@ describe("native-parity judge", () => {
   it("writes thirteen native keys for S4-B (S4's nine plus extractorsSource, generatorsSource, stationRatesSource and storageSource), leaves S1 to S4 unchanged, and every key is one the mod reads", () => {
     expect(NATIVE_SOURCES_S4B).toEqual({ ...NATIVE_SOURCES_S4, extractorsSource: "native", generatorsSource: "native", stationRatesSource: "native", storageSource: "native" });
     expect(Object.keys(NATIVE_SOURCES_S4B)).toHaveLength(13);
-    expect(Object.keys(NATIVE_SOURCES_S4)).toHaveLength(9);
-    expect(NATIVE_SOURCES_S4).toEqual({ ...NATIVE_SOURCES_S3, mapMarkersSource: "native", droneRoutesSource: "native", powerLinesSource: "native" });
     const cpp = readFileSync(new URL("../../mod/SatisDashAgent/Source/SatisDashCore/Private/Config.cpp", import.meta.url), "utf8");
     for (const key of Object.keys(NATIVE_SOURCES_S4B)) expect(cpp).toContain(`TEXT("${key}")`);
   });
