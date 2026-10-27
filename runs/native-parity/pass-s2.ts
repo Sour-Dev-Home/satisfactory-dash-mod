@@ -566,9 +566,38 @@ const diffLists = (mod: string[], frm: string[]) => {
   return { missing, extra };
 };
 
+/** One canonical record (canonRoutes) split into its exact part (`key`) and its cargo item sets (`cargo`, one entry per platform, or the train's). */
+function splitCanon(c: string): { key: string; id: string; cargo: string[][] } {
+  const a = JSON.parse(c) as unknown[];
+  if (a[0] === "station") {
+    const platforms = a[3] as Array<[string, string, string[]]>;
+    return { key: JSON.stringify([a[0], a[1], a[2], platforms.map((p) => [p[0], p[1]])]), id: `station ${String(a[1])}`, cargo: platforms.map((p) => p[2]) };
+  }
+  return { key: JSON.stringify(a.slice(0, 4)), id: `train ${String(a[1])}`, cargo: [a[4] as string[]] };
+}
+
+/**
+ * NEW (owner ruling, 2026-10-27, after run 40439238142 on Test3, where one unloading platform read empty in the mod while both FRM
+ * samples around it showed Desc_Sulfur_C: cargo changes between reads): stations, platform ids, modes, train ids, names and
+ * timetable stops stay exact; a difference only in a platform's or a train's cargo item set is reported, never a failure.
+ * Returns null when the two layers differ in anything but cargo, else the cargo differences (empty when equal).
+ */
+function cargoOnlyDiffs(mod: string[], frm: string[]): string[] | null {
+  const a = mod.map(splitCanon).sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  const b = frm.map(splitCanon).sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  if (a.length !== b.length || a.some((x, i) => x.key !== b[i]!.key)) return null;
+  const out: string[] = [];
+  a.forEach((x, i) => x.cargo.forEach((items, j) => {
+    const other = b[i]!.cargo[j]!;
+    if (items.join(",") !== other.join(",")) out.push(`${x.id}${x.id.startsWith("station") ? ` platform ${j + 1}` : ""}: mod [${items.join(" ")}] vs FRM [${other.join(" ")}]`);
+  }));
+  return out;
+}
+
 /**
  * trainRoutes: the mod's posted layer (native only: the bridge never sent it) is valid against the pinned contract and equals, as a
  * sorted canonical list, the FRM-derived layer taken on at least one side of the post within 120 s; at least one accepted post.
+ * A difference only in cargo item sets is reported, never fails (owner ruling 2026-10-27, cargoOnlyDiffs).
  * An empty layer is a real answer (no stations, no trains), never "unreadable".
  */
 export function judgeRoutes(r: RoutesEvidence): S2Result {
@@ -578,6 +607,7 @@ export function judgeRoutes(r: RoutesEvidence): S2Result {
   let stations = 0;
   let trainsWithItems = 0;
   let records = 0;
+  const cargoDiffs: string[] = [];
   if (r.posts.length === 0) reasons.push("the mod posted no trainRoutes layer in the window");
   for (const post of r.posts) {
     const parsed = TrainRoutesLayerDataSchema.safeParse(post.data);
@@ -603,6 +633,11 @@ export function judgeRoutes(r: RoutesEvidence): S2Result {
     const mod = canonRoutes(layer);
     const sides = [before, after].filter((s): s is Bracket<string> => s !== null).map((s) => r.distinct[s.value] ?? []);
     if (sides.some((l) => l.join("\n") === mod.join("\n"))) continue;
+    const cargo = sides.map((l) => cargoOnlyDiffs(mod, l)).filter((x): x is string[] => x !== null).sort((x, y) => x.length - y.length)[0];
+    if (cargo !== undefined) {
+      cargoDiffs.push(...cargo.map((c) => `${post.at} ${c}`));
+      continue;
+    }
     const d = diffLists(mod, sides[0]!);
     reasons.push(`${post.at}: the layer differs from FRM's: ${d.missing.length} in FRM and not in the mod, ${d.extra.length} in the mod and not in FRM`);
     if (d.missing.length) reasons.push(`  in FRM only (first ${SHOW}): ${d.missing.slice(0, SHOW).join(" ")}`);
@@ -614,6 +649,7 @@ export function judgeRoutes(r: RoutesEvidence): S2Result {
     stations === 0 ? "any station (the layer has none)" : stationsWithPlatforms === 0 ? "platform id, mode and items (no station in the layer has a platform)" : null,
     records > 0 && trainsWithItems === 0 ? "train cargo items (no train carried any)" : null,
   ].filter((x): x is string => x !== null);
-  return { pass: true, reasons: [`${compared} posted layer(s) valid against the contract and equal to FRM's (${records} records)`], never };
+  const cargoNote = cargoDiffs.length > 0 ? [`reported, not failed (cargo changes between reads): ${cargoDiffs.length} cargo item-set difference(s) (first 3: ${cargoDiffs.slice(0, 3).join(" | ")})`] : [];
+  return { pass: true, reasons: [`${compared} posted layer(s) valid against the contract and equal to FRM's apart from reported cargo (${records} records)`, ...cargoNote], never };
 }
 

@@ -68,7 +68,9 @@ recorded, not judged.
 
 Four things to know first. They are reported, not rules; none of them changes a pass condition.
 
-- A trainRoutes failure can be only cargo drift: items change between the mod's read and FRM's sample.
+- Cargo drift in trainRoutes (items change between the mod's read and FRM's sample) no longer fails: since the owner's ruling of
+  2026-10-27 (run 40439238142, Test3) a difference only in a platform's or a train's cargo item set is reported (count and
+  first three), while stations, platform ids, modes, train ids, names and timetable stops stay exact.
 - The moving-train rule passes a position anywhere on FRM's track in the window. Read the "a stationary train" NOT EXERCISED line before switching Trains.
 - The 5% FRM read-failure rule is new and was not set by the owner.
 - In one game tick the native steps can add up to about 3-4 ms in total (each step stays under 2 ms), and `tick-cost-native` measures the median tick.
