@@ -298,6 +298,47 @@ namespace SatisDash::Test
 		virtual bool MapMarkersReadAbandoned() const override { return bMarkersAbandoned; }
 		virtual void EndMapMarkersRead() override { ++MarkersEnds; bMarkersOpen = false; }
 		virtual bool IsMapMarkersReadOpen() const override { return bMarkersOpen; }
+		/** S4-A R9: the same for drone routes (its own budget and its own open flag). */
+		int32 DronesStepsToFinish = 3;
+		TArray<SatisDash::FDronePortReading> DronePorts;
+		SatisDash::FDroneRoutesCounts DronesCounts;
+		bool bDronesAbandoned = false;
+		bool bBeginDronesOk = true;
+		int32 DronesBegins = 0;
+		int32 DronesEnds = 0;
+		int32 DronesStepCalls = 0;
+		bool bDronesOpen = false;
+		virtual bool BeginDroneRoutesRead() override
+		{
+			++DronesBegins;
+			if (!bBeginDronesOk || bDronesOpen)
+			{
+				return false;
+			}
+			DronesStepCalls = 0;
+			bDronesOpen = true;
+			return true;
+		}
+		virtual TOptional<SatisDash::FDroneRoutesSnapshot> StepDroneRoutesRead(SatisDash::FStepBudget& Budget) override
+		{
+			Budget.Begin();
+			Budget.End();
+			if (++DronesStepCalls < DronesStepsToFinish)
+			{
+				return {};
+			}
+			bDronesOpen = false;
+			SatisDash::FDroneRoutesSnapshot Out;
+			if (!bDronesAbandoned)
+			{
+				Out.Ports = DronePorts;
+				Out.Counts = DronesCounts;
+			}
+			return Out;
+		}
+		virtual bool DroneRoutesReadAbandoned() const override { return bDronesAbandoned; }
+		virtual void EndDroneRoutesRead() override { ++DronesEnds; bDronesOpen = false; }
+		virtual bool IsDroneRoutesReadOpen() const override { return bDronesOpen; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ApplyAutoPause(bool bEnabled) override
 		{
 			Applied.Add(bEnabled);

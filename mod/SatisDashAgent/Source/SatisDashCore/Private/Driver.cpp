@@ -59,6 +59,7 @@ void SatisDash::FDriver::Tick()
 		Game.EndTrainsRead();
 		Game.EndLogisticsRead(); // the sender's pass is dropped by its Stop; the reader frees what it buffered
 		Game.EndMapMarkersRead();
+		Game.EndDroneRoutesRead();
 	}
 	if (!bRunning && bNowRunning)
 	{

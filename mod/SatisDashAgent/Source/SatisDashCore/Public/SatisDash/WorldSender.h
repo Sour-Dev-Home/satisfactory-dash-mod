@@ -96,7 +96,7 @@ namespace SatisDash
 		void TickLayer(EWorldLayer Layer, const FWorldContext& Context);
 		/** R3: one tick of the train-routes layer's native read (the game thread's part), then its hand-over to the worker. */
 		void StepTrainRoutesScan(const FWorldContext& Context);
-		/** S4-A: one tick of a small layer's native read (map markers; drone routes join in R9), then its hand-over to the worker. */
+		/** S4-A: one tick of a small layer's native read (map markers, drone routes), then its hand-over to the worker. */
 		void StepSmallLayerScan(EWorldLayer Layer, const FWorldContext& Context);
 		/** R5: one tick of the shared logistics pass (the game thread's part), then its hand-over to the worker. */
 		void StepLogisticsPass(const FWorldContext& Context);

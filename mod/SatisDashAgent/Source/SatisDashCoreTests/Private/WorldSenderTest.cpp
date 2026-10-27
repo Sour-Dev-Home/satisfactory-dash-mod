@@ -40,6 +40,7 @@ namespace
 		FStepBudget TrainsBudget{ [this] { return T; } };
 		FStepBudget LogisticsBudget{ [this] { return T; } };
 		FStepBudget MarkersBudget{ [this] { return T; } };
+		FStepBudget DronesBudget{ [this] { return T; } };
 
 		FWorldFixture()
 		{
@@ -63,7 +64,7 @@ namespace
 					Net.answer(WorldRailsRead, SatisDash::Test::Reply(0, FString()));
 				}
 				Bridge.Tick(T, 8080, FString());
-				Sender.Tick({ T, Utc, &Config, &Credential, bSnapshotsIdle, bNativeReaders ? &Game : nullptr, true, &TrainsBudget, &LogisticsBudget, &MarkersBudget });
+				Sender.Tick({ T, Utc, &Config, &Credential, bSnapshotsIdle, bNativeReaders ? &Game : nullptr, true, &TrainsBudget, &LogisticsBudget, &MarkersBudget, &DronesBudget });
 			}
 		}
 
@@ -707,6 +708,150 @@ bool FWorldSenderMapMarkersTest::RunTest(const FString& Parameters)
 	H.tick(1500);
 	TestEqual(TEXT("flipped: no second read"), H.Game.MarkersBegins, 1);
 	TestEqual(TEXT("flipped: no post"), H.Net.sent(WorldMapMarkersPost), 0);
+	return true;
+}
+
+namespace
+{
+	const TCHAR* WorldDroneRoutesPost = TEXT("/agent/v1/world/droneRoutes");
+
+	/** A fixture with only droneRoutes native (every other layer on the bridge), jitter at x0.9 (432 s, then every 540 s). */
+	void worldDroneRoutesFixture(FWorldFixture& F)
+	{
+		F.Random01 = 0;
+		F.Config.ResourceNodesSource = ESource::Bridge;
+		F.Config.TrainsSource = ESource::Bridge;
+		F.Config.RailsSource = ESource::Bridge;
+		F.Config.ConveyorsSource = ESource::Bridge;
+		F.bNativeReaders = true;
+		// Two ports given out of order, paired to each other: the body sorts them by id.
+		FDronePortReading B;
+		B.Id = TEXT("DDDD0000");
+		B.Name = TEXT("Dock west");
+		B.bPaired = true;
+		B.PairedName = TEXT("Dock east");
+		B.PairedId = TEXT("CCCC0000");
+		FDronePortReading A;
+		A.Id = TEXT("CCCC0000");
+		A.Name = TEXT("Dock east");
+		A.bPaired = true;
+		A.PairedName = TEXT("Dock west");
+		A.PairedId = TEXT("DDDD0000");
+		F.Game.DronePorts = { B, A };
+		F.Game.DronesCounts.Read = 2;
+		F.Game.DronesCounts.Dropped = 1;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderDroneRoutesTest, "SatisDash.Core.WorldSender.DroneRoutes", SatisDash::Test::Flags)
+
+bool FWorldSenderDroneRoutesTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	FWorldFixture F;
+	worldDroneRoutesFixture(F);
+	F.Config.DroneRoutesSource = ESource::Native;
+	F.Sender.Start(F.T);
+	TestFalse(TEXT("no read before 8 minutes less the jitter (432 s)"), F.until([&F] { return F.Game.DronesBegins > 0; }, 431));
+	TestTrue(TEXT("the read begins at 433 s"), F.until([&F] { return F.Game.DronesBegins > 0; }, 20));
+	TestEqual(TEXT("one begin"), F.Game.DronesBegins, 1);
+	TestEqual(TEXT("the markers reader is not begun"), F.Game.MarkersBegins, 0);
+	F.tick(0.5);
+	TestEqual(TEXT("one step a tick"), F.Game.DronesStepCalls, 1);
+	TestTrue(TEXT("the layer is posted"), F.until([&F] { return F.Net.pending(WorldDroneRoutesPost) > 0; }, 20));
+	TestEqual(TEXT("three steps in all"), F.Game.DronesStepCalls, 3);
+	const FString Body = F.Net.lastBody(WorldDroneRoutesPost);
+	const int32 First = Body.Find(TEXT("\"id\":\"CCCC0000\""));
+	const int32 Second = Body.Find(TEXT("\"id\":\"DDDD0000\""));
+	TestTrue(TEXT("both ports are in the body, sorted by id"), First != INDEX_NONE && Second != INDEX_NONE && First < Second);
+	TestTrue(TEXT("with their pairedId"), Body.Contains(TEXT("\"pairedId\":\"DDDD0000\"")));
+	F.Net.answer(WorldDroneRoutesPost, SatisDash::Test::Reply(200, WorldAccepted));
+	F.tick(2);
+	TestEqual(TEXT("the accepted body is not held"), F.Sender.Held(), 0);
+
+	// Counts and times only in the log (no id, no name).
+	int32 ReadLines = 0;
+	int32 Leaks = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ReadLines += Line.Contains(TEXT("Drone routes read (game thread only): 2 ports, 1 dropped in 3 steps, longest step ")) ? 1 : 0;
+		Leaks += Line.Contains(TEXT("Dock")) || Line.Contains(TEXT("CCCC")) || Line.Contains(TEXT("DDDD")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one Drone routes read line"), ReadLines, 1);
+	TestEqual(TEXT("no id or name in the log"), Leaks, 0);
+
+	// The next cycle reads the same ports again: the same data hash, nothing is posted.
+	TestTrue(TEXT("the next cycle reads again"), F.until([&F] { return F.Game.DronesBegins >= 2 && F.Game.DronesStepCalls >= 3; }, 700));
+	F.tick(10);
+	TestEqual(TEXT("an unchanged body is not posted again"), F.Net.sent(WorldDroneRoutesPost), 1);
+	TestEqual(TEXT("FRM is never asked for the layer"), F.Net.sent(TEXT("/getDroneStation")), 0);
+
+	// A finished read with no ports is a real, empty layer: it is posted.
+	F.Game.DronePorts.Reset();
+	TestTrue(TEXT("an empty layer is posted"), F.until([&F] { return F.Net.pending(WorldDroneRoutesPost) > 0; }, 700));
+	TestTrue(TEXT("with data:[]"), F.Net.lastBody(WorldDroneRoutesPost).Contains(TEXT("\"data\":[]")));
+	F.Net.answer(WorldDroneRoutesPost, SatisDash::Test::Reply(200, WorldAccepted));
+
+	// An abandoned read posts nothing, warns once and is read again after NodeScanRetrySeconds.
+	F.Game.bDronesAbandoned = true;
+	const int32 Posts = F.Net.sent(WorldDroneRoutesPost);
+	const int32 Begun = F.Game.DronesBegins;
+	TestTrue(TEXT("the next read begins"), F.until([&F, Begun] { return F.Game.DronesBegins > Begun && F.Game.DronesStepCalls >= 3; }, 700));
+	F.tick(1);
+	TestTrue(TEXT("and is retried soon, not after a whole cycle"), F.until([&F, Begun] { return F.Game.DronesBegins > Begun + 1; }, 60));
+	TestEqual(TEXT("an abandoned read posts nothing"), F.Net.sent(WorldDroneRoutesPost), Posts);
+	TestEqual(TEXT("and FRM is not asked"), F.Net.sent(TEXT("/getDroneStation")), 0);
+	TestEqual(TEXT("one warning for the abandoned reads"), countLines(Log, TEXT("World layer droneRoutes: the game's read was abandoned")), 1);
+	F.Game.bDronesAbandoned = false;
+
+	// The default config (key unset = bridge): the layer is never begun, posted, requested or logged.
+	const int32 LoggedBefore = countLines(Log, TEXT("Drone routes"));
+	FWorldFixture G;
+	worldDroneRoutesFixture(G);
+	G.Sender.Start(G.T);
+	G.tick(2000);
+	TestEqual(TEXT("default: no game read"), G.Game.DronesBegins, 0);
+	TestEqual(TEXT("default: no post"), G.Net.sent(WorldDroneRoutesPost), 0);
+	TestEqual(TEXT("default: FRM is not asked either"), G.Net.sent(TEXT("/getDroneStation")), 0);
+	TestEqual(TEXT("default: nothing logged"), countLines(Log, TEXT("Drone routes")), LoggedBefore);
+
+	// The source flips to bridge under an open read: the read is dropped and the layer rescheduled.
+	FWorldFixture H;
+	worldDroneRoutesFixture(H);
+	H.Config.DroneRoutesSource = ESource::Native;
+	H.Sender.Start(H.T);
+	TestTrue(TEXT("a read is open"), H.until([&H] { return H.Game.DronesBegins > 0; }, 440));
+	H.Config.DroneRoutesSource = ESource::Bridge;
+	H.tick(1);
+	TestEqual(TEXT("the open read was ended"), H.Game.DronesEnds, 1);
+	TestFalse(TEXT("and is no longer open"), H.Game.bDronesOpen);
+	TestEqual(TEXT("the markers reader was never ended"), H.Game.MarkersEnds, 0);
+	H.tick(1500);
+	TestEqual(TEXT("flipped: no second read"), H.Game.DronesBegins, 1);
+	TestEqual(TEXT("flipped: no post"), H.Net.sent(WorldDroneRoutesPost), 0);
+
+	// Both small layers native: two begins, two budgets, no interference; each posts once.
+	FWorldFixture M;
+	worldMapMarkersFixture(M);
+	worldDroneRoutesFixture(M);
+	M.Config.MapMarkersSource = ESource::Native;
+	M.Config.DroneRoutesSource = ESource::Native;
+	M.Sender.Start(M.T);
+	TestTrue(TEXT("both reads begin"), M.until([&M] { return M.Game.MarkersBegins > 0 && M.Game.DronesBegins > 0; }, 440));
+	TestEqual(TEXT("one begin each"), M.Game.MarkersBegins + M.Game.DronesBegins, 2);
+	TestTrue(TEXT("both finish"), M.until([&M] { return M.Net.pending(WorldMapMarkersPost) > 0 || M.Net.pending(WorldDroneRoutesPost) > 0; }, 20));
+	TestEqual(TEXT("each budget counted its own three steps"), M.MarkersBudget.Steps() * 10 + M.DronesBudget.Steps(), 33);
+	for (int32 Round = 0; Round < 2; ++Round)
+	{
+		M.until([&M] { return M.Net.pending(WorldMapMarkersPost) > 0 || M.Net.pending(WorldDroneRoutesPost) > 0; }, 20);
+		M.Net.answer(WorldMapMarkersPost, SatisDash::Test::Reply(200, WorldAccepted));
+		M.Net.answer(WorldDroneRoutesPost, SatisDash::Test::Reply(200, WorldAccepted));
+		M.tick(2);
+	}
+	TestEqual(TEXT("markers posted once"), M.Net.sent(WorldMapMarkersPost), 1);
+	TestEqual(TEXT("drone routes posted once"), M.Net.sent(WorldDroneRoutesPost), 1);
+	TestTrue(TEXT("each body carries its own data"), M.Net.lastBody(WorldMapMarkersPost).Contains(TEXT("AAAA0000")) && !M.Net.lastBody(WorldMapMarkersPost).Contains(TEXT("CCCC0000"))
+		&& M.Net.lastBody(WorldDroneRoutesPost).Contains(TEXT("CCCC0000")) && !M.Net.lastBody(WorldDroneRoutesPost).Contains(TEXT("AAAA0000")));
 	return true;
 }
 

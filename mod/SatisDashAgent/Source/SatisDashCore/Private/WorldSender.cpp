@@ -2,6 +2,7 @@
 
 #include "SatisDash/Log.h"
 #include "SatisDash/Native/Conveyors/NativeConveyors.h"
+#include "SatisDash/Native/DroneRoutes/NativeDroneRoutes.h"
 #include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
@@ -32,10 +33,9 @@ namespace
 		case SatisDash::EWorldLayer::Rails: return Context.Config->GetRailsSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::Conveyors: return Context.Config->GetConveyorsSource() == SatisDash::ESource::Native;
 		case SatisDash::EWorldLayer::MapMarkers: return Context.Config->GetMapMarkersSource() == SatisDash::ESource::Native;
-		// S4-A: the getters exist (Task 2) but no scheduler branch reads these layers yet, so each stays false (a native layer
-		// with no branch must not be reachable). Tasks 8 and 11 turn them on:
-		// DroneRoutes: GetDroneRoutesSource() == Native; PowerLines: GetPowerLinesSource() == Native.
-		case SatisDash::EWorldLayer::DroneRoutes:
+		case SatisDash::EWorldLayer::DroneRoutes: return Context.Config->GetDroneRoutesSource() == SatisDash::ESource::Native;
+		// S4-A: PowerLines has no scheduler branch yet, so it stays false (a native layer with no branch must not be reachable).
+		// Task 11 turns it on: GetPowerLinesSource() == Native.
 		case SatisDash::EWorldLayer::PowerLines: return false;
 		default: return false;
 		}
@@ -50,7 +50,7 @@ namespace
 	/** The small sliced layers (one reader, one budget each, a few ticks): adding one takes a case in each of the helpers below and in StepSmallLayerScan. */
 	bool WorldSenderIsSmall(SatisDash::EWorldLayer Layer)
 	{
-		return Layer == SatisDash::EWorldLayer::MapMarkers;
+		return Layer == SatisDash::EWorldLayer::MapMarkers || Layer == SatisDash::EWorldLayer::DroneRoutes;
 	}
 
 	enum class ESmallBegin { Busy, Begun, Failed };
@@ -71,6 +71,17 @@ namespace
 				return ESmallBegin::Begun;
 			}
 			return ESmallBegin::Failed;
+		case SatisDash::EWorldLayer::DroneRoutes:
+			if (Context.NativeReaders->IsDroneRoutesReadOpen())
+			{
+				return ESmallBegin::Busy;
+			}
+			if (Context.DronesBudget != nullptr && Context.NativeReaders->BeginDroneRoutesRead())
+			{
+				Context.DronesBudget->Reset();
+				return ESmallBegin::Begun;
+			}
+			return ESmallBegin::Failed;
 		default:
 			return ESmallBegin::Failed;
 		}
@@ -87,6 +98,9 @@ namespace
 		{
 		case SatisDash::EWorldLayer::MapMarkers:
 			Context.NativeReaders->EndMapMarkersRead();
+			return;
+		case SatisDash::EWorldLayer::DroneRoutes:
+			Context.NativeReaders->EndDroneRoutesRead();
 			return;
 		default:
 		{
@@ -458,6 +472,48 @@ void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorld
 			Found->Counts.Read, Found->Counts.Dropped, Context.MarkersBudget->Steps(), Context.MarkersBudget->LongestMs(), Context.MarkersBudget->TotalMs());
 		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
 			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Markers)](const FString& Observed) { return BuildNativeMapMarkers(Observed, Snapshot); }), L.DataHash))
+		{
+			L.Phase = EPhase::Reading;
+		}
+		else
+		{
+			ScheduleNext(Layer, Context.Now);
+		}
+		return;
+	}
+	case EWorldLayer::DroneRoutes:
+	{
+		if (Context.DronesBudget == nullptr)
+		{
+			EndSmallLayer(Layer, Context);
+			ScheduleNext(Layer, Context.Now);
+			return;
+		}
+		// The game thread's whole part: a budgeted slice of the drone stations. The sort and the JSON text are built on the worker.
+		TOptional<FDroneRoutesSnapshot> Found = Context.NativeReaders->StepDroneRoutesRead(*Context.DronesBudget);
+		if (!Found.IsSet())
+		{
+			return;
+		}
+		if (Context.NativeReaders->DroneRoutesReadAbandoned())
+		{
+			// No subsystem, or a world swapped mid-read: this is not an empty layer. Nothing is posted (the backend keeps its good
+			// copy) and the read is tried again soon. No names in the log.
+			if (!L.bScanLogged && ShouldLog(Layer, TEXT("scan"), Context.Now))
+			{
+				UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's read was abandoned; nothing sent, will read again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
+			}
+			L.bScanLogged = true;
+			L.Phase = EPhase::Waiting;
+			L.NextAt = Context.Now + NodeScanRetrySeconds;
+			return;
+		}
+		L.bScanLogged = false;
+		// A finished read with no ports is a real, empty layer: it is posted. Counts and times only; never an id or a name.
+		UE_LOG(LogSatisDash, Display, TEXT("Drone routes read (game thread only): %d ports, %d dropped in %d steps, longest step %.2f ms, total %.2f ms"),
+			Found->Counts.Read, Found->Counts.Dropped, Context.DronesBudget->Steps(), Context.DronesBudget->LongestMs(), Context.DronesBudget->TotalMs());
+		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
+			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Ports)](const FString& Observed) { return BuildNativeDroneRoutes(Observed, Snapshot); }), L.DataHash))
 		{
 			L.Phase = EPhase::Reading;
 		}

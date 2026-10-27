@@ -630,13 +630,23 @@ bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 	// Leaving Running (a 401 halts the agent) ends an open read.
 	FDriverFixture H;
 	H.Game.MarkersStepsToFinish = 1000000;
+	H.Game.DronesStepsToFinish = 1000000;
 	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
-	H.enrol(Halted, SatisDash::Test::FakeSecret(), Native);
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"native\""));
 	TestTrue(TEXT("a read is open"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.MarkersStepCalls >= 1; }, 560));
 	TestEqual(TEXT("not ended yet"), H.Game.MarkersEnds, 0);
+	TestTrue(TEXT("the drone-routes read is open beside it"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.DronesStepCalls >= 1; }, 60));
+	TestEqual(TEXT("and not ended yet"), H.Game.DronesEnds, 0);
 	TestTrue(TEXT("a snapshot is waiting for an answer"), H.runUntil(Halted, [&H] { return H.Net.pending(DriverNativeSnapshots) > 0; }, 30));
 	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
 	H.run(Halted, 1.0);
 	TestTrue(TEXT("leaving Running ends the read"), H.Game.MarkersEnds >= 1);
+	TestTrue(TEXT("and the drone-routes read"), H.Game.DronesEnds >= 1);
+	int32 BothNative = 0;
+	for (const FString& Line : Log.Take())
+	{
+		BothNative += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=native powerLines=bridge")) ? 1 : 0;
+	}
+	TestEqual(TEXT("the Readers line shows droneRoutes=native"), BothNative, 1);
 	return true;
 }
