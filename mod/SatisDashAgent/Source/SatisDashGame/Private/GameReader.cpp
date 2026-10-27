@@ -34,6 +34,9 @@
 #include "FGCircuitSubsystem.h"
 #include "FGGameState.h"
 #include "FGMapManager.h"
+#include "FGBuildingTagInterface.h"
+#include "FGDroneStationInfo.h"
+#include "FGDroneSubsystem.h"
 #include "FGActorRepresentation.h"
 #include "FGInventoryComponent.h"
 #include "FGPowerCircuit.h"
@@ -787,6 +790,102 @@ TOptional<SatisDash::FMapMarkersSnapshot> SatisDash::FGameReader::StepMapMarkers
 	FMapMarkersSnapshot Done = MoveTemp(MarkersFound);
 	Done.Counts.Read = Done.Markers.Num();
 	ResetMapMarkersRead();
+	return MoveTemp(Done);
+}
+
+void SatisDash::FGameReader::ResetDroneRoutesRead()
+{
+	DroneWorld.Reset();
+	DroneCursor = 0;
+	DroneFound = FDroneRoutesSnapshot();
+	bDroneOpen = false;
+}
+
+bool SatisDash::FGameReader::BeginDroneRoutesRead()
+{
+	if (bDroneOpen)
+	{
+		return false;
+	}
+	UWorld* Current = World.Get();
+	AFGDroneSubsystem* Subsystem = Current != nullptr ? AFGDroneSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		return false;
+	}
+	ResetDroneRoutesRead();
+	bDroneAbandoned = false;
+	DroneWorld = Current;
+	bDroneOpen = true;
+	return true;
+}
+
+TOptional<SatisDash::FDroneRoutesSnapshot> SatisDash::FGameReader::StepDroneRoutesRead(FStepBudget& Budget)
+{
+	UWorld* Current = World.Get();
+	// A different save was loaded while the slices ran (or the subsystem went away): "cannot read", empty and flagged.
+	AFGDroneSubsystem* Subsystem = Current != nullptr && Current == DroneWorld.Get() ? AFGDroneSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		ResetDroneRoutesRead();
+		bDroneAbandoned = true;
+		return FDroneRoutesSnapshot();
+	}
+	bool bFinished = false;
+	Budget.Begin();
+	do
+	{
+		// The list is re-fetched for every station: nothing from it is kept between iterations or ticks.
+		const TArray<AFGDroneStationInfo*>& Stations = Subsystem->GetAllStations();
+		if (DroneCursor >= Stations.Num())
+		{
+			bFinished = true;
+			break;
+		}
+		const AFGDroneStationInfo* Info = Stations[DroneCursor++];
+		if (!IsValid(Info))
+		{
+			continue;
+		}
+		const AFGBuildableDroneStation* Station = Info->GetStation(); // server-only; null on a client or when the building is gone
+		if (!IsValid(Station))
+		{
+			++DroneFound.Counts.Dropped; // V6
+			continue;
+		}
+		FDronePortReading Reading;
+		Reading.Id = Station->GetName();
+		Reading.Name = IFGBuildingTagInterface::Execute_GetBuildingTag(Info); // BlueprintNativeEvent: the generated wrapper, not _Implementation
+		const AFGDroneStationInfo* Partner = Info->GetPairedStation();
+		if (IsValid(Partner))
+		{
+			Reading.bPaired = true;
+			Reading.PairedName = IFGBuildingTagInterface::Execute_GetBuildingTag(Partner);
+			const AFGBuildableDroneStation* PartnerStation = Partner->GetStation();
+			if (IsValid(PartnerStation))
+			{
+				Reading.PairedId = PartnerStation->GetName();
+			}
+		}
+		// V9: the field comments (mInputInventory loads a drone, mOutputInventory unloads one) agree with the capture; the getter comments say the opposite.
+		// If the parity judge reports input/output swapped, swap these two getters.
+		TrainsReadItems(Station->GetInputInventory(), Reading.Input);
+		TrainsReadItems(Station->GetOutputInventory(), Reading.Output);
+		TrainsReadItems(Station->GetFuelInventory(), Reading.Fuel);
+		// V10: the actor's location (the info's GetStationLocation() is the one-line flip). Nothing here is logged.
+		const FVector Location = Station->GetActorLocation();
+		Reading.XCm = Location.X;
+		Reading.YCm = Location.Y;
+		DroneFound.Ports.Add(MoveTemp(Reading));
+	} while (!Budget.Spent());
+	Budget.End(); // straight after the loop: nothing else is done on the game thread this step
+	if (!bFinished)
+	{
+		return {};
+	}
+	FDroneRoutesSnapshot Done = MoveTemp(DroneFound);
+	Done.Counts.Read = Done.Ports.Num();
+	ResetDroneRoutesRead();
 	return MoveTemp(Done);
 }
 

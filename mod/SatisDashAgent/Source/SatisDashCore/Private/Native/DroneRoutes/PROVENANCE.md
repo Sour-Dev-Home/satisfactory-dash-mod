@@ -2,6 +2,7 @@ Reader: DroneRoutes
 Code: mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Native/DroneRoutes/NativeDroneRoutes.h
 Code: mod/SatisDashAgent/Source/SatisDashCore/Private/Native/DroneRoutes/NativeDroneRoutes.cpp
 Headers: Task 7 (R9, pure mapping) calls no game symbol; the game-side read and the world sender are Tasks 8 and 9, which add their header rows here
+Headers: Task 9 (game-side read, SatisDashGame GameReader.cpp): FGDroneSubsystem.h (AFGDroneSubsystem::Get, GetAllStations), FGDroneStationInfo.h (GetStation, GetPairedStation, GetBuildingTag_Implementation, GetStationLocation), FGBuildingTagInterface.h (GetBuildingTag), Buildables/FGBuildableDroneStation.h (GetInputInventory, GetOutputInventory, GetFuelInventory); each has its api-sources.md row
 Survey: mod-native-readers-s4a-headers-2026-10-27.md
 Captures: frm-getDroneStation-2026-10-25-paired-*-trimmed.json (satisfactory-dash captured-responses; FRM HTTP output only; the shape of the Golden test, whose names are synthetic)
 Captures: frm-getDroneStation-2026-10-25-unpaired-trimmed.json (the same, for the unpaired port)
