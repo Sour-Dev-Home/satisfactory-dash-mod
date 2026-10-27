@@ -17,6 +17,13 @@ namespace SatisDash
 	/** worldReader.ts jitteredIntervalMs: Base x [0.9, 1.1]. Random01 is clamped to [0, 1]; NaN is the middle. */
 	SATISDASHCORE_API double JitteredSeconds(double BaseSeconds, double Random01);
 
+	/**
+	 * S4-A Q6: the cast-count check of the power wires. True (worth one Warning) when no wire was read, or when the wires read plus
+	 * the dropped ones differ from the subsystem's advisory count by more than max(5, 5% of it). An unknown count (negative)
+	 * only checks for zero. It never changes the output.
+	 */
+	SATISDASHCORE_API bool WireCountSuspect(int32 Wires, int32 Dropped, int32 Expected);
+
 	/** What one tick of the sender needs from the driver. The credential is used at once and never kept (Agent.h). */
 	struct FWorldContext
 	{

@@ -24,6 +24,8 @@
 #include "Components/SplineComponent.h"
 #include "Buildables/FGBuildableTrainPlatform.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
+#include "Buildables/FGBuildableWire.h"
+#include "FGCircuitConnectionComponent.h"
 #include "Controller/FGServerManagementController.h"
 #include "Controller/FGServerStateController.h"
 #include "Engine/Level.h"
@@ -899,6 +901,8 @@ namespace
 	 * anyway, so one more than the cap is enough to know it is over; the rest only go into Counts.Over (the owner's footprint goal).
 	 */
 	constexpr int32 MaxLogisticsConveyors = SatisDash::ConveyorsMaxEdges + 1;
+	/** One past the cap, so the builder's own Over count sees the overflow; the extra wires are only counted. */
+	constexpr int32 MaxLogisticsWires = SatisDash::PowerLinesMaxItems + 1;
 	/** Differing class names the kind check keeps. */
 	constexpr int32 ConvMaxDifferClasses = 8;
 
@@ -996,11 +1000,13 @@ void SatisDash::FGameReader::ResetLogisticsRead()
 	LogisticsBelts.Empty();
 	LogisticsLifts.Empty();
 	LogisticsPipes.Empty();
+	LogisticsWires.Empty();
 	LogisticsFound = FLogisticsSnapshot();
 	LogisticsPhase = ELogisticsPhase::Collect;
 	LogisticsCursor = 0;
 	bLogisticsRails = false;
 	bLogisticsConveyors = false;
+	bLogisticsPowerLines = false;
 	bLogisticsOpen = false;
 }
 
@@ -1009,10 +1015,6 @@ bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bo
 	if (bLogisticsOpen)
 	{
 		return false; // one cursor: a pass is still open
-	}
-	if (bPowerLines)
-	{
-		return false; // Task 12 adds the wire read; until then a native powerLines source begins nothing (and posts nothing)
 	}
 	UWorld* Current = World.Get();
 	const AFGBuildableSubsystem* Subsystem = Current != nullptr ? AFGBuildableSubsystem::Get(Current) : nullptr;
@@ -1025,10 +1027,16 @@ bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bo
 	LogisticsWorld = Current;
 	bLogisticsRails = bRails;
 	bLogisticsConveyors = bConveyors;
+	bLogisticsPowerLines = bPowerLines;
 	if (bRails)
 	{
 		// Advisory only (the subsystem's own count of tracks, logged next to what was read).
 		LogisticsFound.Counts.ExpectedTracks = Subsystem->GetBuildableCount(AFGBuildableRailroadTrack::StaticClass());
+	}
+	if (bPowerLines)
+	{
+		// Advisory too: the class is Abstract, so subclasses are not assumed to be counted. The sender compares it with what was read.
+		LogisticsFound.Counts.ExpectedWires = Subsystem->GetBuildableCount(AFGBuildableWire::StaticClass());
 	}
 	bLogisticsOpen = true;
 	return true;
@@ -1051,6 +1059,27 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 		return FLogisticsSnapshot();
 	}
 	bool bFinished = false;
+	// The next asked-for read phase after the given one (Collect, ReadRails, ReadConveyors, ReadPowerLines in that order), or the end.
+	const auto nextPhase = [this, &bFinished](ELogisticsPhase After)
+	{
+		LogisticsCursor = 0;
+		if (After < ELogisticsPhase::ReadRails && bLogisticsRails)
+		{
+			LogisticsPhase = ELogisticsPhase::ReadRails;
+		}
+		else if (After < ELogisticsPhase::ReadConveyors && bLogisticsConveyors)
+		{
+			LogisticsPhase = ELogisticsPhase::ReadConveyors;
+		}
+		else if (After < ELogisticsPhase::ReadPowerLines && bLogisticsPowerLines)
+		{
+			LogisticsPhase = ELogisticsPhase::ReadPowerLines;
+		}
+		else
+		{
+			bFinished = true;
+		}
+	};
 	Budget.Begin();
 	do
 	{
@@ -1060,8 +1089,11 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const TArray<AFGBuildable*>& All = Subsystem->GetAllBuildablesRef();
 			if (LogisticsCursor >= All.Num())
 			{
-				LogisticsPhase = bLogisticsRails ? ELogisticsPhase::ReadRails : ELogisticsPhase::ReadConveyors;
-				LogisticsCursor = 0;
+				nextPhase(ELogisticsPhase::Collect);
+				if (bFinished)
+				{
+					break;
+				}
 				continue;
 			}
 			AFGBuildable* Building = All[LogisticsCursor++];
@@ -1114,6 +1146,21 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					}
 				}
 			}
+			if (bLogisticsPowerLines)
+			{
+				// The wire class is Abstract: Cast reaches the concrete wires. Past the cap the extra only counts in Over.
+				if (AFGBuildableWire* Wire = Cast<AFGBuildableWire>(Building))
+				{
+					if (LogisticsWires.Num() < MaxLogisticsWires)
+					{
+						LogisticsWires.Add(Wire);
+					}
+					else
+					{
+						++LogisticsFound.Counts.Over;
+					}
+				}
+			}
 			continue;
 		}
 		if (LogisticsPhase == ELogisticsPhase::ReadConveyors)
@@ -1123,8 +1170,12 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const int32 LiftCount = LogisticsLifts.Num();
 			if (LogisticsCursor >= BeltCount + LiftCount + LogisticsPipes.Num())
 			{
-				bFinished = true;
-				break;
+				nextPhase(ELogisticsPhase::ReadConveyors);
+				if (bFinished)
+				{
+					break;
+				}
+				continue;
 			}
 			const int32 Slot = LogisticsCursor++;
 			FLogisticsCounts& Counts = LogisticsFound.Counts;
@@ -1202,11 +1253,45 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			LogisticsFound.Conveyors.Add(MoveTemp(Reading));
 			continue;
 		}
+		if (LogisticsPhase == ELogisticsPhase::ReadPowerLines)
+		{
+			// One wire per iteration, weak, checked at every use.
+			if (LogisticsCursor >= LogisticsWires.Num())
+			{
+				bFinished = true;
+				break;
+			}
+			const AFGBuildableWire* Wire = LogisticsWires[LogisticsCursor++].Get();
+			if (!IsValid(Wire))
+			{
+				continue;
+			}
+			// Both ends must be there (a dangling wire has no line to draw); counted, not an error (rulings R-a, Q8).
+			if (!IsValid(Wire->GetConnection(0)) || !IsValid(Wire->GetConnection(1)))
+			{
+				++LogisticsFound.Counts.Dropped;
+				continue;
+			}
+			const FVector L0 = Wire->GetConnectionLocation(0);
+			const FVector L1 = Wire->GetConnectionLocation(1);
+			FPowerLineReading Reading;
+			Reading.Id = Wire->GetName();
+			Reading.X0Cm = L0.X;
+			Reading.Y0Cm = L0.Y;
+			Reading.X1Cm = L1.X;
+			Reading.Y1Cm = L1.Y;
+			LogisticsFound.PowerLines.Add(MoveTemp(Reading));
+			++LogisticsFound.Counts.Wires;
+			continue;
+		}
 		// ReadRails: one track per iteration, weak, checked at every use.
 		if (LogisticsCursor >= LogisticsTracks.Num())
 		{
-			LogisticsPhase = ELogisticsPhase::ReadConveyors;
-			LogisticsCursor = 0;
+			nextPhase(ELogisticsPhase::ReadRails);
+			if (bFinished)
+			{
+				break;
+			}
 			continue;
 		}
 		const AFGBuildableRailroadTrack* Track = LogisticsTracks[LogisticsCursor++].Get();

@@ -1504,13 +1504,44 @@ bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("the accepted body is not held"), F.Sender.Held(), 0);
 	int32 ReadLines = 0;
 	int32 Leaks = 0;
+	int32 WireWarnings = 0;
 	for (const FString& Line : Log.Take())
 	{
 		ReadLines += Line.Contains(TEXT("Logistics read (game thread only): layers rails=0 conveyors=0 powerLines=1, 7 buildables, 2 tracks, 2 belts, 0 lifts, 0 pipes, 0 open ends, 0 ownerless ends, wires 2, expected wires 3 in 3 steps, longest step ")) ? 1 : 0;
 		Leaks += Line.Contains(TEXT("Build_PowerLine")) ? 1 : 0;
+		WireWarnings += Line.Contains(TEXT("World layer powerLines: ")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Logistics read line with the wires counts"), ReadLines, 1);
 	TestEqual(TEXT("no id in the log"), Leaks, 0);
+	TestEqual(TEXT("2 wires read of 3 counted: no cast-count warning"), WireWarnings, 0);
+
+	// The cast-count check (Q6): zero wires read, or a gap past max(5, 5%) counting the dropped ones.
+	TestTrue(TEXT("zero wires read is suspect"), SatisDash::WireCountSuspect(0, 0, 3));
+	TestTrue(TEXT("zero wires read is suspect when the count is unknown"), SatisDash::WireCountSuspect(0, 0, -1));
+	TestFalse(TEXT("an unknown count checks nothing else"), SatisDash::WireCountSuspect(10, 0, -1));
+	TestFalse(TEXT("a gap of 5 is allowed"), SatisDash::WireCountSuspect(95, 0, 100));
+	TestTrue(TEXT("a gap of 6 on 100 is suspect"), SatisDash::WireCountSuspect(94, 0, 100));
+	TestFalse(TEXT("dropped wires count as seen"), SatisDash::WireCountSuspect(90, 10, 100));
+	TestFalse(TEXT("5% of 1000 is 50"), SatisDash::WireCountSuspect(950, 0, 1000));
+	TestTrue(TEXT("51 short of 1000 is suspect"), SatisDash::WireCountSuspect(949, 0, 1000));
+	TestTrue(TEXT("more read than counted, past the gap, is suspect too"), SatisDash::WireCountSuspect(200, 0, 100));
+	// The sender logs it once, with counts and no id, and still posts what it read.
+	SatisDash::Test::FLogCapture GapLog;
+	FWorldFixture W;
+	worldPowerLinesOnly(W);
+	worldAllThreeReadings(W.Game);
+	W.Game.LogisticsCounts.ExpectedWires = 300;
+	W.Sender.Start(W.T);
+	TestTrue(TEXT("gap: the layer is still posted"), W.until([&W] { return W.Net.pending(WorldPowerLinesPost) > 0; }, 440));
+	int32 GapLines = 0;
+	int32 GapLeaks = 0;
+	for (const FString& Line : GapLog.Take())
+	{
+		GapLines += Line.Contains(TEXT("World layer powerLines: 2 wires read, 0 dropped, the subsystem counts 300; check that wires are in the buildable list")) ? 1 : 0;
+		GapLeaks += Line.Contains(TEXT("Build_PowerLine")) ? 1 : 0;
+	}
+	TestEqual(TEXT("gap: one cast-count warning"), GapLines, 1);
+	TestEqual(TEXT("gap: no id in the log"), GapLeaks, 0);
 
 	// (b) all three native: the first due layer (rails, 432 s) pulls the others forward; one snapshot, three bodies, each once.
 	FWorldFixture G;

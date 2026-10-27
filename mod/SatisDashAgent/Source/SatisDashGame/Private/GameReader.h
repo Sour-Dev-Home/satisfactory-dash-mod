@@ -11,6 +11,7 @@ class AFGTrain;
 class AFGBuildableRailroadTrack;
 class AFGBuildableConveyorBase;
 class AFGBuildablePipeline;
+class AFGBuildableWire;
 class AFGTrainStationIdentifier;
 
 namespace SatisDash
@@ -140,18 +141,21 @@ namespace SatisDash
 		 * The logistics pass (R5): an index into the buildable list (never a pointer into it) and, once collected, one weak pointer
 		 * per track, belt, lift and pipeline. The world it began in: a pass that ends in another is abandoned. One pass is open at a time.
 		 */
-		enum class ELogisticsPhase : uint8 { Collect, ReadRails, ReadConveyors };
+		enum class ELogisticsPhase : uint8 { Collect, ReadRails, ReadConveyors, ReadPowerLines };
 		TWeakObjectPtr<UWorld> LogisticsWorld;
 		TArray<TWeakObjectPtr<AFGBuildableRailroadTrack>> LogisticsTracks;
 		/** R6: one weak pointer per belt, lift and pipeline (the ReadConveyors cursor runs over belts, then lifts, then pipes). */
 		TArray<TWeakObjectPtr<AFGBuildableConveyorBase>> LogisticsBelts;
 		TArray<TWeakObjectPtr<AFGBuildableConveyorBase>> LogisticsLifts;
 		TArray<TWeakObjectPtr<AFGBuildablePipeline>> LogisticsPipes;
+		/** R10: one weak pointer per power wire. */
+		TArray<TWeakObjectPtr<AFGBuildableWire>> LogisticsWires;
 		FLogisticsSnapshot LogisticsFound;
 		ELogisticsPhase LogisticsPhase = ELogisticsPhase::Collect;
 		int32 LogisticsCursor = 0;
 		bool bLogisticsRails = false;
 		bool bLogisticsConveyors = false;
+		bool bLogisticsPowerLines = false;
 		bool bLogisticsOpen = false;
 		/** The pass that just returned was abandoned (no subsystem, a world swap, or zero buildables), not finished. */
 		bool bLogisticsAbandoned = false;

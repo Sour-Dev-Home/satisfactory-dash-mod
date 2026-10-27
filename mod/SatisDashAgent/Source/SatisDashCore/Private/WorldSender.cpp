@@ -126,6 +126,21 @@ namespace
 	}
 }
 
+bool SatisDash::WireCountSuspect(int32 Wires, int32 Dropped, int32 Expected)
+{
+	if (Wires <= 0)
+	{
+		return true;
+	}
+	if (Expected < 0)
+	{
+		return false; // no advisory count to compare with
+	}
+	const int64 Tolerance = FMath::Max<int64>(5, int64(Expected) / 20); // 5% rounded down, at least 5 wires
+	const int64 Difference = int64(Wires) + int64(Dropped) - int64(Expected);
+	return (Difference < 0 ? -Difference : Difference) > Tolerance;
+}
+
 double SatisDash::JitteredSeconds(double BaseSeconds, double Random01)
 {
 	const double R = FMath::IsNaN(Random01) ? 0.5 : FMath::Clamp(Random01, 0.0, 1.0);
@@ -631,6 +646,11 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	UE_LOG(LogSatisDash, Display, TEXT("Logistics read (game thread only): layers rails=%d conveyors=%d powerLines=%d, %d buildables, %d tracks, %d belts, %d lifts, %d pipes, %d open ends, %d ownerless ends, wires %d, expected wires %d in %d steps, longest step %.2f ms, total %.2f ms, expected tracks %d, dropped %d, over cap %d"),
 		bWasRails ? 1 : 0, bWasConveyors ? 1 : 0, bWasPowerLines ? 1 : 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, C.Wires, C.ExpectedWires,
 		Budget.Steps(), Budget.LongestMs(), Budget.TotalMs(), C.ExpectedTracks, C.Dropped, C.Over);
+	if (bWasPowerLines && WireCountSuspect(C.Wires, C.Dropped, C.ExpectedWires) && ShouldLog(PowerLinesLayer, TEXT("wires"), Context.Now))
+	{
+		// Counts only. A warning, never a change to the output: the parity id-set is the judge.
+		UE_LOG(LogSatisDash, Warning, TEXT("World layer powerLines: %d wires read, %d dropped, the subsystem counts %d; check that wires are in the buildable list"), C.Wires, C.Dropped, C.ExpectedWires);
+	}
 	if (bWasConveyors)
 	{
 		// Game class names and tier display names (game data), counts and speeds; never an id.
