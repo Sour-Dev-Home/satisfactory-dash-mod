@@ -90,6 +90,8 @@ namespace SatisDash
 		 * outstanding TakeFactory waits for it. False while a fragment job is held (the readings are then dropped).
 		 */
 		bool SubmitNativeExtractors(TArray<FExtractorReading> Readings, double ReadAt);
+		/** The extractors source is not native (it flipped to bridge): forget the held fragment and any job, so nothing is spliced after the flip. */
+		void DropExtractors();
 		/** The layer's finished outcome, once. */
 		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
@@ -124,7 +126,7 @@ namespace SatisDash
 			FString Fragment;
 			bool bRan = false;
 		};
-		struct FEncodeJob {FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
+		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
 		/** R3: the game's own trains and stations; the worker writes the joined part (Json, or Ok false when it is over its cap). */
 		struct FNativeMapLiveJob
 		{
@@ -208,7 +210,7 @@ namespace SatisDash
 		bool bPlayersAbsent = false;
 		bool bFactoryFailed = false;
 		double LastNow = 0;
-		/** Bounded: four keys ("players", "factory", "mapLive", "mapLiveOverCap"), each at most once per 600 s. */
+		/** Bounded: five keys ("players", "factory", "mapLive", "mapLiveOverCap", "extractorsDropped"), each at most once per 600 s. */
 		FRateLimitedLog FailLog;
 	};
 }

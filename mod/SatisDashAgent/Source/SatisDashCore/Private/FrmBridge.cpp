@@ -277,6 +277,12 @@ bool SatisDash::FFrmBridge::SubmitNativeExtractors(TArray<FExtractorReading> Rea
 	return true;
 }
 
+void SatisDash::FFrmBridge::DropExtractors()
+{
+	ExtractorsTask.Reset();
+	ExtractorsReady.Reset();
+}
+
 TOptional<SatisDash::FWorldOutcome> SatisDash::FFrmBridge::TakeWorld(EWorldLayer Layer)
 {
 	FWorldSlot& Slot = World[int32(Layer)];
@@ -487,20 +493,29 @@ TOptional<FString> SatisDash::FFrmBridge::TakePlayers(double Now, double MaxAgeS
 
 TOptional<FString> SatisDash::FFrmBridge::TakeFactory(double Now, double MaxAgeSeconds)
 {
-	if (ExtractorsTask.IsValid())
+	// Hold the part while the fragment's worker job is outstanding, but only inside the fragment's own 1.5 x age gate. Accepted: a
+	// part that is ready before the game-thread pass finishes carries the previous cycle's fragment (one cadence of lag, within the gate).
+	if (ExtractorsTask.IsValid() && Now - ExtractorsTask->ReadAt <= 1.5 * MaxAgeSeconds)
 	{
-		return {}; // the extractors fragment is a few ticks from ready: the part waits for it (not consumed), so the two travel together
+		return {};
 	}
 	TOptional<FString> Part = TakeFresh(FactoryReady, Now, MaxAgeSeconds);
 	if (Part.IsSet() && ExtractorsReady.IsSet())
 	{
 		// A held fragment is consumed once, by the first factory part that is taken after it; a stale one is dropped, not sent.
-		if (Now - ExtractorsReady->At <= 1.5 * MaxAgeSeconds && Part->EndsWith(TEXT("}")))
+		if (Now - ExtractorsReady->At <= 1.5 * MaxAgeSeconds)
 		{
-			Part->LeftChopInline(1);
-			Part->Append(TEXT(",\"extractors\":"));
-			Part->Append(ExtractorsReady->Json);
-			Part->AppendChar(TEXT('}'));
+			if (Part->EndsWith(TEXT("}")))
+			{
+				Part->LeftChopInline(1);
+				Part->Append(TEXT(",\"extractors\":"));
+				Part->Append(ExtractorsReady->Json);
+				Part->AppendChar(TEXT('}'));
+			}
+			else if (FailLog.ShouldLog(TEXT("extractorsDropped"), Now))
+			{
+				UE_LOG(LogSatisDash, Warning, TEXT("The factory part does not end in a closing brace; leaving the extractors out of it"));
+			}
 		}
 		ExtractorsReady.Reset();
 	}

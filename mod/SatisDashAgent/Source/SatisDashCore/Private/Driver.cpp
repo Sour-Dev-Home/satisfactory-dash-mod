@@ -104,6 +104,10 @@ void SatisDash::FDriver::Tick()
 		return;
 	}
 	const FAgentConfig& Config = Agent.GetConfig();
+	if (Config.GetExtractorsSource() != ESource::Native)
+	{
+		Bridge.DropExtractors(); // the source flipped to bridge: no held fragment or pending job is spliced after it
+	}
 	Bridge.Tick(Now, Config.GetFrmPort(), Config.FrmToken);
 	if (TOptional<FEncodedBody> Encoded = Bridge.TakeEncoded())
 	{

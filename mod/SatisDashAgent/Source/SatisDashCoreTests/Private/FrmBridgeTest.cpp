@@ -198,6 +198,47 @@ bool FFrmBridgeExtractorsTest::RunTest(const FString& Parameters)
 		SatisDash::Test::SameText(*this, TEXT("a stale fragment leaves the part as it was"), F.Bridge.TakeFactory(F.T, 30).Get(FString()), Plain);
 	}
 
+	// The fragment's worker job is still outstanding: the ready part is kept, not returned; when the job finishes the part carries it.
+	{
+		FFrmBridgeFixture F;
+		F.Worker.bHold = true;
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.tick();
+		F.Worker.release();
+		F.tick();
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.tick();
+		TestFalse(TEXT("the part waits while the fragment job is on the worker"), F.Bridge.TakeFactory(F.T, 30).IsSet());
+		F.Worker.release();
+		F.tick();
+		TestTrue(TEXT("the part is returned with the fragment once the job finished"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT(",\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
+	}
+
+	// Past the fragment's own age gate (1.5 x 30 s) with the job still held, the part is returned without it.
+	{
+		FFrmBridgeFixture F;
+		F.Worker.bHold = true;
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T + 40);
+		F.tick();
+		F.Worker.release();
+		F.tick();
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.tick();
+		SatisDash::Test::SameText(*this, TEXT("past the deadline the part goes out without the fragment"), F.Bridge.TakeFactory(F.T + 50, 30).Get(FString()), Plain);
+	}
+
+	// The source flips to bridge: neither a held fragment nor a pending job is spliced after DropExtractors.
+	{
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.tick(2);
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.Bridge.DropExtractors();
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.tick(4);
+		SatisDash::Test::SameText(*this, TEXT("a dropped fragment and job leave the part as it was"), F.Bridge.TakeFactory(F.T, 30).Get(FString()), Plain);
+	}
+
 	// An empty list is a real, empty fragment.
 	{
 		FFrmBridgeFixture F;
@@ -209,7 +250,7 @@ bool FFrmBridgeExtractorsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeMapLiveTest,"SatisDash.Core.FrmBridge.MapLive", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeMapLiveTest, "SatisDash.Core.FrmBridge.MapLive", SatisDash::Test::Flags)
 
 bool FFrmBridgeMapLiveTest::RunTest(const FString& Parameters)
 {
