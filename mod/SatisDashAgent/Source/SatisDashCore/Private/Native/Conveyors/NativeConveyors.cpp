@@ -150,6 +150,27 @@ const TCHAR* SatisDash::ConveyorNodeKindText(EConveyorNodeKind Kind)
 	}
 }
 
+void SatisDash::NoteConveyorTier(TArray<FTierCount>& Tiers, EConveyorKind Kind, const FString& Name, double RawRate)
+{
+	for (FTierCount& Entry : Tiers)
+	{
+		if (Entry.Kind == Kind && Entry.Name.Equals(Name, ESearchCase::CaseSensitive))
+		{
+			++Entry.Count;
+			return;
+		}
+	}
+	if (Tiers.Num() < ConveyorMaxTiers)
+	{
+		FTierCount Entry;
+		Entry.Kind = Kind;
+		Entry.Name = Name;
+		Entry.RawRate = RawRate;
+		Entry.Count = 1;
+		Tiers.Add(MoveTemp(Entry));
+	}
+}
+
 TOptional<double> SatisDash::ConveyorCapacityPerMinute(EConveyorKind Kind, double RawRate, const FString& Tier, ECapacityMode Mode)
 {
 	double Value = 0.0;

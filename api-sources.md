@@ -655,7 +655,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGBuildablePipeline | Source/FactoryGame/Public/Buildables/FGBuildablePipeline.h:32 | header only (derives AFGBuildablePipeBase, FGBuildablePipeBase.h:22, which hypertubes also derive from: Cast to the pipeline class so hypertubes cannot enter, ruling S10) |
 | AFGBuildablePipeline::GetConnection0 | Source/FactoryGame/Public/Buildables/FGBuildablePipeBase.h:68 | header only (declared on AFGBuildablePipeBase, returns UFGPipeConnectionComponentBase*; may be null: checked) |
 | AFGBuildablePipeline::GetConnection1 | Source/FactoryGame/Public/Buildables/FGBuildablePipeBase.h:69 | header only (declared on AFGBuildablePipeBase; may be null: that end is open) |
-| AFGBuildablePipeline::GetFlowLimit | Source/FactoryGame/Public/Buildables/FGBuildablePipeline.h:136 | header only (float, m^3/s per the survey; the census run confirms) |
+| AFGBuildablePipeline::GetFlowLimit | Source/FactoryGame/Public/Buildables/FGBuildablePipeline.h:136 | header only (float; FGBuildablePipeline.h:134 says "Get the maximum flow of the pipe [m^3/s]", so the pure side's x60 gives per minute; the census run confirms the values) |
 | AFGBuildable::mDisplayName | Source/FactoryGame/Public/Buildables/FGBuildable.h:824 | header only (public FText, UPROPERTY at :823; the same field the factory reader reads on a machine) |
 | FGFactoryConnectionComponent.h | Source/FactoryGame/Public/FGFactoryConnectionComponent.h:1 | header only (R6, S3 Task 9) |
 | UFGFactoryConnectionComponent | Source/FactoryGame/Public/FGFactoryConnectionComponent.h:41 | header only |

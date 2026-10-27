@@ -97,7 +97,7 @@ namespace SatisDash
 
 		/**
 		 * The logistics pass (R5): an index into the buildable list (never a pointer into it) and, once collected, one weak pointer
-		 * per track. The world it began in: a pass that ends in another is abandoned. One pass is open at a time.
+		 * per track, belt, lift and pipeline. The world it began in: a pass that ends in another is abandoned. One pass is open at a time.
 		 */
 		enum class ELogisticsPhase : uint8 { Collect, ReadRails, ReadConveyors };
 		TWeakObjectPtr<UWorld> LogisticsWorld;
