@@ -122,6 +122,10 @@ Reported, not rules; none of them changes a pass condition. The judges are in `r
   or one of FRM's candidate ids; a unique FRM partner must equal the mod's id.
 - Marker positions are compared after rounding to whole metres, with a 0.01 m boundary tolerance (`S4_MARKER_BOUNDARY_TOL_M`):
   a value that close to a .5 m boundary may round one metre apart.
+- An FRM-only wire with a null end shows as FRM-only: the mod drops such a wire and the judge is not told, so check the `wires`
+  count in the Logistics read line before blaming the reader.
+- Drone input, output and fuel item-class sets are reported when they differ (a count and the first three), never failed,
+  because the drones fly during the run; an input/output swap still fails.
 - Each layer has NOT EXERCISED lines for what the save does not hold (for example a layer with no records); they are reported,
   never failed.
 - An input/output "swapped" hint on drone ports is a reading aid for the fix, printed with the failure.

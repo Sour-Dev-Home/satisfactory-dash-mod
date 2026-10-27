@@ -546,7 +546,7 @@ Nothing else is run.
 - `powerLines`: id sets equal; each end within 1 m in index order or swapped, swapped counted.
 `result.json` is red if any reader is; `tick-cost-native`'s `result.json` must pass with `Map markers read`, `Drone routes read` and `Logistics read` at or under 2 ms.
 
-**Owner's run checklist (before dispatch).** `Test3` staged (`sprint3World`); it contains at least one marker (ideally one stamp, one coloured marker such as the green one, one long or emoji name), a **paired** drone port pair (the two ports `FUEL 5` and `TestLand1` are there from S3) plus an **unpaired** port, cargo in one input inventory, and power lines (843 on the captured save); FRM running on the test install; the backend host started in the owner's session with images at the new pin; the S4A-1 to S4A-5 branches' `mod-test` green. Absent items are reported NOT EXERCISED, never failed.
+**Owner's run checklist (before dispatch).** `Test3` staged (`sprint3World`); it contains at least one marker (ideally one stamp, one coloured marker such as the green one, one long or emoji name), a **paired** drone port pair (the two paired ports are there from S3, in the owner's test saves) plus an **unpaired** port, cargo in one input inventory, and power lines (843 on the captured save); FRM running on the test install; the backend host started in the owner's session with images at the new pin; the S4A-1 to S4A-5 branches' `mod-test` green. Absent items are reported NOT EXERCISED, never failed.
 
 **After S4-A (named, not planned):**
 - One switch PR for all three: `DefaultMapMarkersSource`, `DefaultDroneRoutesSource`, `DefaultPowerLinesSource` (each flips `Bridge` to `Native`; a reader that missed stays `bridge`), with `mod-claims.md` rows, and a dash evidence PR (`raw-sources/mod-native-readers/`).
@@ -579,7 +579,7 @@ Nothing else is run.
 9. **Marker with no valid Guid is dropped and counted** (M4), not given the mapper's derived id (needs sha256, no Core row). It should never fire with saved Guids; accept?
 10. **`NativeMarkerColorSRGB` defaults to `true`, a guess;** the parity run on the owner's green marker settles it (one-line fix after a failed run).
 11. **Fixtures use synthetic names,** not the captured ones (player text). Accept?
-12. **New numbers not set by you:** `S4_GAP_MS` 120 s (the S3 rule reused), the .5 m rounding allowance for marker x/y, the 5 percent / 5 wire threshold of the cast-count warning, the 100 cm `LengthMismatch` sanity count.
+12. **New numbers not set by you:** `S4_GAP_MS` 120 s (the S3 rule reused), the .5 m rounding allowance for marker x/y, the 5 percent / 5 wire threshold of the cast-count warning, the S4 FRM sampler interval of 90 s (`S4_SAMPLER_MS`, plus a fresh sample after each accepted post), and the sampler read timeouts of 10 s (markers), 10 s (drone ports) and 20 s (cables).
 13. **The pass log line gains `powerLines=` and `wires` fields;** S3 evidence still parses (optional group).
 14. **Owner step:** the backend images must be rebuilt from the new contract pin before `native-parity`, or the image guard refuses the run.
 15. **A port named "None":** FRM's sentinel makes the oracle read it as unpaired while the mod sends the real name; a one-port edge case reported, not failed. Accept?
@@ -587,7 +587,9 @@ Nothing else is run.
 **Added during execution (the judges' review, 2026-10-28):**
 16. **Id-set exemptions** (reported, never failed). Two cases:
     - when both sides are exactly at the layer cap, the ids that sort after the earlier of the two last ids;
-    - clamped mod ids, but no more of them than FRM's derived ids.
+    - clamped mod ids, but no more of them than FRM's derived ids;
+    - FRM-derived ids (an empty or over-long FRM id; the native reader drops or clamps them), dropped from the FRM-only set however many there are, and reported;
+    - FRM's repeated ids, reported only (the native readers keep the first).
 
     Any other id difference fails. Accept?
 17. **`pairedId` tightened.**
@@ -598,3 +600,5 @@ Nothing else is run.
     Accept?
 18. **`S4_MARKER_BOUNDARY_TOL_M` = 0.01 m:** a marker whose FRM value sits within 0.01 m of a .5 m rounding boundary may round one metre apart without failing. Accept?
 19. **Drone x/y** is a straight-line distance ≤ 1 m (not per axis). **Power lines** take the better of the two end orders.
+20. **Drone cargo is report-only (final review I-1).** A difference in a port's input, output or fuel item-class set is reported (a count and the first three), never failed, because the drones fly during the run; this mirrors the owner's 2026-10-27 trainRoutes cargo ruling. An input/output swap (the sets equal only when swapped) and every other field (ids, name hash, `paired`, `pairedId`, position) still fail. NEW (controller, provisional). Confirm?
+21. **Per-tick total cost (final review M-1).** Up to six ~1 ms native reads can land in one tick, first reads all near 480 s; tick-cost-native measures it; stagger only if it shows. Accept?
