@@ -641,3 +641,4 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | ESplineCoordinateSpace::World | Engine/Source/Runtime/Engine/Classes/Components/SplineComponent.h:40 | header only (namespace enum at :35-41) |
 | FVector::ZeroVector | Engine/Source/Runtime/Core/Public/Math/Vector.h:79 | header only (TVector<T>::ZeroVector static) |
 | TArray::Empty | Engine/Source/Runtime/Core/Public/Containers/Array.h:2286 | header only |
+| USplineComponent::GetSplineLength | Engine/Source/Runtime/Engine/Classes/Components/SplineComponent.h:731 | header only (float; the length used for sampling in the spline sampler, checked finite and positive before any distance is built) |

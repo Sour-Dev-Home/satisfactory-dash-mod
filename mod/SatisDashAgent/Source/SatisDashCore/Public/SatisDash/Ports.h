@@ -25,6 +25,8 @@ namespace SatisDash
 	{
 		int32 Buildables = 0, Tracks = 0, Belts = 0, Lifts = 0, Pipes = 0;
 		int32 OpenEnds = 0, OwnerlessEnds = 0, Dropped = 0;
+		/** Tracks past the pass's own cap that were not kept. */
+		int32 Over = 0;
 		/** Advisory GetBuildableCount of the track class, -1 when not asked. */
 		int32 ExpectedTracks = -1;
 	};

@@ -374,8 +374,9 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	const FLogisticsCounts& C = Found->Counts;
 	const FStepBudget& Budget = *Context.LogisticsBudget;
 	// Counts and times only; never an id or a name.
-	UE_LOG(LogSatisDash, Display, TEXT("Logistics read (game thread only): layers rails=%d conveyors=%d, %d buildables, %d tracks, %d belts, %d lifts, %d pipes, %d open ends, %d ownerless ends in %d steps, longest step %.2f ms, total %.2f ms"),
-		bWasRails ? 1 : 0, 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, Budget.Steps(), Budget.LongestMs(), Budget.TotalMs());
+	UE_LOG(LogSatisDash, Display, TEXT("Logistics read (game thread only): layers rails=%d conveyors=%d, %d buildables, %d tracks, %d belts, %d lifts, %d pipes, %d open ends, %d ownerless ends in %d steps, longest step %.2f ms, total %.2f ms, expected tracks %d, dropped %d, over cap %d"),
+		bWasRails ? 1 : 0, 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, Budget.Steps(), Budget.LongestMs(), Budget.TotalMs(),
+		C.ExpectedTracks, C.Dropped, C.Over);
 	if (bWasRails)
 	{
 		if (Bridge.SubmitNativeWorld(RailsLayer, Context.Utc.ToIso8601(),

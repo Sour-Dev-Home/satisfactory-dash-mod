@@ -680,6 +680,12 @@ TOptional<SatisDash::FTrainsSnapshot> SatisDash::FGameReader::StepTrainsRead(FSt
 	return MoveTemp(Done);
 }
 
+namespace
+{
+	/** Tracks one logistics pass keeps: above the contract's cap (MaxRailSegments, 5,000) so the builder, not the reader, counts the overflow it drops. */
+	constexpr int32 MaxLogisticsTracks = 2 * SatisDash::MaxRailSegments;
+}
+
 void SatisDash::FGameReader::ResetLogisticsRead()
 {
 	LogisticsWorld.Reset();
@@ -757,7 +763,14 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			{
 				if (AFGBuildableRailroadTrack* Track = Cast<AFGBuildableRailroadTrack>(Building))
 				{
-					LogisticsTracks.Add(Track);
+					if (LogisticsTracks.Num() < MaxLogisticsTracks)
+					{
+						LogisticsTracks.Add(Track);
+					}
+					else
+					{
+						++LogisticsFound.Counts.Over;
+					}
 				}
 			}
 			continue;
@@ -773,8 +786,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 		{
 			continue;
 		}
-		const double LengthCm = Track->GetLength();
-		const int32 Intervals = RailSampleIntervals(LengthCm);
+		double LengthCm = Track->GetLength();
 		const USplineComponent* Spline = nullptr;
 		if (NativeRailSampler == ERailSampler::SplineComponent)
 		{
@@ -784,7 +796,15 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 				++LogisticsFound.Counts.Dropped;
 				continue;
 			}
+			LengthCm = Spline->GetSplineLength();
 		}
+		// The engine never gets a NaN, infinite or negative distance.
+		if (!FMath::IsFinite(LengthCm) || LengthCm <= 0.0)
+		{
+			++LogisticsFound.Counts.Dropped;
+			continue;
+		}
+		const int32 Intervals = RailSampleIntervals(LengthCm);
 		FRailReading Reading;
 		Reading.Id = Track->GetName();
 		Reading.Points.Reserve(Intervals + 1);
