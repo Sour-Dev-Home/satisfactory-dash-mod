@@ -257,7 +257,7 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 		TestEqual(*FString::Printf(TEXT("conveyorsSource %s names the key"), Bad), R.BadField, FString(TEXT("conveyorsSource")));
 	}
 
-	// The S4-A keys: default bridge (the layer is not sent), the same strict parse, each names itself, round-trips only when set.
+	// The S4-A keys: default native (the S4 switch; bridge means the layer is not sent), the same strict parse, each names itself, round-trips only when set.
 	const struct { const TCHAR* Key; ESource Default; ESource (FAgentConfig::*Getter)() const; TOptional<ESource> FAgentConfig::*Field; } S4Keys[] = {
 		{ TEXT("mapMarkersSource"), DefaultMapMarkersSource, &FAgentConfig::GetMapMarkersSource, &FAgentConfig::MapMarkersSource },
 		{ TEXT("droneRoutesSource"), DefaultDroneRoutesSource, &FAgentConfig::GetDroneRoutesSource, &FAgentConfig::DroneRoutesSource },
@@ -265,12 +265,12 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 	};
 	for (const auto& K : S4Keys)
 	{
-		TestTrue(*FString::Printf(TEXT("no key: %s default is bridge"), K.Key), (None.Config.*K.Getter)() == ESource::Bridge && K.Default == ESource::Bridge);
+		TestTrue(*FString::Printf(TEXT("no key: %s default is native"), K.Key), (None.Config.*K.Getter)() == ESource::Native && K.Default == ESource::Native);
 		TestFalse(*FString::Printf(TEXT("no key: %s unset"), K.Key), (None.Config.*K.Field).IsSet());
-		const FConfigResult Nat = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":\"native\"}"));
-		TestTrue(*FString::Printf(TEXT("%s native: valid"), K.Key), Nat.Status == EConfigStatus::Valid);
-		TestTrue(*FString::Printf(TEXT("%s native selects native"), K.Key), (Nat.Config.*K.Getter)() == ESource::Native);
-		TestTrue(*FString::Printf(TEXT("round trip keeps %s"), K.Key), ConfigToJson(Nat.Config).Contains(FString::Printf(TEXT("\"%s\": \"native\""), K.Key)));
+		const FConfigResult Brg = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":\"bridge\"}"));
+		TestTrue(*FString::Printf(TEXT("%s bridge: valid"), K.Key), Brg.Status == EConfigStatus::Valid);
+		TestTrue(*FString::Printf(TEXT("%s bridge still selects the bridge"), K.Key), (Brg.Config.*K.Getter)() == ESource::Bridge);
+		TestTrue(*FString::Printf(TEXT("round trip keeps %s"), K.Key), ConfigToJson(Brg.Config).Contains(FString::Printf(TEXT("\"%s\": \"bridge\""), K.Key)));
 		for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
 		{
 			const FConfigResult R = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":") + Bad + TEXT("}"));

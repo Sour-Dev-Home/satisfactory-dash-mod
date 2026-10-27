@@ -91,8 +91,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	int32 BridgeLines = 0;
 	for (const FString& Line : Log.Take())
 	{
-		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
-		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
+		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Readers line for the default (native players) driver"), NativeLines, 1);
 	TestEqual(TEXT("one Readers line for the bridge-key driver"), BridgeLines, 1);
@@ -165,7 +165,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	F.Game.Nodes.Add(Iron);
 	F.Game.bHasWorld = false; // no world yet: the scan can't start
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\",\"trainsSource\":\"bridge\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\"")); // trains, rails and conveyors on the bridge keep their layers off, so only nodes post
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\",\"trainsSource\":\"bridge\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\"")); // trains, rails, conveyors and the S4 layers on the bridge keep their layers off, so only nodes post
 
 	// Ruling F18: no game running (an idle server) means no scan starts, past the first read's due time (528 s) and the log
 	// stays quiet; it starts once a game runs.
@@ -256,9 +256,9 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	int32 AllNative = 0;
 	for (const FString& Line : Log.Take())
 	{
-		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line shows the default driver's: six native, the three S4 layers bridge"), AllNative, 1);
+	TestEqual(TEXT("one Readers line shows the default driver's: all nine native"), AllNative, 1);
 	return true;
 }
 
@@ -267,7 +267,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeTrainsTest, "SatisDash.Core.Driver
 bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"trainsSource\":\"native\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\"");
+	const TCHAR* Native = TEXT(",\"trainsSource\":\"native\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\"");
 	FDriverFixture F;
 	FTrainReading Train;
 	Train.Id = TEXT("BP_Train_C_1");
@@ -543,7 +543,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeLogisticsTest, "SatisDash.Core.Dri
 bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"railsSource\":\"native\",\"conveyorsSource\":\"bridge\"");
+	const TCHAR* Native = TEXT(",\"railsSource\":\"native\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\"");
 	const TCHAR* RailsPost = TEXT("/agent/v1/world/rails");
 	FDriverFixture F;
 	FRailReading Track;
@@ -591,7 +591,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativePowerLinesTest, "SatisDash.Core.Dr
 bool FDriverNativePowerLinesTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"powerLinesSource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"native\"");
 	const TCHAR* PowerLinesPost = TEXT("/agent/v1/world/powerLines");
 	FDriverFixture F;
 	FPowerLineReading Wire;
@@ -647,7 +647,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeMapMarkersTest, "SatisDash.Core.Dr
 bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"mapMarkersSource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\"");
 	const TCHAR* MarkersPost = TEXT("/agent/v1/world/mapMarkers");
 	FDriverFixture F;
 	FMapMarkerReading Marker;
@@ -688,7 +688,7 @@ bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 	H.Game.MarkersStepsToFinish = 1000000;
 	H.Game.DronesStepsToFinish = 1000000;
 	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
-	H.enrol(Halted, SatisDash::Test::FakeSecret(), TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"native\""));
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"native\",\"powerLinesSource\":\"bridge\""));
 	TestTrue(TEXT("a read is open"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.MarkersStepCalls >= 1; }, 560));
 	TestEqual(TEXT("not ended yet"), H.Game.MarkersEnds, 0);
 	TestTrue(TEXT("the drone-routes read is open beside it"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.DronesStepCalls >= 1; }, 60));
