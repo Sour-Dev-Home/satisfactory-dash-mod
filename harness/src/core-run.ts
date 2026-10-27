@@ -21,6 +21,9 @@ export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage
 export type CoreRunId = (typeof CORE_RUN_IDS)[number];
 export const MOD = "SatisDashAgent";
 
+/** The runner-config key that names the staged save for each world key. */
+const WORLD_CONFIG_KEY = { s3: "s3World", s2: "s2World", sprint3: "sprint3World" } as const;
+
 /** The sources the harness writes into the mod's config for a run (ADR-0058 Decision 4): the hidden per-reader override. */
 export interface NativeSources {
   playersSource: "bridge" | "native";
@@ -28,10 +31,14 @@ export interface NativeSources {
   /** S2 keys: absent in S1's NATIVE_SOURCES, so S1 evidence re-judges the same. */
   factorySource?: "bridge" | "native";
   trainsSource?: "bridge" | "native";
+  /** S3 key: absent in S1's and S2's constants. */
+  railsSource?: "bridge" | "native";
 }
 export const NATIVE_SOURCES: NativeSources = { playersSource: "native", resourceNodesSource: "native" };
 /** S2: all four readers native. */
 export const NATIVE_SOURCES_S2: NativeSources = { ...NATIVE_SOURCES, factorySource: "native", trainsSource: "native" };
+/** S3: the four S2 readers plus rails native. */
+export const NATIVE_SOURCES_S3: NativeSources = { ...NATIVE_SOURCES_S2, railsSource: "native" };
 
 /** The credential the mod writes (spec "Shape"; FPaths::ProjectSavedDir() on a dedicated server is FactoryGame/Saved). */
 export const credentialPath = (serverDir: string) => join(serverDir, "FactoryGame", "Saved", "SatisDash", "credential.json");
@@ -86,7 +93,7 @@ export interface CoreRunSpec {
   backend: boolean;
   /** Loads the staged save (satis-runner only, savesConflict). */
   world: boolean;
-  /** Which staged save the world is: "s3" (s3World, the default) or "s2" (s2World, the S2 native runs). */
+  /** Which staged save the world is: "s3" (s3World, the default), "s2" (s2World, the S2 native runs) or "sprint3" (sprint3World, the S3 native runs). */
   worldKey?: WorldKey;
   /**
    * Boots once without the mod first to clear the auto-load session, so the run's boot has no game (S6 run 1: the test
@@ -176,8 +183,8 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   if (spec.baseline && (!spec.world || !spec.measureBaseline)) throw new RefusalError(`${id}: a baseline boot needs the world and a measureBaseline`);
   if (spec.world) {
     const key = spec.worldKey ?? "s3";
-    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict || (key === "s3" ? !deps.config.s3World : !deps.config.s2World)) {
-      throw new RefusalError(`${id} needs ${key}World in the runner config`);
+    if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict || !deps.config[WORLD_CONFIG_KEY[key]]) {
+      throw new RefusalError(`${id} needs ${WORLD_CONFIG_KEY[key]} in the runner config`);
     }
     const shared = deps.savesConflict();
     if (shared.length) throw new RefusalError(`another server keeps its settings in this account's saves folder (${shared.join(", ")}): ${id} runs only as satis-runner`);

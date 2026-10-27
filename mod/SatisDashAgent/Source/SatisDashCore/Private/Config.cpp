@@ -245,6 +245,12 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 		Result.BadField = TEXT("trainsSource");
 		return Result;
 	}
+	TOptional<ESource> RailsSource;
+	if (!ConfigReadSource(Object, TEXT("railsSource"), RailsSource))
+	{
+		Result.BadField = TEXT("railsSource");
+		return Result;
+	}
 	Result.Status = EConfigStatus::Valid;
 	Result.Config.BackendUrl = Url;
 	Result.Config.EnrollmentCode = Code;
@@ -254,6 +260,7 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 	Result.Config.ResourceNodesSource = ResourceNodesSource;
 	Result.Config.FactorySource = FactorySource;
 	Result.Config.TrainsSource = TrainsSource;
+	Result.Config.RailsSource = RailsSource;
 	return Result;
 }
 
@@ -285,6 +292,10 @@ FString SatisDash::ConfigToJson(const FAgentConfig& Config)
 	if (Config.TrainsSource.IsSet())
 	{
 		Object->SetStringField(TEXT("trainsSource"), ConfigSourceName(Config.TrainsSource.GetValue()));
+	}
+	if (Config.RailsSource.IsSet())
+	{
+		Object->SetStringField(TEXT("railsSource"), ConfigSourceName(Config.RailsSource.GetValue()));
 	}
 	return SatisDash::Json::WritePretty(Object);
 }

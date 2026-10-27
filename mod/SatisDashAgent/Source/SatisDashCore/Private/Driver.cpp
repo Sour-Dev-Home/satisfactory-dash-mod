@@ -67,11 +67,12 @@ void SatisDash::FDriver::Tick()
 		bGameRunning = false;
 		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
 		const FAgentConfig& Sources = Agent.GetConfig();
-		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s"),
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s"),
 			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetFactorySource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetTrainsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
+			Sources.GetTrainsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetRailsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)

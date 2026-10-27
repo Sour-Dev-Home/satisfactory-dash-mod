@@ -389,6 +389,18 @@ describe("runCore", () => {
     expect(calls).toEqual([]);
   });
 
+  it("worldKey: sprint3 is refused without sprint3World and loads the sprint3 key with it", async () => {
+    const keys: unknown[] = [];
+    const { deps, calls } = fakeDeps({ loadWorld: async (key) => void keys.push(key) });
+    deps.config.s3World = "x.sav";
+    deps.config.s2World = "y.sav";
+    await expect(runCore("native-parity", spec({ world: true, worldKey: "sprint3" }), deps)).rejects.toThrow(/native-parity needs sprint3World in the runner config/);
+    expect(calls).toEqual([]);
+    deps.config.sprint3World = "z.sav";
+    await runCore("native-parity", spec({ world: true, baseline: true, worldKey: "sprint3", measureBaseline: async () => 1 }), deps);
+    expect(keys).toContain("sprint3");
+  });
+
   it("worldKey: the baseline boot loads the spec's key (none when unset)", async () => {
     for (const [worldKey, expected] of [["s2", "s2"], [undefined, undefined]] as const) {
       const keys: unknown[] = [];

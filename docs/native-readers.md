@@ -13,6 +13,7 @@ ADR-0058 (satisfactory-dash) replaces FicsitRemoteMonitoring (FRM) reader by rea
 | TrainRoutes | S2 | native only (no key; scheduled only while `trainsSource` is `native`) | a new world layer the bridge never sent; first scan 480 s (+/-10%, as resource nodes) after Running, so the first post is inside tick-cost-native's window, then every 600 s. Passed `native-parity` (run 40403583987: 2 posted layers equal to FRM's, 16 records) |
 | Factory (R2) | S2 | `native` (default) | passed `native-parity` (run 40403583987: flags matched in 99.44% of 33,660 machine-rounds) and `tick-cost-native` (run 40396146628: longest step 1 ms): a sliced read of the buildable list on the game thread (one budgeted step per driver tick, 1 ms), one reading per manufacturer, the sort, rates and JSON built on the worker. With `native`, the bridge never sends `getFactory`; a pass that cannot read (no world, a world swapped mid-read) is abandoned and leaves the part out, a pass that finishes with no machines sends `{"buildings":[]}`, and neither falls back to FRM. Its `native-parity` and `tick-cost-native` judgement is the S2 run (Task 10) |
 | Trains and stations (R3) | S2 | `native` (default) | passed `native-parity` (run 40403583987: 60 rounds; NOT EXERCISED: a parked train, a stationary train) and `tick-cost-native` (run 40396146628: longest step 0.1 ms): a sliced read of the railroad subsystem's trains and stations on the game thread (one budgeted step per driver tick, 1 ms), joined into the `mapLive` part on the worker at the factory cadence. The same reader also feeds a new, native-only world layer, `trainRoutes` (stations with their cargo and empty platforms, trains with their timetable stops and cargo; first read 8 minutes (+/-10%, as resource nodes) after Running, then every 10 minutes), which is never requested from FRM and is not scheduled at all while `trainsSource` is `bridge`. A world with no trains and no stations sends empty arrays; only an abandoned read (world swapped, no railroad subsystem) leaves the part out. With `native`, the bridge never starts the `getTrains`/`getTrainStation` pair |
+| Rails (R5) | S3 | `bridge` (default; `railsSource`) | the switch exists and the mod logs `rails=` on its `Readers:` line; no native reader yet, so the bridge still serves the rails layer |
 
 ## The hidden source override (a stopgap, not a setting)
 
@@ -23,9 +24,10 @@ Until the bridge is removed (ADR-0058, R7) a host can force a reader's source in
     "resourceNodesSource": "bridge"
     "factorySource": "bridge"
     "trainsSource": "bridge"
+    "railsSource": "bridge"
 
 The value is exactly `bridge` or `native` (anything else makes the config Broken, as a bad `frmPort` does). With no key a
-reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource` in `Config.h`; all four are `native`, the last two since the S2 switch). `bridge` needs FRM installed.
+reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource` in `Config.h`; the first four are `native`, the factory and trains ones since the S2 switch; `DefaultRailsSource` is `bridge` until rails' switch PR). `bridge` needs FRM installed.
 The keys are deleted with the bridge in the removal release; do not build on them. There is no key for power: it has no
 bridge path.
 

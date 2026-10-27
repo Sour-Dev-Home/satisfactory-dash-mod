@@ -7,12 +7,12 @@
 namespace
 {
 	constexpr SatisDash::FWorldLayerSpec FrmWorldLayers[] = {
-		{ TEXT("rails"), &SatisDash::FrmGetTrainRails, 120.0, 600.0 },
-		{ TEXT("resourceNodes"), &SatisDash::FrmGetResourceNode, 480.0, 1800.0 },
+		{ TEXT("rails"), &SatisDash::FrmGetTrainRails, 120.0, 600.0, 480.0 },
+		{ TEXT("resourceNodes"), &SatisDash::FrmGetResourceNode, 480.0, 1800.0, 0.0 },
 		// R3: native-only (no FRM endpoint, never requested from FRM): first read 8 minutes after Running, then every 10 minutes (ADR 0055). The first-read
 		// rule is the resource-node layer's (8 minutes, jittered +/-10% by WorldJitterFraction in JitteredSeconds), so the first post
 		// falls inside tick-cost-native's measured span (warmup 3 minutes, window to about 13) and in native-parity's 30-minute window.
-		{ TEXT("trainRoutes"), nullptr, 480.0, 600.0 },
+		{ TEXT("trainRoutes"), nullptr, 480.0, 600.0, 0.0 },
 	};
 
 	TUniquePtr<SatisDash::FFrmArrayParse> FrmWorldMakeParse(SatisDash::EWorldLayer Layer, TArray<uint8> Body, const FString& ObservedAt)

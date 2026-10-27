@@ -228,6 +228,20 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 	const FString PartsJson = ConfigToJson(Parts.Config);
 	TestTrue(TEXT("round trip keeps the part keys"), PartsJson.Contains(TEXT("\"factorySource\": \"bridge\"")) && PartsJson.Contains(TEXT("\"trainsSource\": \"bridge\"")));
 
+	// The rails key: default bridge (until its switch PR), the same strict parse, names itself, round-trips only when set.
+	TestTrue(TEXT("no key: rails default is bridge"), None.Config.GetRailsSource() == ESource::Bridge && DefaultRailsSource == ESource::Bridge);
+	TestFalse(TEXT("no key: rails unset"), None.Config.RailsSource.IsSet());
+	const FConfigResult RailsNative = ParseConfig(Base + TEXT(",\"railsSource\":\"native\"}"));
+	TestTrue(TEXT("rails key: valid"), RailsNative.Status == EConfigStatus::Valid);
+	TestTrue(TEXT("the rails key selects native"), RailsNative.Config.GetRailsSource() == ESource::Native);
+	TestTrue(TEXT("round trip keeps the rails key"), ConfigToJson(RailsNative.Config).Contains(TEXT("\"railsSource\": \"native\"")));
+	for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
+	{
+		const FConfigResult R = ParseConfig(Base + TEXT(",\"railsSource\":") + Bad + TEXT("}"));
+		TestTrue(*FString::Printf(TEXT("railsSource %s is refused"), Bad), R.Status == EConfigStatus::Broken);
+		TestEqual(*FString::Printf(TEXT("railsSource %s names the key"), Bad), R.BadField, FString(TEXT("railsSource")));
+	}
+
 	// Written back only when set, and kept when the code is blanked after enrolment.
 	const FString Json = ConfigToJson(Native.Config);
 	TestTrue(TEXT("round trip keeps the keys"), Json.Contains(TEXT("\"playersSource\": \"native\"")) && Json.Contains(TEXT("\"resourceNodesSource\": \"bridge\"")));

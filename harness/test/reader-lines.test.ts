@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, factoryLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, factoryLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -52,6 +52,8 @@ describe("step costs", () => {
 describe("the Readers line", () => {
   const S1 = `${P}Readers: players=native resourceNodes=native`;
   const S2 = `${P}Readers: players=native resourceNodes=native factory=native trains=bridge`;
+  const S3Bridge = `${P}Readers: players=native resourceNodes=native factory=native trains=native rails=bridge`;
+  const S3Native = `${P}Readers: players=native resourceNodes=native factory=native trains=native rails=native`;
   it("still parses the S1 two-field line, with factory and trains undefined", () => {
     expect(readerSources([S1])).toEqual({ players: "native", resourceNodes: "native" });
   });
@@ -63,5 +65,16 @@ describe("the Readers line", () => {
     expect(trainsLogProblems([S2])).toEqual([expect.stringMatching(/trains=bridge, not native/)]);
     expect(factoryLogProblems([S1])).toEqual([expect.stringMatching(/no factory= field/)]);
     expect(trainsLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
+  });
+  it("parses the S3 five-field line and leaves rails undefined on the older lines", () => {
+    expect(readerSources([S1, S2])).toEqual({ players: "native", resourceNodes: "native", factory: "native", trains: "bridge" });
+    expect(readerSources([S3Bridge])).toEqual({ players: "native", resourceNodes: "native", factory: "native", trains: "native", rails: "bridge" });
+    expect(readerSources([S3Native])?.rails).toBe("native");
+  });
+  it("judges rails like trains", () => {
+    expect(railsLogProblems([S2])).toEqual([expect.stringMatching(/has no rails= field/)]);
+    expect(railsLogProblems([S3Native])).toEqual([]);
+    expect(railsLogProblems([S3Bridge])).toEqual([expect.stringMatching(/rails=bridge, not native/)]);
+    expect(railsLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
   });
 });

@@ -148,6 +148,31 @@ runner config names it as `"s2World"`, beside `"s3World"`:
 > 4. **Trains running a timetable between at least two stations** (self-driving), each station with at least one cargo platform, wagons carrying items. A parked or manual train is welcome, not required.
 > 5. The save loads on the test server (the same dedicated-server version as `harness/toolchain.json`) and is the drones-and-trucks save used for the 3B captures.
 
+## The Sprint 3 world (Test3)
+
+The two S3 native runs (`native-parity` and `tick-cost-native`, ADR-0058 Sprint S3) load the owner's `Test3` save. The
+runner config names it as `"sprint3World"`, beside `"s2World"` and `"s3World"`:
+
+```json
+{ "s3World": "<path to the S3 save>", "s2World": "<path to the Test2 copy>", "sprint3World": "<path to the Test3 copy>" }
+```
+
+- Only `native-parity` and `tick-cost-native` use `sprint3World`, once they switch to the `sprint3` world key (Sprint S3,
+  Tasks 13 and 14). Until then no run uses it. The spikes keep `s3World`.
+- A run that needs `sprint3World` and finds none in the config is refused before the build: `<id> needs sprint3World in
+  the runner config`.
+- The staged file lives outside the repository, like `s3World`. The same `satis-runner` rules apply: each run uploads it
+  with `UploadSaveGame` and `LoadSaveGame: true`, and only runs as `satis-runner`.
+
+> **Owner checklist: `Test3` must contain, before the S3 runs** (it is `Test2` plus the items below; if something is missing, add it in the save and stage the new copy; nothing in the harness can build it):
+> 1. Everything the `Test2` checklist asks (machines of several kinds, a fluid recipe, power, self-driving trains between two stations with cargo platforms).
+> 2. **Belts of two tiers** (for example Mk.1 and Mk.2), a **splitter**, a **merger**, and at least one **lift**.
+> 3. **Pipes** with a **junction or a pump**.
+> 4. **Belts into and out of the two paired drone ports** (labelled `FUEL 5` and `TestLand1` in the owner's save), and a **battery belt into one port**.
+> 5. **Rail tracks**, including at least one curved track. A train that may have crashed is welcome, not required.
+> 6. The save loads on the test server (the dedicated-server version of `harness/toolchain.json`). A byte copy is staged on the runner as `sprint3-test3.sav`; the owner adds `"sprint3World": "<path to that copy>"` to the runner config (outside the repository).
+> Absent items are reported `NOT EXERCISED`, never failed.
+
 ## 5. Check it
 
 Actions → spike → the latest `main` push: `selftest` waits for your approval, then passes. Then run S0 with

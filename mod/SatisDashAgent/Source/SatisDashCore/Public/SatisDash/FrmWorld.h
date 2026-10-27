@@ -23,6 +23,8 @@ namespace SatisDash
 		double FirstSeconds;
 		/** After a cycle ends: the next read (worldReader.ts RAILS_INTERVAL_MS and RESOURCE_NODES_INTERVAL_MS), times the same jitter. */
 		double IntervalSeconds;
+		/** While the layer is native: the first read this long after Running (times the jitter). 0 = same as FirstSeconds. */
+		double NativeFirstSeconds;
 	};
 	SATISDASHCORE_API const FWorldLayerSpec& WorldLayer(EWorldLayer Layer);
 
