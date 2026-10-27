@@ -126,7 +126,8 @@ SatisDash::FNativeWorldBody SatisDash::BuildNativeMapMarkers(const FString& Obse
 	{
 		if (Previous && Previous->Id.Equals(Item.Id, ESearchCase::CaseSensitive))
 		{
-			continue; // a repeated id: the one that sorted first stays
+			++Out.Dropped; // a repeated id (also two ids equal after the clamp): the one that sorted first stays
+			continue;
 		}
 		Previous = &Item;
 		if (Out.Items == MapMarkersMaxItems)

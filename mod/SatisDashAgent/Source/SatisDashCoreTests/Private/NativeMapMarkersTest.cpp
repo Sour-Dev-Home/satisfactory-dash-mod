@@ -159,6 +159,9 @@ bool FNativeMapMarkersRulesTest::RunTest(const FString& Parameters)
 	const FNativeWorldBody Capped = BuildNativeMapMarkers(NativeMapMarkersObserved, Many);
 	TestEqual(TEXT("1,001 valid markers keep 1,000"), Capped.Items, MapMarkersMaxItems);
 	TestEqual(TEXT("and count one over"), Capped.Over, 1);
+	TestTrue(TEXT("the first kept id is the smallest"), Capped.Json.Contains(TEXT("\"id\":\"") + NativeMapMarkersId(0) + TEXT("\"")));
+	TestTrue(TEXT("the last kept id is the 1,000th smallest"), Capped.Json.Contains(TEXT("\"id\":\"") + NativeMapMarkersId(MapMarkersMaxItems - 1) + TEXT("\"")));
+	TestFalse(TEXT("and the largest is cut"), Capped.Json.Contains(NativeMapMarkersId(MapMarkersMaxItems)));
 
 	TArray<FMapMarkerReading> Twenty;
 	for (int32 I = 0; I < 20; ++I)
@@ -184,6 +187,14 @@ bool FNativeMapMarkersRulesTest::RunTest(const FString& Parameters)
 	const FNativeWorldBody Backward = BuildNativeMapMarkers(NativeMapMarkersObserved, { Second, First });
 	SatisDash::Test::SameText(*this, TEXT("a repeated id gives the same bytes in both orders"), Forward.Json, Backward.Json);
 	TestEqual(TEXT("and keeps one"), Forward.Items, 1);
+	TestTrue(TEXT("the reading that sorts first survives"), Forward.Json.Contains(TEXT("\"name\":\"one\"")));
+	TestFalse(TEXT("and the other is gone"), Forward.Json.Contains(TEXT("\"name\":\"two\"")));
+	TestEqual(TEXT("the repeat counts as dropped"), Forward.Dropped, 1);
+
+	const FString LongId = FString::ChrN(200, TEXT('A'));
+	const FNativeWorldBody Clamped = BuildNativeMapMarkers(NativeMapMarkersObserved, { NativeMapMarkersReading(LongId + TEXT("x"), TEXT("p")), NativeMapMarkersReading(LongId + TEXT("y"), TEXT("q")) });
+	TestEqual(TEXT("two ids equal after the 200-character clamp keep one"), Clamped.Items, 1);
+	TestEqual(TEXT("and the loser counts as dropped"), Clamped.Dropped, 1);
 
 	const FNativeWorldBody NoId = BuildNativeMapMarkers(NativeMapMarkersObserved, { NativeMapMarkersReading(FString(), TEXT("n")) });
 	TestEqual(TEXT("an empty id drops"), NoId.Dropped, 1);
