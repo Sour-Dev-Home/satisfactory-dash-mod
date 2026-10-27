@@ -258,7 +258,7 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	{
 		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line shows all six native, the default driver's"), AllNative, 1);
+	TestEqual(TEXT("one Readers line shows the default driver's: six native, the three S4 layers bridge"), AllNative, 1);
 	return true;
 }
 

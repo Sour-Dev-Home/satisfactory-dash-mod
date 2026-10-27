@@ -111,6 +111,7 @@ describe("vendored contract (S4-A: mapMarkers, droneRoutes, powerLines, pairedId
     expect(DronePortSchema.safeParse(port).success).toBe(true);
     expect(DronePortSchema.safeParse({ ...port, pairedId: null }).success).toBe(true);
     expect(DronePortSchema.safeParse({ ...port, paired: "Other", pairedId: "p2" }).success).toBe(true);
+    expect(DronePortSchema.safeParse({ ...port, pairedId: 7 }).success).toBe(false);
   });
 
   it("SnapshotRequestSchema takes the three top-level status fields, optionally", async () => {
