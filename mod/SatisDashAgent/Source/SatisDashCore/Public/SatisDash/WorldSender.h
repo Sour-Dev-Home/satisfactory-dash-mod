@@ -119,6 +119,7 @@ namespace SatisDash
 		bool bPassOpen = false;
 		bool bPassRails = false;
 		bool bPassConveyors = false;
+		bool bPassPowerLines = false;
 		/** The one-off tier census lines have been written since Start. */
 		bool bConveyorCensusDone = false;
 		uint32 Generation = 0;

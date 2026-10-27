@@ -6,6 +6,7 @@
 #include "SatisDash/Native/DroneRoutes/NativeDroneRoutes.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
 #include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
+#include "SatisDash/Native/PowerLines/NativePowerLines.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
 #include "SatisDash/StepBudget.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
@@ -32,6 +33,9 @@ namespace SatisDash
 		int32 Over = 0;
 		/** Advisory GetBuildableCount of the track class, -1 when not asked. */
 		int32 ExpectedTracks = -1;
+		/** Power lines only: wires read, and the advisory GetBuildableCount of the wire class (-1 when not asked). */
+		int32 Wires = 0;
+		int32 ExpectedWires = -1;
 		/** Conveyors only (all zero when that layer was not asked): ends whose kind was checked against the class table, and those that differed. */
 		int32 KindChecked = 0, KindDiffer = 0;
 		/** The first game class names that differed (the sender logs a few). */
@@ -49,6 +53,8 @@ namespace SatisDash
 		TArray<FRailReading> Rails;
 		/** Empty when conveyors were not asked for. */
 		TArray<FConveyorReading> Conveyors;
+		/** Empty when power lines were not asked for. */
+		TArray<FPowerLineReading> PowerLines;
 		FLogisticsCounts Counts;
 	};
 
@@ -158,9 +164,9 @@ namespace SatisDash
 		/**
 		 * R5: starts the shared, time-sliced logistics pass over the buildables, for the rails layer and/or the conveyors layer.
 		 * False when there is no world or subsystem, or when a pass is already open. Call StepLogisticsRead every tick until it returns
-		 * a value. Bridge-sourced layers never reach this. bConveyors asks for the belts, lifts and pipes too.
+		 * a value. Bridge-sourced layers never reach this. bConveyors asks for the belts, lifts and pipes too; bPowerLines (S4-A R10) for the wires.
 		 */
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) { return false; }
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) { return false; }
 		/**
 		 * Reads buildables until the budget is spent, on the game thread. Unset until the pass has seen every one, then the
 		 * snapshot (once). Sorting and building the bodies are not done here.

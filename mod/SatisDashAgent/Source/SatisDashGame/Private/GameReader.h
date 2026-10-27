@@ -47,7 +47,7 @@ namespace SatisDash
 		virtual bool DroneRoutesReadAbandoned() const override { return bDroneAbandoned; }
 		virtual void EndDroneRoutesRead() override { ResetDroneRoutesRead(); }
 		virtual bool IsDroneRoutesReadOpen() const override { return bDroneOpen; }
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) override;
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) override;
 		virtual TOptional<FLogisticsSnapshot> StepLogisticsRead(FStepBudget& Budget) override;
 		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
 		virtual void EndLogisticsRead() override { ResetLogisticsRead(); }

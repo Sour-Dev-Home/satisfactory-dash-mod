@@ -52,6 +52,9 @@ What changes for a host on the new defaults:
 - Rails and conveyors share one logistics pass on the game thread (a sliced read of the buildable list, one budgeted step per
   driver tick). A pass carries whichever of the two layers are native, and either one falling due takes the other with it
   (the pulled-forward rule). It logs one `Logistics read (game thread only):` line per pass.
+- S4-A: `powerLinesSource` is a third flag on the same pass (the sender and the port take it; the line gains `powerLines=` and a
+  wires count). The game-side wire read is not in yet, so keep `powerLinesSource` at `bridge`: set to `native` today, the pass
+  is refused every 30 s and nothing is posted.
 - Ids of rebuilt belts change.
 - The first native post of each layer changes that layer's content hash once.
 

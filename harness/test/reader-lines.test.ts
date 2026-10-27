@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -24,6 +24,25 @@ describe("step costs", () => {
     const over = stepProblems([sample.replace("1.20 ms", "2.05 ms")], ["Logistics read"]);
     expect(over).toHaveLength(1);
     expect(over[0]).toMatch(/Logistics read/);
+  });
+  it("parses the S4-A logistics line with powerLines and the wires counts, still ending in the step cost", () => {
+    const s3 = `${P}Logistics read (game thread only): layers rails=1 conveyors=1, 900 buildables, 12 tracks, 340 belts, 6 lifts, 80 pipes, 14 open ends, 3 ownerless ends in 40 steps, longest step 1.20 ms, total 30.10 ms, expected tracks 12, dropped 0, over cap 0`;
+    const s4 = `${P}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 12 tracks, 340 belts, 6 lifts, 80 pipes, 14 open ends, 3 ownerless ends, wires 843, expected wires 850 in 40 steps, longest step 1.30 ms, total 31.20 ms, expected tracks 12, dropped 0, over cap 0`;
+    // S3 evidence (no powerLines= group) still parses, and says nothing about the new layer.
+    expect(logisticsLayers([s3])).toEqual({ rails: 1, conveyors: 1 });
+    expect(logisticsRead([s3])).toMatchObject({ rails: 1, conveyors: 1, buildables: 900, ownerlessEnds: 3 });
+    expect(logisticsRead([s3])).not.toHaveProperty("wires");
+    expect(logisticsLineProblems([s3], "rails")).toEqual([]);
+    expect(logisticsLineProblems([s3], "powerLines")).toEqual([`the mod's "Logistics read" line says powerLines=0, not 1: the pass did not serve the powerLines layer`]);
+    // The new line yields powerLines: 1 and the wires count.
+    expect(logisticsLayers([s4])).toEqual({ rails: 1, conveyors: 1, powerLines: 1 });
+    expect(logisticsRead([s4])).toMatchObject({ rails: 1, conveyors: 1, powerLines: 1, buildables: 900, belts: 340, ownerlessEnds: 3, wires: 843 });
+    expect(logisticsLineProblems([s4], "powerLines")).toEqual([]);
+    expect(logisticsLineProblems([s4.replace("powerLines=1", "powerLines=0")], "powerLines")).toHaveLength(1);
+    // The step regex still reads the cost off the end of the line.
+    expect(stepCosts([s4])).toEqual([{ reader: "Logistics read", longestStepMs: 1.3, totalMs: 31.2 }]);
+    expect(stepProblems([s4], ["Logistics read"])).toEqual([]);
+    expect(stepProblems([s4.replace("1.30 ms", "2.05 ms")], ["Logistics read"])).toHaveLength(1);
   });
   it("parses one StepCost per matching line, including S1's scan line", () => {
     expect(stepCosts(LINES)).toEqual([

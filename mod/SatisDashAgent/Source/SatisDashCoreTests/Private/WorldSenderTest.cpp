@@ -959,7 +959,7 @@ bool FWorldSenderLogisticsTest::RunTest(const FString& Parameters)
 	int32 Leaks = 0;
 	for (const FString& Line : Log.Take())
 	{
-		ReadLines += Line.Contains(TEXT("Logistics read (game thread only): layers rails=1 conveyors=0, 5 buildables, 2 tracks, 0 belts, 0 lifts, 0 pipes, 0 open ends, 0 ownerless ends in 3 steps, longest step ")) ? 1 : 0;
+		ReadLines += Line.Contains(TEXT("Logistics read (game thread only): layers rails=1 conveyors=0 powerLines=0, 5 buildables, 2 tracks, 0 belts, 0 lifts, 0 pipes, 0 open ends, 0 ownerless ends, wires 0, expected wires -1 in 3 steps, longest step ")) ? 1 : 0;
 		Leaks += Line.Contains(TEXT("Build_RailroadTrack")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Logistics read line a pass"), ReadLines, 2);
@@ -1201,7 +1201,7 @@ bool FWorldSenderLogisticsBothTest::RunTest(const FString& Parameters)
 	int32 CensusBeyondCap = 0;
 	for (const FString& Line : Log.Take())
 	{
-		ReadLines += Line.Contains(TEXT("Logistics read (game thread only): layers rails=1 conveyors=1, 7 buildables")) ? 1 : 0;
+		ReadLines += Line.Contains(TEXT("Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=0, 7 buildables")) ? 1 : 0;
 		KindLines += Line.Contains(TEXT("Conveyor kinds: 9 ends checked, 7 differ from the class table (first classes: Odd_C_0, Odd_C_1, Odd_C_2, Odd_C_3, Odd_C_4)")) ? 1 : 0;
 		PortLines += Line.Contains(TEXT("Conveyor drone ports: 3 edges end at a port, 2 start at one")) ? 1 : 0;
 		Leaks += Line.Contains(TEXT("Build_ConveyorBelt")) || Line.Contains(TEXT("Build_RailroadTrack")) ? 1 : 0;
@@ -1417,5 +1417,194 @@ bool FWorldSenderConveyorsOffUnlessNativeTest::RunTest(const FString& Parameters
 	O.tick(60);
 	TestEqual(TEXT("an over-cap layer is not posted"), O.Net.sent(WorldConveyorsPost), 0);
 	TestEqual(TEXT("it is logged once, with its size"), countLines(CapLog, TEXT("World layer conveyors is ")), 1);
+	return true;
+}
+
+namespace
+{
+	const TCHAR* WorldPowerLinesPost = TEXT("/agent/v1/world/powerLines");
+
+	/** R10: two wires given out of order, so the sorted body is the proof the worker built it. */
+	void worldPowerLinesReadings(SatisDash::Test::FFakeGame& Game)
+	{
+		FPowerLineReading B;
+		B.Id = TEXT("Build_PowerLine_C_B");
+		B.X0Cm = 0.0;
+		B.Y0Cm = 0.0;
+		B.X1Cm = 1000.0;
+		B.Y1Cm = 0.0;
+		FPowerLineReading A;
+		A.Id = TEXT("Build_PowerLine_C_A");
+		A.X0Cm = 0.0;
+		A.Y0Cm = 500.0;
+		A.X1Cm = 1000.0;
+		A.Y1Cm = 500.0;
+		Game.LogisticsPowerLines = { B, A };
+		Game.LogisticsCounts.Buildables = 7;
+		Game.LogisticsCounts.Wires = 2;
+		Game.LogisticsCounts.ExpectedWires = 3;
+	}
+
+	/** Only powerLines native (rails and conveyors on the bridge), the jitter at the bottom of its range. */
+	void worldPowerLinesOnly(FWorldFixture& F)
+	{
+		F.Config.RailsSource = ESource::Bridge;
+		F.Config.ConveyorsSource = ESource::Bridge;
+		F.Config.ResourceNodesSource = ESource::Bridge;
+		F.Config.TrainsSource = ESource::Bridge;
+		F.Config.PowerLinesSource = ESource::Native;
+		F.bNativeReaders = true;
+		F.Random01 = 0.0;
+	}
+
+	/** All three logistics layers native; rails is due first (432 s), the others later (528 s) so the pulled-forward rule is what starts them. */
+	void worldAllThreeNative(FWorldFixture& F)
+	{
+		worldBothNative(F);
+		F.Config.PowerLinesSource = ESource::Native;
+		F.Draws = { 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0 };
+	}
+
+	void worldAllThreeReadings(SatisDash::Test::FFakeGame& Game)
+	{
+		worldLogisticsReadings(Game);
+		worldConveyorsReadings(Game);
+		worldPowerLinesReadings(Game);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWorldSenderLogisticsPowerLinesTest, "SatisDash.Core.WorldSender.LogisticsPowerLines", SatisDash::Test::Flags)
+
+bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	// (a) only powerLines native: its own pass at 432 s, rails asked of FRM as before, conveyors not sent.
+	FWorldFixture F;
+	worldPowerLinesOnly(F);
+	worldAllThreeReadings(F.Game);
+	F.Sender.Start(F.T);
+	TestTrue(TEXT("FRM is asked for the rails"), F.until([&F] { return F.Net.sent(WorldRailsRead) > 0; }, 120));
+	TestFalse(TEXT("no pass before 432 s"), F.until([&F] { return F.Game.LogisticsBegins > 0; }, 431.0 - (F.T - 1000.0)));
+	TestTrue(TEXT("the pass begins at 432 s"), F.until([&F] { return F.Game.LogisticsBegins > 0; }, 3));
+	TestEqual(TEXT("one begin"), F.Game.LogisticsBegins, 1);
+	TestTrue(TEXT("with the powerLines flag"), F.Game.bLastBeginPowerLines);
+	TestFalse(TEXT("and not the rails flag"), F.Game.bLastBeginRails);
+	TestFalse(TEXT("nor the conveyors flag"), F.Game.bLastBeginConveyors);
+	TestTrue(TEXT("the layer is posted after the third step"), F.until([&F] { return F.Net.pending(WorldPowerLinesPost) > 0; }, 10));
+	TestEqual(TEXT("three steps in all"), F.Game.LogisticsStepCalls, 3);
+	const FString Body = F.Net.lastBody(WorldPowerLinesPost);
+	const int32 First = Body.Find(TEXT("\"id\":\"Build_PowerLine_C_A\""));
+	const int32 Second = Body.Find(TEXT("\"id\":\"Build_PowerLine_C_B\""));
+	TestTrue(TEXT("both wires are in the body, sorted by id"), First != INDEX_NONE && Second != INDEX_NONE && First < Second);
+	F.Net.answer(WorldPowerLinesPost, SatisDash::Test::Reply(200, WorldAccepted));
+	F.tick(2);
+	TestEqual(TEXT("one post"), F.Net.sent(WorldPowerLinesPost), 1);
+	TestEqual(TEXT("no conveyors post"), F.Net.sent(WorldConveyorsPost), 0);
+	TestEqual(TEXT("no rails post from the game"), F.Net.sent(WorldRailsPost), 0);
+	TestEqual(TEXT("the accepted body is not held"), F.Sender.Held(), 0);
+	int32 ReadLines = 0;
+	int32 Leaks = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ReadLines += Line.Contains(TEXT("Logistics read (game thread only): layers rails=0 conveyors=0 powerLines=1, 7 buildables, 2 tracks, 2 belts, 0 lifts, 0 pipes, 0 open ends, 0 ownerless ends, wires 2, expected wires 3 in 3 steps, longest step ")) ? 1 : 0;
+		Leaks += Line.Contains(TEXT("Build_PowerLine")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one Logistics read line with the wires counts"), ReadLines, 1);
+	TestEqual(TEXT("no id in the log"), Leaks, 0);
+
+	// (b) all three native: the first due layer (rails, 432 s) pulls the others forward; one snapshot, three bodies, each once.
+	FWorldFixture G;
+	worldAllThreeNative(G);
+	worldAllThreeReadings(G.Game);
+	G.Sender.Start(G.T);
+	TestTrue(TEXT("the pass begins at 432 s"), G.until([&G] { return G.Game.LogisticsBegins > 0; }, 440));
+	TestEqual(TEXT("one begin"), G.Game.LogisticsBegins, 1);
+	TestTrue(TEXT("with all three flags (ruling M6)"), G.Game.bLastBeginRails && G.Game.bLastBeginConveyors && G.Game.bLastBeginPowerLines);
+	TestTrue(TEXT("rails is posted"), G.until([&G] { return G.Net.pending(WorldRailsPost) > 0; }, 10));
+	TestTrue(TEXT("rails carries its own data only"), G.Net.lastBody(WorldRailsPost).Contains(TEXT("Build_RailroadTrack_C_A")) && !G.Net.lastBody(WorldRailsPost).Contains(TEXT("Build_PowerLine")));
+	G.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	TestTrue(TEXT("conveyors is posted"), G.until([&G] { return G.Net.pending(WorldConveyorsPost) > 0; }, 10));
+	TestTrue(TEXT("conveyors carries its own data only"), G.Net.lastBody(WorldConveyorsPost).Contains(TEXT("Build_ConveyorBeltMk1_C_A")) && !G.Net.lastBody(WorldConveyorsPost).Contains(TEXT("Build_PowerLine")));
+	G.Net.answer(WorldConveyorsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	TestTrue(TEXT("powerLines is posted"), G.until([&G] { return G.Net.pending(WorldPowerLinesPost) > 0; }, 10));
+	TestTrue(TEXT("powerLines carries its own data only"), G.Net.lastBody(WorldPowerLinesPost).Contains(TEXT("Build_PowerLine_C_A")) && !G.Net.lastBody(WorldPowerLinesPost).Contains(TEXT("Build_RailroadTrack"))
+		&& !G.Net.lastBody(WorldPowerLinesPost).Contains(TEXT("Build_ConveyorBelt")));
+	G.Net.answer(WorldPowerLinesPost, SatisDash::Test::Reply(200, WorldAccepted));
+	G.tick(2);
+	TestEqual(TEXT("rails posted once"), G.Net.sent(WorldRailsPost), 1);
+	TestEqual(TEXT("conveyors posted once"), G.Net.sent(WorldConveyorsPost), 1);
+	TestEqual(TEXT("powerLines posted once"), G.Net.sent(WorldPowerLinesPost), 1);
+	// The next pass reads the same data: each layer's own data hash says unchanged.
+	TestTrue(TEXT("the next pass begins"), G.until([&G] { return G.Game.LogisticsBegins >= 2; }, 700));
+	TestTrue(TEXT("with all three flags again"), G.Game.bLastBeginRails && G.Game.bLastBeginConveyors && G.Game.bLastBeginPowerLines);
+	G.tick(10);
+	TestEqual(TEXT("unchanged rails is not posted again"), G.Net.sent(WorldRailsPost), 1);
+	TestEqual(TEXT("unchanged conveyors is not posted again"), G.Net.sent(WorldConveyorsPost), 1);
+	TestEqual(TEXT("unchanged powerLines is not posted again"), G.Net.sent(WorldPowerLinesPost), 1);
+
+	// A refused submit for one layer reschedules only that layer: the powerLines slot still holds an earlier job.
+	FWorldFixture R;
+	worldAllThreeNative(R);
+	worldAllThreeReadings(R.Game);
+	R.Sender.Start(R.T);
+	TestTrue(TEXT("the bridge's powerLines slot is taken"), R.Bridge.SubmitNativeWorld(EWorldLayer::PowerLines, TEXT("2026-10-24T12:00:00.000Z"),
+		FNativeWorldBuilder([](const FString& Observed) { return BuildNativePowerLines(Observed, {}); }), TOptional<FBlake3Hash>()));
+	TestTrue(TEXT("the pass begins"), R.until([&R] { return R.Game.LogisticsBegins > 0; }, 440));
+	TestTrue(TEXT("rails is posted"), R.until([&R] { return R.Net.pending(WorldRailsPost) > 0; }, 20));
+	R.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	TestTrue(TEXT("conveyors is posted"), R.until([&R] { return R.Net.pending(WorldConveyorsPost) > 0; }, 20));
+	R.Net.answer(WorldConveyorsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	R.tick(60);
+	TestEqual(TEXT("one pass: powerLines is not retried at once (it waits a whole cycle)"), R.Game.LogisticsBegins, 1);
+	TestEqual(TEXT("rails was posted"), R.Net.sent(WorldRailsPost), 1);
+	TestEqual(TEXT("conveyors was posted"), R.Net.sent(WorldConveyorsPost), 1);
+	TestEqual(TEXT("and nothing for powerLines"), R.Net.sent(WorldPowerLinesPost), 0);
+
+	// (c) powerLines flips to bridge under an open pass: only that layer drops out, the pass goes on for the other two.
+	FWorldFixture H;
+	worldAllThreeNative(H);
+	worldAllThreeReadings(H.Game);
+	H.Game.LogisticsStepsToFinish = 6;
+	H.Sender.Start(H.T);
+	TestTrue(TEXT("a pass is open"), H.until([&H] { return H.Game.LogisticsBegins > 0; }, 440));
+	H.tick(1);
+	H.Config.PowerLinesSource = ESource::Bridge;
+	H.tick();
+	TestEqual(TEXT("the reader is not told: rails and conveyors are still in the pass"), H.Game.LogisticsEnds, 0);
+	TestTrue(TEXT("rails is posted"), H.until([&H] { return H.Net.pending(WorldRailsPost) > 0; }, 10));
+	H.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	TestTrue(TEXT("conveyors is posted"), H.until([&H] { return H.Net.pending(WorldConveyorsPost) > 0; }, 10));
+	H.Net.answer(WorldConveyorsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	H.tick(1500);
+	TestEqual(TEXT("powerLines is never posted"), H.Net.sent(WorldPowerLinesPost), 0);
+	TestFalse(TEXT("and later passes do not ask for it"), H.Game.bLastBeginPowerLines);
+
+	// (d) an abandoned read: all three layers wait NodeScanRetrySeconds together, one warning per layer, nothing posted.
+	SatisDash::Test::FLogCapture AbandonLog;
+	FWorldFixture Z;
+	worldAllThreeNative(Z);
+	worldAllThreeReadings(Z.Game);
+	Z.Game.bLogisticsAbandoned = true;
+	Z.Sender.Start(Z.T);
+	TestTrue(TEXT("abandoned: a pass begins"), Z.until([&Z] { return Z.Game.LogisticsBegins >= 1; }, 440));
+	TestTrue(TEXT("abandoned: retried soon, not after a whole cycle"), Z.until([&Z] { return Z.Game.LogisticsBegins >= 3; }, 100));
+	TestTrue(TEXT("abandoned: all three flags every time"), Z.Game.bLastBeginRails && Z.Game.bLastBeginConveyors && Z.Game.bLastBeginPowerLines);
+	Z.tick(5);
+	TestEqual(TEXT("abandoned: rails posts nothing"), Z.Net.sent(WorldRailsPost), 0);
+	TestEqual(TEXT("abandoned: conveyors posts nothing"), Z.Net.sent(WorldConveyorsPost), 0);
+	TestEqual(TEXT("abandoned: powerLines posts nothing"), Z.Net.sent(WorldPowerLinesPost), 0);
+	TestEqual(TEXT("abandoned: one warning per layer"), countLines(AbandonLog, TEXT("World layer logistics: the game's read was abandoned")), 3);
+
+	// (e) the default config (powerLinesSource unset): a rails-only pass never asks for the wires and nothing is posted for them.
+	FWorldFixture D;
+	worldLogisticsNative(D);
+	worldAllThreeReadings(D.Game);
+	D.Sender.Start(D.T);
+	TestTrue(TEXT("default: rails posts"), D.until([&D] { return D.Net.pending(WorldRailsPost) > 0; }, 440));
+	D.Net.answer(WorldRailsPost, SatisDash::Test::Reply(200, WorldAccepted));
+	D.tick(2000);
+	TestTrue(TEXT("default: passes ran"), D.Game.LogisticsBegins >= 2);
+	TestFalse(TEXT("default: no pass asked for powerLines"), D.Game.bLastBeginPowerLines);
+	TestEqual(TEXT("default: no powerLines post"), D.Net.sent(WorldPowerLinesPost), 0);
 	return true;
 }

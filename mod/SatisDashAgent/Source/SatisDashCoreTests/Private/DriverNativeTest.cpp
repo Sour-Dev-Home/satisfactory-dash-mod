@@ -586,6 +586,62 @@ bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativePowerLinesTest, "SatisDash.Core.Driver.NativeLogisticsPowerLines", SatisDash::Test::Flags)
+
+bool FDriverNativePowerLinesTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"powerLinesSource\":\"native\"");
+	const TCHAR* PowerLinesPost = TEXT("/agent/v1/world/powerLines");
+	FDriverFixture F;
+	FPowerLineReading Wire;
+	Wire.Id = TEXT("Build_PowerLine_C_1");
+	Wire.X1Cm = 1000.0;
+	F.Game.LogisticsPowerLines = { Wire };
+	F.Game.LogisticsCounts.Buildables = 3;
+	F.Game.LogisticsCounts.Wires = 1;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+
+	// The driver's jitter draw is 1.0, so the first read is 480 s x 1.1 = 528 s after Running.
+	TestTrue(TEXT("the pass begins through the whole driver"), DriverNativeRunUntil(F, Driver, [&F] { return F.Game.LogisticsBegins > 0; }, 560));
+	TestTrue(TEXT("not before 528 s after Running"), F.T - 1000.0 >= 528.0);
+	TestTrue(TEXT("with the powerLines flag only"), F.Game.bLastBeginPowerLines && !F.Game.bLastBeginRails && !F.Game.bLastBeginConveyors);
+	TestTrue(TEXT("and the layer is posted when it ends"), DriverNativeRunUntil(F, Driver, [&F, PowerLinesPost]
+	{
+		// The other native layers (nodes, trains) fall due with this one and post first: one world post at a time.
+		for (const TCHAR* Other : { TEXT("/agent/v1/world/resourceNodes"), TEXT("/agent/v1/world/trainRoutes") })
+		{
+			F.Net.answer(Other, SatisDash::Test::Reply(200, DriverNativeAccepted));
+		}
+		return F.Net.pending(PowerLinesPost) > 0;
+	}, 60));
+	TestEqual(TEXT("three steps"), F.Game.LogisticsStepCalls, 3);
+	TestTrue(TEXT("the body carries the wire"), F.Net.lastBody(PowerLinesPost).Contains(TEXT("\"id\":\"Build_PowerLine_C_1\"")));
+	TestEqual(TEXT("FRM is never asked for the wires"), F.Net.sent(TEXT("/getCables")), 0);
+	TestTrue(TEXT("the snapshot flow is unchanged"), F.Net.sent(DriverNativeSnapshots) > 0);
+
+	int32 Readers = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Readers += Line.EndsWith(TEXT("rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=native")) ? 1 : 0;
+	}
+	TestEqual(TEXT("the Readers line shows powerLines=native"), Readers, 1);
+
+	// Leaving Running (a 401 halts the agent) ends an open pass.
+	FDriverFixture H;
+	H.Game.LogisticsStepsToFinish = 1000000;
+	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a pass is open"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.LogisticsStepCalls >= 1; }, 560));
+	TestEqual(TEXT("not ended yet"), H.Game.LogisticsEnds, 0);
+	TestTrue(TEXT("a snapshot is waiting for an answer"), H.runUntil(Halted, [&H] { return H.Net.pending(DriverNativeSnapshots) > 0; }, 30));
+	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
+	H.run(Halted, 1.0);
+	TestTrue(TEXT("leaving Running ends the pass"), H.Game.LogisticsEnds >= 1);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeMapMarkersTest, "SatisDash.Core.Driver.NativeMapMarkers", SatisDash::Test::Flags)
 
 bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)

@@ -168,27 +168,31 @@ export function censusLines(lines: readonly string[]): Census {
   return out;
 }
 
-/** The counts on the shared pass's `Logistics read (game thread only): layers rails=%d conveyors=%d, ...` line. */
-export interface LogisticsRead { rails: number; conveyors: number; buildables: number; tracks: number; belts: number; lifts: number; pipes: number; openEnds: number; ownerlessEnds: number }
-const LOGISTICS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+), (\d+) buildables, (\d+) tracks, (\d+) belts, (\d+) lifts, (\d+) pipes, (\d+) open ends, (\d+) ownerless ends/;
+/**
+ * The counts on the shared pass's `Logistics read (game thread only): layers rails=%d conveyors=%d[ powerLines=%d], ...` line.
+ * The S4-A fields (`powerLines`, `wires`) are absent on an S3 line, which has neither group.
+ */
+export interface LogisticsRead { rails: number; conveyors: number; powerLines?: number; buildables: number; tracks: number; belts: number; lifts: number; pipes: number; openEnds: number; ownerlessEnds: number; wires?: number }
+const LOGISTICS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+)(?: powerLines=(\d+))?, (\d+) buildables, (\d+) tracks, (\d+) belts, (\d+) lifts, (\d+) pipes, (\d+) open ends, (\d+) ownerless ends(?:, wires (\d+), expected wires -?\d+)?/;
 
-const LOGISTICS_LAYERS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+)/;
+const LOGISTICS_LAYERS = /Logistics read \(game thread only\): layers rails=(\d+) conveyors=(\d+)(?: powerLines=(\d+))?/;
 
-/** The layers the shared logistics pass served, from its `Logistics read` line (the last one wins), or null when there is none. */
-export function logisticsLayers(lines: readonly string[]): { rails: number; conveyors: number } | null {
-  let found: { rails: number; conveyors: number } | null = null;
+/** The layers the shared logistics pass served, from its `Logistics read` line (the last one wins), or null when there is none. `powerLines` is absent on an S3 line. */
+export function logisticsLayers(lines: readonly string[]): { rails: number; conveyors: number; powerLines?: number } | null {
+  let found: { rails: number; conveyors: number; powerLines?: number } | null = null;
   for (const line of lines) {
     const m = LOGISTICS_LAYERS.exec(line);
-    if (m) found = { rails: Number(m[1]), conveyors: Number(m[2]) };
+    if (m) found = { rails: Number(m[1]), conveyors: Number(m[2]), ...(m[3] !== undefined ? { powerLines: Number(m[3]) } : {}) };
   }
   return found;
 }
 
-/** Why the log does not show the shared pass serving this layer (empty: a `Logistics read` line with `<layer>=1`). */
-export function logisticsLineProblems(lines: readonly string[], layer: "rails" | "conveyors"): string[] {
+/** Why the log does not show the shared pass serving this layer (empty: a `Logistics read` line with `<layer>=1`). A line without the layer's group did not serve it. */
+export function logisticsLineProblems(lines: readonly string[], layer: "rails" | "conveyors" | "powerLines"): string[] {
   const l = logisticsLayers(lines);
   if (!l) return [`the mod's log has no "Logistics read (game thread only):" line: the shared logistics pass never completed`];
-  return l[layer] === 1 ? [] : [`the mod's "Logistics read" line says ${layer}=${l[layer]}, not 1: the pass did not serve the ${layer} layer`];
+  const served = l[layer] ?? 0;
+  return served === 1 ? [] : [`the mod's "Logistics read" line says ${layer}=${served}, not 1: the pass did not serve the ${layer} layer`];
 }
 
 /** The `Conveyor kinds:` census line (the last one), or null: how many belt/lift/pipe ends the class table classified differently. */
@@ -199,8 +203,12 @@ export function logisticsRead(lines: readonly string[]): LogisticsRead | null {
   for (const line of lines) {
     const m = LOGISTICS.exec(line);
     if (m) {
-      const n = m.slice(1).map(Number);
-      return { rails: n[0]!, conveyors: n[1]!, buildables: n[2]!, tracks: n[3]!, belts: n[4]!, lifts: n[5]!, pipes: n[6]!, openEnds: n[7]!, ownerlessEnds: n[8]! };
+      const n = (i: number) => Number(m[i]);
+      return {
+        rails: n(1), conveyors: n(2), ...(m[3] !== undefined ? { powerLines: n(3) } : {}),
+        buildables: n(4), tracks: n(5), belts: n(6), lifts: n(7), pipes: n(8), openEnds: n(9), ownerlessEnds: n(10),
+        ...(m[11] !== undefined ? { wires: n(11) } : {}),
+      };
     }
   }
   return null;

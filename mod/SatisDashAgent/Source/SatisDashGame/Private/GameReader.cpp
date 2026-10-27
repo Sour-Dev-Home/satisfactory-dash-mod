@@ -1003,11 +1003,15 @@ void SatisDash::FGameReader::ResetLogisticsRead()
 	bLogisticsOpen = false;
 }
 
-bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors)
+bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines)
 {
 	if (bLogisticsOpen)
 	{
 		return false; // one cursor: a pass is still open
+	}
+	if (bPowerLines)
+	{
+		return false; // Task 12 adds the wire read; until then a native powerLines source begins nothing (and posts nothing)
 	}
 	UWorld* Current = World.Get();
 	const AFGBuildableSubsystem* Subsystem = Current != nullptr ? AFGBuildableSubsystem::Get(Current) : nullptr;

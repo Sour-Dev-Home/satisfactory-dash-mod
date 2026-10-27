@@ -210,16 +210,21 @@ namespace SatisDash::Test
 		int32 LogisticsStepCalls = 0;
 		bool bLastBeginRails = false;
 		bool bLastBeginConveyors = false;
+		bool bLastBeginPowerLines = false;
+		/** S4-A R10: what a pass that asked for power lines returns. */
+		TArray<SatisDash::FPowerLineReading> LogisticsPowerLines;
 		/** A pass is open (begun, not finished or ended): a second Begin is refused, as the real reader's. */
 		bool bLogisticsOpen = false;
 		/** Which layers the open pass was asked for. */
 		bool bOpenRails = false;
 		bool bOpenConveyors = false;
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) override
+		bool bOpenPowerLines = false;
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) override
 		{
 			++LogisticsBegins;
 			bLastBeginRails = bRails;
 			bLastBeginConveyors = bConveyors;
+			bLastBeginPowerLines = bPowerLines;
 			if (!bBeginLogisticsOk || bLogisticsOpen)
 			{
 				return false;
@@ -228,6 +233,7 @@ namespace SatisDash::Test
 			bLogisticsOpen = true;
 			bOpenRails = bRails;
 			bOpenConveyors = bConveyors;
+			bOpenPowerLines = bPowerLines;
 			return true;
 		}
 		virtual TOptional<SatisDash::FLogisticsSnapshot> StepLogisticsRead(SatisDash::FStepBudget& Budget) override
@@ -249,6 +255,10 @@ namespace SatisDash::Test
 				if (bOpenConveyors)
 				{
 					Out.Conveyors = LogisticsConveyors;
+				}
+				if (bOpenPowerLines)
+				{
+					Out.PowerLines = LogisticsPowerLines;
 				}
 				Out.Counts = LogisticsCounts;
 			}
