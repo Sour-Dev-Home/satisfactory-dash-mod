@@ -13,6 +13,8 @@ namespace
 		// rule is the resource-node layer's (8 minutes, jittered +/-10% by WorldJitterFraction in JitteredSeconds), so the first post
 		// falls inside tick-cost-native's measured span (warmup 3 minutes, window to about 13) and in native-parity's 30-minute window.
 		{ TEXT("trainRoutes"), nullptr, 480.0, 600.0, 0.0 },
+		// R6: native-only like trainRoutes (the bridge never sent conveyors): the same 8 minute first read and 10 minute interval.
+		{ TEXT("conveyors"), nullptr, 480.0, 600.0, 0.0 },
 	};
 
 	TUniquePtr<SatisDash::FFrmArrayParse> FrmWorldMakeParse(SatisDash::EWorldLayer Layer, TArray<uint8> Body, const FString& ObservedAt)

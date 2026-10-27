@@ -20,6 +20,7 @@ namespace SatisDash
 	inline constexpr ESource DefaultFactorySource = ESource::Native;
 	inline constexpr ESource DefaultTrainsSource = ESource::Native;
 	inline constexpr ESource DefaultRailsSource = ESource::Bridge;
+	inline constexpr ESource DefaultConveyorsSource = ESource::Bridge;
 
 	struct FAgentConfig
 	{
@@ -43,6 +44,8 @@ namespace SatisDash
 		TOptional<ESource> TrainsSource;
 		/** The same override for the rails part: the key "railsSource". */
 		TOptional<ESource> RailsSource;
+		/** The same override for the conveyors part: the key "conveyorsSource". The bridge never sent conveyors, so bridge means the layer is not sent. */
+		TOptional<ESource> ConveyorsSource;
 
 		int32 GetFrmPort() const { return FrmPort.Get(DefaultFrmPort); }
 		ESource GetPlayersSource() const { return PlayersSource.Get(DefaultPlayersSource); }
@@ -50,13 +53,14 @@ namespace SatisDash
 		ESource GetFactorySource() const { return FactorySource.Get(DefaultFactorySource); }
 		ESource GetTrainsSource() const { return TrainsSource.Get(DefaultTrainsSource); }
 		ESource GetRailsSource() const { return RailsSource.Get(DefaultRailsSource); }
+		ESource GetConveyorsSource() const { return ConveyorsSource.Get(DefaultConveyorsSource); }
 	};
 
 	enum class EConfigStatus : uint8
 	{
 		/** There was no file; one was written with the default URL and no code. Config holds those defaults. */
 		Missing,
-		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource" or "railsSource". */
+		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource", "railsSource" or "conveyorsSource". */
 		Broken,
 		Valid,
 	};

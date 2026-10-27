@@ -198,8 +198,10 @@ describe("native-parity judge", () => {
     for (const key of Object.keys(NATIVE_SOURCES_S2)) expect(cpp).toContain(`TEXT("${key}")`);
   });
 
-  it("writes five native keys for S3 (S2's four plus railsSource), and every key is one the mod reads", () => {
-    expect(NATIVE_SOURCES_S3).toEqual({ ...NATIVE_SOURCES_S2, railsSource: "native" });
+  it("writes six native keys for S3 (S2's four plus railsSource and conveyorsSource), and every key is one the mod reads", () => {
+    expect(NATIVE_SOURCES_S3).toEqual({ ...NATIVE_SOURCES_S2, railsSource: "native", conveyorsSource: "native" });
+    expect(NATIVE_SOURCES).toEqual({ playersSource: "native", resourceNodesSource: "native" });
+    expect(NATIVE_SOURCES_S2).toEqual({ playersSource: "native", resourceNodesSource: "native", factorySource: "native", trainsSource: "native" });
     const cpp = readFileSync(new URL("../../mod/SatisDashAgent/Source/SatisDashCore/Private/Config.cpp", import.meta.url), "utf8");
     for (const key of Object.keys(NATIVE_SOURCES_S3)) expect(cpp).toContain(`TEXT("${key}")`);
   });

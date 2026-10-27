@@ -9,9 +9,9 @@
 
 namespace SatisDash
 {
-	/** The world layers sent so far (spec "What the Node agent sends"). Plan 3C adds Conveyors as a fourth row. */
-	enum class EWorldLayer : uint8 { Rails, ResourceNodes, TrainRoutes };
-	inline constexpr int32 WorldLayerCount = 3;
+	/** The world layers sent so far (spec "What the Node agent sends"). Conveyors is native-only. */
+	enum class EWorldLayer : uint8 { Rails, ResourceNodes, TrainRoutes, Conveyors };
+	inline constexpr int32 WorldLayerCount = 4;
 
 	struct FWorldLayerSpec
 	{

@@ -199,6 +199,8 @@ namespace SatisDash::Test
 		/** R5: what a finished logistics pass returns. A pass finishes on its LogisticsStepsToFinish-th step. */
 		int32 LogisticsStepsToFinish = 3;
 		TArray<SatisDash::FRailReading> LogisticsRails;
+		/** R6: what a pass that asked for conveyors returns (the rails and conveyors lists are each given only when asked, as the real reader's). */
+		TArray<SatisDash::FConveyorReading> LogisticsConveyors;
 		SatisDash::FLogisticsCounts LogisticsCounts;
 		/** The pass ends abandoned (no subsystem, a world swap, or zero buildables): empty and flagged, as the game reader does. */
 		bool bLogisticsAbandoned = false;
@@ -210,6 +212,9 @@ namespace SatisDash::Test
 		bool bLastBeginConveyors = false;
 		/** A pass is open (begun, not finished or ended): a second Begin is refused, as the real reader's. */
 		bool bLogisticsOpen = false;
+		/** Which layers the open pass was asked for. */
+		bool bOpenRails = false;
+		bool bOpenConveyors = false;
 		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors) override
 		{
 			++LogisticsBegins;
@@ -221,6 +226,8 @@ namespace SatisDash::Test
 			}
 			LogisticsStepCalls = 0;
 			bLogisticsOpen = true;
+			bOpenRails = bRails;
+			bOpenConveyors = bConveyors;
 			return true;
 		}
 		virtual TOptional<SatisDash::FLogisticsSnapshot> StepLogisticsRead(SatisDash::FStepBudget& Budget) override
@@ -235,7 +242,14 @@ namespace SatisDash::Test
 			SatisDash::FLogisticsSnapshot Out;
 			if (!bLogisticsAbandoned)
 			{
-				Out.Rails = LogisticsRails;
+				if (bOpenRails)
+				{
+					Out.Rails = LogisticsRails;
+				}
+				if (bOpenConveyors)
+				{
+					Out.Conveyors = LogisticsConveyors;
+				}
 				Out.Counts = LogisticsCounts;
 			}
 			return Out;

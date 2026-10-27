@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, factoryLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, factoryLogProblems, railsLogProblems, readerSources, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -84,5 +84,20 @@ describe("the Readers line", () => {
     expect(railsLogProblems([S3Native])).toEqual([]);
     expect(railsLogProblems([S3Bridge])).toEqual([expect.stringMatching(/rails=bridge, not native/)]);
     expect(railsLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
+  });
+  const S3BothBridge = `${P}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=bridge`;
+  const S3BothNative = `${P}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native`;
+  it("parses the six-field line, and the five-field line still leaves conveyors undefined", () => {
+    expect(readerSources([S3Native])).toEqual({ players: "native", resourceNodes: "native", factory: "native", trains: "native", rails: "native" });
+    expect(readerSources([S3Native])?.conveyors).toBeUndefined();
+    expect(readerSources([S3BothBridge])).toEqual({ players: "native", resourceNodes: "native", factory: "native", trains: "native", rails: "native", conveyors: "bridge" });
+    expect(readerSources([S3BothNative])?.conveyors).toBe("native");
+    expect(readerSources([S3Native, S3BothNative])?.conveyors).toBe("native");
+  });
+  it("judges conveyors like rails", () => {
+    expect(conveyorsLogProblems([S3Native])).toEqual([expect.stringMatching(/has no conveyors= field/)]);
+    expect(conveyorsLogProblems([S3BothNative])).toEqual([]);
+    expect(conveyorsLogProblems([S3BothBridge])).toEqual([expect.stringMatching(/conveyors=bridge, not native/)]);
+    expect(conveyorsLogProblems([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
   });
 });

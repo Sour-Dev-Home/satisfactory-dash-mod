@@ -242,6 +242,21 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 		TestEqual(*FString::Printf(TEXT("railsSource %s names the key"), Bad), R.BadField, FString(TEXT("railsSource")));
 	}
 
+	// The conveyors key: the same shape (default bridge, which means the layer is not sent).
+	TestTrue(TEXT("no key: conveyors default is bridge"), None.Config.GetConveyorsSource() == ESource::Bridge && DefaultConveyorsSource == ESource::Bridge);
+	TestFalse(TEXT("no key: conveyors unset"), None.Config.ConveyorsSource.IsSet());
+	const FConfigResult ConveyorsNative = ParseConfig(Base + TEXT(",\"conveyorsSource\":\"native\"}"));
+	TestTrue(TEXT("conveyors key: valid"), ConveyorsNative.Status == EConfigStatus::Valid);
+	TestTrue(TEXT("the conveyors key selects native"), ConveyorsNative.Config.GetConveyorsSource() == ESource::Native);
+	TestTrue(TEXT("and leaves rails on its default"), ConveyorsNative.Config.GetRailsSource() == ESource::Bridge);
+	TestTrue(TEXT("round trip keeps the conveyors key"), ConfigToJson(ConveyorsNative.Config).Contains(TEXT("\"conveyorsSource\": \"native\"")));
+	for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
+	{
+		const FConfigResult R = ParseConfig(Base + TEXT(",\"conveyorsSource\":") + Bad + TEXT("}"));
+		TestTrue(*FString::Printf(TEXT("conveyorsSource %s is refused"), Bad), R.Status == EConfigStatus::Broken);
+		TestEqual(*FString::Printf(TEXT("conveyorsSource %s names the key"), Bad), R.BadField, FString(TEXT("conveyorsSource")));
+	}
+
 	// Written back only when set, and kept when the code is blanked after enrolment.
 	const FString Json = ConfigToJson(Native.Config);
 	TestTrue(TEXT("round trip keeps the keys"), Json.Contains(TEXT("\"playersSource\": \"native\"")) && Json.Contains(TEXT("\"resourceNodesSource\": \"bridge\"")));
