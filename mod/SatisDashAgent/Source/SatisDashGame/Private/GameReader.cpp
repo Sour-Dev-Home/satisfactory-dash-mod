@@ -1443,7 +1443,7 @@ namespace
 	 * else the held stack's own class; the amount is the count in the slot, a fluid scaled litres to m3 by MakeSlotReading
 	 * ("1 unit equates to 1 Liter", FGBuildableGeneratorFuel.h:176). An empty or out-of-range slot gives false.
 	 */
-	bool BuildablesReadFuelSlot(const UFGInventoryComponent& Inventory, int32 SlotIndex, const TSubclassOf<UFGItemDescriptor>& Preferred, bool bLabelEmptySlot, SatisDash::FFuelReading& Out)
+	bool BuildablesReadFuelSlot(const UFGInventoryComponent& Inventory, int32 SlotIndex, const TSubclassOf<UFGItemDescriptor>& Preferred, SatisDash::FFuelReading& Out)
 	{
 		if (SlotIndex < 0 || SlotIndex >= Inventory.GetSizeLinear())
 		{
@@ -1452,14 +1452,7 @@ namespace
 		FInventoryStack Stack;
 		if (!Inventory.GetStackFromIndex(SlotIndex, Stack) || Stack.NumItems <= 0)
 		{
-			// Rule: a held stack labels its own count; an empty slot with a fuel still named as burning (fuel only) reads that class with amount 0.
-			if (bLabelEmptySlot && Preferred)
-			{
-				Out.ClassName = Preferred->GetName();
-				Out.Name = UFGItemDescriptor::GetItemName(Preferred).ToString();
-				Out.Amount = 0;
-				return true;
-			}
+			// Rule: a held stack labels its own count; an empty slot = null (contract), whatever fuel is named as burning.
 			return false;
 		}
 		const TSubclassOf<UFGItemDescriptor> Held = Stack.Item.GetItemClass();
@@ -1645,14 +1638,14 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 					{
 						Reading.bSupplementRead = true;
 						FFuelReading Fuel;
-						if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetFuelInventoryIndex(), FuelGenerator->GetCurrentFuelClass(), true, Fuel))
+						if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetFuelInventoryIndex(), TSubclassOf<UFGItemDescriptor>(), Fuel))
 						{
 							Reading.Fuel = MoveTemp(Fuel);
 						}
 						if (FuelGenerator->GetRequiresSupplementalResource())
 						{
 							FFuelReading Supplement;
-							if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetSupplementalResourceInventoryIndex(), FuelGenerator->GetSupplementalResourceClass(), false, Supplement))
+							if (BuildablesReadFuelSlot(*FuelInventory, FuelGenerator->GetSupplementalResourceInventoryIndex(), FuelGenerator->GetSupplementalResourceClass(), Supplement))
 							{
 								Reading.Supplement = MoveTemp(Supplement);
 							}
