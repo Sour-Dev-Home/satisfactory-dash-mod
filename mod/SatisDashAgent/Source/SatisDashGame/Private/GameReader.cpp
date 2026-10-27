@@ -1264,12 +1264,14 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const AFGBuildableWire* Wire = LogisticsWires[LogisticsCursor++].Get();
 			if (!IsValid(Wire))
 			{
+				++LogisticsFound.Counts.WiresDropped; // gone between Collect and here
 				continue;
 			}
 			// Both ends must be there (a dangling wire has no line to draw); counted, not an error (rulings R-a, Q8).
 			if (!IsValid(Wire->GetConnection(0)) || !IsValid(Wire->GetConnection(1)))
 			{
 				++LogisticsFound.Counts.Dropped;
+				++LogisticsFound.Counts.WiresDropped;
 				continue;
 			}
 			const FVector L0 = Wire->GetConnectionLocation(0);

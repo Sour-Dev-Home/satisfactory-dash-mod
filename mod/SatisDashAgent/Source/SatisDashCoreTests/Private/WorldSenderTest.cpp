@@ -1531,6 +1531,8 @@ bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
 	worldPowerLinesOnly(W);
 	worldAllThreeReadings(W.Game);
 	W.Game.LogisticsCounts.ExpectedWires = 300;
+	// Rail and conveyor drops sit in the pass-wide Dropped; they must not hide a wire gap.
+	W.Game.LogisticsCounts.Dropped = 298;
 	W.Sender.Start(W.T);
 	TestTrue(TEXT("gap: the layer is still posted"), W.until([&W] { return W.Net.pending(WorldPowerLinesPost) > 0; }, 440));
 	int32 GapLines = 0;
@@ -1542,6 +1544,20 @@ bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("gap: one cast-count warning"), GapLines, 1);
 	TestEqual(TEXT("gap: no id in the log"), GapLeaks, 0);
+	// A second pass inside the 600 s limiter window reads the same gap and must stay quiet.
+	W.Net.answer(WorldPowerLinesPost, SatisDash::Test::Reply(200, WorldAccepted));
+	W.tick(2);
+	TestTrue(TEXT("gap: a second pass begins"), W.until([&W] { return W.Game.LogisticsBegins >= 2; }, 700));
+	W.tick(10);
+	int32 GapLinesAfter = 0;
+	int32 GapReads = 0;
+	for (const FString& Line : GapLog.Take())
+	{
+		GapReads += Line.Contains(TEXT("Logistics read (game thread only)")) ? 1 : 0;
+		GapLinesAfter += Line.Contains(TEXT("World layer powerLines: 2 wires read, 0 dropped, the subsystem counts 300; check that wires are in the buildable list")) ? 1 : 0;
+	}
+	TestEqual(TEXT("gap: the second pass finished its read"), GapReads, 2);
+	TestEqual(TEXT("gap: still one cast-count warning after the second pass"), GapLinesAfter, 1);
 
 	// (b) all three native: the first due layer (rails, 432 s) pulls the others forward; one snapshot, three bodies, each once.
 	FWorldFixture G;

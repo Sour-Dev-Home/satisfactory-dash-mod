@@ -36,6 +36,8 @@ namespace SatisDash
 		/** Power lines only: wires read, and the advisory GetBuildableCount of the wire class (-1 when not asked). */
 		int32 Wires = 0;
 		int32 ExpectedWires = -1;
+		/** Power lines only: wires that were left out (an end missing, or the wire gone between collecting and reading); the cast-count check uses this, not the pass-wide Dropped. */
+		int32 WiresDropped = 0;
 		/** Conveyors only (all zero when that layer was not asked): ends whose kind was checked against the class table, and those that differed. */
 		int32 KindChecked = 0, KindDiffer = 0;
 		/** The first game class names that differed (the sender logs a few). */

@@ -646,10 +646,10 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	UE_LOG(LogSatisDash, Display, TEXT("Logistics read (game thread only): layers rails=%d conveyors=%d powerLines=%d, %d buildables, %d tracks, %d belts, %d lifts, %d pipes, %d open ends, %d ownerless ends, wires %d, expected wires %d in %d steps, longest step %.2f ms, total %.2f ms, expected tracks %d, dropped %d, over cap %d"),
 		bWasRails ? 1 : 0, bWasConveyors ? 1 : 0, bWasPowerLines ? 1 : 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, C.Wires, C.ExpectedWires,
 		Budget.Steps(), Budget.LongestMs(), Budget.TotalMs(), C.ExpectedTracks, C.Dropped, C.Over);
-	if (bWasPowerLines && WireCountSuspect(C.Wires, C.Dropped, C.ExpectedWires) && ShouldLog(PowerLinesLayer, TEXT("wires"), Context.Now))
+	if (bWasPowerLines && WireCountSuspect(C.Wires, C.WiresDropped, C.ExpectedWires) && ShouldLog(PowerLinesLayer, TEXT("wires"), Context.Now))
 	{
 		// Counts only. A warning, never a change to the output: the parity id-set is the judge.
-		UE_LOG(LogSatisDash, Warning, TEXT("World layer powerLines: %d wires read, %d dropped, the subsystem counts %d; check that wires are in the buildable list"), C.Wires, C.Dropped, C.ExpectedWires);
+		UE_LOG(LogSatisDash, Warning, TEXT("World layer powerLines: %d wires read, %d dropped, the subsystem counts %d; check that wires are in the buildable list"), C.Wires, C.WiresDropped, C.ExpectedWires);
 	}
 	if (bWasConveyors)
 	{
