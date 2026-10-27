@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CORE_RUN_IDS, NATIVE_SOURCES_S2 } from "../src/core-run";
+import { CORE_RUN_IDS, NATIVE_SOURCES_S3 } from "../src/core-run";
 import type { CoreContext, CoreDeps } from "../src/core-run";
 import { CORE_RUNS } from "../src/core-runs";
 import { tickCost } from "../src/core-runs/tick-cost";
@@ -45,14 +45,14 @@ describe("tick-cost-native: spec and drive", () => {
   it("is registered, in the run ids, and writes native sources into the mod's config", () => {
     expect(CORE_RUN_IDS).toContain("tick-cost-native");
     expect(CORE_RUNS["tick-cost-native"]).toBe(tickCostNative);
-    expect(tickCostNative.modConfig).toEqual(NATIVE_SOURCES_S2);
+    expect(tickCostNative.modConfig).toEqual(NATIVE_SOURCES_S3);
     expect(tickCostNative.baseline).toBe(true);
     expect(tickCost.modConfig).toBeUndefined();
   });
-  it("loads the S2 world in both boots; tick-cost keeps the default world", async () => {
-    expect(tickCostNative.worldKey).toBe("s2");
+  it("loads the Test3 world (sprint3) in both boots; tick-cost keeps the default world", async () => {
+    expect(tickCostNative.worldKey).toBe("sprint3");
     expect(tickCost.worldKey).toBeUndefined();
-    expect((await drive(tickCostNative)).keys).toEqual(["s2"]);
+    expect((await drive(tickCostNative)).keys).toEqual(["sprint3"]);
     expect((await drive(tickCost)).keys).toEqual([undefined]);
   });
   it("enrols after the world is up and auto-pause is off, right before the measurement", async () => {

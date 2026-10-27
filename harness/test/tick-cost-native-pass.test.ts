@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { snapshotParts } from "../src/core-runs/tick-cost";
-import { NATIVE_SOURCES, NATIVE_SOURCES_S2 } from "../src/core-run";
+import { NATIVE_SOURCES, NATIVE_SOURCES_S2, NATIVE_SOURCES_S3 } from "../src/core-run";
 import type { CoreEvidence } from "../src/core-run";
 import { TICK_WARMUP_MS, type TickSeries } from "../src/ticks";
 import * as Native from "../../runs/tick-cost-native/pass";
@@ -219,5 +219,53 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
     const text = Native.evaluate(evidence()).reasons.join("\n");
     expect(text).not.toMatch(/not judged/);
     expect(text).toMatch(/judged against the 2 ms ceiling/);
+  });
+
+  describe("S3: the shared Logistics read line (Task 14)", () => {
+    const S3_SOURCES = NATIVE_SOURCES_S3;
+    const READERS_S3 = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native`;
+    const logistics = (longest: string, prefix = IN) =>
+      `${prefix}Logistics read (game thread only): layers rails=1 conveyors=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, longest step ${longest} ms, total 12.00 ms`;
+    const s3Lines = (longest = "0.80", prefix = IN) => [READERS_S3, ...s2Lines().slice(1), logistics(longest, prefix)];
+
+    it("passes S3-shaped evidence when everything is native and each longest step is 1.9 ms or less", () => {
+      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines: s3Lines("1.90") }));
+      expect(v.pass).toBe(true);
+      expect(v.reasons.join("\n")).toMatch(/Logistics read longest step 1\.9 ms/);
+    });
+    it("fails a Logistics read step of 2.1 ms", () => {
+      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines: s3Lines("2.10") }));
+      expect(v.pass).toBe(false);
+      expect(v.reasons.join("\n")).toMatch(/Logistics read: longest step 2\.1 ms exceeds the 2 ms ceiling/);
+    });
+    it("fails a missing Logistics read line when railsSource is native", () => {
+      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines: s3Lines().slice(0, -1) }));
+      expect(v.pass).toBe(false);
+      expect(v.reasons.join("\n")).toMatch(/no "Logistics read \(game thread only\):" line/);
+    });
+    it("fails a Logistics read line outside the measured window", () => {
+      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines: s3Lines("0.80", stamp(FROM + 60_000)) }));
+      expect(v.pass).toBe(false);
+      expect(v.reasons.join("\n")).toMatch(/Logistics read.*inside the measured window/);
+    });
+    it("fails conveyorsSource bridge in the captured config of an S3 run; a rails-only config still requires Logistics read", () => {
+      const sources = { ...S3_SOURCES, conveyorsSource: "bridge" };
+      const v = Native.evaluate(evidence({ sources, lines: s3Lines() }));
+      expect(v.pass).toBe(false);
+      expect(v.reasons.join("\n")).toMatch(/conveyorsSource/);
+      expect(Native.requiredStepReaders(sources)).toContain("Logistics read");
+      expect(Native.requiredStepReaders({ conveyorsSource: "native" })).toContain("Logistics read");
+      expect(Native.requiredStepReaders(NATIVE_SOURCES_S2)).not.toContain("Logistics read");
+    });
+    it("fails when the mod's Readers line says rails or conveyors is bridge", () => {
+      const lines = [`${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=bridge conveyors=native`, ...s3Lines().slice(1)];
+      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines }));
+      expect(v.pass).toBe(false);
+      expect(v.reasons.join("\n")).toMatch(/rails=bridge/);
+    });
+    it("S1- and S2-shaped evidence needs no Logistics read line", () => {
+      expect(Native.evaluate(evidence()).pass).toBe(true);
+      expect(Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines() })).pass).toBe(true);
+    });
   });
 });
