@@ -116,6 +116,23 @@ describe("native-parity drive (S4-B)", () => {
       expect(calls).toEqual(["storage"]);
     });
 
+    it("looks only at entries added since the last call (O(new entries)), over a growing recorder", async () => {
+      const { calls, s } = fake();
+      const seen = fresh();
+      const entries: RecordedCall[] = [];
+      let t = T0;
+      for (let i = 0; i < 50; i++) {
+        entries.push(gens([{ ...generator, currentMW: i }], i));
+        const before = seen.examined;
+        await takeAfterNewS4bPosts(s, entries, T0, seen, () => (t += 1_000));
+        expect(seen.examined - before).toBe(1); // never the whole history
+        await takeAfterNewS4bPosts(s, entries, T0, seen, () => (t += 1_000));
+        expect(seen.examined - before).toBe(1); // a second call with nothing new does no entry work
+      }
+      expect(seen.examined).toBe(50);
+      expect(calls.length).toBeGreaterThan(1);
+    });
+
     it("at most one extra sample per 30 s per endpoint, even for fragments that ride every snapshot", async () => {
       const { calls, s } = fake();
       const seen = fresh();

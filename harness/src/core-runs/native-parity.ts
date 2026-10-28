@@ -392,7 +392,7 @@ const s4bFragment = (parts: NonNullable<RecordedCall["parts"]>, layer: S4bLayer)
     case "storage": return part("storage")?.containers;
   }
 };
-/** Every `name` string, at any depth, replaced by its evidenceHash (the empty name stays empty): station names are player text, the rest are game text. */
+/** Every `name` string, at any depth, replaced by its evidenceHash (the empty name stays empty): station names are player text, the rest are game text. A station name arrives from the recorder already as sessionHash(name), so it leaves as evidenceHash(sessionHash(name)). */
 function hashAllNames(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(hashAllNames);
   if (!isRec(v)) return v;
@@ -417,46 +417,55 @@ export function s4bLayerPosts(entries: readonly RecordedCall[], layer: S4bLayer,
 
 /** The least time between two extra samples of one endpoint (controller ruling, 2026-10-27): snapshots come every 5 s. */
 export const S4B_TAKE_MIN_MS = 30_000;
-export interface S4bSeen { count: number; hash: string | null; takenAt: number }
-export const newS4bSeen = (): Record<S4bLayer, S4bSeen> => ({
-  extractors: { count: 0, hash: null, takenAt: -Infinity }, generators: { count: 0, hash: null, takenAt: -Infinity },
-  stationRates: { count: 0, hash: null, takenAt: -Infinity }, storage: { count: 0, hash: null, takenAt: -Infinity },
+export interface S4bSeen { hash: string | null; takenAt: number }
+/** The incremental state of takeAfterNewS4bPosts: `cursor` is how many recorder entries were looked at already, `examined` counts the work done (tests). */
+export interface S4bState { cursor: number; examined: number; layers: Record<S4bLayer, S4bSeen> }
+export const newS4bSeen = (): S4bState => ({
+  cursor: 0, examined: 0,
+  layers: {
+    extractors: { hash: null, takenAt: -Infinity }, generators: { hash: null, takenAt: -Infinity },
+    stationRates: { hash: null, takenAt: -Infinity }, storage: { hash: null, takenAt: -Infinity },
+  },
 });
 
 /**
  * An extra FRM sample for an S4-B layer only after a snapshot that carries a fragment from a NEW mod read, and at most once per
- * S4B_TAKE_MIN_MS per endpoint (the periodic samplers stay). Extractors, storage and station rates: a new post is new (the mod sends
- * them once per read; mapLive rides every snapshot, so the 30 s floor bounds it). Generators ride every power part, so a post is
- * new only when a hash of its generators array differs from the last one seen. `seen` is updated here. Returns the layers sampled.
+ * S4B_TAKE_MIN_MS per endpoint (the periodic samplers stay). Extractors, storage and station rates: a snapshot carrying the fragment
+ * is new (the mod sends them once per read; mapLive rides every snapshot, so the 30 s floor bounds it). Generators ride every power
+ * part, so a part is new only when a hash of its generators array's JSON text differs from the last one seen.
+ * Incremental: only the entries added since the last call are looked at (a cursor, as createRoundCollector does) and no evidence
+ * record is built here (s4bEvidenceFrom does that once), so the cost per call is O(new entries). `seen` is updated here.
+ * The due takes run concurrently. Returns the layers sampled.
  */
 export async function takeAfterNewS4bPosts(
   s: Pick<S4bSamplers, S4bLayer>,
   entries: readonly RecordedCall[],
   enrolledAt: number,
-  seen: Record<S4bLayer, S4bSeen>,
+  seen: S4bState,
   now: () => number = Date.now,
 ): Promise<S4bLayer[]> {
-  const done: S4bLayer[] = [];
-  for (const layer of S4B_LAYERS) {
-    const posts = s4bLayerPosts(entries, layer, enrolledAt);
-    const st = seen[layer];
-    if (posts.length <= st.count) continue;
-    let fresh = layer !== "generators";
-    if (layer === "generators") {
-      for (const p of posts.slice(st.count)) {
-        const h = createHash("sha256").update(JSON.stringify(p.data)).digest("hex");
-        if (h !== st.hash) fresh = true;
-        st.hash = h;
+  const fresh = new Set<S4bLayer>();
+  for (; seen.cursor < entries.length; seen.cursor++) {
+    seen.examined++;
+    const e = entries[seen.cursor]!;
+    if (e.agent !== "mod" || e.path !== "/agent/v1/snapshots" || e.status !== 200 || !e.parts || Date.parse(e.at) < enrolledAt) continue;
+    for (const layer of S4B_LAYERS) {
+      const fragment = s4bFragment(e.parts, layer);
+      if (!Array.isArray(fragment)) continue;
+      if (layer !== "generators") {
+        fresh.add(layer);
+        continue;
       }
-    }
-    st.count = posts.length;
-    if (fresh && now() - st.takenAt >= S4B_TAKE_MIN_MS) {
-      st.takenAt = now();
-      await s[layer].take();
-      done.push(layer);
+      const h = createHash("sha256").update(JSON.stringify(fragment)).digest("hex");
+      if (h !== seen.layers.generators.hash) fresh.add(layer);
+      seen.layers.generators.hash = h;
     }
   }
-  return done;
+  const t = now();
+  const due = S4B_LAYERS.filter((l) => fresh.has(l) && t - seen.layers[l].takenAt >= S4B_TAKE_MIN_MS);
+  for (const l of due) seen.layers[l].takenAt = t;
+  await Promise.all(due.map((l) => s[l].take()));
+  return due;
 }
 
 /** Sprint S4-B's evidence: the snapshot fragments since enrolment (names hashed), the FRM samples as hashes with each distinct mapped body kept once, and the raw station pairs. */

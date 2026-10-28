@@ -307,7 +307,9 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   `S4B_GAP_MS`) and at once after each accepted mod snapshot that carries the layer's fragment (`factory.extractors`, `power.generators`,
   `mapLive.stations`, top-level `storage.containers`, from the recorder's kept snapshot parts, which gain `power` and `storage`). Only
   accepted (status 200) snapshots since the start of enrolment enter the evidence, and **every `name` in a posted record is replaced by a
-  per-run keyed hash (`evidence-hash.ts`) and the record is cut to the contract's keys before it is captured**; a record the contract
+  per-run keyed hash (`evidence-hash.ts`) and the record is cut to the contract's keys before it is captured** (a station name is
+  `evidenceHash(sessionHash(name))`, because the recorder already replaces `mapLive` names with `sessionHash`; the judge checks only the
+  hash shape); a record the contract
   rejects is kept as `null`. `native-parity.json` carries `s4b` (one evidence block per reader) and `s4b.stationPairs`: for each station
   the mod rated, the posted `transferPerMinute` next to FRM's `TransferRate` and platform sum on the two bracketing sides (ids and
   numbers only). The readers also need the `Readers:` line to say `extractors=native generators=native stationRates=native

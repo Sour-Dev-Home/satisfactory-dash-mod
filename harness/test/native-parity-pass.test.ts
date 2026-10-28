@@ -467,8 +467,12 @@ describe("native-parity judge (S4-B wiring)", () => {
     for (const k of ["generators", "stationRates", "storage", "mapMarkers", "powerLines", "rails"] as const) expect(bad[k]).toEqual(good[k]);
   });
 
-  it("the raw station pairs are in the capture next to the verdicts", () => {
-    const c = s4bCapture();
-    expect(c.s4b!.stationPairs).toEqual([{ at: iso(T0 + 8 * 60_000), id: "S1", mod: 10, frm: [{ side: "before", transfer: 10, platformSum: 10 }] }]);
+  it("a station rate far from FRM's fails station rates alone (the judge's output, not the fixture)", () => {
+    const good = Pass.judgeReaders(s4bCapture());
+    const bad = Pass.judgeReaders(s4bCapture({ stations: [{ id: "S1", name: NAME_HASH, x: 1, y: 2, transferPerMinute: 100 }] }));
+    expect(good.stationRates!.pass).toBe(true);
+    expect(bad.stationRates!.pass).toBe(false);
+    expect(bad.extractors).toEqual(good.extractors);
+    expect(bad.storage).toEqual(good.storage);
   });
 });
