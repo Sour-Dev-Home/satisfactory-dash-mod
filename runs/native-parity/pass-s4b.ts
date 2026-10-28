@@ -418,7 +418,8 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
   let compared = 0, stable = 0, changed = 0, unverifiable = 0, fluids = 0, fluidSeen = 0;
   let over64 = false, depot = 0;
   // Owner ruling 2026-10-28 after run 40623235820: a container is "stable" (contents judged exactly) only when its two bracketing FRM
-  // records agree AND the mod's own neighbouring posts (previous and next accepted post holding that id) agree with this post: the mod
+  // records agree AND the mod's own neighbouring posts agree with this post. The neighbours are the immediately previous and next
+  // ACCEPTED posts (ok[pi-1], ok[pi+1]; no further search, no time bound); a neighbour that does not hold the id is skipped. The mod
   // reads at a different instant from FRM while belts move, so a container the mod itself saw change is report-only.
   const contentKey = (m: ModContainer) => JSON.stringify([m.slotsUsed, m.items.map((x) => [x.className, x.amount]).sort((p, q) => (p[0]! < q[0]! ? -1 : p[0]! > q[0]! ? 1 : 0))]);
   const keysOf = (a: Accepted<ModContainer, FrmContainer> | undefined) => new Map((a?.mod ?? []).map((m) => [m.id, contentKey(m)]));
@@ -478,6 +479,8 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
     lines.push(...d.lines());
     if (lines.length) reasons.push(...postFail(a.at, lines));
   }
+  // Owner ruling 2026-10-28: a run where containers were compared but none was stable never judged any contents, so it cannot pass.
+  if (compared > 0 && stable === 0) reasons.push(`no stable container among ${compared} compared: contents never judged (owner ruling 2026-10-28)`);
   if (reasons.length) return failing(reasons);
   const never = compared === 0
     ? ["any container (both sides empty)"]

@@ -157,6 +157,18 @@ describe("judgeExtractors", () => {
     expect(bad.pass).toBe(false);
     expect(text(bad)).toContain("98.00% of 100");
   });
+  it("isPaused is held to the same share: 1 of 100 passes, 2 of 100 fails", () => {
+    const many = Array.from({ length: 100 }, (_x, i) => fe({ id: `E${i}` }));
+    const run = (misses: number) => B.judgeExtractors(eev({ frm: many, after: many, post: many.map((f, i) => me({ id: f.id, ...(i < misses ? { isPaused: true } : {}) })) }));
+    expect(run(1).pass).toBe(true);
+    expect(run(2).pass).toBe(false);
+  });
+  it("an extractor missing both flags counts once", () => {
+    const many = Array.from({ length: 100 }, (_x, i) => fe({ id: `E${i}` }));
+    const v = B.judgeExtractors(eev({ frm: many, after: many, post: many.map((f, i) => me({ id: f.id, ...(i === 0 ? { isProducing: false, isPaused: true } : {}) })) }));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("99.00% of 100");
+  });
   it("a resource class mismatch fails", () => {
     expect(text(B.judgeExtractors(eev({ post: [me({}, { className: "Desc_Coal_C" })] })))).toContain("resourceClass");
   });
@@ -388,33 +400,53 @@ const threePosts = (mods: unknown[][], frm: FrmContainer[] = [fc()]): B.StorageE
   frm: { reads: 5, failed: 0 },
 });
 
-common("judgeStorage", B.judgeStorage, cev, "storage", "getStorageInv", mc({ id: "C9" }), fc({ id: "C9" }), [mc()]);
+// Both brackets carry the same FRM records, so a container can be stable (the owner ruling 2026-10-28 fails a run with none).
+common("judgeStorage", B.judgeStorage, (o: Opts<FrmContainer>) => cev({ ...o, after: o.after ?? o.frm ?? [fc()] }), "storage", "getStorageInv", mc({ id: "C9" }), fc({ id: "C9" }), [mc()]);
 
 describe("judgeStorage (the mod's own neighbouring posts, owner ruling 2026-10-28 after run 40623235820)", () => {
   const moved = mc({ slotsUsed: 1, items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }] });
+  const off = mc({ items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }, { className: "Desc_OreIron_C", name: "Iron Ore", amount: 30, stackMax: 100 }] });
+  // A second container C2 that never changes, so a run always has a stable container (the none-stable rule is tested apart).
+  const c2 = mc({ id: "C2" });
+  const run = (c1s: unknown[][]) => B.judgeStorage(threePosts(c1s.map((c) => [...c, c2]), [fc(), fc({ id: "C2" })]));
   it("FRM brackets equal but the mod's neighbours differ: contents are report-only", () => {
-    // The middle post differs from FRM and from both neighbours (a belt moved items between the mod's reads).
-    const v = B.judgeStorage(threePosts([[mc()], [moved], [mc()]]));
-    // The first and third posts have a differing neighbour too (the middle one), so every post is report-only: no amount check ran.
+    // The middle post differs from FRM and from both neighbours; the first and third posts have a differing neighbour too: no amount check ran.
+    const v = run([[mc()], [moved], [mc()]]);
     expect(v.pass).toBe(true);
     expect(text(v)).toContain("3 changed between the mod's own neighbouring posts");
   });
   it("a post whose neighbours all agree with it is judged exactly: it fails when it differs from FRM", () => {
-    const off = mc({ items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }, { className: "Desc_OreIron_C", name: "Iron Ore", amount: 30, stackMax: 100 }] });
-    const v = B.judgeStorage(threePosts([[off], [off], [off]]));
+    const v = run([[off], [off], [off]]);
     expect(v.pass).toBe(false);
     expect(text(v)).toContain("amount: ");
   });
   it("all agree with each other and with FRM: passes", () => {
-    const v = B.judgeStorage(threePosts([[mc()], [mc()], [mc()]]));
+    const v = run([[mc()], [mc()], [mc()]]);
     expect(v.pass).toBe(true);
-    expect(text(v)).toContain("3 container(s) unchanged between the brackets and across the mod's neighbouring posts");
+    expect(text(v)).toContain("6 container(s) unchanged between the brackets and across the mod's neighbouring posts");
   });
   it("a changing mod container that differs from FRM passes as report-only", () => {
-    const v = B.judgeStorage(threePosts([[moved], [mc({ slotsUsed: 2 })], [moved]]));
+    const v = run([[moved], [mc({ slotsUsed: 2 })], [moved]]);
     expect(v.pass).toBe(true);
     expect(text(v)).toContain("3 changed between the mod's own neighbouring posts");
-    expect(v.never).toContain("a container unchanged between the brackets (exact contents rule)");
+  });
+  it("the first and last post check their one neighbour (the first differs from the second, the last agrees with FRM and the second)", () => {
+    const v = run([[off], [mc()], [mc()]]);
+    // Post 1 differs from its only neighbour: report-only. Post 2 has a differing neighbour: report-only. Post 3 agrees with post 2 and FRM: judged, passes.
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("2 changed between the mod's own neighbouring posts");
+    // The last post alone differing from FRM and agreeing with its neighbour fails.
+    expect(run([[mc()], [off], [off]]).pass).toBe(false);
+  });
+  it("a container in one post only has no neighbour holding it and is judged on the FRM brackets", () => {
+    const v = run([[], [off], []]);
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("amount: ");
+  });
+  it("no stable container among those compared fails", () => {
+    const v = B.judgeStorage(threePosts([[moved], [mc({ slotsUsed: 2 })], [moved]]));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no stable container among 3 compared: contents never judged");
   });
 });
 
@@ -427,14 +459,22 @@ describe("judgeStorage", () => {
   });
   it("one bracket only is report-only for contents (and says so in NOT EXERCISED)", () => {
     const v = B.judgeStorage(cev({ post: [mc({ slotsUsed: 9, items: [] })] }));
-    expect(v.pass).toBe(true);
-    expect(text(v)).toContain("1 had one bracket only");
-    expect(v.never).toContain("a container unchanged between the brackets (exact contents rule)");
+    // Owner ruling 2026-10-28: nothing was stable, so the run fails, but the contents were not judged.
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no stable container among 1 compared");
+    expect(text(v)).not.toContain("slotsUsed:");
   });
-  it("a container that changed between the brackets is report-only for contents", () => {
-    const v = B.judgeStorage(cev({ after: [fc({ slotsUsed: 3, items: [{ class: "Desc_Coal_C", amount: 1, stackMax: 100 }] })], post: [mc({ slotsUsed: 9, items: [] })] }));
+  it("a container that changed between the brackets is report-only for contents (another container is stable)", () => {
+    const c2 = fc({ id: "C2" });
+    const v = B.judgeStorage(cev({ frm: [fc(), c2], after: [fc({ slotsUsed: 3, items: [{ class: "Desc_Coal_C", amount: 1, stackMax: 100 }] }), c2], post: [mc({ slotsUsed: 9, items: [] }), mc({ id: "C2" })] }));
     expect(v.pass).toBe(true);
     expect(text(v)).toContain("1 container(s) changed between the brackets");
+  });
+  it("owner ruling 2026-10-28: containers compared but none stable fails; one stable passes as before", () => {
+    const v = B.judgeStorage(cev({ after: [fc({ slotsUsed: 3 })] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no stable container among 1 compared: contents never judged");
+    expect(B.judgeStorage(stable()).pass).toBe(true);
   });
   it.each([
     ["className", { className: "Build_Other_C" }, "className"],
@@ -499,7 +539,8 @@ describe("judgeStorage", () => {
   });
   it("the over-64 line stays NOT EXERCISED when the capped container was not judged exactly", () => {
     const frm = [fc({ items: many, slotsUsed: 70 })];
-    const v = B.judgeStorage(cev({ frm, after: [fc({ items: many.slice(0, 5), slotsUsed: 5 })], post: [mc({ slotsUsed: 70, items: modItems(many.slice(0, 64)) })] }));
+    const c2 = fc({ id: "C2" });
+    const v = B.judgeStorage(cev({ frm: [...frm, c2], after: [fc({ items: many.slice(0, 5), slotsUsed: 5 }), c2], post: [mc({ slotsUsed: 70, items: modItems(many.slice(0, 64)) }), mc({ id: "C2" })] }));
     expect(v.pass).toBe(true);
     expect(v.never).toContain("a container over 64 classes");
   });

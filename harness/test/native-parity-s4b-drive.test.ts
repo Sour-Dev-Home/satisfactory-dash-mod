@@ -116,6 +116,33 @@ describe("native-parity drive (S4-B)", () => {
       expect(calls).toEqual(["storage"]);
     });
 
+    it("owner ruling 2026-10-28: every extractors post 30 s apart triggers one /getExtractor sample; the other endpoints keep the floor", async () => {
+      const { calls, s } = fake();
+      const seen = fresh();
+      const entries: RecordedCall[] = [];
+      let t = T0;
+      for (let i = 0; i < 2; i++) {
+        entries.push(snap({ factory: { buildings: [], extractors: [extractor] }, storage: { containers: [container] } }, { at: iso(T0 + 60_000 + i * 30_000) }));
+        await takeAfterNewS4bPosts(s, entries, T0, seen, () => t);
+        t += 30_000;
+      }
+      expect(calls.filter((c) => c === "extractors")).toHaveLength(2);
+      expect(calls.filter((c) => c === "storage")).toHaveLength(2); // 30 s apart is the floor itself
+      // Two extractors posts 5 s apart: both sampled; storage inside its floor is not.
+      const { calls: c2, s: s2 } = fake();
+      const seen2 = fresh();
+      const e2: RecordedCall[] = [];
+      let u = T0;
+      for (let i = 0; i < 2; i++) {
+        e2.push(snap({ factory: { buildings: [], extractors: [extractor] }, storage: { containers: [container] } }, { at: iso(T0 + 60_000 + i * 5_000) }));
+        await takeAfterNewS4bPosts(s2, e2, T0, seen2, () => u);
+        u += 5_000;
+      }
+      expect(c2.filter((c) => c === "extractors")).toHaveLength(2);
+      expect(c2.filter((c) => c === "storage")).toHaveLength(1);
+      expect(c2.filter((c) => c === "stationRates")).toHaveLength(0);
+    });
+
     it("looks only at entries added since the last call (O(new entries)), over a growing recorder", async () => {
       const { calls, s } = fake();
       const seen = fresh();
