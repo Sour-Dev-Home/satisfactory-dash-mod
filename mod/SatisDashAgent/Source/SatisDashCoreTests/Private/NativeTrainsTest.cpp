@@ -1,3 +1,4 @@
+#include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
 #include "SatisDash/Native/Trains/NativeTrains.h"
 #include "TestUtil.h"
 
@@ -36,6 +37,14 @@ bool FNativeTrainsStationRatesTest::RunTest(const FString& Parameters)
 		FString(NativeTrainsRateHead) + TEXT(",\"transferPerMinute\":12.346}]}"));
 	TestEqual(TEXT("a rate of 0 prints 0"), NativeTrainsRateJson(0.0), FString(NativeTrainsRateHead) + TEXT(",\"transferPerMinute\":0}]}"));
 	TestEqual(TEXT("a whole rate prints without a fraction"), NativeTrainsRateJson(60.0), FString(NativeTrainsRateHead) + TEXT(",\"transferPerMinute\":60}]}"));
+	// Open question 4: mapLive and trainRoutes both print the one FStationReading::Id (the game reader sets it once, in TrainsReadStation).
+	TArray<FStationReading> One;
+	One.Add(NativeTrainsRateStation(TEXT("Build_TrainStation_C_7"), 1.0));
+	FString MapLive;
+	NativeMapLiveJson(TArray<FTrainReading>(), One, MapLive);
+	const FNativeWorldBody Routes = BuildNativeTrainRoutes(TEXT("2026-10-27T00:00:00Z"), One, TArray<FTrainReading>());
+	TestTrue(TEXT("mapLive prints the station id"), MapLive.Contains(TEXT("\"id\":\"Build_TrainStation_C_7\"")));
+	TestTrue(TEXT("trainRoutes prints the same station id"), Routes.Json.Contains(TEXT("\"Build_TrainStation_C_7\"")));
 	return true;
 }
 

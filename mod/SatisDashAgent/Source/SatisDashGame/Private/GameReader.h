@@ -33,7 +33,7 @@ namespace SatisDash
 		virtual TOptional<TArray<FFactoryReading>> StepFactoryRead(FStepBudget& Budget) override;
 		virtual bool FactoryReadAbandoned() const override { return bFactoryAbandoned; }
 		virtual void EndFactoryRead() override { ResetFactoryRead(); }
-		virtual bool BeginTrainsRead() override;
+		virtual bool BeginTrainsRead(bool bStationRates = false) override;
 		virtual TOptional<FTrainsSnapshot> StepTrainsRead(FStepBudget& Budget) override;
 		virtual bool TrainsReadAbandoned() const override { return bTrainsAbandoned; }
 		virtual void EndTrainsRead() override { ResetTrainsRead(); }
@@ -117,6 +117,8 @@ namespace SatisDash
 		int32 TrainsCursor = 0;
 		int32 StationsCursor = 0;
 		bool bTrainsOpen = false;
+		/** The open read also reads the cargo platforms' transfer rates (stationRatesSource native). */
+		bool bTrainsStationRates = false;
 		/** The read that just returned was abandoned (no subsystem, or a world swap), not finished. */
 		bool bTrainsAbandoned = false;
 		FTrainsSnapshot TrainsFound;

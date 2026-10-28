@@ -165,7 +165,7 @@ namespace SatisDash::Test
 		bool bTrainsAbandon = false;
 		/** A read is open (begun, not finished or ended): the real reader keeps one cursor, so a second Begin is refused. */
 		bool bTrainsOpen = false;
-		virtual bool BeginTrainsRead() override
+		virtual bool BeginTrainsRead(bool bStationRates = false) override
 		{
 			++TrainsBegins;
 			if (!bTrainsWorld || bTrainsOpen)
