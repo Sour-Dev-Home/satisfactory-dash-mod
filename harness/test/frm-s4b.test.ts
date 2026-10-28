@@ -55,6 +55,9 @@ describe("mapFrmGenerators", () => {
     const [g] = mapFrmGenerators([generator({ FuelInventory: [], Supplement: {}, RegulatedDemandProd: 0 })]);
     expect(g).toMatchObject({ fuelClass: null, fuelAmount: null, supplementClass: null, supplementAmount: null, producing: false });
   });
+  it("drops a malformed or over-long-named record", () => {
+    expect(mapFrmGenerators([generator({ ID: "" }), generator({ Name: "n".repeat(201) }), generator({ ProductionCapacity: "x" }), 1])).toEqual([]);
+  });
   it("never returns a raw name", () => {
     expect(JSON.stringify(mapFrmGenerators([generator()]))).not.toContain("Secret");
   });
@@ -63,8 +66,21 @@ describe("mapFrmGenerators", () => {
 describe("mapFrmStationRates", () => {
   it("has a station transfer equal to the sum of its platforms in the fixture", () => {
     const [s] = mapFrmStationRates([station()]);
-    expect(s).toEqual({ id: "Build_TrainStation_C_1", nameHash: evidenceHash("Secret Station"), transfer: 2, platformSum: 2, platformCount: 2 });
+    expect(s).toEqual({ id: "Build_TrainStation_C_1", nameHash: evidenceHash("Secret Station"), transfer: 2, platformSum: 2, platformCount: 2,
+      platforms: [{ className: "", rate: 1.5 }, { className: "", rate: 0.5 }],
+    });
     expect(s!.transfer).toBe(s!.platformSum);
+  });
+  it("keeps each platform's class, an empty platform included", () => {
+    const [s] = mapFrmStationRates([station({ CargoInventory: [
+      { ClassName: "Build_TrainDockingStation_C", TransferRate: 2 }, { ClassName: "Build_TrainPlatformEmpty_02_C", TransferRate: 0 },
+    ] })]);
+    expect(s).toMatchObject({ platformCount: 2, platformSum: 2, platforms: [
+      { className: "Build_TrainDockingStation_C", rate: 2 }, { className: "Build_TrainPlatformEmpty_02_C", rate: 0 },
+    ] });
+  });
+  it("drops a malformed or over-long-named record", () => {
+    expect(mapFrmStationRates([station({ ID: "" }), station({ Name: "n".repeat(201) }), station({ TransferRate: "x" }), 3])).toEqual([]);
   });
   it("counts only platforms with a numeric rate and hides the name", () => {
     const out = mapFrmStationRates([station({ CargoInventory: [{ TransferRate: "x" }, { TransferRate: 1 }] })]);
@@ -84,6 +100,16 @@ describe("mapFrmStorage", () => {
   it("gives null for a missing slot count or stack size, and fluidCapacity is always null", () => {
     const [c] = mapFrmStorage([box({ Slots: undefined, FluidCapacity: 400, Inventory: [{ ClassName: "Desc_Water_C", Amount: 5 }] })]);
     expect(c).toMatchObject({ slots: null, slotsUsed: 2, fluidCapacity: null, items: [{ class: "Desc_Water_C", amount: 5, stackMax: null }] });
+  });
+  it("merges stacks of one class (sum, first stack max) and sorts by class", () => {
+    const [c] = mapFrmStorage([box({ Inventory: [
+      { ClassName: "Desc_Wire_C", Amount: 100, MaxAmount: 500 }, { ClassName: "Desc_Cable_C", Amount: 3 },
+      { ClassName: "Desc_Wire_C", Amount: 50, MaxAmount: 999 }, { ClassName: "Desc_Cable_C", Amount: 4, MaxAmount: 200 },
+    ] })]);
+    expect(c!.items).toEqual([{ class: "Desc_Cable_C", amount: 7, stackMax: null }, { class: "Desc_Wire_C", amount: 150, stackMax: 500 }]);
+  });
+  it("drops a malformed or over-long-named record", () => {
+    expect(mapFrmStorage([box({ ID: "" }), box({ Name: "n".repeat(201) }), box({ ClassName: 5 }), null])).toEqual([]);
   });
   it("never returns a raw name", () => {
     expect(JSON.stringify(mapFrmStorage([box()]))).not.toContain("Secret");

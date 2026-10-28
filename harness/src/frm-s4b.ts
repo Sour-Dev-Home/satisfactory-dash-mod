@@ -19,7 +19,9 @@ const arrayBody = (body: unknown, what: string): unknown[] => {
   return body;
 };
 const goodString = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_STRING;
-const idOf = (r: Record<string, unknown>): string | undefined => (goodString(r.ID) ? r.ID : undefined);
+/** A Name is bounded before hashing exactly as frm-s4 does: a non-string or over-long name drops the record. */
+const nameOk = (v: unknown): v is string => typeof v === "string" && v.length <= MAX_STRING;
+const idOf =(r: Record<string, unknown>): string | undefined => (goodString(r.ID) ? r.ID : undefined);
 /** PowerInfo.CircuitID: the captures show -1 on an unconnected building (observed, not specified); that and a missing value give undefined. */
 const circuitOf = (r: Record<string, unknown>): number | undefined => {
   const c = isObj(r.PowerInfo) ? r.PowerInfo.CircuitID : undefined;
@@ -94,11 +96,14 @@ export interface FrmGenerator {
   capacityMW: number;
   /** CurrentPotential: observed 100 at default clock. Not specified. */
   clockPercent: number;
-  /** currentMW > 0 (FRM has no generator running flag in the captures). */
+  /** currentMW > 0 (FRM has no generator running flag in the captures). Observed, not specified. Note an IsProducing flag and a
+   *  rate can disagree: a Mk.1 miner in the capture reads IsProducing false with CurrentProd above 0. A geothermal generator reads 0
+   *  here (GeoMinPower and GeoMaxPower are in raw). */
   producing: boolean;
   /** The first FuelInventory entry that is not the Supplement class, and its Amount (items; FuelInventory.Amount, observed). */
   fuelClass: string | null; fuelAmount: number | null;
-  /** The FuelInventory entry whose class is Supplement.ClassName (water on a coal generator), and its Amount. */
+  /** The FuelInventory entry whose class is Supplement.ClassName (water on a coal generator), and its Amount. Both are null when
+   *  FRM gives no Supplement class (empty, "N/A" record or `{}`) or FuelInventory has no entry of that class. */
   supplementClass: string | null; supplementAmount: number | null;
   /** Every finite numeric power field FRM wrote, by FRM's own key (BaseProd, RegulatedDemandProd, DynamicProdCapacity,
    *  ProductionCapacity, PowerProductionPotential, DefaultProductionCapacity, CurrentPotential, LoadPercentage, ...). Evidence for
@@ -112,7 +117,7 @@ export function mapFrmGenerators(body: unknown): FrmGenerator[] {
   for (const r of arrayBody(body, "getGenerators")) {
     if (!isObj(r)) continue;
     const id = idOf(r);
-    if (id === undefined || !goodString(r.ClassName) || typeof r.Name !== "string") continue;
+    if (id === undefined || !goodString(r.ClassName) || !nameOk(r.Name)) continue;
     if (!isNum(r.RegulatedDemandProd) || !isNum(r.ProductionCapacity) || !isNum(r.CurrentPotential)) continue;
     const supplementClass = isObj(r.Supplement) && goodString(r.Supplement.ClassName) ? r.Supplement.ClassName : null;
     let fuelClass: string | null = null;
@@ -150,6 +155,9 @@ export interface FrmStationRate {
   /** The sum of the platforms' TransferRate (CargoInventory entries), copied as given and added in order. */
   platformSum: number;
   platformCount: number;
+  /** The judge compares `transfer`; `platforms` is evidence (no capture yet shows FRM's marker for a fluid platform). One entry per
+   *  CargoInventory record with a numeric TransferRate, empty platforms (rate 0) included: the class as FRM wrote it, the rate as given. */
+  platforms: Array<{ className: string; rate: number }>;
 }
 
 export function mapFrmStationRates(body: unknown): FrmStationRate[] {
@@ -157,17 +165,17 @@ export function mapFrmStationRates(body: unknown): FrmStationRate[] {
   for (const r of arrayBody(body, "getTrainStation")) {
     if (!isObj(r)) continue;
     const id = idOf(r);
-    if (id === undefined || typeof r.Name !== "string" || !isNum(r.TransferRate)) continue;
+    if (id === undefined || !nameOk(r.Name) || !isNum(r.TransferRate)) continue;
     let platformSum = 0;
-    let platformCount = 0;
+    const platforms: Array<{ className: string; rate: number }> = [];
     if (Array.isArray(r.CargoInventory)) {
       for (const p of r.CargoInventory) {
         if (!isObj(p) || !isNum(p.TransferRate)) continue;
         platformSum += p.TransferRate;
-        platformCount++;
+        platforms.push({ className: typeof p.ClassName === "string" ? p.ClassName : "", rate: p.TransferRate });
       }
     }
-    out.push({ id, nameHash: evidenceHash(r.Name), transfer: r.TransferRate, platformSum, platformCount });
+    out.push({ id, nameHash: evidenceHash(r.Name), transfer: r.TransferRate, platformSum, platformCount: platforms.length, platforms });
   }
   return byId(out);
 }
@@ -181,7 +189,8 @@ export interface FrmContainer {
   slots: number | null; slotsUsed: number | null;
   /** No capture shows FRM's key for a fluid buffer's capacity; the judge reports it, never judges it, until a capture does. Always null. */
   fluidCapacity: null;
-  /** Inventory entries: ClassName, Amount, MaxAmount (the stack size, observed; null when absent). */
+  /** Inventory merged per item class, sorted by class (the rule our Core uses): amount is the sum over the class's entries and
+   *  is a total, not a stack (it can exceed stackMax times slots); stackMax is MaxAmount of the first entry of the class, null when absent. */
   items: FrmContainerItem[];
 }
 
@@ -190,15 +199,17 @@ export function mapFrmStorage(body: unknown): FrmContainer[] {
   for (const r of arrayBody(body, "getStorageInv")) {
     if (!isObj(r)) continue;
     const id = idOf(r);
-    if (id === undefined || !goodString(r.ClassName) || typeof r.Name !== "string") continue;
-    const items: FrmContainerItem[] = [];
+    if (id === undefined || !goodString(r.ClassName) || !nameOk(r.Name)) continue;
+    const merged = new Map<string, FrmContainerItem>();
     if (Array.isArray(r.Inventory)) {
       for (const e of r.Inventory) {
         if (!isObj(e) || !goodString(e.ClassName) || !isNum(e.Amount)) continue;
-        items.push({ class: e.ClassName, amount: e.Amount, stackMax: isNum(e.MaxAmount) ? e.MaxAmount : null });
+        const have = merged.get(e.ClassName);
+        if (have) have.amount += e.Amount;
+        else merged.set(e.ClassName, { class: e.ClassName, amount: e.Amount, stackMax: isNum(e.MaxAmount) ? e.MaxAmount : null });
       }
     }
-    items.sort((a, b) => byCodeUnit(a.class, b.class));
+    const items = [...merged.values()].sort((a, b) => byCodeUnit(a.class, b.class));
     out.push({
       id, className: r.ClassName, nameHash: evidenceHash(r.Name),
       slots: isNum(r.Slots) ? r.Slots : null, slotsUsed: isNum(r.SlotsUsed) ? r.SlotsUsed : null,
