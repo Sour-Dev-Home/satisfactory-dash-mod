@@ -20,8 +20,8 @@ ADR-0058 (satisfactory-dash) replaces FicsitRemoteMonitoring (FRM) reader by rea
 | Power lines | S4-A | `native` (default; `powerLinesSource`) | passed `native-parity` (run 40528626676: all 13 readers pass on Test3) and `tick-cost-native` (run 40567693408); the switch exists and the mod logs `powerLines=` on its `Readers:` line; `bridge` means the layer is not sent. `native` rides the shared logistics pass (the wires through `AFGBuildableWire`; a wire with a missing end is dropped and counted; a Warning when no wire is read or the count differs from the subsystem's by more than max(5, 5%)); `bridge` stays available as the off switch |
 | Extractors | S4-B | `bridge` (default; `extractorsSource`) | the switch exists and the mod logs `extractors=` after `powerLines=` on its `Readers:` line; not sent. The game-side read is the Buildables pass (factory cadence, one cursor over the buildable list, the extractor branch first; rates per minute from items per cycle over the cycle time at the current clock, purity assumed inside the cycle time: NEEDS VERIFICATION, the parity run judges). When native, the fragment rides the factory part and may lag one cadence behind it (a part ready before the Buildables pass ends carries the previous cycle's fragment, within the 1.5 x `FactorySeconds` gate; accepted) |
 | Generators | S4-B | `bridge` (default; `generatorsSource`) | the switch exists and the mod logs `generators=` on its `Readers:` line; not sent. The Buildables pass takes the generators flag and the driver holds the finished fragment (ruling B3): it is attached as `power.generators` to every power part (every `PowerSeconds`) until it is older than `GeneratorsStaleFactor` (3) x `FactorySeconds`, then omitted ("not read"). The game-side read is the Buildables pass (generators branch: current MW = power-info base + regulated dynamic production, capacity = the potential-aware `CalcPowerProductionCapacityForPotential` at the current clock, fuel and supplement from the fuel inventory slots, fluids in m3, waste never read; units MW assumed, geothermal's value, and the production boost (the header does not say whether base + regulated or the capacity call include `GetProductionBoostFactor` / `GetActualProductionBoost`; parity exercises a boosted generator or records it NOT EXERCISED): NEEDS VERIFICATION, the parity run judges) |
-| Station rates | S4-B | `bridge` (default; `stationRatesSource`) | the switch exists and the mod logs `stationRates=` on its `Readers:` line; not sent. No native reader yet |
-| Storage | S4-B | `bridge` (default; `storageSource`) | the switch exists and the mod logs `storage=` on its `Readers:` line; not sent. The Buildables pass takes the storage flag and the driver holds the finished fragment (ruling B3): it is written as the top-level `storage` part of the first snapshot after it is built, then cleared (once per read), and only on a snapshot with a status (never with `reachable: false`). If the assembled body passes `SnapshotMaxBytes` (5 MB, the dash backend's `SNAPSHOT_MAX_BYTES`, checked on the uncompressed JSON), `storage` is left out first, then `power.generators`, then `factory.extractors`, with a rate-limited Warning giving sizes in bytes (never a partial part). The game-side read is not wired yet |
+| Station rates | S4-B | `bridge` (default; `stationRatesSource`) | the switch exists and the mod logs `stationRates=` on its `Readers:` line; not sent. The reader is built (PR #72): the station's rate is read by Unreal reflection (owner-approved, 2026-10-27), calling the game's private `GetCurrentItemTransferRate` by name (native-only, no input, one numeric return, valid and reachable object, local callspace), with the smoothed load and unload properties as the fallback; a failure leaves the rate absent and logs a rate-limited Warning (class name only). Fluid platforms are skipped. The unit factor `NativeStationRateToPerMinute` is 1.0 and NEEDS VERIFICATION: the first parity run judges it (median ratio band [0.8, 1.25]), and the reflection call itself in a shipped server build |
+| Storage | S4-B | `bridge` (default; `storageSource`) | the switch exists and the mod logs `storage=` on its `Readers:` line; not sent. The Buildables pass takes the storage flag and the driver holds the finished fragment (ruling B3): it is written as the top-level `storage` part of the first snapshot after it is built, then cleared (once per read), and only on a snapshot with a status (never with `reachable: false`), and dropped if older than 1.5 x `FactorySeconds`. If the assembled body passes `SnapshotMaxBytes` (5 MiB, the dash backend's `SNAPSHOT_MAX_BYTES`, checked on the uncompressed JSON), `storage` is left out first, then `power.generators`, then `factory.extractors`, with a rate-limited Warning giving sizes in bytes (never a partial part). The game-side read is the Buildables pass (containers branch). NEEDS VERIFICATION in the parity run: whether the Industrial Fluid Buffer is `AFGBuildablePipeReservoir` and whether an empty buffer's descriptor is null |
 
 ## The hidden source override (a stopgap, not a setting)
 
@@ -43,7 +43,7 @@ Until the bridge is removed (ADR-0058, R7) a host can force a reader's source in
     "storageSource": "native"
 
 The value is exactly `bridge` or `native` (anything else makes the config Broken, as a bad `frmPort` does). With no key a
-reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource`, `DefaultConveyorsSource` in `Config.h`; all six are `native`: the factory and trains ones since the S2 switch, the rails and conveyors ones since the S3 switch). The S4-A keys (`mapMarkersSource`, `droneRoutesSource`, `powerLinesSource`; `DefaultMapMarkersSource`, `DefaultDroneRoutesSource`, `DefaultPowerLinesSource`) are `native` too, since the S4 switch; `bridge` for these three layers means the layer is not sent. The S4-B keys (`extractorsSource`, `generatorsSource`, `stationRatesSource`, `storageSource`; `DefaultExtractorsSource`, `DefaultGeneratorsSource`, `DefaultStationRatesSource`, `DefaultStorageSource`) default to `bridge`, which for now means the layer is not sent (no native reader yet). For the other keys `bridge` needs FRM installed.
+reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource`, `DefaultConveyorsSource` in `Config.h`; all six are `native`: the factory and trains ones since the S2 switch, the rails and conveyors ones since the S3 switch). The S4-A keys (`mapMarkersSource`, `droneRoutesSource`, `powerLinesSource`; `DefaultMapMarkersSource`, `DefaultDroneRoutesSource`, `DefaultPowerLinesSource`) are `native` too, since the S4 switch; `bridge` for these three layers means the layer is not sent. The S4-B keys (`extractorsSource`, `generatorsSource`, `stationRatesSource`, `storageSource`; `DefaultExtractorsSource`, `DefaultGeneratorsSource`, `DefaultStationRatesSource`, `DefaultStorageSource`) default to `bridge`, which for now means the layer is not sent; set a key to `native` to send it. For the other keys `bridge` needs FRM installed.
 The keys are deleted with the bridge in the removal release; do not build on them. There is no key for power: it has no
 bridge path.
 
@@ -83,6 +83,27 @@ forward with rails and conveyors. The first native post of each layer changes it
 and ports change, and `droneRoutes` posts carry `pairedId`.
 
 The three snapshot fields below are different: they are sent on every snapshot, whatever the layer sources.
+
+## Where each reader stands (S4-B)
+
+Extractors, generators, station rates and storage are all built, and all four are still `bridge` by default, which means not
+sent. Extractors (PR #70, 321afd4) and generators (PR #71, c3f7629) are merged; station rates is PR #72 (open); storage is the
+next PR. No parity run has judged any of them yet. The switch PR comes after `native-parity` passes on `Test3`, on the owner's
+word. The dash contracts are vendored at c161d43 (#782), d9f11da (#784), 9397b85 (#785) and 48ed815 (#788); backend images must
+be built from 48ed815 or later before `native-parity`.
+
+Extractors, generators and storage share one Buildables pass: a sliced walk of the buildable list on the factory cadence
+(`FactorySeconds`, 30 s by default), with no 480 s first-read delay.
+
+- Extractors are spliced into the factory part and held at most 1.5 x `FactorySeconds`. They may trail the factory part by one
+  cadence; that is accepted.
+- Generators are attached to every power part until they are older than 3 x `FactorySeconds` (`GeneratorsStaleFactor`).
+- Storage is sent once per read, dropped if older than 1.5 x `FactorySeconds`, and never sent on an unreachable snapshot.
+- Over the 5 MiB uncompressed body cap (a mod constant citing the dash backend's `SNAPSHOT_MAX_BYTES`) storage is dropped first,
+  then generators, then extractors.
+- Station rates ride the existing trains and stations read. The rate factor `NativeStationRateToPerMinute` is 1.0 and NEEDS
+  VERIFICATION by the first parity run; a wrong unit fails the judge's median-ratio band.
+- Ids of rebuilt buildables change: a dismantled and rebuilt building gets a new id.
 
 ## The snapshot's game-connection fields (S4-A, R7)
 
@@ -146,6 +167,20 @@ Reported, not rules; none of them changes a pass condition. The judges are in `r
   when no wire is read or a real count disagrees. The parity id-set check is what proves the wires are in the list.
 - The S4 FRM samplers poll every 90 s. The dropped-wire count is not judged (no wires-only dropped parser).
 
+## Before reading the S4-B results
+
+Reported, not rules; none of them changes a pass condition. The judges are in `runs/native-parity/pass-s4b.ts`.
+
+- Extractors: `isBackedUp` is reported; so are extractors with more than one production entry.
+- Generators: `isProducing` and the fuel and supplement amounts are reported; so is geothermal capacity when FRM says 0.
+- Storage: the `fluidCapacityM3` value and the contents of containers that changed between samples are reported. Fluid buffers
+  are recognised from FRM's side (an item with `stackMax` null).
+- NEEDS VERIFICATION, settled by the parity run: extractor purity inside the cycle time, fluid litres, the productivity scale
+  and the Blueprint oil pump class; generator MW units, whether the production boost is included, and geothermal capacity; the
+  reflection call in a shipped server build and the station rate unit; whether the Industrial Fluid Buffer is
+  `AFGBuildablePipeReservoir` and whether an empty buffer's descriptor is null.
+- Anything the save does not hold is NOT EXERCISED, reported and never failed.
+
 ## The Test3 note
 
 The S3 runs (`native-parity`, `tick-cost-native`) load the owner's `Test3` save through the runner config's `sprint3World`
@@ -159,7 +194,9 @@ the `s4-capture` run (PR #67); nothing here is guessed.
 
 ## Follow-ups after S4-A
 
-- S4-B: extractors, generators, train transfer rates and storage, once the dash contracts for them land.
+- (Built) S4-B: extractors, generators, train transfer rates and storage; judged by the runs in `docs/runner.md`.
+- After S4-B: one switch PR flipping the four defaults to `native` (a reader that missed stays `bridge`), with `mod-claims.md`
+  rows and a dash evidence PR.
 - A wires-only dropped parser, so `judgeWires` can apply the dropped-wire check.
 - `IsValid` on the subsystem checks across all readers.
 - (Done) The switch for markers, drone routes and power lines, after `native-parity` passed on `Test3`.

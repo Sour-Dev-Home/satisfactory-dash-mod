@@ -183,6 +183,9 @@ Actions → spike → the latest `main` push: `selftest` waits for your approval
 The core mod's unit tests (`mod/SatisDashAgent`, UE automation tests) run through `mod-test.yml`, which calls
 `harness test-mod`.
 
+- **Rule: one Unreal build at a time.** A local `test-mod` and the self-hosted runner both mirror into the same SML project
+  folder (`modTest.project`, on `D:`, such as `D:/SatisfactoryModding/...`). Never run a local `test-mod` while a runner
+  `mod-test` is in progress; run 40599303052 failed at link for this reason.
 - The runner config gains `"modTest": { "project": "<SML project folder>", "engine": "<engine root>" }`: the same two
   folders `buildCommand` already passes to `build-spike.ps1`. The owner adds it once.
 - `mod-test.yml` needs the `ue-runner` deployment approved, like `spike.yml`. It runs on pushes to `main` that touch
@@ -317,6 +320,24 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   keys; an S1 to S4-A capture is judged as before. Snapshots come every 5 s, so the extra FRM sample (beyond the 90 s periodic one) is
   taken only after a snapshot carrying a fragment from a new mod read (generators: a different generators array, since it rides every
   power part), and at most once per 30 s per endpoint.
+
+  **The S4-B runs, in order (owner dispatches each once; nothing else is run).**
+  1. `mod-test` on each PR branch (floors 211, 217, 220, 226).
+  2. Owner step: rebuild the backend images from the last vendored contract pin (`48ed815`) or later.
+  3. `native-parity` on `Test3` (30-minute window; needs the backend host, `frmBaseUrl` and `sprint3World`). The first run
+     records the station raw values next to FRM's (R4). A failed factor check stops the work and is reported with the evidence
+     bundle.
+  4. `tick-cost-native` (baseline boot, then mod boot, on `Test3`). It passes with `Buildables read` at or under 2 ms.
+
+  `readers.json` must show, per reader, `pass: true` with reasons listing what was compared and what is NOT EXERCISED:
+  extractors (ids, class, resource, max, state flags, current within the stated band), generators (ids, class, fuel classes,
+  capacity, current within band, amounts reported), station rates (ids, per-station tolerance, median ratio in the band,
+  inflow and outflow absent) and storage (ids, class, slots, fluid capacity, stable-container contents).
+
+  **Owner's checklist before the `Test3` runs.** `Test3` has miners and a pump (ideally a fluid extractor and an unoccupied
+  one), generators of several kinds (coal with water, fuel, biomass, ideally nuclear and geothermal), two or more item freight
+  platforms with trains running (and a fluid platform, if available), item containers, a fluid buffer and the depot uploader.
+  FRM is running, the four dash contracts are merged and the backend is at that pin. Absent items are NOT EXERCISED.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S4`: the S3 set plus the map markers, drone routes and power lines readers),
   loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`
