@@ -6,7 +6,7 @@
 // since the owner's decision of 2026-10-26 the longest step of every sliced native read is judged against 2 ms.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { TICK_WARMUP_MS } from "../../harness/src/ticks";
-import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, mapMarkersLogProblems, droneRoutesLogProblems, powerLinesLogProblems, extractorsLogProblems, generatorsLogProblems, stationRatesLogProblems, storageLogProblems, logisticsLineProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
+import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, mapMarkersLogProblems, droneRoutesLogProblems, powerLinesLogProblems, extractorsLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLineProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import * as Base from "../tick-cost/pass";
 
@@ -86,7 +86,7 @@ export function evaluate(e: CoreEvidence): Verdict {
     for (const k of ["extractorsSource", "generatorsSource", "stationRatesSource", "storageSource"] as const) {
       if (sources?.[k] !== "native") extra.push(`the run did not write ${k} as native into the mod's config (it says ${String(sources?.[k])})`);
     }
-    extra.push(...extractorsLogProblems(e.lines), ...generatorsLogProblems(e.lines), ...stationRatesLogProblems(e.lines), ...storageLogProblems(e.lines));
+    extra.push(...extractorsLogProblems(e.lines), ...generatorsLogProblems(e.lines), ...stationRatesLogProblems(e.lines), ...stationRatesLineProblems(e.lines), ...storageLogProblems(e.lines));
   }
   if (sources?.playersSource !== "native" || sources?.resourceNodesSource !== "native") extra.push("the run did not write playersSource and resourceNodesSource as native into the mod's config");
   const parts = e.captures["snapshot-parts.json"] as Parts | undefined;

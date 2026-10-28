@@ -339,7 +339,19 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
         })();
         return s;
       };
-      const s4bLines = (longest = "0.70", readers = S4B_READERS) => [...base(readers), buildables(longest)];
+      const rates = (read = 6, failed = 0) => `${IN}Station rates (reflection read): ${read} platforms read, 0 fluid platforms skipped, ${failed} lookups failed`;
+      const s4bLines = (longest = "0.70", readers = S4B_READERS) => [...base(readers), buildables(longest), rates()];
+      it("fails a missing, failed or empty station rates counts line for an S4-B config", () => {
+        const none = Native.evaluate(evidence({ sources: S4B, lines: [...base(), buildables()] }));
+        expect(none.pass).toBe(false);
+        expect(none.reasons.join("\n")).toMatch(/no "Station rates \(reflection read\):" line/);
+        const failed = Native.evaluate(evidence({ sources: S4B, lines: [...base(), buildables(), rates(6, 2)] }));
+        expect(failed.pass).toBe(false);
+        expect(failed.reasons.join("\n")).toMatch(/2 lookups failed/);
+        const empty = Native.evaluate(evidence({ sources: S4B, lines: [...base(), buildables(), rates(0, 0)] }));
+        expect(empty.pass).toBe(false);
+        expect(empty.reasons.join("\n")).toMatch(/read 0 platforms/);
+      });
       it("fails when the Readers line shows storage=bridge, or is the nine-field S4-A line, for an S4-B config", () => {
         const b = Native.evaluate(evidence({ sources: S4B, lines: s4bLines("0.7", S4B_READERS.replace("storage=native", "storage=bridge")) }));
         expect(b.pass).toBe(false);

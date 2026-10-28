@@ -27,7 +27,7 @@ import { ResourceNodesLayerDataSchema } from "../../harness/contract/src/map";
 import type { FrmCircuitGroup } from "../../harness/src/frm";
 import { canonNodes, type CanonNode } from "../../harness/src/frm-native";
 import {
-  conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, storageLogProblems, kindCheck, logisticsLineProblems, mapMarkersLogProblems, nodesLogProblems,
+  conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, kindCheck, logisticsLineProblems, mapMarkersLogProblems, nodesLogProblems,
   playersLogProblems, powerLinesLogProblems, railsLogProblems, stepCosts, trainsLogProblems, withProblems,
 } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
@@ -443,7 +443,7 @@ export function evaluate(e: CoreEvidence): Verdict {
     names.push(
       ["R-extractors", "extractors", withProblems(v.extractors ?? none, [...extractorsLogProblems(e.lines), ...readLineProblems(e.lines, "Buildables read")])],
       ["R-generators", "generators", withProblems(v.generators ?? none, [...generatorsLogProblems(e.lines), ...readLineProblems(e.lines, "Buildables read")])],
-      ["R-station-rates", "stationRates", withProblems(v.stationRates ?? none, [...stationRatesLogProblems(e.lines)])],
+      ["R-station-rates", "stationRates", withProblems(v.stationRates ?? none, [...stationRatesLogProblems(e.lines), ...stationRatesLineProblems(e.lines)])],
       ["R-storage", "storage", withProblems(v.storage ?? none, [...storageLogProblems(e.lines), ...readLineProblems(e.lines, "Buildables read")])],
     );
   }
