@@ -1681,8 +1681,9 @@ namespace
 	 * S4-B generator MW (V4, survey Q3), both in MW:
 	 *   Current  = power info GetBaseProduction() (FGPowerInfoComponent.h:137, "the power we always provide to the circuit") plus
 	 *              GetRegulatedDynamicProduction() (:160, "the dynamic power production we provide to the circuit").
-	 *   Capacity = CalcPowerProductionCapacityForPotential(GetCurrentPotential()) (FGBuildableGenerator.h:95, "with a given potential",
-	 *              mPowerProduction :126 "in MW"). GetPowerProductionCapacity :87 does not say it follows the clock, so it is not used.
+	 *   Capacity = power info GetBaseProduction() + GetDynamicProductionCapacity() (FGPowerInfoComponent.h:137, :148; owner ruling
+	 *              2026-10-28 after run 40623235820, see the body). GetPowerProductionCapacity (FGBuildableGenerator.h:87) does not say it
+	 *              follows the clock, so it is not used; CalcPowerProductionCapacityForPotential :95 is the fallback without a power info.
 	 * NEEDS VERIFICATION (the parity run judges, a failure goes to a ruling PR, never a weakened judge): the power-info getters state no
 	 * unit (MW assumed), nor whether a generator's output sits in the base or the dynamic part (the sum is read), and the headers do not
 	 * say what a geothermal generator gives through this path (no min/max invented, survey Q4). Also open: the production boost
@@ -1692,11 +1693,22 @@ namespace
 	 */
 	void BuildablesReadGeneratorPower(const AFGBuildableGenerator& Generator, const UFGPowerInfoComponent* PowerInfo, SatisDash::FGeneratorReading& Out)
 	{
+		// Owner ruling 2026-10-28 after run 40623235820 (capacity): the game's own capacity at the current clock is what the generator
+		// registers on its power info, the same split Current uses: GetBaseProduction() (FGPowerInfoComponent.h:137, the power "we always
+		// provide", a geothermal generator's part) plus GetDynamicProductionCapacity() (:148, "the maximum dynamic power production",
+		// set by SetDynamicProductionCapacity :145 "the maximum dynamic power production we can provide to the circuit"). The header does
+		// not say GetPowerProductionCapacity (FGBuildableGenerator.h:87, "the power this generator can produce") follows the clock, so it
+		// is still not used. The run showed CalcPowerProductionCapacityForPotential(GetCurrentPotential()) = 82.5 on a fuel generator at
+		// about a third clock where FRM's DynamicProdCapacity and our current read 83.333. Without a power info the old formula stays.
 		if (PowerInfo != nullptr)
 		{
 			Out.CurrentMW = static_cast<double>(PowerInfo->GetBaseProduction()) + static_cast<double>(PowerInfo->GetRegulatedDynamicProduction());
+			Out.CapacityMW = static_cast<double>(PowerInfo->GetBaseProduction()) + static_cast<double>(PowerInfo->GetDynamicProductionCapacity());
 		}
-		Out.CapacityMW = static_cast<double>(Generator.CalcPowerProductionCapacityForPotential(Generator.GetCurrentPotential()));
+		else
+		{
+			Out.CapacityMW = static_cast<double>(Generator.CalcPowerProductionCapacityForPotential(Generator.GetCurrentPotential()));
+		}
 	}
 }
 
