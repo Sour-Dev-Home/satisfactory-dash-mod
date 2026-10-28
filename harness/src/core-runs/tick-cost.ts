@@ -104,6 +104,29 @@ export async function forwardResolve(resolve: (name: string) => Promise<string[]
   return out;
 }
 
+/**
+ * Owner ruling 2026-10-28 (S12, after run 40706193392): forward-resolves, once, every name the with-mod boot's own DNS cache
+ * gave to an address it contacted that the baseline did not. name -> sorted addresses; [] for a failed lookup (no match).
+ */
+export async function forwardResolveWithModNames(
+  resolve: (name: string) => Promise<string[]>,
+  base: Measured | undefined,
+  withMod: Measured,
+): Promise<Record<string, string[]>> {
+  const addressOf = (x: string) => x.slice(0, x.lastIndexOf(":")).replace(/^\[(.*)\]$/, "$1");
+  const known = new Set((base?.outbound ?? []).map(addressOf));
+  const wanted = new Set<string>();
+  for (const x of withMod.outbound) {
+    const address = addressOf(x);
+    if (!known.has(address)) for (const n of withMod.outboundNames[address] ?? []) wanted.add(n);
+  }
+  const out: Record<string, string[]> = {};
+  for (const name of [...wanted].sort()) {
+    out[name] = await resolve(name).then((a) => [...new Set(a)].sort(), () => []);
+  }
+  return out;
+}
+
 /** Circuit groups in the mod's last accepted snapshot (evidence on the reader's circuit scan). */
 function circuitGroups(snapshot: unknown): number | null {
   const circuits = (snapshot as { power?: { circuits?: unknown } } | undefined)?.power?.circuits;
@@ -199,7 +222,10 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?
       capture.memoryWithMod = w.memory;
       capture.sessionWithMod = w.session;
       capture.outboundNamesWithMod = w.outboundNames;
-      if (ctx.deps.resolveHost) capture.outboundForwardWithMod = await forwardResolve(ctx.deps.resolveHost, base);
+      if (ctx.deps.resolveHost) {
+        capture.outboundForwardWithMod = await forwardResolve(ctx.deps.resolveHost, base);
+        capture.outboundForwardWithModNames = await forwardResolveWithModNames(ctx.deps.resolveHost, base, w);
+      }
     } finally {
       const last = accepted(recorder).at(-1);
       capture.circuitGroups = last ? circuitGroups(last.snapshot) : null;
