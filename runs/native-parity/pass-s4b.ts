@@ -11,6 +11,7 @@ import { PowerGeneratorSchema } from "../../harness/contract/src/power";
 import { StorageContainerSchema, STORAGE_MAX_ITEMS_PER_CONTAINER } from "../../harness/contract/src/storage";
 import type { FrmContainer, FrmExtractor, FrmGenerator, FrmStationRate } from "../../harness/src/frm-s4b";
 import { evidenceId } from "../../harness/src/frm-s4";
+import { S2_DYNAMIC_SHARE } from "./pass-s2";
 import type { Bracket, Counts } from "./pass-s2";
 
 export type { Bracket, Counts };
@@ -164,7 +165,8 @@ const circuitKey = (c: number | undefined): number | null => (c === undefined ||
  */
 export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
   const { reasons, ok } = collect<ModExtractor, FrmExtractor>(e, { layer: "extractors", endpoint: "getExtractor", schema: FactoryBuildingSchema.array() });
-  let compared = 0, idle = 0, backedUp = 0, modAll = 0, multi = 0;
+  let compared = 0, idle = 0, backedUp = 0, modAll = 0, multi = 0, flagMisses = 0;
+  const flagLines: string[] = [];
   const flat: ModExtractor[] = [];
   for (const a of ok) {
     const full = a.mod.filter((m) => m.production.length > 0);
@@ -193,8 +195,17 @@ export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
       if (!curOk) d.add("currentPerMinute", `${m.id} mod=${num(p.currentPerMinute)} frm=${cands.map((f) => num(f.current)).join("/")} of max ${num(cands[0]!.max)}`);
       const pctOk = any((f) => Math.abs(p.percent - f.percent) <= EXTRACTOR_POINTS + EPS) || inRange(p.percent, cands.map((f) => f.percent), 0);
       if (!pctOk) d.add("percent", `${m.id} mod=${num(p.percent)} frm=${cands.map((f) => num(f.percent)).join("/")}`);
-      if (!any((f) => f.producing === m.isProducing)) d.add("isProducing", `${m.id} mod=${m.isProducing}`);
-      if (!any((f) => f.paused === m.isPaused)) d.add("isPaused", `${m.id} mod=${m.isPaused}`);
+      // Owner ruling 2026-10-28 after run 40623235820: the flags are judged as S2's factory flags are (pass-s2.ts judgeFactory): a
+      // machine-round misses when isProducing or isPaused equals neither bracket, and the share of misses must stay within
+      // S2_DYNAMIC_SHARE over all compared extractors of all posts. S2 treats isProducing and isPaused alike, so both are mirrored.
+      const badFlags = [
+        ...(any((f) => f.producing === m.isProducing) ? [] : [`isProducing mod=${m.isProducing}`]),
+        ...(any((f) => f.paused === m.isPaused) ? [] : [`isPaused mod=${m.isPaused}`]),
+      ];
+      if (badFlags.length) {
+        flagMisses++;
+        if (flagLines.length < S4B_SHOW) flagLines.push(`${a.at}: ${m.id} ${badFlags.join("; ")}`);
+      }
     }
     lines.push(...d.lines());
     modAll += full.length;
@@ -202,6 +213,8 @@ export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
     flat.push(...full);
     if (lines.length) reasons.push(...postFail(a.at, lines));
   }
+  const share = compared === 0 ? 1 : 1 - flagMisses / compared;
+  if (share < S2_DYNAMIC_SHARE) reasons.push(`isProducing and isPaused matched a bracket for ${(share * 100).toFixed(2)}% of ${compared} extractor-posts, need ${S2_DYNAMIC_SHARE * 100}% (as S2's dynamic flags)`, ...flagLines);
   if (reasons.length) return failing(reasons);
   const never = compared === 0
     ? ["any extractor (both sides empty)"]
@@ -210,7 +223,7 @@ export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
         flat.some((m) => m.isBackedUp) ? null : "an occupied-and-backed-up extractor",
       ].filter((x): x is string => x !== null);
   const out = [
-    `${ok.length} posted extractor list(s) valid against the contract; extractor ids equal FRM's; ${compared} extractors compared; className, resource class and circuit exact; max within max(${EXTRACTOR_MAX_ABS}/min, ${EXTRACTOR_MAX_REL * 100}%); current and percent within ${EXTRACTOR_POINTS} points or between the brackets; isProducing and isPaused equal to a bracket`,
+    `${ok.length} posted extractor list(s) valid against the contract; extractor ids equal FRM's; ${compared} extractors compared; className, resource class and circuit exact; max within max(${EXTRACTOR_MAX_ABS}/min, ${EXTRACTOR_MAX_REL * 100}%); current and percent within ${EXTRACTOR_POINTS} points or between the brackets; isProducing and isPaused equal to a bracket for ${(share * 100).toFixed(2)}% of ${compared} extractor-posts (need ${S2_DYNAMIC_SHARE * 100}%, as S2${flagMisses ? `; ${flagMisses} within the allowance, first ${flagLines.length}: ${flagLines.join(" | ")}` : ""})`,
     `isBackedUp: report-only (${RULING_BACKED_UP}); the mod sent true on ${backedUp} of ${modAll} extractors`,
   ];
   if (multi > 0) out.push(`${multi} extractor(s) sent more than one production entry; only the first is compared with FRM's (reported, not failed)`);
@@ -404,7 +417,14 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
   const { reasons, ok } = collect<ModContainer, FrmContainer>(e, { layer: "storage", endpoint: "getStorageInv", schema: StorageContainerSchema.array() });
   let compared = 0, stable = 0, changed = 0, unverifiable = 0, fluids = 0, fluidSeen = 0;
   let over64 = false, depot = 0;
-  for (const a of ok) {
+  // Owner ruling 2026-10-28 after run 40623235820: a container is "stable" (contents judged exactly) only when its two bracketing FRM
+  // records agree AND the mod's own neighbouring posts (previous and next accepted post holding that id) agree with this post: the mod
+  // reads at a different instant from FRM while belts move, so a container the mod itself saw change is report-only.
+  const contentKey = (m: ModContainer) => JSON.stringify([m.slotsUsed, m.items.map((x) => [x.className, x.amount]).sort((p, q) => (p[0]! < q[0]! ? -1 : p[0]! > q[0]! ? 1 : 0))]);
+  const keysOf = (a: Accepted<ModContainer, FrmContainer> | undefined) => new Map((a?.mod ?? []).map((m) => [m.id, contentKey(m)]));
+  let modMoved = 0;
+  for (const [pi, a] of ok.entries()) {
+    const neighbours = [keysOf(ok[pi - 1]), keysOf(ok[pi + 1])];
     const lines = idDiff("container", a.mod.map((m) => m.id), a.sides.map((s) => s.map((f) => f.id))).failures;
     const d = new Diffs();
     for (const m of a.mod) {
@@ -435,6 +455,8 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       const first = cands[0]!;
       if (a.sides.length < 2 || cands.length < a.sides.length) { unverifiable++; continue; }
       if (!cands.every((f) => f.slotsUsed === first.slotsUsed && sameJson(f.items, first.items))) { changed++; continue; }
+      const mineKey = contentKey(m);
+      if (neighbours.some((n) => n.has(m.id) && n.get(m.id) !== mineKey)) { modMoved++; continue; }
       stable++;
       if (first.slotsUsed !== null && m.slotsUsed !== first.slotsUsed) d.add("slotsUsed", `${m.id} mod=${m.slotsUsed} frm=${first.slotsUsed}`);
       const mine = new Map(m.items.map((x) => [x.className, x.amount]));
@@ -466,8 +488,8 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       ].filter((x): x is string => x !== null);
   const out = [
     `${ok.length} posted storage list(s) valid against the contract; container ids equal FRM's; ${compared} containers compared; className and slots exact; stackMax equal to FRM's (null on fluids)`,
-    `${stable} container(s) unchanged between the brackets: slotsUsed, item classes and amounts exact (fluid within ${STORAGE_FLUID_REL * 100}% or ${STORAGE_FLUID_ABS_M3} m3)`,
-    `${changed} container(s) changed between the brackets and ${unverifiable} had one bracket only: contents report-only`,
+    `${stable} container(s) unchanged between the brackets and across the mod's neighbouring posts: slotsUsed, item classes and amounts exact (fluid within ${STORAGE_FLUID_REL * 100}% or ${STORAGE_FLUID_ABS_M3} m3)`,
+    `${changed} container(s) changed between the brackets, ${modMoved} changed between the mod's own neighbouring posts and ${unverifiable} had one bracket only: contents report-only`,
     `fluidCapacityM3: value report-only (${RULING_FLUID_CAP}); ${fluids} mod fluid buffer(s), ${fluidSeen} matched to an FRM fluid`,
   ];
   if (depot > 0) out.push(`${depot} depot uploader(s) compared like any container`);

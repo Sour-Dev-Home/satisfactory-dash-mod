@@ -130,13 +130,32 @@ describe("judgeExtractors", () => {
   });
   it.each([
     ["className", { className: "Build_MinerMk2_C" }, "className"],
-    ["isProducing", { isProducing: false }, "isProducing"],
-    ["isPaused", { isPaused: true }, "isPaused"],
     ["circuit", { circuitGroupId: 2 }, "circuitGroupId"],
   ])("a %s mismatch against both brackets fails, counted per field", (_n, patch, field) => {
     const v = B.judgeExtractors(eev({ post: [me(patch)], after: [fe()] }));
     expect(v.pass).toBe(false);
     expect(text(v)).toContain(`${field}: 1 difference(s)`);
+  });
+  // Owner ruling 2026-10-28 after run 40623235820: isProducing and isPaused are judged as S2's dynamic flags (share >= S2_DYNAMIC_SHARE).
+  it.each([
+    ["isProducing", { isProducing: false }],
+    ["isPaused", { isPaused: true }],
+  ])("a %s mismatch on the only extractor fails (0% matched)", (field, patch) => {
+    const v = B.judgeExtractors(eev({ post: [me(patch)], after: [fe()] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain(`${field} mod=`);
+    expect(text(v)).toContain("need 99%");
+  });
+  it("flags matching for exactly the S2 share pass, just below fail", () => {
+    const many = (n: number) => Array.from({ length: n }, (_x, i) => fe({ id: `E${i}` }));
+    const post = (misses: number) => many(100).map((f, i) => me({ id: f.id, ...(i < misses ? { isProducing: false } : {}) }));
+    const run = (misses: number) => B.judgeExtractors(eev({ frm: many(100), after: many(100), post: post(misses) }));
+    expect(run(0).pass).toBe(true);
+    expect(run(1).pass).toBe(true);
+    expect(text(run(1))).toContain("99.00% of 100");
+    const bad = run(2);
+    expect(bad.pass).toBe(false);
+    expect(text(bad)).toContain("98.00% of 100");
   });
   it("a resource class mismatch fails", () => {
     expect(text(B.judgeExtractors(eev({ post: [me({}, { className: "Desc_Coal_C" })] })))).toContain("resourceClass");
@@ -361,7 +380,43 @@ const cev = (o: Opts<FrmContainer> = {}) => ev(o, [fc()], [mc()]);
 /** Both brackets hold the same container: the exact rule applies. */
 const stable = (frm: FrmContainer[] = [fc()], post: unknown[] = [mc()]) => cev({ frm, after: frm, post });
 
+/** Three posts (30 s apart) with an FRM sample between each; `mods[i]` is post i's container list, `frm` the same record in every sample. */
+const threePosts = (mods: unknown[][], frm: FrmContainer[] = [fc()]): B.StorageEvidence => ({
+  posts: mods.map((data, i) => ({ at: iso(T0 + i * 30_000), status: 200, data })),
+  frmSamples: [-1, 0, 1, 2].map((k) => ({ startedAt: iso(T0 + k * 30_000 + 10_000), endedAt: iso(T0 + k * 30_000 + 20_000), value: "s" })).map((s, i) => ({ ...s, value: `s${i}` })),
+  distinct: { s0: frm, s1: frm, s2: frm, s3: frm },
+  frm: { reads: 5, failed: 0 },
+});
+
 common("judgeStorage", B.judgeStorage, cev, "storage", "getStorageInv", mc({ id: "C9" }), fc({ id: "C9" }), [mc()]);
+
+describe("judgeStorage (the mod's own neighbouring posts, owner ruling 2026-10-28 after run 40623235820)", () => {
+  const moved = mc({ slotsUsed: 1, items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }] });
+  it("FRM brackets equal but the mod's neighbours differ: contents are report-only", () => {
+    // The middle post differs from FRM and from both neighbours (a belt moved items between the mod's reads).
+    const v = B.judgeStorage(threePosts([[mc()], [moved], [mc()]]));
+    // The first and third posts have a differing neighbour too (the middle one), so every post is report-only: no amount check ran.
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("3 changed between the mod's own neighbouring posts");
+  });
+  it("a post whose neighbours all agree with it is judged exactly: it fails when it differs from FRM", () => {
+    const off = mc({ items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }, { className: "Desc_OreIron_C", name: "Iron Ore", amount: 30, stackMax: 100 }] });
+    const v = B.judgeStorage(threePosts([[off], [off], [off]]));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("amount: ");
+  });
+  it("all agree with each other and with FRM: passes", () => {
+    const v = B.judgeStorage(threePosts([[mc()], [mc()], [mc()]]));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("3 container(s) unchanged between the brackets and across the mod's neighbouring posts");
+  });
+  it("a changing mod container that differs from FRM passes as report-only", () => {
+    const v = B.judgeStorage(threePosts([[moved], [mc({ slotsUsed: 2 })], [moved]]));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("3 changed between the mod's own neighbouring posts");
+    expect(v.never).toContain("a container unchanged between the brackets (exact contents rule)");
+  });
+});
 
 describe("judgeStorage", () => {
   it("passes and lists NOT EXERCISED", () => {

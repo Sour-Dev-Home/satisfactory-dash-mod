@@ -22,9 +22,11 @@ const goodString = (v: unknown): v is string => typeof v === "string" && v.lengt
 /** A Name is bounded before hashing exactly as frm-s4 does: a non-string or over-long name drops the record. */
 const nameOk = (v: unknown): v is string => typeof v === "string" && v.length <= MAX_STRING;
 const idOf =(r: Record<string, unknown>): string | undefined => (goodString(r.ID) ? r.ID : undefined);
-/** PowerInfo.CircuitID: the captures show -1 on an unconnected building (observed, not specified); that and a missing value give undefined. */
+/** PowerInfo.CircuitGroupID (the contract's circuitGroupId; the S2 factory oracle reads the same key): the captures show -1 on an
+ *  unconnected building (observed, not specified); that and a missing value give undefined, which the judge reads as -1.
+ *  Owner ruling 2026-10-28 after run 40623235820: this read PowerInfo.CircuitID (a different number), a bug. */
 const circuitOf = (r: Record<string, unknown>): number | undefined => {
-  const c = isObj(r.PowerInfo) ? r.PowerInfo.CircuitID : undefined;
+  const c = isObj(r.PowerInfo) ? r.PowerInfo.CircuitGroupID : undefined;
   return isNum(c) && Number.isInteger(c) && c >= 0 ? c : undefined;
 };
 const byId = <T extends { id: string }>(list: T[]): T[] => list.sort((a, b) => byCodeUnit(a.id, b.id));
@@ -90,7 +92,9 @@ export function mapFrmExtractors(body: unknown): FrmExtractor[] {
 
 export interface FrmGenerator {
   id: string; className: string; nameHash: string;
-  /** RegulatedDemandProd: observed megawatts (75 on a running coal generator, 0 on an idle burner). Not specified. */
+  /** BaseProd + RegulatedDemandProd (the base/dynamic split the mod uses: base production plus regulated dynamic production), observed
+   *  megawatts (75 on a running coal generator, 0 on an idle burner; a geothermal generator has BaseProd above 0 and RegulatedDemandProd 0).
+   *  A missing BaseProd counts as 0. Owner ruling 2026-10-28 after run 40623235820: this was RegulatedDemandProd alone. */
   currentMW: number;
   /** ProductionCapacity: observed megawatts (75 coal, 250 fuel, 30 automated biomass). Not specified. */
   capacityMW: number;
@@ -132,8 +136,8 @@ export function mapFrmGenerators(body: unknown): FrmGenerator[] {
     }
     const g: FrmGenerator = {
       id, className: r.ClassName, nameHash: evidenceHash(r.Name),
-      currentMW: r.RegulatedDemandProd, capacityMW: r.ProductionCapacity, clockPercent: r.CurrentPotential,
-      producing: r.RegulatedDemandProd > 0,
+      currentMW: (isNum(r.BaseProd) ? r.BaseProd : 0) + r.RegulatedDemandProd, capacityMW: r.ProductionCapacity, clockPercent: r.CurrentPotential,
+      producing: (isNum(r.BaseProd) ? r.BaseProd : 0) + r.RegulatedDemandProd > 0,
       fuelClass, fuelAmount,
       supplementClass: supplementAmount === null ? null : supplementClass, supplementAmount,
       raw: pickNumbers(r, RAW_GENERATOR_KEYS),
