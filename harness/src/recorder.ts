@@ -33,7 +33,7 @@ export interface RecordedCall {
   /** The parts of an accepted snapshot RecorderOptions.keepSnapshotParts names, with mapLive names already hashed. In memory only: publicEntries leaves them out. */
   parts?: Partial<Record<SnapshotPart, unknown>>;
 }
-export type SnapshotPart = "factory" | "mapLive";
+export type SnapshotPart = "factory" | "mapLive" | "power" | "storage";
 export interface Recorder { url: string; entries: RecordedCall[]; close(): Promise<void> }
 
 const MAX_RECORDED = 2 * 1024 * 1024;

@@ -296,9 +296,24 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   lines, and a `Logistics read` line with `powerLines=1`. `readers.json` gains `mapMarkers`, `droneRoutes` and `powerLines`; an S1
   to S3 capture is judged as before. Known gap: `judgeWires` is called without its optional `{ dropped }` count, because there is no
   wires-only dropped parser, so the dropped-wire check is not applied (the dropped-wire count is not judged). Both
-  `native-parity` and `tick-cost-native` write `NATIVE_SOURCES_S4`. The backend images must be built from the contract pin
+  `native-parity` (until S4-B) and `tick-cost-native` write `NATIVE_SOURCES_S4`. The backend images must be built from the contract pin
   `48ed815` or a descendant, or the image guard refuses the run (see "The backend host"). The marker, drone-route and wire
   counts on `Test3` are pending the `s4-capture` run (PR #67).
+
+  **Sprint S4-B (the run writes all thirteen keys, `NATIVE_SOURCES_S4B`; `tick-cost-native` stays on `NATIVE_SOURCES_S4`).** Four more
+  readers are judged, each alone, in `runs/native-parity/pass-s4b.ts`: `extractors` (`R-extractors`), `generators` (`R-generators`),
+  `stationRates` (`R-station-rates`) and `storage` (`R-storage`), against FRM's `/getExtractor`, `/getGenerators`, `/getTrainStation`
+  (the rate mapping, beside S2's) and `/getStorageInv`, each read with a 20 s timeout, sampled every 90 s (inside the judge's 120 s
+  `S4B_GAP_MS`) and at once after each accepted mod snapshot that carries the layer's fragment (`factory.extractors`, `power.generators`,
+  `mapLive.stations`, top-level `storage.containers`, from the recorder's kept snapshot parts, which gain `power` and `storage`). Only
+  accepted (status 200) snapshots since the start of enrolment enter the evidence, and **every `name` in a posted record is replaced by a
+  per-run keyed hash (`evidence-hash.ts`) and the record is cut to the contract's keys before it is captured**; a record the contract
+  rejects is kept as `null`. `native-parity.json` carries `s4b` (one evidence block per reader) and `s4b.stationPairs`: for each station
+  the mod rated, the posted `transferPerMinute` next to FRM's `TransferRate` and platform sum on the two bracketing sides (ids and
+  numbers only). The readers also need the `Readers:` line to say `extractors=native generators=native stationRates=native
+  storage=native`, and the first three of those (extractors, generators, storage) a `Buildables read` step line. `readers.json` gains the four
+  keys; an S1 to S4-A capture is judged as before. Because the mod posts a snapshot every few seconds, the extra FRM reads (storage is the
+  largest) are one per accepted snapshot per layer.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S4`: the S3 set plus the map markers, drone routes and power lines readers),
   loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`

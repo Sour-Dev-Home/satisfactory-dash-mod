@@ -27,23 +27,36 @@ import { ResourceNodesLayerDataSchema } from "../../harness/contract/src/map";
 import type { FrmCircuitGroup } from "../../harness/src/frm";
 import { canonNodes, type CanonNode } from "../../harness/src/frm-native";
 import {
-  conveyorsLogProblems, droneRoutesLogProblems, factoryLogProblems, kindCheck, logisticsLineProblems, mapMarkersLogProblems, nodesLogProblems,
+  conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, storageLogProblems, kindCheck, logisticsLineProblems, mapMarkersLogProblems, nodesLogProblems,
   playersLogProblems, powerLinesLogProblems, railsLogProblems, stepCosts, trainsLogProblems, withProblems,
 } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import { judgeFactory, judgeRates, judgeRoutes, judgeStations, judgeTrains, productivityRange, type S2Evidence, type S2Result } from "./pass-s2";
 import { judgeConveyors, judgeRails, type S3Evidence } from "./pass-s3";
 import { judgeDrone, judgeMarkers, judgeWires, type S4Evidence, type S4Result } from "./pass-s4";
+import {
+  judgeExtractors, judgeGenerators, judgeStations as judgeStationRates, judgeStorage, type ExtractorsEvidence, type GeneratorsEvidence, type S4bResult,
+  type StationsEvidence, type StorageEvidence,
+} from "./pass-s4b";
 import type { Circuit, Posted, ServerState } from "../parity/pass";
 import { inBracket, NEED_PAIRS, PARITY_POWER_TOLERANCE, WINDOW_MINUTES as PARITY_WINDOW_MINUTES } from "../parity/pass";
 
 export * from "./pass-s2";
 export * from "./pass-s3";
 export * from "./pass-s4";
+// pass-s4b's judgeStations clashes with S2's, so it is re-exported as judgeStationRates; everything else keeps its name.
+export {
+  S4B_GAP_MS, S4B_SHOW, EXTRACTOR_MAX_ABS, EXTRACTOR_MAX_REL, EXTRACTOR_POINTS, GENERATOR_CAP_ABS_MW, GENERATOR_CAP_REL, GENERATOR_CUR_ABS_MW,
+  GENERATOR_CUR_REL, STATION_ABS, STATION_REL, STATION_FACTOR_MIN_F, STATION_FACTOR_LOW, STATION_FACTOR_HIGH, STORAGE_FLUID_REL, STORAGE_FLUID_ABS_M3,
+  judgeExtractors, judgeGenerators, judgeStorage,
+} from "./pass-s4b";
+export { judgeStationRates };
+export type { ExtractorsEvidence, GeneratorsEvidence, StationsEvidence, StorageEvidence, S4bEvidence, S4bResult } from "./pass-s4b";
 
 export const requirements = [
   "native-parity", "R0-power", "R1-players", "R4-resource-nodes", "R2a-factory", "R2b-rates", "R3-trains", "R3-stations", "R3-train-routes", "R5-rails", "R6-conveyors",
   "R8-map-markers", "R9-drone-routes", "R10-power-lines",
+  "R-extractors", "R-generators", "R-station-rates", "R-storage",
 ];
 export const WINDOW_MINUTES = PARITY_WINDOW_MINUTES;
 /** The parity run's bar: ceil(1800 / 5 x 0.8) rounds. */
@@ -84,7 +97,15 @@ export interface NativeParity {
   s3?: S3Evidence;
   /** Sprint S4-A's evidence (pass-s4.ts); absent in an S1 to S3 capture. */
   s4?: S4Evidence;
+  /** Sprint S4-B's evidence (pass-s4b.ts); absent in an S1 to S4-A capture. */
+  s4b?: S4bCapture;
 }
+/** What the S4-B run captures: one evidence block per reader, and the raw station pairs (the mod's posted rate beside FRM's, ids and numbers only; R4 evidence). */
+export interface S4bCapture {
+  extractors: ExtractorsEvidence; generators: GeneratorsEvidence; stations: StationsEvidence; storage: StorageEvidence;
+  stationPairs: StationPair[];
+}
+export interface StationPair { at: string; id: string; mod: number; frm: Array<{ side: "before" | "after"; transfer: number; platformSum: number }> }
 export interface ReaderVerdicts {
   power: Verdict; players: Verdict; resourceNodes: Verdict;
   /** S2: present exactly when the capture has `s2`. */
@@ -93,6 +114,8 @@ export interface ReaderVerdicts {
   rails?: Verdict; conveyors?: Verdict;
   /** S4-A: present exactly when the capture has `s4`. */
   mapMarkers?: Verdict; droneRoutes?: Verdict; powerLines?: Verdict;
+  /** S4-B: present exactly when the capture has `s4b`. */
+  extractors?: Verdict; generators?: Verdict; stationRates?: Verdict; storage?: Verdict;
 }
 
 const ms = (iso: string) => Date.parse(iso);
@@ -263,7 +286,7 @@ export function judgeNodes(n: NativeParity["nodes"]): Verdict {
 
 // ------------------------------------------------------------------------------------------------------------- the run
 
-const finish = (r: S2Result | S4Result): Verdict => (r.pass ? passing(r.reasons, r.never) : { pass: false, reasons: r.reasons });
+const finish = (r: S2Result | S4Result | S4bResult): Verdict => (r.pass ? passing(r.reasons, r.never) : { pass: false, reasons: r.reasons });
 
 /**
  * The verdicts, each computed from its own evidence only: S1's three unchanged, and S2's five when the capture has them. `lines`
@@ -288,6 +311,14 @@ export function judgeReaders(c: NativeParity, lines: readonly string[] = []): Re
   // S4-A's three judges read only their own evidence; one failing leaves the others' verdicts alone.
   // judgeWires' optional { dropped } is not passed: there is no wires-only dropped parser, so the dropped-wire count check is skipped.
   if (c.s4) out = { ...out, mapMarkers: finish(judgeMarkers(c.s4.markers)), droneRoutes: finish(judgeDrone(c.s4.drone)), powerLines: finish(judgeWires(c.s4.wires)) };
+  // S4-B's four judges likewise read only their own evidence.
+  if (c.s4b) {
+    out = {
+      ...out,
+      extractors: finish(judgeExtractors(c.s4b.extractors)), generators: finish(judgeGenerators(c.s4b.generators)),
+      stationRates: finish(judgeStationRates(c.s4b.stations)), storage: finish(judgeStorage(c.s4b.storage)),
+    };
+  }
   return out;
 }
 
@@ -311,6 +342,12 @@ const expectsS3 = (c: NativeParity, sources: unknown): boolean => {
 const expectsS4 = (c: NativeParity, sources: unknown): boolean => {
   const s = sources as { mapMarkersSource?: unknown; droneRoutesSource?: unknown; powerLinesSource?: unknown } | undefined | null;
   return c.s4 !== undefined || s?.mapMarkersSource !== undefined || s?.droneRoutesSource !== undefined || s?.powerLinesSource !== undefined;
+};
+
+/** S4-B is expected when the capture has its evidence or the config asked for any of the four S4-B sources (so a drive that lost the evidence fails closed). */
+const expectsS4b = (c: NativeParity, sources: unknown): boolean => {
+  const s = sources as { extractorsSource?: unknown; generatorsSource?: unknown; stationRatesSource?: unknown; storageSource?: unknown } | undefined | null;
+  return c.s4b !== undefined || s?.extractorsSource !== undefined || s?.generatorsSource !== undefined || s?.stationRatesSource !== undefined || s?.storageSource !== undefined;
 };
 
 /** What must hold for any verdict to mean anything: the window, the mod enrolled, nothing refused or unreadable. */
@@ -338,6 +375,13 @@ function runReasons(c: NativeParity, sources: unknown): string[] {
       out.push("the run did not write mapMarkersSource, droneRoutesSource and powerLinesSource as native into the mod's config");
     }
     if (!c.s4) out.push("the S4 evidence (mapMarkers, droneRoutes, powerLines) was not captured");
+  }
+  if (expectsS4b(c, sources)) {
+    const t = sources as { extractorsSource?: string; generatorsSource?: string; stationRatesSource?: string; storageSource?: string } | undefined | null;
+    if (t?.extractorsSource !== "native" || t?.generatorsSource !== "native" || t?.stationRatesSource !== "native" || t?.storageSource !== "native") {
+      out.push("the run did not write extractorsSource, generatorsSource, stationRatesSource and storageSource as native into the mod's config");
+    }
+    if (!c.s4b) out.push("the S4-B evidence (extractors, generators, station rates, storage) was not captured");
   }
   if (!c.state) out.push("the mod's server state was not read");
   else {
@@ -391,6 +435,16 @@ export function evaluate(e: CoreEvidence): Verdict {
       ["R8 mapMarkers", "mapMarkers", withProblems(v.mapMarkers ?? none, [...mapMarkersLogProblems(e.lines), ...readLineProblems(e.lines, "Map markers read")])],
       ["R9 droneRoutes", "droneRoutes", withProblems(v.droneRoutes ?? none, [...droneRoutesLogProblems(e.lines), ...readLineProblems(e.lines, "Drone routes read")])],
       ["R10 powerLines", "powerLines", withProblems(v.powerLines ?? none, [...powerLinesLogProblems(e.lines), ...logisticsLineProblems(e.lines, "powerLines")])],
+    );
+  }
+  if (expectsS4b(c, e.captures["mod-config.json"])) {
+    // S4-B's readers: native by the Readers line; the extractors, generators and storage also need the Buildables pass to have completed (the station rates ride the trains' mapLive part).
+    const none: Verdict = { pass: false, reasons: ["no S4-B evidence in the capture"] };
+    names.push(
+      ["R-extractors", "extractors", withProblems(v.extractors ?? none, [...extractorsLogProblems(e.lines), ...readLineProblems(e.lines, "Buildables read")])],
+      ["R-generators", "generators", withProblems(v.generators ?? none, [...generatorsLogProblems(e.lines), ...readLineProblems(e.lines, "Buildables read")])],
+      ["R-station-rates", "stationRates", withProblems(v.stationRates ?? none, [...stationRatesLogProblems(e.lines)])],
+      ["R-storage", "storage", withProblems(v.storage ?? none, [...storageLogProblems(e.lines), ...readLineProblems(e.lines, "Buildables read")])],
     );
   }
   // readers.json is these same final verdicts, the ones the PASS/FAIL lines come from: the drive wrote a first version without the
