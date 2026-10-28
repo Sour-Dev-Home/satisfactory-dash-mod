@@ -79,6 +79,8 @@ namespace SatisDash
 		int32 ExtractorsOverCap = 0;
 		/** Generators seen past the reader's own list cap and dropped (a count, never ids). */
 		int32 GeneratorsOverCap = 0;
+		/** Containers seen past the reader's own list cap and dropped (a count, never ids). */
+		int32 ContainersOverCap = 0;
 	};
 
 	/** What a finished Buildables pass hands over; the readings are freed once the fragments are built. */

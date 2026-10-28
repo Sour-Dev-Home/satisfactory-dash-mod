@@ -67,6 +67,7 @@
 #include "SatisDash/Native/Extractors/NativeExtractors.h"
 #include "SatisDash/Native/Generators/NativeGenerators.h"
 #include "SatisDash/Native/Rates/NativeRates.h"
+#include "SatisDash/Native/Storage/NativeStorage.h"
 #include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
 #include "SatisDash/Native/Trains/NativeTrains.h"
 #include "UObject/Class.h"
@@ -1586,6 +1587,46 @@ namespace
 	}
 
 	/**
+	 * A storage box's slots and stacks: slots = GetSizeLinear, slotsUsed = the stacks that hold items (counted past the cap), one item
+	 * reading per such stack (Core merges per class) with StackMax = GetSlotSize (honours an arbitrary slot size, survey Q10), at most
+	 * 4 x StorageMaxItems stacks per container so a huge box cannot grow the list without bound. A missing inventory gives 0 slots.
+	 */
+	void BuildablesReadStorageStacks(const UFGInventoryComponent* Inventory, SatisDash::FContainerReading& Out)
+	{
+		if (!IsValid(Inventory))
+		{
+			return;
+		}
+		const int32 MaxStacks = 4 * SatisDash::StorageMaxItems;
+		const int32 Size = Inventory->GetSizeLinear();
+		Out.Slots = Size;
+		for (int32 Index = 0; Index < Size; ++Index)
+		{
+			FInventoryStack Stack;
+			if (!Inventory->GetStackFromIndex(Index, Stack) || Stack.NumItems <= 0)
+			{
+				continue;
+			}
+			const TSubclassOf<UFGItemDescriptor> ItemClass = Stack.Item.GetItemClass();
+			if (!ItemClass)
+			{
+				continue;
+			}
+			++Out.SlotsUsed;
+			if (Out.Items.Num() >= MaxStacks)
+			{
+				continue;
+			}
+			SatisDash::FStorageItemReading Item;
+			Item.ClassName = ItemClass->GetName();
+			Item.Name = UFGItemDescriptor::GetItemName(ItemClass).ToString();
+			Item.Amount = Stack.NumItems;
+			Item.StackMax = Inventory->GetSlotSize(Index, ItemClass);
+			Out.Items.Add(MoveTemp(Item));
+		}
+	}
+
+	/**
 	 * The item held in one slot of a generator's fuel inventory, if any (FGBuildableGeneratorFuel.h:116 and :117 give the slot
 	 * indexes). The class is the Preferred one when the game names it (GetCurrentFuelClass :103, GetSupplementalResourceClass :111),
 	 * else the held stack's own class; the amount is the count in the slot, a fluid scaled litres to m3 by MakeSlotReading
@@ -1687,6 +1728,7 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 	// The list is kept bounded whatever the world holds (twice the fragment's own cap).
 	const int32 MaxExtractors = 2 * ExtractorsMaxItems;
 	const int32 MaxGenerators = 2 * GeneratorsMaxItems;
+	const int32 MaxContainers = 2 * StorageMaxContainers;
 	bool bFinished = false;
 	Budget.Begin();
 	do
@@ -1698,7 +1740,8 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 			bFinished = true;
 			break;
 		}
-		const AFGBuildable* Buildable = All[BuildablesCursor++];
+		// Non-const: GetStorageInventory is a non-const getter (FGBuildableStorage.h:30).
+		AFGBuildable* Buildable = All[BuildablesCursor++];
 		if (Buildable == nullptr || !IsValid(Buildable))
 		{
 			continue;
@@ -1802,6 +1845,50 @@ TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildables
 				}
 				BuildablesFound.Generators.Add(MoveTemp(Reading));
 				++BuildablesFound.Counts.Generators;
+			}
+		}
+		if (BuildablesAsked.bStorage)
+		{
+			// A storage box (the depot uploader is one: a 1-slot container) or a fluid buffer; never both (different classes).
+			AFGBuildableStorage* StorageBox = Cast<AFGBuildableStorage>(Buildable);
+			const AFGBuildablePipeReservoir* FluidBuffer = StorageBox == nullptr ? Cast<AFGBuildablePipeReservoir>(Buildable) : nullptr;
+			if ((StorageBox != nullptr || FluidBuffer != nullptr) && BuildablesFound.Containers.Num() >= MaxContainers)
+			{
+				++BuildablesFound.Counts.ContainersOverCap;
+			}
+			else if (StorageBox != nullptr || FluidBuffer != nullptr)
+			{
+				FContainerReading Reading;
+				Reading.Id = Buildable->GetName();
+				Reading.Name = Buildable->mDisplayName.ToString();
+				Reading.ClassName = Buildable->GetClass()->GetName();
+				const FVector Location = Buildable->GetActorLocation();
+				Reading.bHasLocation = true;
+				Reading.XCm = Location.X;
+				Reading.YCm = Location.Y;
+				Reading.ZCm = Location.Z;
+				Reading.YawDeg = Buildable->GetActorRotation().Yaw;
+				if (StorageBox != nullptr)
+				{
+					BuildablesReadStorageStacks(StorageBox->GetStorageInventory(), Reading);
+				}
+				else
+				{
+					// A fluid buffer has no inventory: the capacity (set ONLY here, the contract's test for a fluid buffer) and, when
+					// it holds a fluid, one item in m3 with no stack max. An empty buffer has no descriptor: no item.
+					Reading.FluidCapacityM3 = static_cast<double>(FluidBuffer->GetFluidContentMax());
+					const TSubclassOf<UFGItemDescriptor> FluidClass = FluidBuffer->GetFluidDescriptor();
+					if (FluidClass)
+					{
+						FStorageItemReading Fluid;
+						Fluid.ClassName = FluidClass->GetName();
+						Fluid.Name = UFGItemDescriptor::GetItemName(FluidClass).ToString();
+						Fluid.Amount = static_cast<double>(FluidBuffer->GetFluidContent());
+						Reading.Items.Add(MoveTemp(Fluid));
+					}
+				}
+				BuildablesFound.Containers.Add(MoveTemp(Reading));
+				++BuildablesFound.Counts.Containers;
 			}
 		}
 	} while (!Budget.Spent());
