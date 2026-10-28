@@ -125,6 +125,34 @@ export const generatorsLogProblems = (lines: readonly string[]): string[] => par
 /** Why the log does not show the station rates reader native (empty: it does). */
 export const stationRatesLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "stationRates");
 
+const STATION_RATES = /Station rates \(reflection read\): (\d+) platforms read, (\d+) fluid platforms skipped, (\d+) lookups failed/;
+const STATION_RATES_HEAD = /Station rates \(reflection read\):/;
+
+/**
+ * Why the mod's `Station rates (reflection read)` counts do not show the reflection read working (empty: they do). OQ2: a rate lookup that
+ * fails everywhere must fail the verdict even when no FRM station transfers. Needs at least one such line, `lookups failed` = 0 on every
+ * line, and `platforms read` > 0 on at least one line. A line that names the read but does not parse is malformed and fails.
+ */
+export function stationRatesLineProblems(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  let seen = 0;
+  let read = 0;
+  for (const line of lines) {
+    if (!STATION_RATES_HEAD.test(line)) continue;
+    const m = STATION_RATES.exec(line);
+    if (!m) {
+      out.push(`the mod's "Station rates (reflection read)" line is malformed, so the lookups cannot be judged`);
+      continue;
+    }
+    seen += 1;
+    read += Number(m[1]);
+    if (Number(m[3]) > 0) out.push(`the mod's "Station rates (reflection read)" line says ${m[3]} lookups failed (must be 0): the transfer-rate reflection read did not resolve`);
+  }
+  if (seen === 0) out.push(`the mod's log has no "Station rates (reflection read):" line: the native station rates read never ran`);
+  else if (read === 0) out.push(`the mod's "Station rates (reflection read)" lines read 0 platforms: no station rate was read, so the verdict cannot be a pass`);
+  return out;
+}
+
 /** Why the log does not show the storage reader native (empty: it does). */
 export const storageLogProblems = (lines: readonly string[]): string[] => partLogProblems(lines, "storage");
 

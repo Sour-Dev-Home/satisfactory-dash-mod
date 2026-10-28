@@ -483,6 +483,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FUniqueNetIdRepl | Engine/Source/Runtime/Engine/Classes/GameFramework/OnlineReplStructs.h:25 | header only (derives from FUniqueNetIdWrapper) |
 | FUniqueNetIdWrapper::IsValid | Engine/Source/Runtime/CoreOnline/Public/Online/CoreOnline.h:590 | header only |
 | FUniqueNetIdWrapper operator== | Engine/Source/Runtime/CoreOnline/Public/Online/CoreOnline.h:671 | header only (two invalid ids compare equal, so callers check IsValid first) |
+| TArray::FindByPredicate | Engine/Source/Runtime/Core/Public/Containers/Array.h:1471 | header only (const overload returns the first match or null; used by a Task 15 test) |
 | TArray::ContainsByPredicate | Engine/Source/Runtime/Core/Public/Containers/Array.h:1545 | header only |
 | Online/PlayerInfoCache.h | Source/FactoryGame/Public/Online/PlayerInfoCache.h:1 | header only |
 | FCachedPlayerInfo | Source/FactoryGame/Public/Online/PlayerInfoCache.h:49 | header only |
@@ -735,6 +736,10 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGBuildableStorage | Source/FactoryGame/Public/Buildables/FGBuildableStorage.h:13 | header only (Cast target) |
 | Buildables/FGBuildablePipeReservoir.h | Source/FactoryGame/Public/Buildables/FGBuildablePipeReservoir.h:1 | header only |
 | AFGBuildablePipeReservoir | Source/FactoryGame/Public/Buildables/FGBuildablePipeReservoir.h:43 | header only (Cast target) |
+| AFGBuildableStorage::GetStorageInventory | Source/FactoryGame/Public/Buildables/FGBuildableStorage.h:30 | header only (non-const FORCEINLINE returning mStorageInventory :56, so the Cast keeps a non-const pointer; the depot uploader AFGCentralStorageContainer : AFGBuildableStorage is included by the Cast and reads as a 1-slot container, survey Q9; the pooled depot is not read) |
+| AFGBuildablePipeReservoir::GetFluidContent | Source/FactoryGame/Public/Buildables/FGBuildablePipeReservoir.h:67 | header only ("[m^3]", may exceed the maximum when over-pressurized; reported as is, the fragment only clamps negatives) |
+| AFGBuildablePipeReservoir::GetFluidContentMax | Source/FactoryGame/Public/Buildables/FGBuildablePipeReservoir.h:71 | header only ("[m^3]"; the fluidCapacityM3) |
+| AFGBuildablePipeReservoir::GetFluidDescriptor | Source/FactoryGame/Public/Buildables/FGBuildablePipeReservoir.h:87 | header only (the fluid's item descriptor class; null when the buffer is empty is assumed, V10, checked for: a null gives no item. That the Industrial Fluid Buffer is this class is a Blueprint fact no header shows, V9: NEEDS VERIFICATION in the parity container id set) |
 | Buildables/FGBuildableDroneStation.h | Source/FactoryGame/Public/Buildables/FGBuildableDroneStation.h:1 | header only |
 | AFGBuildableDroneStation | Source/FactoryGame/Public/Buildables/FGBuildableDroneStation.h:37 | header only (Cast target) |
 | AFGBuildableDroneStation::GetInputInventory | Source/FactoryGame/Public/Buildables/FGBuildableDroneStation.h:145 | header only (R9 Input; returns mInputInventory :317. V9: the getter comment says "the docked drone unloads into", the field comment says "we transfer items from when loading a drone"; the plan follows the fields and the capture, so Input = this getter; swap with the output one if the parity judge reports input/output swapped) |
@@ -822,3 +827,8 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGBuildableTrainPlatformCargo::GetCurrentItemTransferRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:180 | header only (private, BlueprintPure at :179, returns float; never called directly: found by name through reflection, R2) |
 | AFGBuildableTrainPlatformCargo::mSmoothedLoadRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:363 | header only (private float UPROPERTY; fallback, read through FindFProperty only) |
 | AFGBuildableTrainPlatformCargo::mSmoothedUnloadRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:366 | header only (private float UPROPERTY; fallback, read through FindFProperty only) |
+| FCString::Strlen | Engine/Source/Runtime/Core/Public/Misc/CString.h:444 | header only (FCString is TCString<TCHAR>; the byte length of a part key in the snapshot size rule, S4-B) |
+| ESearchDir::FromEnd | Engine/Source/Runtime/Core/Public/Misc/CString.h:39 | header only (namespace ESearchDir, :31; the last ,"extractors": key of the factory part) |
+| FString::AppendChars | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:406 | header only (the WIDECHAR overload with a count, declared in the class body; a prefix of a held part is appended without a copy) |
+| FString::Reserve | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2200 | header only (final-review fix: PowerJson is reserved before the generators fragment is appended) |
+| TSubclassOf::Get | Engine/Source/Runtime/CoreUObject/Public/Templates/SubclassOf.h:119 | header only (returns the UClass*; the storage reader's per-class merge key) |

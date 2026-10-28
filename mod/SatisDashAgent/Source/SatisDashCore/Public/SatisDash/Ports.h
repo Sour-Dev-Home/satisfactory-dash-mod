@@ -10,6 +10,7 @@
 #include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
 #include "SatisDash/Native/PowerLines/NativePowerLines.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
+#include "SatisDash/Native/Storage/NativeStorage.h"
 #include "SatisDash/StepBudget.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 #include "SatisDash/Native/Trains/NativeTrains.h"
@@ -78,6 +79,8 @@ namespace SatisDash
 		int32 ExtractorsOverCap = 0;
 		/** Generators seen past the reader's own list cap and dropped (a count, never ids). */
 		int32 GeneratorsOverCap = 0;
+		/** Containers seen past the reader's own list cap and dropped (a count, never ids). */
+		int32 ContainersOverCap = 0;
 	};
 
 	/** What a finished Buildables pass hands over; the readings are freed once the fragments are built. */
@@ -86,6 +89,8 @@ namespace SatisDash
 		TArray<FExtractorReading> Extractors;
 		/** Empty unless the generators flag was on. */
 		TArray<FGeneratorReading> Generators;
+		/** Empty unless the storage flag was on. */
+		TArray<FContainerReading> Containers;
 		FBuildablesCounts Counts;
 	};
 

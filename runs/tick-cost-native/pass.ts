@@ -6,7 +6,7 @@
 // since the owner's decision of 2026-10-26 the longest step of every sliced native read is judged against 2 ms.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { TICK_WARMUP_MS } from "../../harness/src/ticks";
-import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, mapMarkersLogProblems, droneRoutesLogProblems, powerLinesLogProblems, logisticsLineProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
+import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, mapMarkersLogProblems, droneRoutesLogProblems, powerLinesLogProblems, extractorsLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLineProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import * as Base from "../tick-cost/pass";
 
@@ -15,7 +15,7 @@ export const requirements = [...Base.requirements, "R0-R1-R4-tick-cost"];
 interface Parts { measured?: { from: string; to: string } | null; snapshots?: Array<{ at: string; playersAvailable?: boolean }> }
 interface Recorded { at: string; status: number; agent: string; world?: { layer: string; items: number; bytes: number } }
 
-interface S2Sources { playersSource?: string; resourceNodesSource?: string; factorySource?: string; trainsSource?: string; railsSource?: string; conveyorsSource?: string; mapMarkersSource?: string; droneRoutesSource?: string; powerLinesSource?: string }
+interface S2Sources { playersSource?: string; resourceNodesSource?: string; factorySource?: string; trainsSource?: string; railsSource?: string; conveyorsSource?: string; mapMarkersSource?: string; droneRoutesSource?: string; powerLinesSource?: string; extractorsSource?: string; generatorsSource?: string; stationRatesSource?: string; storageSource?: string }
 
 /**
  * The sliced readers that must have logged a step line: the node scan always, the S2 readers when the config made them native,
@@ -29,6 +29,8 @@ export function requiredStepReaders(sources: S2Sources | undefined): string[] {
   if (sources?.railsSource === "native" || sources?.conveyorsSource === "native" || sources?.powerLinesSource === "native") out.push("Logistics read");
   if (sources?.mapMarkersSource === "native") out.push("Map markers read");
   if (sources?.droneRoutesSource === "native") out.push("Drone routes read");
+  // S4-B (Task 20): extractors, generators and storage share the one Buildables pass; the station walk rides "Trains read".
+  if (sources?.extractorsSource === "native" || sources?.generatorsSource === "native" || sources?.storageSource === "native") out.push("Buildables read");
   return out;
 }
 
@@ -78,6 +80,14 @@ export function evaluate(e: CoreEvidence): Verdict {
     if (sources?.powerLinesSource !== "native") extra.push(`the run did not write powerLinesSource as native into the mod's config (it says ${String(sources?.powerLinesSource)})`);
     extra.push(...mapMarkersLogProblems(e.lines), ...droneRoutesLogProblems(e.lines), ...powerLinesLogProblems(e.lines), ...logisticsLineProblems(e.lines, "powerLines"));
   }
+  // S4-B (Task 20): an S4-B-shaped config (any of its four keys) must have all four native. Earlier shapes have none of them.
+  const s4bShaped = sources?.extractorsSource !== undefined || sources?.generatorsSource !== undefined || sources?.stationRatesSource !== undefined || sources?.storageSource !== undefined;
+  if (s4bShaped) {
+    for (const k of ["extractorsSource", "generatorsSource", "stationRatesSource", "storageSource"] as const) {
+      if (sources?.[k] !== "native") extra.push(`the run did not write ${k} as native into the mod's config (it says ${String(sources?.[k])})`);
+    }
+    extra.push(...extractorsLogProblems(e.lines), ...generatorsLogProblems(e.lines), ...stationRatesLogProblems(e.lines), ...stationRatesLineProblems(e.lines), ...storageLogProblems(e.lines));
+  }
   if (sources?.playersSource !== "native" || sources?.resourceNodesSource !== "native") extra.push("the run did not write playersSource and resourceNodesSource as native into the mod's config");
   const parts = e.captures["snapshot-parts.json"] as Parts | undefined;
   const from = parts?.measured ? Date.parse(parts.measured.from) + TICK_WARMUP_MS : NaN;
@@ -99,7 +109,7 @@ export function evaluate(e: CoreEvidence): Verdict {
   // are S0/S1 code outside this rule.
   const required = requiredStepReaders(sources);
   extra.push(...stepProblems(e.lines, required));
-  if (s2Shaped || s3Shaped || s4Shaped) extra.push(...windowProblems(e.lines, required, from, to));
+  if (s2Shaped || s3Shaped || s4Shaped || s4bShaped) extra.push(...windowProblems(e.lines, required, from, to));
   if (extra.length === 0 && base.pass) {
     const steps = stepCosts(e.lines).map((c) => `${c.reader} longest step ${c.longestStepMs} ms`).join("; ");
     return { pass: true, reasons: [...base.reasons, `native readers live in the window: ${withPlayers} snapshots with players, ${nodePosts.length} resourceNodes post(s)`, describeScanCost(scans), `step ceiling ${MAX_NATIVE_STEP_MS} ms held (sliced native reads only): ${steps}`] };

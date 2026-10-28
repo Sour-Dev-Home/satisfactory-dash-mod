@@ -19,7 +19,7 @@ const zero = { reads: 0, failed: 0 };
 
 describe("native-parity drive (S4)", () => {
   it("runs with all nine readers native", () => {
-    expect(nativeParity.modConfig).toEqual(NATIVE_SOURCES_S4);
+    expect(nativeParity.modConfig).toMatchObject(NATIVE_SOURCES_S4); // S4-B adds its four on top
   });
 
   it("starts the three samplers, takes an extra sample on demand, and stops them", async () => {

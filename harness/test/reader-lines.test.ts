@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -180,5 +180,26 @@ describe("the Readers line", () => {
       expect(judge([S4BBridge])).toEqual([expect.stringMatching(new RegExp(`${key}=bridge, not native`))]);
       expect(judge([])).toEqual([expect.stringMatching(/no "Readers:" line/)]);
     }
+  });
+});
+
+describe("the station rates counts line (OQ2)", () => {
+  const line = (read: number, fluid: number, failed: number) => `[x] Station rates (reflection read): ${read} platforms read, ${fluid} fluid platforms skipped, ${failed} lookups failed`;
+  it("passes a good line", () => {
+    expect(stationRatesLineProblems([line(12, 1, 0)])).toEqual([]);
+    expect(stationRatesLineProblems([line(0, 0, 0), line(5, 0, 0)])).toEqual([]);
+  });
+  it("fails a missing line", () => {
+    expect(stationRatesLineProblems(["unrelated"])).toEqual([expect.stringMatching(/no "Station rates \(reflection read\):" line/)]);
+  });
+  it("fails lookups failed > 0, on any line", () => {
+    expect(stationRatesLineProblems([line(12, 0, 1)])).toEqual([expect.stringMatching(/1 lookups failed/)]);
+    expect(stationRatesLineProblems([line(12, 0, 0), line(12, 0, 3)])).toEqual([expect.stringMatching(/3 lookups failed/)]);
+  });
+  it("fails platforms read 0 on every line", () => {
+    expect(stationRatesLineProblems([line(0, 2, 0)])).toEqual([expect.stringMatching(/read 0 platforms/)]);
+  });
+  it("fails a malformed line", () => {
+    expect(stationRatesLineProblems(["[x] Station rates (reflection read): lots"])).toEqual([expect.stringMatching(/malformed/), expect.stringMatching(/no "Station rates/)]);
   });
 });

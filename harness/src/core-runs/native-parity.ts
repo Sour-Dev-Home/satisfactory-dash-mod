@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
 import * as Pass from "../../../runs/native-parity/pass";
 import { FRM_BRACKET_GAP_MS } from "../../../runs/enrol/pass";
-import { NATIVE_SOURCES_S4, type CoreContext, type CoreRunSpec } from "../core-run";
+import { NATIVE_SOURCES_S4B, type CoreContext, type CoreRunSpec } from "../core-run";
 import { canonDrone, canonMarkers, canonWires, mapFrmDroneFull, mapFrmMarkers, mapFrmWires, type FrmDronePort, type FrmMarker, type FrmWire } from "../frm-s4";
 import { evidenceHash } from "../evidence-hash";
+import { mapFrmExtractors, mapFrmGenerators, mapFrmStationRates, mapFrmStorage, type FrmContainer, type FrmExtractor, type FrmGenerator, type FrmStationRate } from "../frm-s4b";
+import { FactoryBuildingSchema } from "../../contract/src/factory";
+import { PowerGeneratorSchema } from "../../contract/src/power";
+import { StorageContainerSchema } from "../../contract/src/storage";
 import { AgentFactorySchema } from "../../contract/src/agent";
-import { MapLiveSchema, TrainRoutesLayerDataSchema } from "../../contract/src/map";
+import { MapLiveSchema, MapTrainStationSchema, TrainRoutesLayerDataSchema } from "../../contract/src/map";
 import { type FrmRead, parseGetPowerFull, pickBracket, startFrmPoller } from "../frm";
 import { canonNodes, countMergedGroups, mapFrmResourceNodes, playerKeys, startSampler, type CanonNode } from "../frm-native";
 import { canonEdges, canonRails, mapFrmConveyors, mapFrmDronePorts, mapFrmRails, type FrmConveyorSample, type FrmRail } from "../frm-s3";
@@ -338,9 +342,180 @@ export function s4EvidenceFrom(s: S4Samplers, entries: readonly RecordedCall[], 
   return { markers: layer<FrmMarker[]>(s.markers, "mapMarkers", "markers"), drone: layer<FrmDronePort[]>(s.drone, "droneRoutes", "drone"), wires: layer<FrmWire[]>(s.wires, "powerLines", "wires") };
 }
 
+// S4-B's FRM samplers (Task 19): extractors, generators, station rates and storage. Same period as S4-A's (see S4_SAMPLER_MS: the real
+// period is the interval plus the read, and the judge brackets a post by S4B_GAP_MS = 120 s), plus a fresh sample after each accepted
+// snapshot that carries the layer's fragment. The read timeout is 20 s: /getStorageInv and /getExtractor are large.
+export const S4B_SAMPLER_MS = S4_SAMPLER_MS;
+const S4B_READ_MS = 20_000;
+
+/** The four S4-B FRM samplers, started with the others (before the mod enrols). Each sample is `{ hash, mapped }` (frm-s4b.ts, names already hashed). */
+export function startS4bSamplers(get: Get, clock: Clock = { now: Date.now, sleep: realSleep }) {
+  const sampler = <T>(path: string, map: (body: unknown) => T[]) =>
+    startSampler(
+      async () => {
+        const mapped = map(await get(path, S4B_READ_MS));
+        return { hash: createHash("sha256").update(JSON.stringify(mapped)).digest("hex").slice(0, 16), mapped };
+      },
+      { intervalMs: S4B_SAMPLER_MS, ...clock },
+    );
+  const extractors = sampler("/getExtractor", mapFrmExtractors);
+  const generators = sampler("/getGenerators", mapFrmGenerators);
+  const stationRates = sampler("/getTrainStation", mapFrmStationRates);
+  const storage = sampler("/getStorageInv", mapFrmStorage);
+  return {
+    extractors, generators, stationRates, storage,
+    counts: () => ({ extractors: extractors.counts(), generators: generators.counts(), stationRates: stationRates.counts(), storage: storage.counts() }),
+    stop() {
+      extractors.stop();
+      generators.stop();
+      stationRates.stop();
+      storage.stop();
+    },
+  };
+}
+export type S4bSamplers = ReturnType<typeof startS4bSamplers>;
+
+export type S4bLayer = "extractors" | "generators" | "stationRates" | "storage";
+const S4B_LAYERS = ["extractors", "generators", "stationRates", "storage"] as const;
+type PostArray = { safeParse: (d: unknown) => { success: boolean; data?: unknown } };
+/** The judge's own record schemas (they strip keys the contract does not name), per layer. */
+const S4B_RECORD: Record<S4bLayer, PostArray> = {
+  extractors: FactoryBuildingSchema, generators: PowerGeneratorSchema, stationRates: MapTrainStationSchema, storage: StorageContainerSchema,
+};
+/** Where a layer's fragment sits in an accepted snapshot's kept parts. */
+const s4bFragment = (parts: NonNullable<RecordedCall["parts"]>, layer: S4bLayer): unknown => {
+  const part = (k: string) => (parts as Record<string, unknown>)[k] as Record<string, unknown> | null | undefined;
+  switch (layer) {
+    case "extractors": return part("factory")?.extractors;
+    case "generators": return part("power")?.generators;
+    case "stationRates": return part("mapLive")?.stations;
+    case "storage": return part("storage")?.containers;
+  }
+};
+/** Every `name` string, at any depth, replaced by its evidenceHash (the empty name stays empty): station names are player text, the rest are game text. A station name arrives from the recorder already as sessionHash(name), so it leaves as evidenceHash(sessionHash(name)). */
+function hashAllNames(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(hashAllNames);
+  if (!isRec(v)) return v;
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === "name" && typeof x === "string" ? (x === "" ? "" : evidenceHash(x)) : hashAllNames(x)]));
+}
+/** One posted record as evidence: names hashed, then cut to the contract's own keys; a record the contract rejects becomes null (it fails the judge's schema and carries no text). */
+function s4bRecord(layer: S4bLayer, item: unknown): unknown {
+  const parsed = S4B_RECORD[layer].safeParse(hashAllNames(item));
+  return parsed.success ? parsed.data : null;
+}
+
+/** The accepted snapshots of the mod since `from` that carry the layer's fragment (an array), as posts with every name hashed before it can reach a capture. */
+export function s4bLayerPosts(entries: readonly RecordedCall[], layer: S4bLayer, from: number): Array<{ at: string; status: number; data: unknown }> {
+  const out: Array<{ at: string; status: number; data: unknown }> = [];
+  for (const e of entries) {
+    if (e.agent !== "mod" || e.path !== "/agent/v1/snapshots" || e.status !== 200 || !e.parts || Date.parse(e.at) < from) continue;
+    const fragment = s4bFragment(e.parts, layer);
+    if (Array.isArray(fragment)) out.push({ at: e.at, status: e.status, data: fragment.map((i) => s4bRecord(layer, i)) });
+  }
+  return out;
+}
+
+/** The least time between two extra samples of one endpoint (controller ruling, 2026-10-27): snapshots come every 5 s. */
+export const S4B_TAKE_MIN_MS = 30_000;
+export interface S4bSeen { hash: string | null; takenAt: number }
+/** The incremental state of takeAfterNewS4bPosts: `cursor` is how many recorder entries were looked at already, `examined` counts the work done (tests). */
+export interface S4bState { cursor: number; examined: number; layers: Record<S4bLayer, S4bSeen> }
+export const newS4bSeen = (): S4bState => ({
+  cursor: 0, examined: 0,
+  layers: {
+    extractors: { hash: null, takenAt: -Infinity }, generators: { hash: null, takenAt: -Infinity },
+    stationRates: { hash: null, takenAt: -Infinity }, storage: { hash: null, takenAt: -Infinity },
+  },
+});
+
 /**
- * The combined native-reader parity run for sprints S1 to S4-A (runs/native-parity/pass.ts says what is judged). The mod enrols
- * with all nine sources native (spec.modConfig, NATIVE_SOURCES_S4), on the Test3 world; S2, S3 and S4 add their own FRM samplers (below,
+ * An extra FRM sample for an S4-B layer only after a snapshot that carries a fragment from a NEW mod read, and at most once per
+ * S4B_TAKE_MIN_MS per endpoint (the periodic samplers stay). Extractors, storage and station rates: a snapshot carrying the fragment
+ * is new (the mod sends them once per read; mapLive rides every snapshot, so the 30 s floor bounds it). Generators ride every power
+ * part, so a part is new only when a hash of its generators array's JSON text differs from the last one seen.
+ * Incremental: only the entries added since the last call are looked at (a cursor, as createRoundCollector does) and no evidence
+ * record is built here (s4bEvidenceFrom does that once), so the cost per call is O(new entries). `seen` is updated here.
+ * The due takes run concurrently. Returns the layers sampled.
+ */
+export async function takeAfterNewS4bPosts(
+  s: Pick<S4bSamplers, S4bLayer>,
+  entries: readonly RecordedCall[],
+  enrolledAt: number,
+  seen: S4bState,
+  now: () => number = Date.now,
+): Promise<S4bLayer[]> {
+  const fresh = new Set<S4bLayer>();
+  for (; seen.cursor < entries.length; seen.cursor++) {
+    seen.examined++;
+    const e = entries[seen.cursor]!;
+    if (e.agent !== "mod" || e.path !== "/agent/v1/snapshots" || e.status !== 200 || !e.parts || Date.parse(e.at) < enrolledAt) continue;
+    for (const layer of S4B_LAYERS) {
+      const fragment = s4bFragment(e.parts, layer);
+      if (!Array.isArray(fragment)) continue;
+      if (layer !== "generators") {
+        fresh.add(layer);
+        continue;
+      }
+      const h = createHash("sha256").update(JSON.stringify(fragment)).digest("hex");
+      if (h !== seen.layers.generators.hash) fresh.add(layer);
+      seen.layers.generators.hash = h;
+    }
+  }
+  const t = now();
+  const due = S4B_LAYERS.filter((l) => fresh.has(l) && t - seen.layers[l].takenAt >= S4B_TAKE_MIN_MS);
+  for (const l of due) seen.layers[l].takenAt = t;
+  await Promise.all(due.map((l) => s[l].take()));
+  return due;
+}
+
+/** Sprint S4-B's evidence: the snapshot fragments since enrolment (names hashed), the FRM samples as hashes with each distinct mapped body kept once, and the raw station pairs. */
+export function s4bEvidenceFrom(s: S4bSamplers, entries: readonly RecordedCall[], enrolledAt: number, atStart: ReturnType<S4bSamplers["counts"]>): Pass.S4bCapture {
+  const iv = (x: { startedAt: number; endedAt: number }) => ({ startedAt: iso(x.startedAt), endedAt: iso(x.endedAt) });
+  const now = s.counts();
+  const layer = <T>(name: S4bLayer) => {
+    const sampler = s[name] as unknown as { samples: Array<{ startedAt: number; endedAt: number; value: { hash: string; mapped: T[] } }> };
+    const distinct: Record<string, T[]> = {};
+    for (const x of sampler.samples) distinct[x.value.hash] ??= x.value.mapped;
+    return {
+      posts: s4bLayerPosts(entries, name, enrolledAt),
+      frmSamples: sampler.samples.map((x) => ({ ...iv(x), value: x.value.hash })),
+      distinct,
+      frm: sinceWindow(now[name], atStart[name]),
+    };
+  };
+  const stations = layer<FrmStationRate>("stationRates");
+  return {
+    extractors: layer<FrmExtractor>("extractors"), generators: layer<FrmGenerator>("generators"), stations, storage: layer<FrmContainer>("storage"),
+    stationPairs: stationPairsFrom(stations),
+  };
+}
+
+/** The mod's posted transferPerMinute next to FRM's TransferRate for the same station, on the same two sides the judge brackets with (ids and numbers only). */
+export function stationPairsFrom(e: Pass.StationsEvidence): Pass.StationPair[] {
+  const ms = (t: string) => Date.parse(t);
+  const out: Pass.StationPair[] = [];
+  for (const post of e.posts) {
+    const at = ms(post.at);
+    const before = e.frmSamples.filter((x) => ms(x.endedAt) <= at && at - ms(x.endedAt) <= Pass.S4B_GAP_MS).at(-1);
+    const after = e.frmSamples.find((x) => ms(x.startedAt) >= at && ms(x.startedAt) - at <= Pass.S4B_GAP_MS);
+    const sides = [["before", before], ["after", after]] as const;
+    for (const rec of Array.isArray(post.data) ? post.data : []) {
+      const r = rec as { id?: unknown; transferPerMinute?: unknown } | null;
+      if (!r || typeof r.id !== "string" || typeof r.transferPerMinute !== "number") continue;
+      const frm: Pass.StationPair["frm"] = [];
+      for (const [side, x] of sides) {
+        const f = x ? e.distinct[x.value]?.find((y) => y.id === r.id) : undefined;
+        if (f) frm.push({ side, transfer: f.transfer, platformSum: f.platformSum });
+      }
+      out.push({ at: post.at, id: r.id, mod: r.transferPerMinute, frm });
+    }
+  }
+  return out;
+}
+
+/**
+ * The combined native-reader parity run for sprints S1 to S4-B (runs/native-parity/pass.ts says what is judged). The mod enrols
+ * with all thirteen sources native (spec.modConfig, NATIVE_SOURCES_S4B), on the Test3 world; S2, S3 and S4 add their own FRM samplers (below,
  * startS3Samplers and startS4Samplers). The S1 part: Order: the world loads first (FRM is down before it,
  * docs/runner.md), the harness's FRM readers start, then the mod enrols (so its one resource-node post, about 8 minutes after
  * enrolment, lands inside the window), a one-minute settle, and 30 minutes of the harness reading FRM's getPower (back to
@@ -352,7 +527,7 @@ export const nativeParity: CoreRunSpec = {
   backend: true,
   world: true,
   worldKey: "sprint3",
-  modConfig: NATIVE_SOURCES_S4,
+  modConfig: NATIVE_SOURCES_S4B,
   evaluate: Pass.evaluate,
   preflight(deps) {
     if (!deps.config.frmBaseUrl) throw new Error("native-parity needs frmBaseUrl in the runner config: FRM is the oracle (docs/runner.md)");
@@ -365,7 +540,7 @@ export const nativeParity: CoreRunSpec = {
       return r.json();
     };
     const host = await ctx.deps.backendHost!();
-    const recorder = await startRecorder(host.relayUrl, { keepWorldData: ["resourceNodes", "trainRoutes", "rails", "conveyors", "mapMarkers", "droneRoutes", "powerLines"], keepSnapshotParts: ["factory", "mapLive"] });
+    const recorder = await startRecorder(host.relayUrl, { keepWorldData: ["resourceNodes", "trainRoutes", "rails", "conveyors", "mapMarkers", "droneRoutes", "powerLines"], keepSnapshotParts: ["factory", "mapLive", "power", "storage"] });
     const capture: Pass.NativeParity = {
       windowStartedAt: null, windowEndedAt: null, accepted: 0, unrecorded: 0, refused: [], state: null,
       power: { rounds: [], frm: { reads: 0, failed: 0 }, mergedGroupsMax: null },
@@ -392,6 +567,8 @@ export const nativeParity: CoreRunSpec = {
     let s3Start: ReturnType<S3Samplers["counts"]> = { rails: { reads: 0, failed: 0 }, conveyors: { reads: 0, failed: 0 }, drone: { reads: 0, failed: 0 } };
     let s4: S4Samplers | null = null;
     let s4Start: ReturnType<S4Samplers["counts"]> = { markers: { reads: 0, failed: 0 }, drone: { reads: 0, failed: 0 }, wires: { reads: 0, failed: 0 } };
+    let s4b: S4bSamplers | null = null;
+    let s4bStart: ReturnType<S4bSamplers["counts"]> = { extractors: { reads: 0, failed: 0 }, generators: { reads: 0, failed: 0 }, stationRates: { reads: 0, failed: 0 }, storage: { reads: 0, failed: 0 } };
     let enrolledAt = 0;
     try {
       await ctx.deps.loadWorld!("sprint3");
@@ -434,6 +611,8 @@ export const nativeParity: CoreRunSpec = {
       s3 = startS3Samplers(get);
       // S4-A's oracle, likewise from before the mod enrols: getMapMarkers, getDroneStation (full) and getCables.
       s4 = startS4Samplers(get);
+      // S4-B's oracle, likewise: getExtractor, getGenerators, getTrainStation (rates) and getStorageInv.
+      s4b = startS4bSamplers(get);
       // Enrolled after the world is up, so the mod's one resource-node post (about 8 minutes after enrolment, then every 30)
       // lands inside the 30-minute window that opens a minute after enrolment.
       enrolledAt = Date.now();
@@ -445,6 +624,7 @@ export const nativeParity: CoreRunSpec = {
       s2Start = { factory: factory.counts(), trains: trains.counts(), stations: stations.counts(), routes: routes.counts() };
       s3Start = s3.counts();
       s4Start = s4.counts();
+      s4bStart = s4b.counts();
       s2From = accepted(recorder).length;
       rounds = createRoundCollector({ reads: () => power!.reads, now: Date.now, startAt: s2From });
       let postsSeen = 0;
@@ -452,6 +632,7 @@ export const nativeParity: CoreRunSpec = {
       // Counted from zero: a post that landed between enrolment and the window's start (the first native read) gets its sample at once too.
       const s3Seen = { rails: 0, conveyors: 0 };
       const s4Seen: Record<S4Layer, number> = { mapMarkers: 0, droneRoutes: 0, powerLines: 0 };
+      const s4bSeen = newS4bSeen();
       while (Date.now() - from < Pass.WINDOW_MINUTES * MIN) {
         await ctx.deps.sleep(SECOND);
         rounds.feed(accepted(recorder));
@@ -472,6 +653,8 @@ export const nativeParity: CoreRunSpec = {
         await takeAfterNewS3Posts(s3, recorder.entries, enrolledAt, s3Seen);
         // S4-A: the same for the markers, drone ports and power lines layers.
         await takeAfterNewS4Posts(s4, recorder.entries, enrolledAt, s4Seen);
+        // S4-B: the same for each accepted snapshot carrying extractors, generators, station rates or storage.
+        await takeAfterNewS4bPosts(s4b, recorder.entries, enrolledAt, s4bSeen);
       }
       capture.windowEndedAt = iso(Date.now());
       await ctx.deps.sleep(2 * SECOND); // the last sample's FRM neighbour after it
@@ -488,6 +671,7 @@ export const nativeParity: CoreRunSpec = {
       routes?.stop();
       s3?.stop();
       s4?.stop();
+      s4b?.stop();
       if (rounds) {
         capture.power.rounds = rounds.power; // a run that failed mid-window keeps what it saw (the verdict fails on the window)
         capture.players.rounds = rounds.players;
@@ -544,6 +728,7 @@ export const nativeParity: CoreRunSpec = {
       }
       if (s3) capture.s3 = s3EvidenceFrom(s3, recorder.entries, enrolledAt, s3Start);
       if (s4) capture.s4 = s4EvidenceFrom(s4, recorder.entries, enrolledAt, s4Start);
+      if (s4b) capture.s4b = s4bEvidenceFrom(s4b, recorder.entries, enrolledAt, s4bStart);
       capture.state = await host.state("mod").catch(() => null);
       ctx.captures["native-parity.json"] = capture;
       ctx.captures["readers.json"] = Pass.judgeReaders(capture);

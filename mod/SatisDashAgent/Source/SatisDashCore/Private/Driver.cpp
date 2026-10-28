@@ -112,6 +112,10 @@ void SatisDash::FDriver::Tick()
 	{
 		Bridge.DropGenerators(); // the same for the generators fragment held for the power part
 	}
+	if (Config.GetStorageSource() != ESource::Native)
+	{
+		Bridge.DropStorage(); // and for a storage fragment not yet sent
+	}
 	Bridge.Tick(Now, Config.GetFrmPort(), Config.FrmToken);
 	if (TOptional<FEncodedBody> Encoded = Bridge.TakeEncoded())
 	{
@@ -220,13 +224,18 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 	UE_LOG(LogSatisDash, Display, TEXT("Buildables read (game thread only): %d elements, %d extractors, %d generators, %d containers in %d steps, longest step %.2f ms, total %.2f ms"),
 		Found->Counts.Elements, Found->Counts.Extractors, Found->Counts.Generators, Found->Counts.Containers, BuildablesBudget.Steps(), BuildablesBudget.LongestMs(), BuildablesBudget.TotalMs());
 	LogLongestStep(TEXT("Buildables"), BuildablesBudget);
-	if (Found->Counts.ExtractorsOverCap > 0)
+	// Rate-limited like the other Warnings here: a giant save is over a cap on every pass.
+	if (Found->Counts.ExtractorsOverCap > 0 && BuildablesLog.ShouldLog(TEXT("overCapExtractors"), Now))
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d extractors past the list cap were dropped"), Found->Counts.ExtractorsOverCap);
 	}
-	if (Found->Counts.GeneratorsOverCap > 0)
+	if (Found->Counts.GeneratorsOverCap > 0 && BuildablesLog.ShouldLog(TEXT("overCapGenerators"), Now))
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d generators past the list cap were dropped"), Found->Counts.GeneratorsOverCap);
+	}
+	if (Found->Counts.ContainersOverCap > 0 && BuildablesLog.ShouldLog(TEXT("overCapContainers"), Now))
+	{
+		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d containers past the list cap were dropped"), Found->Counts.ContainersOverCap);
 	}
 	if (BuildablesAsked.bExtractors && !Bridge.SubmitNativeExtractors(MoveTemp(Found->Extractors), Now) && BuildablesLog.ShouldLog(TEXT("held"), Now))
 	{
@@ -235,6 +244,10 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 	if (BuildablesAsked.bGenerators && !Bridge.SubmitNativeGenerators(MoveTemp(Found->Generators), Now) && BuildablesLog.ShouldLog(TEXT("heldGenerators"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last generators fragment is still being built: it is dropped"));
+	}
+	if (BuildablesAsked.bStorage && !Bridge.SubmitNativeStorage(MoveTemp(Found->Containers), Now) && BuildablesLog.ShouldLog(TEXT("heldStorage"), Now))
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last storage fragment is still being built: it is dropped"));
 	}
 }
 
@@ -453,8 +466,14 @@ void SatisDash::FDriver::TickSample(double Now)
 		}
 		Snapshot.FactoryJson = Bridge.TakeFactory(Now, Cadence.FactorySeconds);
 		Snapshot.MapLiveJson = Bridge.TakeMapLive(Now, Cadence.FactorySeconds);
+		if (Config.GetStorageSource() == ESource::Native)
+		{
+			// Ruling B3: a data part, attached to the first snapshot after the fragment is built and then cleared. Only with a status:
+			// an unreachable snapshot keeps it for the next one (the dash refuses a data part with reachable false).
+			Snapshot.StorageJson = Bridge.TakeStorage(Now, Cadence.FactorySeconds);
+		}
 	}
-	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsSet())
+	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsValid() || Snapshot.StorageJson.IsSet())
 	{
 		Bridge.EncodeSnapshot(MoveTemp(Snapshot)); // up to megabytes of JSON, or up to 256 KB of mapLive: serialised and gzipped on the worker
 	}

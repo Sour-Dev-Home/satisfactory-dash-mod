@@ -103,12 +103,26 @@ namespace SatisDash
 		 */
 		bool SubmitNativeGenerators(TArray<FGeneratorReading> Readings, double ReadAt);
 		/**
-		 * The held generators fragment for a power part (not consumed: the next power part carries it too), or unset when none is
-		 * held or it is older than GeneratorsStaleFactor x FactorySeconds (it is then forgotten: "not read", never a stale list).
+		 * The held generators fragment for a power part (not consumed: the next power part carries it too; a shared reference, never a
+		 * copy), or null when none is held or it is older than GeneratorsStaleFactor x FactorySeconds (it is then forgotten: "not
+		 * read", never a stale list).
 		 */
-		TOptional<FString> TakeGenerators(double Now, double FactorySeconds);
+		TSharedPtr<const FString> TakeGenerators(double Now, double FactorySeconds);
 		/** The generators source is not native (it flipped to bridge): forget the held fragment and any job. */
 		void DropGenerators();
+		/**
+		 * S4-B (ruling B3): the containers a native Buildables pass finished, moved into a job. The worker builds the storage
+		 * fragment (NativeStorageFragment), holds it, and the readings are freed. TakeStorage hands it to the first snapshot taken
+		 * after it is built and clears it (a data part is sent once per read). False while a fragment job is outstanding.
+		 */
+		bool SubmitNativeStorage(TArray<FContainerReading> Readings, double ReadAt);
+		/**
+		 * The held storage fragment, once (consumed), or unset when none is built or it is older than 1.5 x FactorySeconds
+		 * (then it is cleared, not sent: the extractors' age gate).
+		 */
+		TOptional<FString> TakeStorage(double Now, double FactorySeconds);
+		/** The storage source is not native (it flipped to bridge): forget the held fragment and any job. */
+		void DropStorage();
 		/** The layer's finished outcome, once. */
 		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
@@ -152,7 +166,20 @@ namespace SatisDash
 			FString Fragment;
 			bool bRan = false;
 		};
-		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
+		/** S4-B: the containers readings, then (worker) the fragment text and its counts; the readings are freed once it is built. */
+		struct FStorageJob
+		{
+			FStorageJob(TArray<FContainerReading> InReadings, double InReadAt) : Readings{MoveTemp(InReadings)}, ReadAt{InReadAt} {}
+			TArray<FContainerReading> Readings;
+			double ReadAt = 0;
+			FString Fragment;
+			int32 Dropped = 0, Over = 0, ItemsCut = 0, SlotsClamped = 0;
+			/** The fragment's UTF-8 size, counted on the worker for the log line. */
+			int64 Bytes = 0;
+			bool bRan = false;
+		};
+		/** The snapshot body is made on the worker; Report says what the size rule left out. */
+		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; FSnapshotSizeReport Report; bool bRan = false; };
 		/** R3: the game's own trains and stations; the worker writes the joined part (Json, or Ok false when it is over its cap). */
 		struct FNativeMapLiveJob
 		{
@@ -163,6 +190,8 @@ namespace SatisDash
 			bool bRan = false;
 		};
 		struct FReady { FString Json; double At = 0; };
+		/** A held fragment shared with every snapshot that carries it (the generators ride each power part). */
+		struct FSharedReady { TSharedPtr<const FString> Json; double At = 0; };
 
 		/** One of mapLive's two reads: not asked, waiting for FRM, parsing on the worker, or settled (Ok or Failed). */
 		struct FMapJob
@@ -226,7 +255,10 @@ namespace SatisDash
 		TOptional<FReady> ExtractorsReady;
 		/** At most one generators job, and the newest built fragment, held (not consumed) until it is stale (bounded by the 5000-record cap). */
 		TSharedPtr<FGeneratorsJob> GeneratorsTask;
-		TOptional<FReady> GeneratorsReady;
+		TOptional<FSharedReady> GeneratorsReady;
+		/** At most one storage job, and one built fragment held until the next snapshot takes it (bounded by the 2000-container cap). */
+		TSharedPtr<FStorageJob> StorageTask;
+		TOptional<FReady> StorageReady;
 		TSharedPtr<FEncodeJob> Encode;
 		TSharedPtr<FNativeMapLiveJob> NativeMapLive;
 		TOptional<FReady> PlayersReady;
@@ -239,7 +271,7 @@ namespace SatisDash
 		bool bPlayersAbsent = false;
 		bool bFactoryFailed = false;
 		double LastNow = 0;
-		/** Bounded: five keys ("players", "factory", "mapLive", "mapLiveOverCap", "extractorsDropped"), each at most once per 600 s. */
+		/** Bounded: keys ("players", "factory", "mapLive", "mapLiveOverCap", "extractorsDropped", "snapshotOverCap", "storageCuts"), each at most once per 600 s. */
 		FRateLimitedLog FailLog;
 	};
 }

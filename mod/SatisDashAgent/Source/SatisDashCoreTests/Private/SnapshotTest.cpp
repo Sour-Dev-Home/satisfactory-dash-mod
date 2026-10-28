@@ -195,7 +195,7 @@ bool FSnapshotGeneratorsTest::RunTest(const FString& Parameters)
 	const FString PlainJson = SnapshotToJson(Plain);
 
 	FSnapshot With = Plain;
-	With.GeneratorsJson = Fragment;
+	With.GeneratorsJson = MakeShared<FString>(Fragment);
 	const FString Json = SnapshotToJson(With);
 	const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(Json);
 	if (!TestTrue(TEXT("valid JSON"), Parsed.IsValid()) || !TestTrue(TEXT("with a power object"), Parsed->HasTypedField<EJson::Object>(TEXT("power"))))
@@ -220,12 +220,85 @@ bool FSnapshotGeneratorsTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("no fragment, same bytes"), SnapshotToJson(NoFragment), PlainJson);
 	TestFalse(TEXT("and no generators key"), PlainJson.Contains(TEXT("generators")));
 	FSnapshot NoPower = Base();
-	NoPower.GeneratorsJson = Fragment;
+	NoPower.GeneratorsJson = MakeShared<FString>(Fragment);
 	SatisDash::Test::SameText(*this, TEXT("a fragment without a power part is ignored"), SnapshotToJson(NoPower), SnapshotToJson(Base()));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotMapLiveTest,"SatisDash.Core.Snapshot.MapLive", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotStorageTest, "SatisDash.Core.Snapshot.Storage", SatisDash::Test::Flags)
+
+bool FSnapshotStorageTest::RunTest(const FString& Parameters)
+{
+	const FString Storage = TEXT("{\"containers\":[{\"id\":\"S1\",\"name\":\"Box\"}]}");
+	const FString Generators = TEXT("[{\"id\":\"G1\",\"fuel\":null}]");
+	const FString Extractors = TEXT("[{\"id\":\"E1\",\"name\":\"Miner\"}]");
+	FSnapshot Full = Base();
+	Full.Status = FStatusReading();
+	Full.Power = TArray<FCircuitReading>{ FCircuitReading() };
+	Full.GeneratorsJson = MakeShared<FString>(Generators);
+	Full.PlayersJson = TEXT("{\"available\":false,\"players\":[]}");
+	Full.FactoryJson = FString(TEXT("{\"buildings\":[],\"extractors\":")) + Extractors + TEXT("}");
+	Full.MapLiveJson = TEXT("{\"trains\":[],\"stations\":[]}");
+	Full.StorageJson = Storage;
+
+	// The part is a top-level key, after the other parts, and valid JSON by shape.
+	const FString Json = SnapshotToJson(Full);
+	const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(Json);
+	if (!TestTrue(TEXT("valid JSON"), Parsed.IsValid()) || !TestTrue(TEXT("with a storage object"), Parsed->HasTypedField<EJson::Object>(TEXT("storage"))))
+	{
+		return false;
+	}
+	TestTrue(TEXT("holding the containers array"), Parsed->GetObjectField(TEXT("storage"))->GetArrayField(TEXT("containers")).Num() == 1);
+	TestTrue(TEXT("after mapLive"), Json.Find(TEXT(",\"mapLive\":")) < Json.Find(TEXT(",\"storage\":")) && Json.EndsWith(Storage + TEXT("}")));
+
+	// An old-shape snapshot (no storage fragment) is byte-identical to today's.
+	FSnapshot NoStorage = Full;
+	NoStorage.StorageJson.Reset();
+	FSnapshot OldShape = Full;
+	OldShape.StorageJson.Reset();
+	SatisDash::Test::SameText(*this, TEXT("no fragment, no key"), SnapshotToJson(NoStorage), SnapshotToJson(OldShape));
+	TestFalse(TEXT("and no storage key"), SnapshotToJson(NoStorage).Contains(TEXT("storage")));
+
+	// A snapshot whose status read failed carries no storage (the dash refuses a data part with reachable false).
+	FSnapshot Unreachable = Base();
+	Unreachable.StorageJson = Storage;
+	SatisDash::Test::SameText(*this, TEXT("without a status the part is not written"), SnapshotToJson(Unreachable), SnapshotToJson(Base()));
+
+	// The size rule: over the cap, storage goes first, then power.generators, then factory.extractors; whole parts only.
+	FSnapshot NoGenerators = NoStorage;
+	NoGenerators.GeneratorsJson.Reset();
+	FSnapshot NoExtractors = NoGenerators;
+	NoExtractors.FactoryJson = TEXT("{\"buildings\":[]}");
+	const FString WithoutStorage = SnapshotToJson(NoStorage);
+	const FString WithoutGenerators = SnapshotToJson(NoGenerators);
+	const FString WithoutExtractors = SnapshotToJson(NoExtractors);
+
+	FSnapshotSizeReport Report;
+	SatisDash::Test::SameText(*this, TEXT("at the cap exactly nothing is left out"), SnapshotToJson(Full, Report, Json.Len()), Json);
+	TestFalse(TEXT("and the report says so"), Report.bDroppedStorage || Report.bDroppedGenerators || Report.bDroppedExtractors);
+
+	SatisDash::Test::SameText(*this, TEXT("one byte over: only storage is left out"), SnapshotToJson(Full, Report, Json.Len() - 1), WithoutStorage);
+	TestTrue(TEXT("storage reported"), Report.bDroppedStorage && !Report.bDroppedGenerators && !Report.bDroppedExtractors);
+	TestEqual(TEXT("the sizes are in bytes"), Report.BytesBefore, int64(Json.Len()));
+	TestEqual(TEXT("before and after"), Report.BytesAfter, int64(WithoutStorage.Len()));
+
+	SatisDash::Test::SameText(*this, TEXT("still over: generators go next"), SnapshotToJson(Full, Report, WithoutStorage.Len() - 1), WithoutGenerators);
+	TestTrue(TEXT("storage and generators reported"), Report.bDroppedStorage && Report.bDroppedGenerators && !Report.bDroppedExtractors);
+
+	SatisDash::Test::SameText(*this, TEXT("still over: extractors go last"), SnapshotToJson(Full, Report, WithoutGenerators.Len() - 1), WithoutExtractors);
+	TestTrue(TEXT("all three reported"), Report.bDroppedStorage && Report.bDroppedGenerators && Report.bDroppedExtractors);
+	TestTrue(TEXT("what is left is valid JSON with the power circuits and the factory"), [&WithoutExtractors]
+	{
+		const TSharedPtr<FJsonObject> Left = SatisDash::Json::ParseObject(WithoutExtractors);
+		return Left.IsValid() && Left->GetObjectField(TEXT("power"))->HasTypedField<EJson::Array>(TEXT("circuits")) && Left->HasTypedField<EJson::Object>(TEXT("factory"));
+	}());
+
+	// A tiny cap changes nothing more: the three drops are all there is.
+	SatisDash::Test::SameText(*this, TEXT("nothing else is cut"), SnapshotToJson(Full, Report, 1), WithoutExtractors);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotMapLiveTest, "SatisDash.Core.Snapshot.MapLive", SatisDash::Test::Flags)
 
 bool FSnapshotMapLiveTest::RunTest(const FString& Parameters)
 {

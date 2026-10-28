@@ -183,6 +183,9 @@ Actions → spike → the latest `main` push: `selftest` waits for your approval
 The core mod's unit tests (`mod/SatisDashAgent`, UE automation tests) run through `mod-test.yml`, which calls
 `harness test-mod`.
 
+- **Rule: one Unreal build at a time.** A local `test-mod` and the self-hosted runner both mirror into the same SML project
+  folder (`modTest.project`, on `D:`, such as `D:/SatisfactoryModding/...`). Never run a local `test-mod` while a runner
+  `mod-test` is in progress; run 40599303052 failed at link for this reason.
 - The runner config gains `"modTest": { "project": "<SML project folder>", "engine": "<engine root>" }`: the same two
   folders `buildCommand` already passes to `build-spike.ps1`. The owner adds it once.
 - `mod-test.yml` needs the `ue-runner` deployment approved, like `spike.yml`. It runs on pushes to `main` that touch
@@ -296,9 +299,45 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   lines, and a `Logistics read` line with `powerLines=1`. `readers.json` gains `mapMarkers`, `droneRoutes` and `powerLines`; an S1
   to S3 capture is judged as before. Known gap: `judgeWires` is called without its optional `{ dropped }` count, because there is no
   wires-only dropped parser, so the dropped-wire check is not applied (the dropped-wire count is not judged). Both
-  `native-parity` and `tick-cost-native` write `NATIVE_SOURCES_S4`. The backend images must be built from the contract pin
-  `9397b85` or a descendant, or the image guard refuses the run (see "The backend host"). The marker, drone-route and wire
+  `native-parity` (until S4-B) and `tick-cost-native` write `NATIVE_SOURCES_S4`. The backend images must be built from the contract pin
+  `48ed815` or a descendant, or the image guard refuses the run (see "The backend host"). The marker, drone-route and wire
   counts on `Test3` are pending the `s4-capture` run (PR #67).
+
+  **Sprint S4-B (the run writes all thirteen keys, `NATIVE_SOURCES_S4B`; `tick-cost-native` stays on `NATIVE_SOURCES_S4`).** Four more
+  readers are judged, each alone, in `runs/native-parity/pass-s4b.ts`: `extractors` (`R-extractors`), `generators` (`R-generators`),
+  `stationRates` (`R-station-rates`) and `storage` (`R-storage`), against FRM's `/getExtractor`, `/getGenerators`, `/getTrainStation`
+  (the rate mapping, beside S2's) and `/getStorageInv`, each read with a 20 s timeout, sampled every 90 s (inside the judge's 120 s
+  `S4B_GAP_MS`) and at once after each accepted mod snapshot that carries the layer's fragment (`factory.extractors`, `power.generators`,
+  `mapLive.stations`, top-level `storage.containers`, from the recorder's kept snapshot parts, which gain `power` and `storage`). Only
+  accepted (status 200) snapshots since the start of enrolment enter the evidence, and **every `name` in a posted record is replaced by a
+  per-run keyed hash (`evidence-hash.ts`) and the record is cut to the contract's keys before it is captured** (a station name is
+  `evidenceHash(sessionHash(name))`, because the recorder already replaces `mapLive` names with `sessionHash`; the judge checks only the
+  hash shape); a record the contract
+  rejects is kept as `null`. `native-parity.json` carries `s4b` (one evidence block per reader) and `s4b.stationPairs`: for each station
+  the mod rated, the posted `transferPerMinute` next to FRM's `TransferRate` and platform sum on the two bracketing sides (ids and
+  numbers only). The readers also need the `Readers:` line to say `extractors=native generators=native stationRates=native
+  storage=native`, and the first three of those (extractors, generators, storage) a `Buildables read` step line. `readers.json` gains the four
+  keys; an S1 to S4-A capture is judged as before. Snapshots come every 5 s, so the extra FRM sample (beyond the 90 s periodic one) is
+  taken only after a snapshot carrying a fragment from a new mod read (generators: a different generators array, since it rides every
+  power part), and at most once per 30 s per endpoint.
+
+  **The S4-B runs, in order (owner dispatches each once; nothing else is run).**
+  1. `mod-test` on each PR branch (floors 211, 217, 220, 226).
+  2. Owner step: rebuild the backend images from the last vendored contract pin (`48ed815`) or later.
+  3. `native-parity` on `Test3` (30-minute window; needs the backend host, `frmBaseUrl` and `sprint3World`). The first run
+     records the station raw values next to FRM's (R4). A failed factor check stops the work and is reported with the evidence
+     bundle.
+  4. `tick-cost-native` (baseline boot, then mod boot, on `Test3`). It passes with `Buildables read` at or under 2 ms.
+
+  `readers.json` must show, per reader, `pass: true` with reasons listing what was compared and what is NOT EXERCISED:
+  extractors (ids, class, resource, max, state flags, current within the stated band), generators (ids, class, fuel classes,
+  capacity, current within band, amounts reported), station rates (ids, per-station tolerance, median ratio in the band,
+  inflow and outflow absent) and storage (ids, class, slots, fluid capacity, stable-container contents).
+
+  **Owner's checklist before the `Test3` runs.** `Test3` has miners and a pump (ideally a fluid extractor and an unoccupied
+  one), generators of several kinds (coal with water, fuel, biomass, ideally nuclear and geothermal), two or more item freight
+  platforms with trains running (and a fluid platform, if available), item containers, a fluid buffer and the depot uploader.
+  FRM is running, the four dash contracts are merged and the backend is at that pin. Absent items are NOT EXERCISED.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S4`: the S3 set plus the map markers, drone routes and power lines readers),
   loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`

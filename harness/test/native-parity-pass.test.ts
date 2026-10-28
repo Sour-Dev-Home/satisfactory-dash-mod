@@ -394,3 +394,95 @@ describe("native-parity judge (S4 wiring)", () => {
     expect(bad.droneRoutes).toEqual(good.droneRoutes);
   });
 });
+
+// ------------------------------------------------------------------------------------------------------------------ S4-B wiring
+
+const S4B_SOURCES = { ...S4_SOURCES, extractorsSource: "native", generatorsSource: "native", stationRatesSource: "native", storageSource: "native" };
+const S4B_LINES = [
+  ...S4_LINES.filter((l) => !l.includes("Readers:")),
+  `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=native generators=native stationRates=native storage=native`,
+  `${PREFIX}Buildables read (game thread only): 900 elements, 1 extractors, 1 generators, 1 containers in 4 steps, longest step 0.50 ms, total 2.00 ms`,
+  `${PREFIX}Station rates (reflection read): 6 platforms read, 0 fluid platforms skipped, 0 lookups failed`,
+];
+function s4bEvidence(over: { extractors?: unknown; generators?: unknown; stations?: unknown; storage?: unknown } = {}): NonNullable<Pass.NativeParity["s4b"]> {
+  const at = iso(T0 + 8 * 60_000);
+  const samples = [{ startedAt: iso(T0 + 7 * 60_000), endedAt: iso(T0 + 7 * 60_000 + 500), value: "f1" }];
+  const block = <F>(data: unknown, frm: F[]) => ({ posts: [{ at, status: 200, data }], frmSamples: samples, distinct: { f1: frm }, frm: { reads: 3, failed: 0 } });
+  return {
+    extractors: block(over.extractors ?? [{ id: "E1", name: "Miner", className: "Build_MinerMk1_C", recipe: null, isProducing: true, isPaused: false, isBackedUp: false, production: [{ name: "Iron Ore", className: "Desc_OreIron_C", currentPerMinute: 60, maxPerMinute: 120, percent: 50 }] }],
+      [{ id: "E1", className: "Build_MinerMk1_C", producing: true, paused: false, backedUp: null, raw: {}, resourceClass: "Desc_OreIron_C", current: 60, max: 120, percent: 50, clockPercent: 100 }]),
+    generators: block(over.generators ?? [], []),
+    stations: block(over.stations ?? [{ id: "S1", name: NAME_HASH, x: 1, y: 2, transferPerMinute: 10 }], [{ id: "S1", nameHash: NAME_HASH, transfer: 10, platformSum: 10, platformCount: 1, platforms: [] }]),
+    storage: block(over.storage ?? [], []),
+    stationPairs: [{ at, id: "S1", mod: 10, frm: [{ side: "before", transfer: 10, platformSum: 10 }] }],
+  };
+}
+const s4bCapture = (over: Parameters<typeof s4bEvidence>[0] = {}): Pass.NativeParity => ({ ...s4Capture(), s4b: s4bEvidence(over) });
+
+describe("native-parity judge (S4-B wiring)", () => {
+  it("an S4-A-shaped capture and config re-judge as before: no S4-B verdicts, no R-extractors lines", () => {
+    expect(Object.keys(Pass.judgeReaders(s4Capture())).sort()).toEqual(["conveyors", "droneRoutes", "mapMarkers", "players", "powerLines", "power", "rails", "resourceNodes"].sort());
+    const e = Pass.evaluate(evidence(s4Capture(), S4_SOURCES, S4_LINES));
+    expect(e.pass).toBe(true);
+    expect(e.reasons.join("\n")).not.toMatch(/R-extractors|R-generators|R-station-rates|R-storage/);
+  });
+
+  it("an S4-B capture with the four keys native gives four more verdicts and readers.json holds them", () => {
+    const ev = evidence(s4bCapture(), S4B_SOURCES, S4B_LINES);
+    const v = Pass.evaluate(ev);
+    expect(v.reasons.filter((r) => r.includes("FAIL"))).toEqual([]);
+    expect(v.pass).toBe(true);
+    const readers = ev.captures["readers.json"] as Record<string, { pass: boolean }>;
+    expect(Object.keys(readers).slice(-4)).toEqual(["extractors", "generators", "stationRates", "storage"]);
+    expect(Pass.requirements).toEqual(expect.arrayContaining(["R-extractors", "R-generators", "R-station-rates", "R-storage"]));
+  });
+
+  it("a missing Buildables read line fails the three buildable readers with the log problem, station rates keep their verdict", () => {
+    const lines = S4B_LINES.filter((l) => !l.includes("Buildables read"));
+    const text = Pass.evaluate(evidence(s4bCapture(), S4B_SOURCES, lines)).reasons.join("\n");
+    for (const r of ["R-extractors", "R-generators", "R-storage"]) expect(text).toMatch(new RegExp(`${r} FAIL: .*no "Buildables read \\(game thread only\\):" line`));
+    expect(text).toMatch(/R-station-rates PASS/);
+  });
+
+  it("storageSource bridge, a missing S4-B key, or lost S4-B evidence fails the run reasons", () => {
+    expect(Pass.evaluate(evidence(s4bCapture(), { ...S4B_SOURCES, storageSource: "bridge" }, S4B_LINES)).pass).toBe(false);
+    const text = Pass.evaluate(evidence(s4bCapture(), { ...S4_SOURCES, extractorsSource: "native" }, S4B_LINES)).reasons.join("\n");
+    expect(text).toContain("extractorsSource, generatorsSource, stationRatesSource and storageSource as native");
+    const lost = Pass.evaluate(evidence(s4Capture(), S4B_SOURCES, S4B_LINES));
+    expect(lost.pass).toBe(false);
+    expect(lost.reasons.join("\n")).toContain("the S4-B evidence (extractors, generators, station rates, storage) was not captured");
+    expect(lost.reasons.join("\n")).toMatch(/R-extractors FAIL: no S4-B evidence/);
+  });
+
+  it("a Readers line that says storage=bridge fails storage alone", () => {
+    const lines = S4B_LINES.map((l) => l.replace("storage=native", "storage=bridge"));
+    const text = Pass.evaluate(evidence(s4bCapture(), S4B_SOURCES, lines)).reasons.join("\n");
+    expect(text).toMatch(/R-storage FAIL: .*storage=bridge, not native/);
+    expect(text).toMatch(/R-extractors PASS/);
+  });
+
+  it("the station rates counts line is a failure condition for R-station-rates even with a passing rate comparison", () => {
+    const run = (lines: string[]) => Pass.evaluate(evidence(s4bCapture(), S4B_SOURCES, lines));
+    const without = S4B_LINES.filter((l) => !l.includes("Station rates (reflection"));
+    expect(run(without).reasons.join("\n")).toMatch(/R-station-rates FAIL: .*no "Station rates \(reflection read\):" line/);
+    expect(run(S4B_LINES.map((l) => l.replace("0 lookups failed", "2 lookups failed"))).reasons.join("\n")).toMatch(/R-station-rates FAIL: .*2 lookups failed/);
+    expect(run(S4B_LINES.map((l) => l.replace("6 platforms read", "0 platforms read"))).reasons.join("\n")).toMatch(/R-station-rates FAIL: .*read 0 platforms/);
+    expect(run(S4B_LINES).reasons.join("\n")).toMatch(/R-station-rates PASS/);
+  });
+
+  it("one failing reader leaves the others' verdicts unchanged", () => {
+    const good = Pass.judgeReaders(s4bCapture());
+    const bad = Pass.judgeReaders(s4bCapture({ extractors: [{ id: 5 }] }));
+    expect(bad.extractors!.pass).toBe(false);
+    for (const k of ["generators", "stationRates", "storage", "mapMarkers", "powerLines", "rails"] as const) expect(bad[k]).toEqual(good[k]);
+  });
+
+  it("a station rate far from FRM's fails station rates alone (the judge's output, not the fixture)", () => {
+    const good = Pass.judgeReaders(s4bCapture());
+    const bad = Pass.judgeReaders(s4bCapture({ stations: [{ id: "S1", name: NAME_HASH, x: 1, y: 2, transferPerMinute: 100 }] }));
+    expect(good.stationRates!.pass).toBe(true);
+    expect(bad.stationRates!.pass).toBe(false);
+    expect(bad.extractors).toEqual(good.extractors);
+    expect(bad.storage).toEqual(good.storage);
+  });
+});

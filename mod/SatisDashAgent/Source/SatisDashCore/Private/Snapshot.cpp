@@ -96,6 +96,12 @@ namespace
 
 FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 {
+	FSnapshotSizeReport Report;
+	return SnapshotToJson(Snapshot, Report, SnapshotMaxBytes);
+}
+
+FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot, FSnapshotSizeReport& Report, int64 MaxBytes)
+{
 	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 	Root->SetStringField(TEXT("agentVersion"), Snapshot.AgentVersion);
 	Root->SetStringField(TEXT("observedAt"), Snapshot.ObservedAt.ToIso8601());
@@ -134,6 +140,7 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 		Root->SetObjectField(TEXT("status"), StatusToJson(ConformStatus(Snapshot.Status.GetValue())));
 	}
 	TOptional<FString> PowerJson; // the power object with generators, spliced as a part (only when there are generators)
+	int32 PowerBaseLen = 0; // the chars of PowerJson before ,"generators": (the power object without its closing brace)
 	if (Snapshot.Power.IsSet())
 	{
 		TArray<TSharedPtr<FJsonValue>> Circuits;
@@ -144,7 +151,7 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 		}
 		const TSharedRef<FJsonObject> Power = MakeShared<FJsonObject>();
 		Power->SetArrayField(TEXT("circuits"), Circuits);
-		if (Snapshot.GeneratorsJson.IsSet())
+		if (Snapshot.GeneratorsJson.IsValid())
 		{
 			// power is the root's last field, so it can be written apart and spliced first among the parts with the same bytes
 			// around it; the generators array goes in before its closing brace.
@@ -152,8 +159,10 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 			if (PowerJson->EndsWith(TEXT("}"), ESearchCase::CaseSensitive))
 			{
 				PowerJson->LeftChopInline(1);
+				PowerBaseLen = PowerJson->Len();
+				PowerJson->Reserve(PowerBaseLen + 14 + Snapshot.GeneratorsJson->Len() + 1); // ,"generators": is 14 chars, then the array and }
 				PowerJson->Append(TEXT(",\"generators\":"));
-				PowerJson->Append(Snapshot.GeneratorsJson.GetValue());
+				PowerJson->Append(*Snapshot.GeneratorsJson);
 				PowerJson->AppendChar(TEXT('}'));
 			}
 			else
@@ -168,37 +177,102 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 	}
 	FString Json = SatisDash::Json::Write(Root);
 	// Parts that arrive as finished JSON, spliced in this order before the root's closing brace.
-	struct FPart { const TCHAR* Key; const TOptional<FString>* Value; };
-	const FPart Parts[] = {
-		{ TEXT(",\"power\":"), &PowerJson },
-		{ TEXT(",\"players\":"), &Snapshot.PlayersJson },
-		{ TEXT(",\"factory\":"), &Snapshot.FactoryJson },
-		{ TEXT(",\"mapLive\":"), &Snapshot.MapLiveJson },
+	// Text is null when the part is absent; Len is how much of it is written, and bClose adds the part object's closing brace
+	// (a part cut by the size rule: power without generators, factory without extractors).
+	struct FPart { const TCHAR* Key; const FString* Text; int32 Len; bool bClose; };
+	const auto makePart =[](const TCHAR* Key, const TOptional<FString>& Value) { return FPart{ Key, Value.IsSet() ? &Value.GetValue() : nullptr, Value.IsSet() ? Value.GetValue().Len() : 0, false }; };
+	// Storage is a data part: never written when the status read failed (the dash refuses it with reachable false).
+	const TOptional<FString> NoPart;
+	FPart Parts[] = {
+		makePart(TEXT(",\"power\":"), PowerJson),
+		makePart(TEXT(",\"players\":"), Snapshot.PlayersJson),
+		makePart(TEXT(",\"factory\":"), Snapshot.FactoryJson),
+		makePart(TEXT(",\"mapLive\":"), Snapshot.MapLiveJson),
+		makePart(TEXT(",\"storage\":"), Snapshot.Status.IsSet() ? Snapshot.StorageJson : NoPart),
 	};
+	constexpr int32 PowerAt = 0, FactoryAt = 2, StorageAt = 4;
 	constexpr int32 KeySlack = 16; // each key (",\"players\":") is shorter than this
-	int32 Extra = 0;
-	for (const FPart& Part : Parts)
+	const auto extraUnits = [&Parts]
 	{
-		Extra += Part.Value->IsSet() ? KeySlack + Part.Value->GetValue().Len() : 0;
-	}
-	if (Extra == 0)
+		int32 Sum = 0;
+		for (const FPart& Part : Parts)
+		{
+			Sum += Part.Text ? KeySlack + Part.Len + (Part.bClose ? 1 : 0) : 0;
+		}
+		return Sum;
+	};
+	Report = FSnapshotSizeReport();
+	if (extraUnits() == 0)
 	{
+		Report.BytesBefore = Report.BytesAfter = Json.Len();
 		return Json;
 	}
 	// The root always has fields, and the condensed writer ends it with '}' (pinned by Snapshot.Splice). Anything else
 	// would be corrupted by the splice: send the snapshot without the parts instead.
 	if (!Json.EndsWith(TEXT("}"), ESearchCase::CaseSensitive))
 	{
+		Report.BytesBefore = Report.BytesAfter = Json.Len();
 		return Json;
 	}
+	// The assembled size in UTF-8 bytes. A UTF-16 unit is at most 3 bytes, so a body of at most MaxBytes / 3 units fits without
+	// counting; a larger one is counted exactly (a pass over the text, on the worker for the big parts).
+	const auto utf8Bytes = [](const TCHAR* Text, int32 Len) -> int64 { return Len > 0 ? FTCHARToUTF8_Convert::ConvertedLength(Text, Len) : 0; };
+	const auto measure = [&]() -> int64
+	{
+		const int64 Units = int64(Json.Len()) + extraUnits();
+		if (Units * 3 <= MaxBytes)
+		{
+			return Units; // only an upper bound, which is all the rule needs
+		}
+		int64 Sum = utf8Bytes(*Json, Json.Len());
+		for (const FPart& Part : Parts)
+		{
+			Sum += Part.Text ? FCString::Strlen(Part.Key) + utf8Bytes(**Part.Text, Part.Len) + (Part.bClose ? 1 : 0) : 0;
+		}
+		return Sum;
+	};
+	int64 Total = measure();
+	Report.BytesBefore = Total;
+	// Ruling (Open question 7): over the cap, storage goes first, then power.generators, then factory.extractors; each is a whole part.
+	if (Total > MaxBytes && Parts[StorageAt].Text)
+	{
+		Parts[StorageAt].Text = nullptr;
+		Report.bDroppedStorage = true;
+		Total = measure();
+	}
+	if (Total > MaxBytes && Parts[PowerAt].Text && PowerBaseLen > 0)
+	{
+		Parts[PowerAt].Len = PowerBaseLen;
+		Parts[PowerAt].bClose = true;
+		Report.bDroppedGenerators = true;
+		Total = measure();
+	}
+	if (Total > MaxBytes && Parts[FactoryAt].Text && Parts[FactoryAt].Text->EndsWith(TEXT("}"), ESearchCase::CaseSensitive))
+	{
+		// The extractors were appended last, before the part's closing brace; a raw quote cannot occur inside a JSON string, so the
+		// last ,"extractors": is the key. A factory part without one (a bridge part) is left alone.
+		const int32 At = Parts[FactoryAt].Text->Find(TEXT(",\"extractors\":"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+		if (At != INDEX_NONE)
+		{
+			Parts[FactoryAt].Len = At;
+			Parts[FactoryAt].bClose = true;
+			Report.bDroppedExtractors = true;
+			Total = measure();
+		}
+	}
+	Report.BytesAfter = Total;
 	Json.LeftChopInline(1);
-	Json.Reserve(Json.Len() + 1 + Extra); // one allocation for the whole result, each piece appended on its own
+	Json.Reserve(Json.Len() + 1 + extraUnits()); // one allocation for the whole result, each piece appended on its own
 	for (const FPart& Part : Parts)
 	{
-		if (Part.Value->IsSet())
+		if (Part.Text)
 		{
 			Json += Part.Key;
-			Json += Part.Value->GetValue();
+			Json.AppendChars(**Part.Text, Part.Len);
+			if (Part.bClose)
+			{
+				Json.AppendChar(TEXT('}'));
+			}
 		}
 	}
 	Json.AppendChar(TEXT('}'));

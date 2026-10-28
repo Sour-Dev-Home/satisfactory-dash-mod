@@ -293,7 +293,7 @@ bool SatisDash::FFrmBridge::SubmitNativeGenerators(TArray<FGeneratorReading> Rea
 	return true;
 }
 
-TOptional<FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double FactorySeconds)
+TSharedPtr<const FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double FactorySeconds)
 {
 	if (GeneratorsReady.IsSet() && Now - GeneratorsReady->At > GeneratorsStaleFactor * FactorySeconds)
 	{
@@ -301,15 +301,45 @@ TOptional<FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double Fact
 	}
 	if (!GeneratorsReady.IsSet())
 	{
-		return {};
+		return nullptr;
 	}
-	return GeneratorsReady->Json; // a copy: the held fragment stays for the next power part
+	return GeneratorsReady->Json; // a shared reference: the held fragment stays for the next power part, uncopied
 }
 
 void SatisDash::FFrmBridge::DropGenerators()
 {
 	GeneratorsTask.Reset();
 	GeneratorsReady.Reset();
+}
+
+bool SatisDash::FFrmBridge::SubmitNativeStorage(TArray<FContainerReading> Readings, double ReadAt)
+{
+	if (StorageTask.IsValid())
+	{
+		return false;
+	}
+	StorageTask = MakeShared<FStorageJob>(MoveTemp(Readings), ReadAt);
+	return true;
+}
+
+TOptional<FString> SatisDash::FFrmBridge::TakeStorage(double Now, double FactorySeconds)
+{
+	TOptional<FString> Out;
+	if (StorageReady.IsSet())
+	{
+		if (Now - StorageReady->At <= 1.5 * FactorySeconds)
+		{
+			Out = MoveTemp(StorageReady->Json); // once: a data part is sent per read, then the memory is free
+		}
+		StorageReady.Reset(); // a stale fragment is dropped, never sent under a fresh observedAt
+	}
+	return Out;
+}
+
+void SatisDash::FFrmBridge::DropStorage()
+{
+	StorageTask.Reset();
+	StorageReady.Reset();
 }
 
 TOptional<SatisDash::FWorldOutcome> SatisDash::FFrmBridge::TakeWorld(EWorldLayer Layer)
@@ -325,7 +355,15 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 	if (Encode.IsValid() && Encode->bRan)
 	{
 		Encoded = MoveTemp(Encode->Body);
+		const FSnapshotSizeReport Report = Encode->Report;
 		Encode.Reset();
+		if ((Report.bDroppedStorage || Report.bDroppedGenerators || Report.bDroppedExtractors) && FailLog.ShouldLog(TEXT("snapshotOverCap"), Now))
+		{
+			// Sizes in bytes only (the body is player data).
+			UE_LOG(LogSatisDash, Warning, TEXT("The snapshot body was %lld bytes, over the %lld-byte cap: left out %s%s%s, now %lld bytes"),
+				Report.BytesBefore, SnapshotMaxBytes, Report.bDroppedStorage ? TEXT("storage ") : TEXT(""),
+				Report.bDroppedGenerators ? TEXT("generators ") : TEXT(""), Report.bDroppedExtractors ? TEXT("extractors") : TEXT(""), Report.BytesAfter);
+		}
 	}
 	if (Players.IsValid() && Players->bRan)
 	{
@@ -360,8 +398,20 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 	}
 	if (GeneratorsTask.IsValid() && GeneratorsTask->bRan)
 	{
-		GeneratorsReady = FReady{ MoveTemp(GeneratorsTask->Fragment), GeneratorsTask->ReadAt }; // replaces the older fragment
+		GeneratorsReady = FSharedReady{ MakeShared<FString>(MoveTemp(GeneratorsTask->Fragment)), GeneratorsTask->ReadAt }; // replaces the older fragment
 		GeneratorsTask.Reset();
+	}
+	if (StorageTask.IsValid() && StorageTask->bRan)
+	{
+		// Counts and bytes only; a container's id and name are player text.
+		UE_LOG(LogSatisDash, Display, TEXT("Buildables storage fragment built (worker): %lld bytes"), StorageTask->Bytes);
+		if ((StorageTask->Dropped > 0 || StorageTask->Over > 0 || StorageTask->ItemsCut > 0 || StorageTask->SlotsClamped > 0) && FailLog.ShouldLog(TEXT("storageCuts"), Now))
+		{
+			UE_LOG(LogSatisDash, Warning, TEXT("Storage fragment: %d containers dropped, %d past the list cap, %d items cut, %d slot counts clamped"),
+				StorageTask->Dropped, StorageTask->Over, StorageTask->ItemsCut, StorageTask->SlotsClamped);
+		}
+		StorageReady = FReady{ MoveTemp(StorageTask->Fragment), StorageTask->ReadAt }; // a newer fragment replaces an untaken one
+		StorageTask.Reset();
 	}
 	if (Factory.IsValid() && Factory->bRan)
 	{
@@ -399,10 +449,12 @@ void SatisDash::FFrmBridge::LaunchNext()
 	{
 		Worker.Launch([Job = Encode]
 		{
-			FString Json = SnapshotToJson(Job->Snapshot);
+			FString Json = SnapshotToJson(Job->Snapshot, Job->Report);
 			Job->Snapshot.FactoryJson.Reset(); // the factory text is spliced into Json: don't hold both through the encode
 			Job->Snapshot.PlayersJson.Reset();
 			Job->Snapshot.MapLiveJson.Reset();
+			Job->Snapshot.GeneratorsJson.Reset();
+			Job->Snapshot.StorageJson.Reset();
 			Job->Body = EncodeBody(Json);
 			Job->bRan = true;
 		});
@@ -467,6 +519,17 @@ void SatisDash::FFrmBridge::LaunchNext()
 			int32 Dropped = 0, Over = 0;
 			Job->Fragment = NativeGeneratorsFragment(MoveTemp(Job->Readings), Dropped, Over);
 			Job->Readings = TArray<FGeneratorReading>();
+			Job->bRan = true;
+		});
+	}
+	else if (StorageTask.IsValid() && !StorageTask->bRan)
+	{
+		Worker.Launch([Job = StorageTask]
+		{
+			// The whole fragment in one task: sorted, capped and written by the one record writer; the readings are freed after.
+			Job->Fragment = NativeStorageFragment(MoveTemp(Job->Readings), Job->Dropped, Job->Over, Job->ItemsCut, Job->SlotsClamped);
+			Job->Bytes = Job->Fragment.IsEmpty() ? 0 : int64(FTCHARToUTF8_Convert::ConvertedLength(*Job->Fragment, Job->Fragment.Len()));
+			Job->Readings = TArray<FContainerReading>();
 			Job->bRan = true;
 		});
 	}
@@ -588,6 +651,7 @@ void SatisDash::FFrmBridge::Stop()
 	ExtractorsTask.Reset();
 	ExtractorsReady.Reset();
 	DropGenerators();
+	DropStorage();
 	Encode.Reset();
 	NativeMapLive.Reset();
 	PlayersReady.Reset();

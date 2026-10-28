@@ -254,6 +254,16 @@ describe("recorder (ruling 11)", () => {
     expect(rec.entries[0]!.snapshot).toMatchObject({ factory: { buildings: [] } });
   });
 
+  it("keepSnapshotParts also keeps the power and storage parts (S4-B), in memory only", async () => {
+    const up = await upstream(() => ({ status: 200, body: "{}" }));
+    const power = { circuits: [], generators: [{ id: "g1", name: "Coal Generator" }] };
+    const storage = { containers: [{ id: "c1", name: "Crate" }] };
+    const rec = await recorderFor(up.url, { keepSnapshotParts: ["power", "storage"] });
+    await send(rec.url, "POST", "/agent/v1/snapshots", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: JSON.stringify({ ...snapshot, power, storage }) });
+    expect(rec.entries[0]!.parts).toEqual({ power, storage });
+    expect(JSON.stringify(publicEntries(rec.entries))).not.toContain("Coal Generator");
+  });
+
   it("keepSnapshotParts keeps the named parts of an accepted snapshot on `parts` (names hashed), and publicEntries never writes them out", async () => {
     const up = await upstream(() => ({ status: 200, body: "{}" }));
     const live = { trains: [{ id: "t1", name: "Loop Line", x: 1, y: 2, status: "Parked" }], stations: [{ id: "s1", name: "Depot", x: 3, y: 4 }] };
