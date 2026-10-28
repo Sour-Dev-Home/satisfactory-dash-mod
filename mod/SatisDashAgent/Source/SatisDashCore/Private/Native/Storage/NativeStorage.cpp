@@ -21,6 +21,7 @@ namespace
 		FString Id;
 		FString Text;
 		bool bItemsCut = false;
+		bool bSlotsClamped = false;
 	};
 
 	/** One item per class (the class as written), sorted by it; the name and stackMax are the first stack's, the amounts are summed. */
@@ -67,8 +68,7 @@ namespace
 		Writer->WriteValue(TEXT("name"), ClampString(R.Name));
 		Writer->WriteValue(TEXT("className"), ClampString(R.ClassName));
 		FFactoryBuildingModel Place;
-		// A container has no yaw read: the contract requires the key, so it is 0.
-		if (R.bHasLocation && SetLocation(Place, R.XCm, R.YCm, R.ZCm, 0.0))
+		if (R.bHasLocation && SetLocation(Place, R.XCm, R.YCm, R.ZCm, R.YawDeg))
 		{
 			Writer->WriteObjectStart(TEXT("location"));
 			Writer->WriteValue(TEXT("xM"), Place.XM);
@@ -79,7 +79,9 @@ namespace
 		}
 		const int32 Slots = FMath::Max(0, R.Slots);
 		Writer->WriteValue(TEXT("slots"), Slots);
-		Writer->WriteValue(TEXT("slotsUsed"), FMath::Clamp(R.SlotsUsed, 0, Slots));
+		const int32 SlotsUsed = FMath::Clamp(R.SlotsUsed, 0, Slots);
+		Out.bSlotsClamped = SlotsUsed != R.SlotsUsed;
+		Writer->WriteValue(TEXT("slotsUsed"), SlotsUsed);
 		if (R.FluidCapacityM3.IsSet())
 		{
 			Writer->WriteValue(TEXT("fluidCapacityM3"), NonNegative(R.FluidCapacityM3.GetValue()));
@@ -118,8 +120,9 @@ namespace
 	}
 }
 
-FString SatisDash::NativeStorageFragment(TArray<FContainerReading> Readings, int32& OutDropped, int32& OutOver, int32& OutItemsCut)
+FString SatisDash::NativeStorageFragment(TArray<FContainerReading> Readings, int32& OutDropped, int32& OutOver, int32& OutItemsCut, int32& OutSlotsClamped)
 {
+	OutSlotsClamped = 0;
 	OutDropped = 0;
 	OutOver = 0;
 	OutItemsCut = 0;
@@ -160,6 +163,7 @@ FString SatisDash::NativeStorageFragment(TArray<FContainerReading> Readings, int
 		}
 		Out += Container.Text;
 		OutItemsCut += Container.bItemsCut ? 1 : 0;
+		OutSlotsClamped += Container.bSlotsClamped ? 1 : 0;
 		++Count;
 	}
 	Out += TEXT("]}");

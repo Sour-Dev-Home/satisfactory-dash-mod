@@ -20,14 +20,14 @@ namespace SatisDash
 
 	/**
 	 * One container as the game reports it, before mapping (S4-B, ADR-0058). Positions are in game units (centimetres).
-	 * No yaw is read for a container: the location is written with rotationDeg 0 (the contract requires the key).
+	 * The yaw is in degrees; the location is written in metres with rotationDeg in [0, 360), as the factory part does.
 	 */
 	struct FContainerReading
 	{
 		/** GetName(), mDisplayName and GetClass()->GetName(). */
 		FString Id, Name, ClassName;
 		bool bHasLocation = false;
-		double XCm = 0, YCm = 0, ZCm = 0;
+		double XCm = 0, YCm = 0, ZCm = 0, YawDeg = 0;
 		int32 Slots = 0, SlotsUsed = 0;
 		/** Set ONLY on a fluid buffer: it is the contract's one test for one. */
 		TOptional<double> FluidCapacityM3;
@@ -39,10 +39,11 @@ namespace SatisDash
 	 * The storage part: JSON text {"containers":[...]}, keys in the vendored contract's order. Items are merged per class (amounts
 	 * summed, name and stackMax of the first stack of that class), sorted by class and cut at StorageMaxItems (OutItemsCut counts
 	 * the containers cut). Containers are sorted by the written id (ordinal, ties by the written content), a later duplicate of
-	 * that id dropped, the first StorageMaxContainers kept (the rest counted in OutOver). slotsUsed is clamped to slots. A
+	 * that id dropped, the first StorageMaxContainers kept (the rest counted in OutOver). slotsUsed is clamped to slots (the
+	 * written containers where that changed it are counted in OutSlotsClamped). A
 	 * container with a negative or non-finite fluid capacity is dropped and counted in OutDropped; a negative or non-finite
 	 * amount is made zero. Ids, names and class names are cut at 200 characters.
 	 * Sorts and builds text: the worker runs it, never the game thread.
 	 */
-	SATISDASHCORE_API FString NativeStorageFragment(TArray<FContainerReading> Readings, int32& OutDropped, int32& OutOver, int32& OutItemsCut);
+	SATISDASHCORE_API FString NativeStorageFragment(TArray<FContainerReading> Readings, int32& OutDropped, int32& OutOver, int32& OutItemsCut, int32& OutSlotsClamped);
 }

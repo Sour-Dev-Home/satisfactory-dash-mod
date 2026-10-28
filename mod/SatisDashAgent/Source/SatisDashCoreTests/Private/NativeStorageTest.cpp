@@ -26,6 +26,7 @@ namespace
 		R.XCm = 10000;
 		R.YCm = 25000;
 		R.ZCm = -2000;
+		R.YawDeg = 90;
 		R.Slots = 24;
 		R.SlotsUsed = 2;
 		R.Items.Add(NativeStorageStack(TEXT("Desc_TestWire_C"), TEXT("Test Wire"), 300, 500));
@@ -63,7 +64,8 @@ namespace
 		int32 Dropped = 0;
 		int32 Over = 0;
 		int32 Cut = 0;
-		return NativeStorageFragment({ Reading }, Dropped, Over, Cut);
+		int32 Clamped = 0;
+		return NativeStorageFragment({ Reading }, Dropped, Over, Cut, Clamped);
 	}
 
 	/** The three golden readings, out of id order: a box, an empty industrial container without a position, a buffer. */
@@ -80,6 +82,7 @@ namespace
 		Buffer.XCm = -500;
 		Buffer.YCm = 50;
 		Buffer.ZCm = 1200;
+		Buffer.YawDeg = 270;
 		return { Buffer, NativeStorageBox(TEXT("Test_Box_C_1")), Empty };
 	}
 }
@@ -90,7 +93,7 @@ bool FNativeStorageMapTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::SameText(*this, TEXT("a box with Wire and Plastic, items sorted by class"), NativeStorageOne(NativeStorageBox(TEXT("Test_Box_C_1"))),
 		TEXT("{\"containers\":[{\"id\":\"Test_Box_C_1\",\"name\":\"Test Storage Box\",\"className\":\"Build_TestBox_C\",")
-		TEXT("\"location\":{\"xM\":100,\"yM\":250,\"zM\":-20,\"rotationDeg\":0},\"slots\":24,\"slotsUsed\":2,")
+		TEXT("\"location\":{\"xM\":100,\"yM\":250,\"zM\":-20,\"rotationDeg\":90},\"slots\":24,\"slotsUsed\":2,")
 		TEXT("\"items\":[{\"className\":\"Desc_TestPlastic_C\",\"name\":\"Test Plastic\",\"amount\":40,\"stackMax\":200},")
 		TEXT("{\"className\":\"Desc_TestWire_C\",\"name\":\"Test Wire\",\"amount\":300,\"stackMax\":500}]}]}"));
 
@@ -136,7 +139,8 @@ bool FNativeStorageRulesTest::RunTest(const FString& Parameters)
 	int32 Dropped = 0;
 	int32 Over = 0;
 	int32 Cut = 0;
-	SatisDash::Test::SameText(*this, TEXT("empty"), NativeStorageFragment({}, Dropped, Over, Cut), TEXT("{\"containers\":[]}"));
+	int32 Clamped = 0;
+	SatisDash::Test::SameText(*this, TEXT("empty"), NativeStorageFragment({}, Dropped, Over, Cut, Clamped), TEXT("{\"containers\":[]}"));
 	TestEqual(TEXT("empty: nothing dropped, over or cut"), Dropped + Over + Cut, 0);
 
 	// Two stacks of one class are one item: amounts summed, stackMax of the first stack.
@@ -154,7 +158,7 @@ bool FNativeStorageRulesTest::RunTest(const FString& Parameters)
 	{
 		Rich.Items.Add(NativeStorageStack(*FString::Printf(TEXT("Desc_Test_C_%02d"), I), TEXT("Test Item"), 1, 100));
 	}
-	const FString Cut64 = NativeStorageFragment({ Rich, NativeStorageBox(TEXT("S")) }, Dropped, Over, Cut);
+	const FString Cut64 = NativeStorageFragment({ Rich, NativeStorageBox(TEXT("S")) }, Dropped, Over, Cut, Clamped);
 	TestEqual(TEXT("65 classes: one container cut"), Cut, 1);
 	TestTrue(TEXT("the first 64 classes are kept"), Cut64.Contains(TEXT("Desc_Test_C_63")) && !Cut64.Contains(TEXT("Desc_Test_C_64")));
 
@@ -164,7 +168,7 @@ bool FNativeStorageRulesTest::RunTest(const FString& Parameters)
 	{
 		Many.Add(NativeStorageBox(*FString::Printf(TEXT("Test_Box_C_%05d"), I)));
 	}
-	const FString Capped = NativeStorageFragment(Many, Dropped, Over, Cut);
+	const FString Capped = NativeStorageFragment(Many, Dropped, Over, Cut, Clamped);
 	TestEqual(TEXT("2001 containers: one over"), Over, 1);
 	TestEqual(TEXT("2001 containers: none dropped"), Dropped, 0);
 	TestTrue(TEXT("the first 2000 by id are kept"), Capped.Contains(TEXT("Test_Box_C_01999")) && !Capped.Contains(TEXT("Test_Box_C_02000")));
@@ -176,21 +180,21 @@ bool FNativeStorageRulesTest::RunTest(const FString& Parameters)
 	{
 		Backward.Add(Forward[I]);
 	}
-	SatisDash::Test::SameText(*this, TEXT("shuffled input"), NativeStorageFragment(Backward, Dropped, Over, Cut), NativeStorageFragment(Forward, Dropped, Over, Cut));
+	SatisDash::Test::SameText(*this, TEXT("shuffled input"), NativeStorageFragment(Backward, Dropped, Over, Cut, Clamped), NativeStorageFragment(Forward, Dropped, Over, Cut, Clamped));
 
 	// A repeated id is written once, whichever came first: the order is by the written content.
 	FContainerReading Twin = NativeStorageBox(TEXT("Same"));
 	Twin.SlotsUsed = 5;
-	const FString PairA = NativeStorageFragment({ NativeStorageBox(TEXT("Same")), Twin }, Dropped, Over, Cut);
-	const FString PairB = NativeStorageFragment({ Twin, NativeStorageBox(TEXT("Same")) }, Dropped, Over, Cut);
+	const FString PairA = NativeStorageFragment({ NativeStorageBox(TEXT("Same")), Twin }, Dropped, Over, Cut, Clamped);
+	const FString PairB = NativeStorageFragment({ Twin, NativeStorageBox(TEXT("Same")) }, Dropped, Over, Cut, Clamped);
 	SatisDash::Test::SameText(*this, TEXT("a duplicate id: the same bytes in either order"), PairA, PairB);
 	TestEqual(TEXT("a duplicate id is written once"), NativeStorageCount(PairA, TEXT("\"id\":")), 1);
 
 	// Two ids that differ only past the cut are the same written id: one is written.
 	FContainerReading LongA = NativeStorageBox(*(FString::ChrN(250, TEXT('x')) + TEXT("a")));
 	FContainerReading LongB = NativeStorageBox(*(FString::ChrN(250, TEXT('x')) + TEXT("b")));
-	const FString LongPair = NativeStorageFragment({ LongA, LongB }, Dropped, Over, Cut);
-	const FString LongPairReversed = NativeStorageFragment({ LongB, LongA }, Dropped, Over, Cut);
+	const FString LongPair = NativeStorageFragment({ LongA, LongB }, Dropped, Over, Cut, Clamped);
+	const FString LongPairReversed = NativeStorageFragment({ LongB, LongA }, Dropped, Over, Cut, Clamped);
 	SatisDash::Test::SameText(*this, TEXT("ids equal once cut: one written, order-independent"), LongPair, LongPairReversed);
 	TestEqual(TEXT("ids equal once cut: one container"), NativeStorageCount(LongPair, TEXT("\"slots\":")), 1);
 
@@ -200,6 +204,12 @@ bool FNativeStorageRulesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("slotsUsed is clamped to slots"), NativeStorageOne(Over2).Contains(TEXT("\"slots\":24,\"slotsUsed\":24,")));
 	Over2.Slots = -3;
 	TestTrue(TEXT("a negative slot count is 0"), NativeStorageOne(Over2).Contains(TEXT("\"slots\":0,\"slotsUsed\":0,")));
+	FContainerReading Fine = NativeStorageBox(TEXT("Fine"));
+	Over2.Slots = 24;
+	NativeStorageFragment({ Over2, Fine, NativeStorageBox(TEXT("Fine2")) }, Dropped, Over, Cut, Clamped);
+	TestEqual(TEXT("one container had its slotsUsed clamped"), Clamped, 1);
+	NativeStorageFragment({ Fine }, Dropped, Over, Cut, Clamped);
+	TestEqual(TEXT("none clamped: 0"), Clamped, 0);
 
 	// A capacity that is not a number drops the container; an amount that is not a number is 0.
 	const uint64 NanBits = 0x7FF8000000000000ull;
@@ -209,7 +219,7 @@ bool FNativeStorageRulesTest::RunTest(const FString& Parameters)
 	Bad.FluidCapacityM3 = Nan;
 	FContainerReading NanAmount = NativeStorageBox(TEXT("NanAmount"));
 	NanAmount.Items[0].Amount = Nan;
-	const FString Kept = NativeStorageFragment({ Bad, NanAmount, NativeStorageBox(TEXT("Good")) }, Dropped, Over, Cut);
+	const FString Kept = NativeStorageFragment({ Bad, NanAmount, NativeStorageBox(TEXT("Good")) }, Dropped, Over, Cut, Clamped);
 	TestEqual(TEXT("one dropped"), Dropped, 1);
 	TestTrue(TEXT("the good one stays, the bad one is gone"), Kept.Contains(TEXT("\"id\":\"Good\"")) && !Kept.Contains(TEXT("\"id\":\"Bad\"")));
 	TestTrue(TEXT("a NaN amount is 0"), Kept.Contains(TEXT("\"name\":\"Test Wire\",\"amount\":0,")));
@@ -223,7 +233,8 @@ bool FNativeStorageGoldenTest::RunTest(const FString& Parameters)
 	int32 Dropped = 0;
 	int32 Over = 0;
 	int32 Cut = 0;
-	const FString Actual = NativeStorageFragment(NativeStorageGoldenReadings(), Dropped, Over, Cut);
+	int32 Clamped = 0;
+	const FString Actual = NativeStorageFragment(NativeStorageGoldenReadings(), Dropped, Over, Cut, Clamped);
 	FString Expected = SatisDash::Test::Fixture(TEXT("native-storage.expected.json"));
 	while (Expected.Len() > 0 && (Expected[Expected.Len() - 1] == TEXT('\n') || Expected[Expected.Len() - 1] == TEXT('\r')))
 	{
