@@ -224,3 +224,35 @@ describe("vendored contract (S4-B: station rates)", () => {
     }
   });
 });
+
+describe("vendored contract (S4-B: storage)", () => {
+  const container = { id: "c1", name: "Industrial Storage Container", className: "Build_StorageContainerMk2_C", slots: 48, slotsUsed: 1, items: [{ className: "Desc_IronPlate_C", name: "Iron Plate", amount: 200 }] };
+  const base = { agentVersion: "mod/0.0", observedAt: "2026-10-27T16:00:00.000Z", reachable: true, paused: false };
+
+  it("a snapshot with storage.containers validates; fluidCapacityM3 is optional", async () => {
+    const { SnapshotRequestSchema } = await import("../contract/src/agent");
+    const buffer = { id: "b1", name: "Fluid Buffer", className: "Build_PipeStorageTank_C", slots: 0, slotsUsed: 0, fluidCapacityM3: 400, items: [{ className: "Desc_Water_C", name: "Water", amount: 12.5, stackMax: null }] };
+    expect(SnapshotRequestSchema.safeParse({ ...base, storage: { containers: [container, buffer] } }).success).toBe(true);
+    expect(SnapshotRequestSchema.safeParse({ ...base, storage: { containers: [container] } }).success).toBe(true);
+    expect(SnapshotRequestSchema.safeParse(base).success).toBe(true);
+  });
+
+  it("the caps are 2000 containers and 64 items per container; 2001 and 65 are rejected", async () => {
+    const { AgentStorageSchema } = await import("../contract/src/agent");
+    const { STORAGE_MAX_CONTAINERS, STORAGE_MAX_ITEMS_PER_CONTAINER } = await import("../contract/src/storage");
+    expect(STORAGE_MAX_CONTAINERS).toBe(2000);
+    expect(STORAGE_MAX_ITEMS_PER_CONTAINER).toBe(64);
+    const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ...container, id: `c${i}` }));
+    expect(AgentStorageSchema.safeParse({ containers: many(2000) }).success).toBe(true);
+    expect(AgentStorageSchema.safeParse({ containers: many(2001) }).success).toBe(false);
+    const items = (n: number) => Array.from({ length: n }, (_, i) => ({ className: `Desc_${i}_C`, name: `Item ${i}`, amount: 1 }));
+    expect(AgentStorageSchema.safeParse({ containers: [{ ...container, items: items(64) }] }).success).toBe(true);
+    expect(AgentStorageSchema.safeParse({ containers: [{ ...container, items: items(65) }] }).success).toBe(false);
+  });
+
+  it("an unreachable game sends no storage part", async () => {
+    const { SnapshotRequestSchema } = await import("../contract/src/agent");
+    expect(SnapshotRequestSchema.safeParse({ ...base, reachable: false, storage: { containers: [] } }).success).toBe(false);
+    expect(SnapshotRequestSchema.safeParse({ ...base, reachable: false }).success).toBe(true);
+  });
+});
