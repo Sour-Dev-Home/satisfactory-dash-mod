@@ -803,8 +803,19 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FindFProperty | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:6869 | header only (the FName overload; mSmoothedLoadRate and mSmoothedUnloadRate, found once per class) |
 | FMemory::Memzero | Engine/Source/Runtime/Core/Public/HAL/UnrealMemory.h:131 | header only |
 | IsInGameThread | Engine/Source/Runtime/Core/Public/CoreGlobals.h:747 | header only |
-| AActor::GetComponents | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:4005 | header only (the TArray<T*, Allocator> overload; read-only) |
-| TInlineAllocator | Engine/Source/Runtime/Core/Public/Containers/ContainerAllocationPolicies.h:1020 | header only |
+| AActor::FindComponentByClass | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:3807 | header only (the template overload; read-only, stops at the first match; non-null UFGPipeConnectionComponent = fluid platform) |
+| AActor::GetFunctionCallspace | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:2358 | header only (public virtual override of UObject's :1484; Absorbed or Remote = the call would not run here, so it is not made) |
+| FunctionCallspace | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:95 | header only (namespace; Absorbed :100, Remote :102, Local :104) |
+| FunctionCallspace::Local | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:104 | header only |
+| UObjectBaseUtility::IsUnreachable | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBaseUtility.h:236 | header only (IsValid does not test it, and ProcessEvent asserts on it: ScriptCore.cpp:2036) |
+| FDoubleProperty | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:2332 | header only |
+| FDoubleProperty::GetPropertyValue_InContainer | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:1576 | header only (declared in TProperty; read-only) |
+| UFunction::HasAllFunctionFlags | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2144 | header only |
+| FUNC_Native | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:146 | header only (required: the game's own native getter) |
+| FUNC_Net | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:142 | header only (refused) |
+| FUNC_Static | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:149 | header only (refused) |
+| FUNC_HasOutParms | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:158 | header only (refused) |
+| FUNC_Event | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:147 | header only (refused) |
 | TWeakObjectPtr::IsValid | Engine/Source/Runtime/Core/Public/UObject/WeakObjectPtrTemplates.h:243 | header only (the no-argument overload) |
 | TWeakObjectPtr::Get | Engine/Source/Runtime/Core/Public/UObject/WeakObjectPtrTemplates.h:139 | header only (the no-argument overload) |
 | UFGPipeConnectionComponent | Source/FactoryGame/Public/FGPipeConnectionComponent.h:177 | header only (V8: a cargo platform with any such component is a fluid platform and is skipped) |

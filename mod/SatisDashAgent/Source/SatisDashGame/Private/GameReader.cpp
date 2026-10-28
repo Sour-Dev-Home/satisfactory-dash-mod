@@ -603,6 +603,7 @@ namespace
 	{
 		TWeakObjectPtr<UFunction> Function;
 		const FFloatProperty* FloatReturn = nullptr;
+		const FDoubleProperty* DoubleReturn = nullptr;
 		const FIntProperty* IntReturn = nullptr;
 		const FFloatProperty* LoadRate = nullptr;
 		const FFloatProperty* UnloadRate = nullptr;
@@ -623,13 +624,16 @@ namespace
 		FStationRateAccess Access;
 		UFunction* Candidate = Class->FindFunctionByName(FName(TEXT("GetCurrentItemTransferRate")));
 		// Only a call with no input parameters (the return value is the one parameter), a pure function, and a float or int result.
+		// The game's own native getter only: never a Blueprint event, static, net or out-parameter function (M1).
 		if (Candidate != nullptr && Candidate->NumParms == 1 && Candidate->HasAnyFunctionFlags(FUNC_BlueprintPure)
+			&& Candidate->HasAllFunctionFlags(FUNC_Native) && !Candidate->HasAnyFunctionFlags(FUNC_Net | FUNC_Static | FUNC_HasOutParms | FUNC_Event)
 			&& Candidate->ParmsSize <= StationRateParmsBytes && Candidate->ReturnValueOffset < Candidate->ParmsSize)
 		{
 			const FProperty* Return = Candidate->GetReturnProperty();
 			Access.FloatReturn = CastField<FFloatProperty>(Return);
+			Access.DoubleReturn = CastField<FDoubleProperty>(Return);
 			Access.IntReturn = CastField<FIntProperty>(Return);
-			if (Access.FloatReturn != nullptr || Access.IntReturn != nullptr)
+			if (Access.FloatReturn != nullptr || Access.DoubleReturn != nullptr || Access.IntReturn != nullptr)
 			{
 				Access.Function = Candidate;
 			}
@@ -637,6 +641,7 @@ namespace
 		if (!Access.UsesFunction())
 		{
 			Access.FloatReturn = nullptr;
+			Access.DoubleReturn = nullptr;
 			Access.IntReturn = nullptr;
 			Access.LoadRate = FindFProperty<FFloatProperty>(Class, FName(TEXT("mSmoothedLoadRate")));
 			Access.UnloadRate = FindFProperty<FFloatProperty>(Class, FName(TEXT("mSmoothedUnloadRate")));
@@ -653,7 +658,8 @@ namespace
 	/** One platform's raw rate: read-only, on a valid object, game thread. False (nothing in OutRaw) on any failure. */
 	bool ReadCargoRate(AFGBuildableTrainPlatformCargo& Cargo, const FStationRateAccess& Access, double& OutRaw)
 	{
-		if (!Access.IsUsable() || !IsValid(&Cargo) || !IsInGameThread())
+		// IsValid does not test Unreachable, and ProcessEvent asserts on it (M2).
+		if (!Access.IsUsable() || !IsValid(&Cargo) || Cargo.IsUnreachable() || !IsInGameThread())
 		{
 			return false;
 		}
@@ -661,11 +667,26 @@ namespace
 		if (Access.UsesFunction())
 		{
 			UFunction* Function = Access.Function.Get();
+			// A call that would not run here (absorbed, or sent to a remote) writes nothing: that is a failure, never a 0 (M7).
+			if (Cargo.GetFunctionCallspace(Function, nullptr) != FunctionCallspace::Local)
+			{
+				return false;
+			}
 			alignas(16) uint8 Parms[StationRateParmsBytes];
-			FMemory::Memzero(Parms, sizeof(Parms)); // float and int are plain data: nothing to construct or destroy
+			FMemory::Memzero(Parms, sizeof(Parms)); // float, double and int are plain data: nothing to construct or destroy
 			Cargo.ProcessEvent(Function, Parms);
-			Raw = Access.FloatReturn != nullptr ? static_cast<double>(Access.FloatReturn->GetPropertyValue_InContainer(Parms))
-				: static_cast<double>(Access.IntReturn->GetPropertyValue_InContainer(Parms));
+			if (Access.FloatReturn != nullptr)
+			{
+				Raw = static_cast<double>(Access.FloatReturn->GetPropertyValue_InContainer(Parms));
+			}
+			else if (Access.DoubleReturn != nullptr)
+			{
+				Raw = Access.DoubleReturn->GetPropertyValue_InContainer(Parms);
+			}
+			else
+			{
+				Raw = static_cast<double>(Access.IntReturn->GetPropertyValue_InContainer(Parms));
+			}
 		}
 		else
 		{
@@ -683,9 +704,13 @@ namespace
 	/** Adds one cargo platform's rate to its station (summed over the item platforms), or counts why not. Fluid platforms are skipped (V8). */
 	void TrainsReadCargoRate(AFGBuildableTrainPlatformCargo& Cargo, SatisDash::FStationReading& Reading, SatisDash::FTrainsSnapshot& Counts)
 	{
-		TArray<UFGPipeConnectionComponent*, TInlineAllocator<2>> PipeConnections;
-		Cargo.GetComponents(PipeConnections);
-		if (PipeConnections.Num() > 0)
+		if (!IsInGameThread())
+		{
+			++Counts.RatesLookupFailed; // M3: the class cache is touched on the game thread only
+			return;
+		}
+		// Stops at the first pipe connection and builds no array (M4).
+		if (Cargo.FindComponentByClass<UFGPipeConnectionComponent>() != nullptr)
 		{
 			++Counts.RatesFluidSkipped;
 			return;
