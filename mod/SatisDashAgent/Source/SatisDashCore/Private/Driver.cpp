@@ -19,6 +19,7 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, LogisticsBudget{[this] { return Clock.Now(); }}
 	, MarkersBudget{[this] { return Clock.Now(); }}
 	, DronesBudget{[this] { return Clock.Now(); }}
+	, BuildablesBudget{[this] { return Clock.Now(); }}
 {
 }
 
@@ -60,6 +61,8 @@ void SatisDash::FDriver::Tick()
 		Game.EndLogisticsRead(); // the sender's pass is dropped by its Stop; the reader frees what it buffered
 		Game.EndMapMarkersRead();
 		Game.EndDroneRoutesRead();
+		bBuildablesReadOpen = false; // an open Buildables pass is dropped: its readings are never submitted
+		Game.EndBuildablesRead();
 	}
 	if (!bRunning && bNowRunning)
 	{
@@ -74,7 +77,7 @@ void SatisDash::FDriver::Tick()
 		LastGameReadAt.Reset();
 		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
 		const FAgentConfig& Sources = Agent.GetConfig();
-		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s conveyors=%s mapMarkers=%s droneRoutes=%s powerLines=%s"),
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s conveyors=%s mapMarkers=%s droneRoutes=%s powerLines=%s extractors=%s generators=%s stationRates=%s storage=%s"),
 			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetFactorySource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
@@ -83,7 +86,11 @@ void SatisDash::FDriver::Tick()
 			Sources.GetConveyorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetMapMarkersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
 			Sources.GetDroneRoutesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetPowerLinesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
+			Sources.GetPowerLinesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetExtractorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetGeneratorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetStationRatesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
+			Sources.GetStorageSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -97,6 +104,10 @@ void SatisDash::FDriver::Tick()
 		return;
 	}
 	const FAgentConfig& Config = Agent.GetConfig();
+	if (Config.GetExtractorsSource() != ESource::Native)
+	{
+		Bridge.DropExtractors(); // the source flipped to bridge: no held fragment or pending job is spliced after it
+	}
 	Bridge.Tick(Now, Config.GetFrmPort(), Config.FrmToken);
 	if (TOptional<FEncodedBody> Encoded = Bridge.TakeEncoded())
 	{
@@ -114,6 +125,7 @@ void SatisDash::FDriver::Tick()
 		return;
 	}
 	TickFactoryRead(Now);
+	TickBuildablesRead(Now);
 	TickTrainsRead(Now);
 	TickSample(Now);
 	TickPush(Now);
@@ -158,6 +170,59 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 	if (!Bridge.SubmitNativeFactory(MoveTemp(Found.GetValue()), Now) && FactoryLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Factory read finished while the last one is still being built: it is dropped"));
+	}
+}
+
+namespace
+{
+	/** Which Buildables readers the config asks for: each whose source is native. */
+	SatisDash::FBuildablesFlags BuildablesFlagsFor(const SatisDash::FAgentConfig& Config)
+	{
+		SatisDash::FBuildablesFlags Asked;
+		Asked.bExtractors = Config.GetExtractorsSource() == SatisDash::ESource::Native;
+		Asked.bGenerators = Config.GetGeneratorsSource() == SatisDash::ESource::Native;
+		Asked.bStorage = Config.GetStorageSource() == SatisDash::ESource::Native;
+		return Asked;
+	}
+}
+
+void SatisDash::FDriver::TickBuildablesRead(double Now)
+{
+	if (!bBuildablesReadOpen)
+	{
+		return;
+	}
+	const FBuildablesFlags Wanted = BuildablesFlagsFor(Agent.GetConfig());
+	if (!Wanted.bExtractors && !Wanted.bGenerators && !Wanted.bStorage)
+	{
+		bBuildablesReadOpen = false; // every source changed under the pass: drop it
+		Game.EndBuildablesRead();
+		return;
+	}
+	// The game thread's whole part: one budgeted slice of the buildables. The fragment text is built on the worker.
+	TOptional<FBuildablesSnapshot> Found = Game.StepBuildablesRead(BuildablesBudget);
+	if (!Found.IsSet())
+	{
+		return;
+	}
+	bBuildablesReadOpen = false;
+	if (Game.BuildablesReadAbandoned())
+	{
+		// No subsystem or a world swapped mid-pass: nothing is submitted (one warning per 600 s).
+		NoteFailedPart(TEXT("buildables"), Now);
+		return;
+	}
+	// Counts and times only; never an id or a name (both are player-chosen text).
+	UE_LOG(LogSatisDash, Display, TEXT("Buildables read (game thread only): %d elements, %d extractors, %d generators, %d containers in %d steps, longest step %.2f ms, total %.2f ms"),
+		Found->Counts.Elements, Found->Counts.Extractors, Found->Counts.Generators, Found->Counts.Containers, BuildablesBudget.Steps(), BuildablesBudget.LongestMs(), BuildablesBudget.TotalMs());
+	LogLongestStep(TEXT("Buildables"), BuildablesBudget);
+	if (Found->Counts.ExtractorsOverCap > 0)
+	{
+		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d extractors past the list cap were dropped"), Found->Counts.ExtractorsOverCap);
+	}
+	if (BuildablesAsked.bExtractors && !Bridge.SubmitNativeExtractors(MoveTemp(Found->Extractors), Now) && BuildablesLog.ShouldLog(TEXT("held"), Now))
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last extractors fragment is still being built: it is dropped"));
 	}
 }
 
@@ -287,6 +352,28 @@ void SatisDash::FDriver::TickSample(double Now)
 				if (!bFactoryReadOpen)
 				{
 					NoteFailedPart(TEXT("factory"), Now); // no world or subsystem yet: the part is left out and FRM is not asked
+				}
+			}
+		}
+		const FBuildablesFlags BuildablesWanted = BuildablesFlagsFor(Config);
+		if (bFactoryDue && Snapshot.Status->bIsGameRunning && (BuildablesWanted.bExtractors || BuildablesWanted.bGenerators || BuildablesWanted.bStorage))
+		{
+			if (bBuildablesReadOpen)
+			{
+				// The last pass has not finished: this cadence tick is skipped, not restarted. No names, counts or ids.
+				if (BuildablesLog.ShouldLog(TEXT("busy"), Now))
+				{
+					UE_LOG(LogSatisDash, Display, TEXT("Buildables read still running: this cadence tick is skipped"));
+				}
+			}
+			else
+			{
+				BuildablesBudget.Reset();
+				BuildablesAsked = BuildablesWanted;
+				bBuildablesReadOpen = Game.BeginBuildablesRead(BuildablesWanted);
+				if (!bBuildablesReadOpen)
+				{
+					NoteFailedPart(TEXT("buildables"), Now); // no world or subsystem yet: nothing is spliced into the factory part
 				}
 			}
 		}

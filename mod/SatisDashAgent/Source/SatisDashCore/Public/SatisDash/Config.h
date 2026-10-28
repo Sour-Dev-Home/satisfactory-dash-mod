@@ -24,6 +24,10 @@ namespace SatisDash
 	inline constexpr ESource DefaultMapMarkersSource = ESource::Native;
 	inline constexpr ESource DefaultDroneRoutesSource = ESource::Native;
 	inline constexpr ESource DefaultPowerLinesSource = ESource::Native;
+	inline constexpr ESource DefaultExtractorsSource = ESource::Bridge;
+	inline constexpr ESource DefaultGeneratorsSource = ESource::Bridge;
+	inline constexpr ESource DefaultStationRatesSource = ESource::Bridge;
+	inline constexpr ESource DefaultStorageSource = ESource::Bridge;
 
 	struct FAgentConfig
 	{
@@ -53,6 +57,11 @@ namespace SatisDash
 		TOptional<ESource> MapMarkersSource;
 		TOptional<ESource> DroneRoutesSource;
 		TOptional<ESource> PowerLinesSource;
+		/** The same override for the S4-B readers: the keys "extractorsSource", "generatorsSource", "stationRatesSource" and "storageSource". */
+		TOptional<ESource> ExtractorsSource;
+		TOptional<ESource> GeneratorsSource;
+		TOptional<ESource> StationRatesSource;
+		TOptional<ESource> StorageSource;
 
 		int32 GetFrmPort() const { return FrmPort.Get(DefaultFrmPort); }
 		ESource GetPlayersSource() const { return PlayersSource.Get(DefaultPlayersSource); }
@@ -64,13 +73,17 @@ namespace SatisDash
 		ESource GetMapMarkersSource() const { return MapMarkersSource.Get(DefaultMapMarkersSource); }
 		ESource GetDroneRoutesSource() const { return DroneRoutesSource.Get(DefaultDroneRoutesSource); }
 		ESource GetPowerLinesSource() const { return PowerLinesSource.Get(DefaultPowerLinesSource); }
+		ESource GetExtractorsSource() const { return ExtractorsSource.Get(DefaultExtractorsSource); }
+		ESource GetGeneratorsSource() const { return GeneratorsSource.Get(DefaultGeneratorsSource); }
+		ESource GetStationRatesSource() const { return StationRatesSource.Get(DefaultStationRatesSource); }
+		ESource GetStorageSource() const { return StorageSource.Get(DefaultStorageSource); }
 	};
 
 	enum class EConfigStatus : uint8
 	{
 		/** There was no file; one was written with the default URL and no code. Config holds those defaults. */
 		Missing,
-		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource", "railsSource", "conveyorsSource", "mapMarkersSource", "droneRoutesSource" or "powerLinesSource". */
+		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource", "railsSource", "conveyorsSource", "mapMarkersSource", "droneRoutesSource", "powerLinesSource", "extractorsSource", "generatorsSource", "stationRatesSource" or "storageSource". */
 		Broken,
 		Valid,
 	};

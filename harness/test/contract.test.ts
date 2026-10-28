@@ -124,3 +124,34 @@ describe("vendored contract (S4-A: mapMarkers, droneRoutes, powerLines, pairedId
     expect(SnapshotRequestSchema.safeParse({ ...full, modVersion: "v".repeat(65) }).success).toBe(false);
   });
 });
+
+describe("vendored contract (S4-B: extractors)", () => {
+  const miner = {
+    id: "m1",
+    name: "Miner Mk.1",
+    className: "Build_MinerMk1_C",
+    recipe: null,
+    ingredients: [],
+    production: [{ name: "Iron Ore", className: "Desc_OreIron_C", currentPerMinute: 60, maxPerMinute: 60, percent: 100 }],
+    isProducing: true,
+    isPaused: false,
+    isBackedUp: false,
+  };
+
+  it("AGENT_INPUT_MAX_EXTRACTORS is 5000", async () => {
+    const agent = await import("../contract/src/agent");
+    expect(agent.AGENT_INPUT_MAX_EXTRACTORS).toBe(5000);
+  });
+
+  it("AgentFactorySchema accepts one extractor, and the key absent", async () => {
+    const { AgentFactorySchema } = await import("../contract/src/agent");
+    expect(AgentFactorySchema.safeParse({ buildings: [], extractors: [miner] }).success).toBe(true);
+    expect(AgentFactorySchema.safeParse({ buildings: [] }).success).toBe(true);
+  });
+
+  it("AgentFactorySchema rejects 5001 extractors", async () => {
+    const { AgentFactorySchema } = await import("../contract/src/agent");
+    const extractors = Array.from({ length: 5001 }, (_, i) => ({ ...miner, id: `m${i}` }));
+    expect(AgentFactorySchema.safeParse({ buildings: [], extractors }).success).toBe(false);
+  });
+});

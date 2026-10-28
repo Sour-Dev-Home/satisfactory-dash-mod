@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { NATIVE_SOURCES, NATIVE_SOURCES_S2, NATIVE_SOURCES_S3, NATIVE_SOURCES_S4 } from "../src/core-run";
+import { NATIVE_SOURCES, NATIVE_SOURCES_S2, NATIVE_SOURCES_S3, NATIVE_SOURCES_S4, NATIVE_SOURCES_S4B } from "../src/core-run";
 import type { CoreEvidence } from "../src/core-run";
 import type { CanonNode } from "../src/frm-native";
 import * as Pass from "../../runs/native-parity/pass";
@@ -212,6 +212,13 @@ describe("native-parity judge", () => {
     expect(NATIVE_SOURCES_S3).toEqual({ playersSource: "native", resourceNodesSource: "native", factorySource: "native", trainsSource: "native", railsSource: "native", conveyorsSource: "native" });
     const cpp = readFileSync(new URL("../../mod/SatisDashAgent/Source/SatisDashCore/Private/Config.cpp", import.meta.url), "utf8");
     for (const key of Object.keys(NATIVE_SOURCES_S4)) expect(cpp).toContain(`TEXT("${key}")`);
+  });
+
+  it("writes thirteen native keys for S4-B (S4's nine plus extractorsSource, generatorsSource, stationRatesSource and storageSource), leaves S1 to S4 unchanged, and every key is one the mod reads", () => {
+    expect(NATIVE_SOURCES_S4B).toEqual({ ...NATIVE_SOURCES_S4, extractorsSource: "native", generatorsSource: "native", stationRatesSource: "native", storageSource: "native" });
+    expect(Object.keys(NATIVE_SOURCES_S4B)).toHaveLength(13);
+    const cpp = readFileSync(new URL("../../mod/SatisDashAgent/Source/SatisDashCore/Private/Config.cpp", import.meta.url), "utf8");
+    for (const key of Object.keys(NATIVE_SOURCES_S4B)) expect(cpp).toContain(`TEXT("${key}")`);
   });
 });
 

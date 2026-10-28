@@ -275,6 +275,30 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 		Result.BadField = TEXT("powerLinesSource");
 		return Result;
 	}
+	TOptional<ESource> ExtractorsSource;
+	if (!ConfigReadSource(Object, TEXT("extractorsSource"), ExtractorsSource))
+	{
+		Result.BadField = TEXT("extractorsSource");
+		return Result;
+	}
+	TOptional<ESource> GeneratorsSource;
+	if (!ConfigReadSource(Object, TEXT("generatorsSource"), GeneratorsSource))
+	{
+		Result.BadField = TEXT("generatorsSource");
+		return Result;
+	}
+	TOptional<ESource> StationRatesSource;
+	if (!ConfigReadSource(Object, TEXT("stationRatesSource"), StationRatesSource))
+	{
+		Result.BadField = TEXT("stationRatesSource");
+		return Result;
+	}
+	TOptional<ESource> StorageSource;
+	if (!ConfigReadSource(Object, TEXT("storageSource"), StorageSource))
+	{
+		Result.BadField = TEXT("storageSource");
+		return Result;
+	}
 	Result.Status = EConfigStatus::Valid;
 	Result.Config.BackendUrl = Url;
 	Result.Config.EnrollmentCode = Code;
@@ -289,6 +313,10 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 	Result.Config.MapMarkersSource = MapMarkersSource;
 	Result.Config.DroneRoutesSource = DroneRoutesSource;
 	Result.Config.PowerLinesSource = PowerLinesSource;
+	Result.Config.ExtractorsSource = ExtractorsSource;
+	Result.Config.GeneratorsSource = GeneratorsSource;
+	Result.Config.StationRatesSource = StationRatesSource;
+	Result.Config.StorageSource = StorageSource;
 	return Result;
 }
 
@@ -340,6 +368,22 @@ FString SatisDash::ConfigToJson(const FAgentConfig& Config)
 	if (Config.PowerLinesSource.IsSet())
 	{
 		Object->SetStringField(TEXT("powerLinesSource"), ConfigSourceName(Config.PowerLinesSource.GetValue()));
+	}
+	if (Config.ExtractorsSource.IsSet())
+	{
+		Object->SetStringField(TEXT("extractorsSource"), ConfigSourceName(Config.ExtractorsSource.GetValue()));
+	}
+	if (Config.GeneratorsSource.IsSet())
+	{
+		Object->SetStringField(TEXT("generatorsSource"), ConfigSourceName(Config.GeneratorsSource.GetValue()));
+	}
+	if (Config.StationRatesSource.IsSet())
+	{
+		Object->SetStringField(TEXT("stationRatesSource"), ConfigSourceName(Config.StationRatesSource.GetValue()));
+	}
+	if (Config.StorageSource.IsSet())
+	{
+		Object->SetStringField(TEXT("storageSource"), ConfigSourceName(Config.StorageSource.GetValue()));
 	}
 	return SatisDash::Json::WritePretty(Object);
 }

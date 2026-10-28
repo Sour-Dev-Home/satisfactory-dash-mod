@@ -38,6 +38,11 @@ export interface NativeSources {
   mapMarkersSource?: "bridge" | "native";
   droneRoutesSource?: "bridge" | "native";
   powerLinesSource?: "bridge" | "native";
+  /** S4-B keys: absent in S1's to S4's constants. */
+  extractorsSource?: "bridge" | "native";
+  generatorsSource?: "bridge" | "native";
+  stationRatesSource?: "bridge" | "native";
+  storageSource?: "bridge" | "native";
 }
 export const NATIVE_SOURCES: NativeSources = { playersSource: "native", resourceNodesSource: "native" };
 /** S2: all four readers native. */
@@ -46,6 +51,8 @@ export const NATIVE_SOURCES_S2: NativeSources = { ...NATIVE_SOURCES, factorySour
 export const NATIVE_SOURCES_S3: NativeSources = { ...NATIVE_SOURCES_S2, railsSource: "native", conveyorsSource: "native" };
 /** S4-A: the six S3 readers plus map markers, drone routes and power lines native. */
 export const NATIVE_SOURCES_S4: NativeSources = { ...NATIVE_SOURCES_S3, mapMarkersSource: "native", droneRoutesSource: "native", powerLinesSource: "native" };
+/** S4-B: the nine S4 readers plus extractors, generators, station rates and storage native. */
+export const NATIVE_SOURCES_S4B: NativeSources = { ...NATIVE_SOURCES_S4, extractorsSource: "native", generatorsSource: "native", stationRatesSource: "native", storageSource: "native" };
 
 /** The credential the mod writes (spec "Shape"; FPaths::ProjectSavedDir() on a dedicated server is FactoryGame/Saved). */
 export const credentialPath = (serverDir: string) => join(serverDir, "FactoryGame", "Saved", "SatisDash", "credential.json");

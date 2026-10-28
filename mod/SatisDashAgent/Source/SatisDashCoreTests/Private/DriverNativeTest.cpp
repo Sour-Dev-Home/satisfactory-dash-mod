@@ -91,8 +91,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	int32 BridgeLines = 0;
 	for (const FString& Line : Log.Take())
 	{
-		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
-		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
+		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
+		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Readers line for the default (native players) driver"), NativeLines, 1);
 	TestEqual(TEXT("one Readers line for the bridge-key driver"), BridgeLines, 1);
@@ -179,7 +179,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	for (const FString& Line : Log.Take())
 	{
 		ScanLines += Line.Contains(TEXT("Resource node scan")) || Line.Contains(TEXT("found no nodes")) ? 1 : 0;
-		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=bridge rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		ReadersLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=bridge rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("and logs nothing about a scan"), ScanLines, 0);
 	TestEqual(TEXT("one Readers line for the native-nodes driver"), ReadersLines, 1);
@@ -256,9 +256,9 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	int32 AllNative = 0;
 	for (const FString& Line : Log.Take())
 	{
-		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native")) ? 1 : 0;
+		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line shows the default driver's: all nine native"), AllNative, 1);
+	TestEqual(TEXT("one Readers line shows the default driver's: nine native, the four S4-B keys bridge"), AllNative, 1);
 	return true;
 }
 
@@ -568,7 +568,7 @@ bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 	int32 Readers = 0;
 	for (const FString& Line : Log.Take())
 	{
-		Readers += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		Readers += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=bridge extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows rails=native"), Readers, 1);
 
@@ -624,7 +624,7 @@ bool FDriverNativePowerLinesTest::RunTest(const FString& Parameters)
 	int32 Readers = 0;
 	for (const FString& Line : Log.Take())
 	{
-		Readers += Line.EndsWith(TEXT("rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=native")) ? 1 : 0;
+		Readers += Line.EndsWith(TEXT("rails=bridge conveyors=bridge mapMarkers=bridge droneRoutes=bridge powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows powerLines=native"), Readers, 1);
 
@@ -679,7 +679,7 @@ bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 	int32 Readers = 0;
 	for (const FString& Line : Log.Take())
 	{
-		Readers += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=bridge powerLines=bridge")) ? 1 : 0;
+		Readers += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=bridge powerLines=bridge extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows mapMarkers=native"), Readers, 1);
 
@@ -701,8 +701,126 @@ bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 	int32 BothNative = 0;
 	for (const FString& Line : Log.Take())
 	{
-		BothNative += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=native powerLines=bridge")) ? 1 : 0;
+		BothNative += Line.EndsWith(TEXT("mapMarkers=native droneRoutes=native powerLines=bridge extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
 	}
 	TestEqual(TEXT("the Readers line shows droneRoutes=native"), BothNative, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeBuildablesTest, "SatisDash.Core.Driver.NativeBuildables", SatisDash::Test::Flags)
+
+bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"extractorsSource\":\"native\"");
+	FDriverFixture F;
+	FExtractorReading Miner;
+	Miner.Id = TEXT("Build_MinerMk1_C_1");
+	Miner.Name = TEXT("Miner");
+	Miner.ClassName = TEXT("Build_MinerMk1_C");
+	F.Game.Extractors.Add(Miner);
+	F.Game.BuildablesCounts.Elements = 4;
+	F.Game.BuildablesCounts.Extractors = 1;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+	TestEqual(TEXT("nothing begins before the first due tick"), F.Game.BuildablesBegins, 0);
+
+	// Begun once on the cadence tick, then stepped once per driver tick; a finished read is not stepped again.
+	TestTrue(TEXT("the first factory-cadence tick begins a pass"), F.runUntil(Driver, [&F] { return F.Game.BuildablesBegins >= 1; }, 20));
+	TestEqual(TEXT("one begin"), F.Game.BuildablesBegins, 1);
+	TestTrue(TEXT("with the extractors flag only"), F.Game.LastBuildablesFlags.bExtractors && !F.Game.LastBuildablesFlags.bGenerators && !F.Game.LastBuildablesFlags.bStorage);
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("one step per tick"), F.Game.BuildablesStepCalls, 1);
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("second step"), F.Game.BuildablesStepCalls, 2);
+	F.run(Driver, 0.5);
+	TestEqual(TEXT("third step finishes it"), F.Game.BuildablesStepCalls, 3);
+	F.run(Driver, 1.0);
+	TestEqual(TEXT("a finished pass is not stepped again"), F.Game.BuildablesStepCalls, 3);
+	const TArray<FString> Bodies = DriverNativeRun(F, Driver, 10);
+	TestTrue(TEXT("the factory part carries the extractors fragment"), DriverNativeAny(Bodies, TEXT("\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
+	TestEqual(TEXT("still one begin inside the cadence"), F.Game.BuildablesBegins, 1);
+	TestTrue(TEXT("the next cadence tick begins another"), F.runUntil(Driver, [&F] { return F.Game.BuildablesBegins >= 2; }, 60));
+
+	int32 ReadLines = 0;
+	for (const FString& Line : Log.Take())
+	{
+		ReadLines += Line.Contains(TEXT("Buildables read (game thread only): 4 elements, 1 extractors, 0 generators, 0 containers in 3 steps, longest step ")) ? 1 : 0;
+		TestFalse(TEXT("the log line names no id or name"), Line.Contains(TEXT("Build_MinerMk1_C_1")) && Line.Contains(TEXT("Buildables read")));
+	}
+	TestTrue(TEXT("a finished pass logs counts and times"), ReadLines >= 1);
+
+	// A second due tick while the pass is open is skipped, not restarted, and noted (rate-limited).
+	FDriverFixture G;
+	G.Game.BuildablesStepsToFinish = 1000000;
+	FDriver Slow{ G.ConfigPath, G.CredentialPath, G.Net, G.Game, G.Worker, G.clock() };
+	G.enrol(Slow, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a pass is open"), G.runUntil(Slow, [&G] { return G.Game.BuildablesStepCalls >= 1; }, 20));
+	DriverNativeRun(G, Slow, 150);
+	TestEqual(TEXT("an open pass is not restarted"), G.Game.BuildablesBegins, 1);
+	int32 Notes = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Notes += Line.Contains(TEXT("Buildables read still running")) ? 1 : 0;
+	}
+	TestTrue(TEXT("skipped ticks are noted, rate-limited"), Notes >= 1 && Notes <= 3);
+
+	// The source flips to bridge under an open pass: it is dropped.
+	G.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"extractorsSource\":\"bridge\""));
+	TestTrue(TEXT("the source change ends the pass"), G.runUntil(Slow, [&G] { return G.Game.BuildablesEnds >= 1; }, 130));
+	const int32 BeginsAfterFlip = G.Game.BuildablesBegins;
+	DriverNativeRun(G, Slow, 70);
+	TestEqual(TEXT("and no new pass begins with every source bridge"), G.Game.BuildablesBegins, BeginsAfterFlip);
+
+	// An abandoned pass posts nothing and warns once.
+	FDriverFixture A;
+	A.Game.bBuildablesAbandoned = true;
+	FDriver Gone{ A.ConfigPath, A.CredentialPath, A.Net, A.Game, A.Worker, A.clock() };
+	A.enrol(Gone, SatisDash::Test::FakeSecret(), Native);
+	const TArray<FString> GoneBodies = DriverNativeRun(A, Gone, 80);
+	TestTrue(TEXT("the pass was tried"), A.Game.BuildablesBegins >= 1);
+	TestFalse(TEXT("an abandoned pass posts no extractors"), DriverNativeAny(GoneBodies, TEXT("\"extractors\":")));
+	int32 Warned = 0;
+	for (const FString& Line : Log.Take())
+	{
+		Warned += Line.Contains(TEXT("Couldn't read buildables")) ? 1 : 0;
+	}
+	TestEqual(TEXT("one warning"), Warned, 1);
+
+	// A pass over zero buildables (a save still loading) is reported abandoned by the game reader: nothing is posted, so the
+	// dashboard keeps the last extractors, and the factory part itself still goes out unchanged.
+	FDriverFixture Z;
+	Z.Game.bBuildablesAbandoned = true;
+	Z.Game.BuildablesCounts.Elements = 0;
+	Z.Game.Extractors.Add(Miner);
+	FDriver Empty{ Z.ConfigPath, Z.CredentialPath, Z.Net, Z.Game, Z.Worker, Z.clock() };
+	Z.enrol(Empty, SatisDash::Test::FakeSecret(), Native);
+	const TArray<FString> EmptyBodies = DriverNativeRun(Z, Empty, 80);
+	TestTrue(TEXT("the empty pass was tried"), Z.Game.BuildablesBegins >= 1);
+	TestFalse(TEXT("an empty (abandoned) pass posts no extractors"), DriverNativeAny(EmptyBodies, TEXT("\"extractors\":")));
+	TestTrue(TEXT("the factory part is unchanged"), DriverNativeAny(EmptyBodies, TEXT("\"factory\":{\"buildings\":[]}")));
+	Log.Take();
+
+	// Default config: the extractors source is bridge, so no pass begins and the factory part has no extractors key.
+	FDriverFixture D;
+	FDriver Plain{ D.ConfigPath, D.CredentialPath, D.Net, D.Game, D.Worker, D.clock() };
+	D.enrol(Plain, SatisDash::Test::FakeSecret());
+	D.Game.Extractors.Add(Miner);
+	const TArray<FString> PlainBodies = DriverNativeRun(D, Plain, 80);
+	TestEqual(TEXT("the default config never begins a pass"), D.Game.BuildablesBegins, 0);
+	TestTrue(TEXT("but the factory part is sent"), DriverNativeAny(PlainBodies, TEXT("\"factory\":{\"buildings\":[]}")));
+	TestFalse(TEXT("with no extractors key"), DriverNativeAny(PlainBodies, TEXT("\"extractors\":")));
+
+	// Leaving Running (a 401 halts the agent) ends an open pass.
+	FDriverFixture H;
+	H.Game.BuildablesStepsToFinish = 1000000;
+	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a pass is open"), H.runUntil(Halted, [&H] { return H.Game.BuildablesStepCalls >= 1; }, 20));
+	TestEqual(TEXT("not ended yet"), H.Game.BuildablesEnds, 0);
+	TestTrue(TEXT("a snapshot is waiting for an answer"), H.runUntil(Halted, [&H] { return H.Net.pending(DriverNativeSnapshots) > 0; }, 30));
+	H.Net.answer(DriverNativeSnapshots, SatisDash::Test::Reply(401, TEXT("{}")));
+	H.run(Halted, 1.0);
+	TestTrue(TEXT("leaving Running ends the pass"), H.Game.BuildablesEnds >= 1);
 	return true;
 }

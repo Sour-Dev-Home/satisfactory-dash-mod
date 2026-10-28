@@ -280,6 +280,49 @@ namespace SatisDash::Test
 		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
 		virtual void EndLogisticsRead() override { ++LogisticsEnds; bLogisticsOpen = false; }
 		virtual bool IsLogisticsReadOpen() const override { return bLogisticsOpen; }
+		/** S4-B: what a finished Buildables pass returns. A pass finishes on its BuildablesStepsToFinish-th step. */
+		int32 BuildablesStepsToFinish = 3;
+		TArray<SatisDash::FExtractorReading> Extractors;
+		SatisDash::FBuildablesCounts BuildablesCounts;
+		bool bBuildablesAbandoned = false;
+		bool bBeginBuildablesOk = true;
+		int32 BuildablesBegins = 0;
+		int32 BuildablesEnds = 0;
+		int32 BuildablesStepCalls = 0;
+		SatisDash::FBuildablesFlags LastBuildablesFlags;
+		/** A pass is open (begun, not finished or ended): a second Begin is refused, as the real reader's. */
+		bool bBuildablesOpen = false;
+		virtual bool BeginBuildablesRead(const SatisDash::FBuildablesFlags& Asked) override
+		{
+			++BuildablesBegins;
+			LastBuildablesFlags = Asked;
+			if (!bBeginBuildablesOk || bBuildablesOpen)
+			{
+				return false;
+			}
+			BuildablesStepCalls = 0;
+			bBuildablesOpen = true;
+			return true;
+		}
+		virtual TOptional<SatisDash::FBuildablesSnapshot> StepBuildablesRead(SatisDash::FStepBudget& Budget) override
+		{
+			Budget.Begin();
+			Budget.End();
+			if (++BuildablesStepCalls < BuildablesStepsToFinish)
+			{
+				return {};
+			}
+			bBuildablesOpen = false;
+			SatisDash::FBuildablesSnapshot Out;
+			if (!bBuildablesAbandoned)
+			{
+				Out.Extractors = Extractors;
+				Out.Counts = BuildablesCounts;
+			}
+			return Out;
+		}
+		virtual bool BuildablesReadAbandoned() const override { return bBuildablesAbandoned; }
+		virtual void EndBuildablesRead() override { ++BuildablesEnds; bBuildablesOpen = false; }
 		/** S4-A R8: what a finished map-markers read returns. A read finishes on its MarkersStepsToFinish-th step. */
 		int32 MarkersStepsToFinish = 3;
 		TArray<SatisDash::FMapMarkerReading> Markers;

@@ -14,6 +14,7 @@
 #include "Buildables/FGBuildablePipelineJunction.h"
 #include "Buildables/FGBuildablePipelinePump.h"
 #include "Buildables/FGBuildablePipeReservoir.h"
+#include "Buildables/FGBuildableResourceExtractor.h"
 #include "Buildables/FGBuildableResourceExtractorBase.h"
 #include "Buildables/FGBuildableResourceSink.h"
 #include "Buildables/FGBuildableSpaceElevator.h"
@@ -54,6 +55,7 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "Online/PlayerInfoCache.h"
+#include "Resources/FGExtractableResourceInterface.h"
 #include "Resources/FGItemDescriptor.h"
 #include "Resources/FGResourceNode.h"
 #include "Resources/FGResourceDescriptor.h"
@@ -61,6 +63,7 @@
 #include "SatisDash/FrmResourceNodes.h"
 #include "SatisDash/GameValues.h"
 #include "SatisDash/Log.h"
+#include "SatisDash/Native/Extractors/NativeExtractors.h"
 #include "SatisDash/Native/Rates/NativeRates.h"
 #include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
 
@@ -1375,5 +1378,185 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 	}
 	FLogisticsSnapshot Done = MoveTemp(LogisticsFound);
 	ResetLogisticsRead(); // closes the pass: the sender does not call EndLogisticsRead after a finished one
+	return MoveTemp(Done);
+}
+
+namespace
+{
+	/**
+	 * S4-B extractor rates, per minute (B4 / V1). The headers settle the inputs, not every unit:
+	 *   Max     = items per cycle * 60 / cycle time, where the items per cycle is GetNumExtractedItemsPerCycle
+	 *             (FGBuildableResourceExtractor.h:39) and the cycle time is GetProductionCycleTime (FGBuildableResourceExtractor.h:29,
+	 *             FGBuildableFactory.h:197: "with potential multiplier applied", so it is the time at the current clock).
+	 *   Current = Max * GetProductivity (FGBuildableFactory.h:213) / ProductivityFullScale (the factory read's constant), clamped to [0,1].
+	 * A fluid's count is divided by 1000 (litres to m3), as every other fluid amount in this reader; the raw count is not in
+	 * display units (GetNumExtractedItemsPerCycleConverted exists "for displaying in the UI", FGBuildableResourceExtractor.h:43).
+	 * NEEDS VERIFICATION (the parity run judges, a failure goes to a ruling PR, never a weakened judge):
+	 *   - purity: the headers do not say whether the cycle time already holds it. GetExtractionSpeedMultiplier
+	 *     (FGExtractableResourceInterface.h:56) is a separate getter, but the extractor overrides OnExtractableResourceSet
+	 *     (FGBuildableResourceExtractor.h:78), read as "the cycle time depends on the resource", so purity is NOT applied again here;
+	 *   - fluids: whether mItemsPerCycle counts litres (assumed, as the slot amounts do).
+	 */
+	void BuildablesReadExtractorRates(const AFGBuildableResourceExtractor& Extractor, bool bFluid, double& OutCurrent, double& OutMax)
+	{
+		OutCurrent = 0;
+		OutMax = 0;
+		const double CycleSeconds = Extractor.GetProductionCycleTime();
+		if (!(CycleSeconds > 0.0))
+		{
+			return;
+		}
+		const double Items = static_cast<double>(Extractor.GetNumExtractedItemsPerCycle()) / (bFluid ? 1000.0 : 1.0);
+		OutMax = Items * 60.0 / CycleSeconds;
+		OutCurrent = OutMax * FMath::Clamp(static_cast<double>(Extractor.GetProductivity()) / SatisDash::ProductivityFullScale, 0.0, 1.0);
+	}
+
+	/** V3: backed up is true only when the output has a slot that is full (a held stack at its GetSlotSize); a null inventory is not backed up. */
+	bool BuildablesReadOutputFull(const UFGInventoryComponent* Output)
+	{
+		if (Output == nullptr)
+		{
+			return false;
+		}
+		const int32 Size = Output->GetSizeLinear();
+		for (int32 Index = 0; Index < Size; ++Index)
+		{
+			FInventoryStack Stack;
+			if (!Output->GetStackFromIndex(Index, Stack) || Stack.NumItems <= 0)
+			{
+				continue;
+			}
+			const TSubclassOf<UFGItemDescriptor> ItemClass = Stack.Item.GetItemClass();
+			if (ItemClass && Stack.NumItems >= Output->GetSlotSize(Index, ItemClass))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+}
+
+void SatisDash::FGameReader::ResetBuildablesRead()
+{
+	BuildablesWorld.Reset();
+	BuildablesAsked = FBuildablesFlags();
+	BuildablesCursor = 0;
+	bBuildablesOpen = false;
+	BuildablesFound = FBuildablesSnapshot();
+}
+
+bool SatisDash::FGameReader::BeginBuildablesRead(const FBuildablesFlags& Asked)
+{
+	if (bBuildablesOpen)
+	{
+		return false; // one cursor: a pass is still open
+	}
+	UWorld* Current = World.Get();
+	const AFGBuildableSubsystem* Subsystem = Current != nullptr ? AFGBuildableSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		return false;
+	}
+	ResetBuildablesRead();
+	bBuildablesAbandoned = false;
+	BuildablesWorld = Current;
+	BuildablesAsked = Asked;
+	bBuildablesOpen = true;
+	return true;
+}
+
+TOptional<SatisDash::FBuildablesSnapshot> SatisDash::FGameReader::StepBuildablesRead(FStepBudget& Budget)
+{
+	if (!bBuildablesOpen)
+	{
+		return {};
+	}
+	UWorld* Current = World.Get();
+	// A different save was loaded while the slices ran (or the world or its subsystem went away): what was read is the old world's
+	// or a mix, so the pass is abandoned (empty and flagged), never a partial snapshot.
+	const AFGBuildableSubsystem* Subsystem = Current != nullptr && Current == BuildablesWorld.Get() ? AFGBuildableSubsystem::Get(Current) : nullptr;
+	if (Subsystem == nullptr)
+	{
+		ResetBuildablesRead();
+		bBuildablesAbandoned = true;
+		return FBuildablesSnapshot();
+	}
+	// The list is kept bounded whatever the world holds (twice the fragment's own cap).
+	const int32 MaxExtractors = 2 * ExtractorsMaxItems;
+	bool bFinished = false;
+	Budget.Begin();
+	do
+	{
+		// Re-fetched for every element and never kept: buildables come and go between ticks.
+		const TArray<AFGBuildable*>& All = Subsystem->GetAllBuildablesRef();
+		if (BuildablesCursor >= All.Num())
+		{
+			bFinished = true;
+			break;
+		}
+		const AFGBuildable* Buildable = All[BuildablesCursor++];
+		if (Buildable == nullptr || !IsValid(Buildable))
+		{
+			continue;
+		}
+		++BuildablesFound.Counts.Elements;
+		if (BuildablesAsked.bExtractors)
+		{
+			const AFGBuildableResourceExtractor* Extractor = Cast<AFGBuildableResourceExtractor>(Buildable);
+			if (Extractor != nullptr && BuildablesFound.Extractors.Num() >= MaxExtractors)
+			{
+				++BuildablesFound.Counts.ExtractorsOverCap;
+			}
+			else if (Extractor != nullptr)
+			{
+				FExtractorReading Reading;
+				Reading.Id = Extractor->GetName();
+				Reading.Name = Extractor->mDisplayName.ToString();
+				Reading.ClassName = Extractor->GetClass()->GetName();
+				Reading.bProducing = Extractor->IsProducing();
+				Reading.bPaused = Extractor->IsProductionPaused();
+				Reading.ClockPercent = 100.0 * Extractor->GetCurrentPotential();
+				const FVector Location = Extractor->GetActorLocation();
+				Reading.XCm = Location.X;
+				Reading.YCm = Location.Y;
+				Reading.ZCm = Location.Z;
+				Reading.YawDeg = Extractor->GetActorRotation().Yaw;
+				// Any link in the chain can be missing (no power use, not connected): -1 is "no group".
+				const UFGPowerInfoComponent* PowerInfo = Extractor->GetPowerInfo();
+				const UFGPowerCircuit* Circuit = PowerInfo != nullptr ? PowerInfo->GetPowerCircuit() : nullptr;
+				Reading.CircuitGroupId = Circuit != nullptr ? Circuit->GetCircuitGroupID() : -1;
+				// An unoccupied extractor (or one whose resource is not a native interface) has no resource: empty class, Core omits production.
+				// The object behind the interface is checked first: one pending kill is not yet collected, and its interface pointer is stale.
+				const TScriptInterface<IFGExtractableResourceInterface> ResourceRef = Extractor->GetExtractableResource();
+				const IFGExtractableResourceInterface* Resource = IsValid(ResourceRef.GetObject()) ? ResourceRef.GetInterface() : nullptr;
+				const TSubclassOf<UFGResourceDescriptor> ResourceClass = Resource != nullptr ? Resource->GetResourceClass() : nullptr;
+				if (ResourceClass)
+				{
+					Reading.ResourceClass = ResourceClass->GetName();
+					Reading.ResourceName = UFGItemDescriptor::GetItemName(ResourceClass).ToString();
+					Reading.bFluid = FactoryReadIsFluid(ResourceClass);
+				}
+				BuildablesReadExtractorRates(*Extractor, Reading.bFluid, Reading.CurrentPerMinute, Reading.MaxPerMinute);
+				Reading.bBackedUp = BuildablesReadOutputFull(Extractor->GetOutputInventory());
+				BuildablesFound.Extractors.Add(MoveTemp(Reading));
+				++BuildablesFound.Counts.Extractors;
+			}
+		}
+	} while (!Budget.Spent());
+	Budget.End(); // straight after the loop: nothing else is done on the game thread this step
+	if (!bFinished)
+	{
+		return {};
+	}
+	if (BuildablesFound.Counts.Elements == 0)
+	{
+		// Ruling M5: a world with no buildables at all is "cannot read" (a save still loading), not an empty factory.
+		ResetBuildablesRead();
+		bBuildablesAbandoned = true;
+		return FBuildablesSnapshot();
+	}
+	// The driver owns the one log line of a finished pass (counts and times), as for trains.
+	FBuildablesSnapshot Done = MoveTemp(BuildablesFound);
+	ResetBuildablesRead(); // closes the pass: the driver does not call EndBuildablesRead after a finished one
 	return MoveTemp(Done);
 }

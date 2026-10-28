@@ -53,9 +53,15 @@ namespace SatisDash
 		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
 		virtual void EndLogisticsRead() override { ResetLogisticsRead(); }
 		virtual bool IsLogisticsReadOpen() const override { return bLogisticsOpen; }
+		virtual bool BeginBuildablesRead(const FBuildablesFlags& Asked) override;
+		virtual TOptional<FBuildablesSnapshot> StepBuildablesRead(FStepBudget& Budget) override;
+		virtual bool BuildablesReadAbandoned() const override { return bBuildablesAbandoned; }
+		virtual void EndBuildablesRead() override { ResetBuildablesRead(); }
 		virtual TOptional<FAutoPauseReading> ApplyAutoPause(bool bEnabled) override;
 
 	private:
+		/** Ends the Buildables pass and frees what it holds (also called when a step returns a finished or abandoned value). */
+		void ResetBuildablesRead();
 		/** Ends the logistics pass and frees what it holds (also called when a step returns a finished or abandoned value). */
 		void ResetLogisticsRead();
 		/** Ends the trains read and frees what it holds. */
@@ -163,5 +169,18 @@ namespace SatisDash
 		bool bLogisticsOpen = false;
 		/** The pass that just returned was abandoned (no subsystem, a world swap, or zero buildables), not finished. */
 		bool bLogisticsAbandoned = false;
+
+		/**
+		 * The Buildables pass (S4-B): one cursor over the buildable list (an index, never a pointer into it; the list is re-fetched for
+		 * every element), one branch per asked-for reader (Tasks 9 and 16 add theirs). The world it began in: a pass that ends in
+		 * another is abandoned. One pass is open at a time.
+		 */
+		TWeakObjectPtr<UWorld> BuildablesWorld;
+		FBuildablesFlags BuildablesAsked;
+		int32 BuildablesCursor = 0;
+		bool bBuildablesOpen = false;
+		/** The pass that just returned was abandoned (no subsystem, a world swap, or zero buildables), not finished. */
+		bool bBuildablesAbandoned = false;
+		FBuildablesSnapshot BuildablesFound;
 	};
 }

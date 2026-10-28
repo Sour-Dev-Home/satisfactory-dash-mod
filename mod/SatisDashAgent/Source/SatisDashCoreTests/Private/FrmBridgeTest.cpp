@@ -1,4 +1,7 @@
 #include "DriverFakes.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "SatisDash/FrmBridge.h"
 #include "SatisDash/FrmWorld.h"
 
@@ -141,6 +144,109 @@ bool FFrmBridgeNativeFactoryTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("TakeFactory returns the part"), Part.IsSet() && Part->StartsWith(TEXT("{\"buildings\":[{\"id\":\"B_9\"")));
 	TestFalse(TEXT("taken once"), F.Bridge.TakeFactory(F.T, 30).IsSet());
 	TestTrue(TEXT("once harvested a new one is taken"), F.Bridge.SubmitNativeFactory(MoveTemp(Readings), F.T));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeExtractorsTest, "SatisDash.Core.FrmBridge.Extractors", SatisDash::Test::Flags)
+
+bool FFrmBridgeExtractorsTest::RunTest(const FString& Parameters)
+{
+	FFactoryReading Machine;
+	Machine.Id = TEXT("B_9");
+	Machine.Name = TEXT("n");
+	Machine.ClassName = TEXT("c");
+	FExtractorReading Miner;
+	Miner.Id = TEXT("Build_MinerMk1_C_1");
+	Miner.Name = TEXT("Miner");
+	Miner.ClassName = TEXT("Build_MinerMk1_C");
+
+	// The part with no fragment at all: the bytes the flag-off path produces.
+	FString Plain;
+	{
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.tick(3);
+		Plain = F.Bridge.TakeFactory(F.T, 30).Get(FString());
+	}
+	TestTrue(TEXT("the plain part ends with the closing brace"), Plain.EndsWith(TEXT("}")));
+
+	// A fresh fragment is spliced before the closing brace; every other byte is unchanged and the whole parses.
+	{
+		FFrmBridgeFixture F;
+		TestTrue(TEXT("a fragment is taken"), F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T));
+		TestFalse(TEXT("a second is refused while one is held"), F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T));
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.tick(4);
+		const FString Part = F.Bridge.TakeFactory(F.T, 30).Get(FString());
+		TestTrue(TEXT("the extractors are spliced in"), Part.Contains(TEXT(",\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
+		const int32 Spliced = Part.Find(TEXT(",\"extractors\":["));
+		TestTrue(TEXT("the plain part's bytes come first, unchanged"), Spliced > 0 && Part.Left(Spliced) == Plain.LeftChop(1));
+		TestTrue(TEXT("and the closing brace is last"), Part.EndsWith(TEXT("]}")));
+		TSharedPtr<FJsonObject> Parsed;
+		TestTrue(TEXT("the part parses as JSON"), FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Part), Parsed) && Parsed.IsValid());
+		TestTrue(TEXT("with both keys"), Parsed.IsValid() && Parsed->HasTypedField<EJson::Array>(TEXT("buildings")) && Parsed->HasTypedField<EJson::Array>(TEXT("extractors")));
+		F.tick(2);
+		TestFalse(TEXT("a fragment is consumed once"), F.Bridge.TakeFactory(F.T, 30).IsSet());
+	}
+
+	// A stale fragment (older than 1.5 x the factory age limit) is not spliced.
+	{
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T - 100);
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.tick(4);
+		SatisDash::Test::SameText(*this, TEXT("a stale fragment leaves the part as it was"), F.Bridge.TakeFactory(F.T, 30).Get(FString()), Plain);
+	}
+
+	// The fragment's worker job is still outstanding: the ready part is kept, not returned; when the job finishes the part carries it.
+	{
+		FFrmBridgeFixture F;
+		F.Worker.bHold = true;
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.tick();
+		F.Worker.release();
+		F.tick();
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.tick();
+		TestFalse(TEXT("the part waits while the fragment job is on the worker"), F.Bridge.TakeFactory(F.T, 30).IsSet());
+		F.Worker.release();
+		F.tick();
+		TestTrue(TEXT("the part is returned with the fragment once the job finished"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT(",\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
+	}
+
+	// Past the fragment's own age gate (1.5 x 30 s) with the job still held, the part is returned without it.
+	{
+		FFrmBridgeFixture F;
+		F.Worker.bHold = true;
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T + 40);
+		F.tick();
+		F.Worker.release();
+		F.tick();
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.tick();
+		SatisDash::Test::SameText(*this, TEXT("past the deadline the part goes out without the fragment"), F.Bridge.TakeFactory(F.T + 50, 30).Get(FString()), Plain);
+	}
+
+	// The source flips to bridge: neither a held fragment nor a pending job is spliced after DropExtractors.
+	{
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.tick(2);
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
+		F.Bridge.DropExtractors();
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.tick(4);
+		SatisDash::Test::SameText(*this, TEXT("a dropped fragment and job leave the part as it was"), F.Bridge.TakeFactory(F.T, 30).Get(FString()), Plain);
+	}
+
+	// An empty list is a real, empty fragment.
+	{
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>(), F.T);
+		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
+		F.tick(4);
+		TestTrue(TEXT("an empty list is spliced as []"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).EndsWith(TEXT(",\"extractors\":[]}")));
+	}
 	return true;
 }
 

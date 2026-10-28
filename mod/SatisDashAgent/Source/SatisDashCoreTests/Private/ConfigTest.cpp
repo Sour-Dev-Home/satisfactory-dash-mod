@@ -279,6 +279,30 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 		}
 	}
 
+	// The S4-B keys: default bridge (not sent), unset is not written back, "native" parses, selects native and is written back, the same strict parse.
+	const struct { const TCHAR* Key; ESource Default; ESource (FAgentConfig::*Getter)() const; TOptional<ESource> FAgentConfig::*Field; } S4BKeys[] = {
+		{ TEXT("extractorsSource"), DefaultExtractorsSource, &FAgentConfig::GetExtractorsSource, &FAgentConfig::ExtractorsSource },
+		{ TEXT("generatorsSource"), DefaultGeneratorsSource, &FAgentConfig::GetGeneratorsSource, &FAgentConfig::GeneratorsSource },
+		{ TEXT("stationRatesSource"), DefaultStationRatesSource, &FAgentConfig::GetStationRatesSource, &FAgentConfig::StationRatesSource },
+		{ TEXT("storageSource"), DefaultStorageSource, &FAgentConfig::GetStorageSource, &FAgentConfig::StorageSource },
+	};
+	for (const auto& K : S4BKeys)
+	{
+		TestTrue(*FString::Printf(TEXT("no key: %s default is bridge"), K.Key), (None.Config.*K.Getter)() == ESource::Bridge && K.Default == ESource::Bridge);
+		TestFalse(*FString::Printf(TEXT("no key: %s unset"), K.Key), (None.Config.*K.Field).IsSet());
+		TestFalse(*FString::Printf(TEXT("no key: %s not written back"), K.Key), ConfigToJson(None.Config).Contains(K.Key));
+		const FConfigResult Nat = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":\"native\"}"));
+		TestTrue(*FString::Printf(TEXT("%s native: valid"), K.Key), Nat.Status == EConfigStatus::Valid);
+		TestTrue(*FString::Printf(TEXT("%s native selects native"), K.Key), (Nat.Config.*K.Getter)() == ESource::Native);
+		TestTrue(*FString::Printf(TEXT("round trip keeps %s"), K.Key), ConfigToJson(Nat.Config).Contains(FString::Printf(TEXT("\"%s\": \"native\""), K.Key)));
+		for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
+		{
+			const FConfigResult R = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":") + Bad + TEXT("}"));
+			TestTrue(*FString::Printf(TEXT("%s %s is refused"), K.Key, Bad), R.Status == EConfigStatus::Broken);
+			TestEqual(*FString::Printf(TEXT("%s %s names the key"), K.Key, Bad), R.BadField, FString(K.Key));
+		}
+	}
+
 	// Written back only when set, and kept when the code is blanked after enrolment.
 	const FString Json = ConfigToJson(Native.Config);
 	TestTrue(TEXT("round trip keeps the keys"), Json.Contains(TEXT("\"playersSource\": \"native\"")) && Json.Contains(TEXT("\"resourceNodesSource\": \"bridge\"")));
