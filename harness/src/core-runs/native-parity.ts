@@ -415,18 +415,43 @@ export function s4bLayerPosts(entries: readonly RecordedCall[], layer: S4bLayer,
   return out;
 }
 
-/** A fresh FRM sample for each S4-B layer whose fragment arrived in a new accepted snapshot. `seen` is updated here. Returns the layers sampled. */
+/** The least time between two extra samples of one endpoint (controller ruling, 2026-10-27): snapshots come every 5 s. */
+export const S4B_TAKE_MIN_MS = 30_000;
+export interface S4bSeen { count: number; hash: string | null; takenAt: number }
+export const newS4bSeen = (): Record<S4bLayer, S4bSeen> => ({
+  extractors: { count: 0, hash: null, takenAt: -Infinity }, generators: { count: 0, hash: null, takenAt: -Infinity },
+  stationRates: { count: 0, hash: null, takenAt: -Infinity }, storage: { count: 0, hash: null, takenAt: -Infinity },
+});
+
+/**
+ * An extra FRM sample for an S4-B layer only after a snapshot that carries a fragment from a NEW mod read, and at most once per
+ * S4B_TAKE_MIN_MS per endpoint (the periodic samplers stay). Extractors, storage and station rates: a new post is new (the mod sends
+ * them once per read; mapLive rides every snapshot, so the 30 s floor bounds it). Generators ride every power part, so a post is
+ * new only when a hash of its generators array differs from the last one seen. `seen` is updated here. Returns the layers sampled.
+ */
 export async function takeAfterNewS4bPosts(
   s: Pick<S4bSamplers, S4bLayer>,
   entries: readonly RecordedCall[],
   enrolledAt: number,
-  seen: Record<S4bLayer, number>,
+  seen: Record<S4bLayer, S4bSeen>,
+  now: () => number = Date.now,
 ): Promise<S4bLayer[]> {
   const done: S4bLayer[] = [];
   for (const layer of S4B_LAYERS) {
-    const count = s4bLayerPosts(entries, layer, enrolledAt).length;
-    if (count > seen[layer]) {
-      seen[layer] = count;
+    const posts = s4bLayerPosts(entries, layer, enrolledAt);
+    const st = seen[layer];
+    if (posts.length <= st.count) continue;
+    let fresh = layer !== "generators";
+    if (layer === "generators") {
+      for (const p of posts.slice(st.count)) {
+        const h = createHash("sha256").update(JSON.stringify(p.data)).digest("hex");
+        if (h !== st.hash) fresh = true;
+        st.hash = h;
+      }
+    }
+    st.count = posts.length;
+    if (fresh && now() - st.takenAt >= S4B_TAKE_MIN_MS) {
+      st.takenAt = now();
       await s[layer].take();
       done.push(layer);
     }
@@ -598,7 +623,7 @@ export const nativeParity: CoreRunSpec = {
       // Counted from zero: a post that landed between enrolment and the window's start (the first native read) gets its sample at once too.
       const s3Seen = { rails: 0, conveyors: 0 };
       const s4Seen: Record<S4Layer, number> = { mapMarkers: 0, droneRoutes: 0, powerLines: 0 };
-      const s4bSeen: Record<S4bLayer, number> = { extractors: 0, generators: 0, stationRates: 0, storage: 0 };
+      const s4bSeen = newS4bSeen();
       while (Date.now() - from < Pass.WINDOW_MINUTES * MIN) {
         await ctx.deps.sleep(SECOND);
         rounds.feed(accepted(recorder));

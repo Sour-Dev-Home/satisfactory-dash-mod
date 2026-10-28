@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  nativeParity, S4B_SAMPLER_MS, S4_SAMPLER_MS, s4bEvidenceFrom, s4bLayerPosts, startS4bSamplers, stationPairsFrom, takeAfterNewS4bPosts, type S4bSamplers,
+  newS4bSeen, nativeParity, S4B_SAMPLER_MS, S4_SAMPLER_MS, s4bEvidenceFrom, s4bLayerPosts, startS4bSamplers, stationPairsFrom, takeAfterNewS4bPosts, type S4bSamplers,
 } from "../src/core-runs/native-parity";
 import { NATIVE_SOURCES_S4B } from "../src/core-run";
 import type { RecordedCall } from "../src/recorder";
@@ -65,7 +65,7 @@ describe("native-parity drive (S4-B)", () => {
       const t = (n: string) => ({ take: async () => { await flush(); calls.push(n); } });
       return { calls, s: { extractors: t("extractors"), generators: t("generators"), stationRates: t("stationRates"), storage: t("storage") } as unknown as Pick<S4bSamplers, "extractors" | "generators" | "stationRates" | "storage"> };
     };
-    const fresh = () => ({ extractors: 0, generators: 0, stationRates: 0, storage: 0 });
+    const fresh = newS4bSeen;
 
     it("a snapshot with every fragment gives exactly one take per sampler, and none on a repeat check", async () => {
       const { calls, s } = fake();
@@ -76,13 +76,57 @@ describe("native-parity drive (S4-B)", () => {
       expect(calls).toHaveLength(4);
     });
 
-    it("each fragment alone triggers only its own sampler, and a second snapshot another take", async () => {
+    const gens = (g: unknown[], i: number) => snap({ power: { circuits: [], generators: g } }, { at: iso(T0 + 60_000 + i * 5_000) });
+
+    it("12 consecutive power parts with the same generators fragment trigger exactly one extra /getGenerators sample", async () => {
       const { calls, s } = fake();
       const seen = fresh();
-      await takeAfterNewS4bPosts(s, [snap({ power: { circuits: [], generators: [] } })], T0, seen);
+      const entries: RecordedCall[] = [];
+      let t = T0;
+      for (let i = 0; i < 12; i++) {
+        entries.push(gens([generator], i));
+        t += 5_000;
+        await takeAfterNewS4bPosts(s, entries, T0, seen, () => t);
+      }
       expect(calls).toEqual(["generators"]);
-      await takeAfterNewS4bPosts(s, [snap({ power: { circuits: [], generators: [] } }), snap({ power: { circuits: [], generators: [] } }, { at: iso(T0 + 70_000) })], T0, seen);
+    });
+
+    it("a new generators fragment triggers another (after the 30 s floor), and not before it", async () => {
+      const { calls, s } = fake();
+      const seen = fresh();
+      let t = T0;
+      const entries = [gens([generator], 0)];
+      await takeAfterNewS4bPosts(s, entries, T0, seen, () => t);
+      entries.push(gens([{ ...generator, currentMW: 10 }], 1));
+      t += 5_000;
+      await takeAfterNewS4bPosts(s, entries, T0, seen, () => t); // new content, but inside 30 s
+      expect(calls).toEqual(["generators"]);
+      entries.push(gens([{ ...generator, currentMW: 20 }], 2));
+      t += 30_000;
+      await takeAfterNewS4bPosts(s, entries, T0, seen, () => t);
       expect(calls).toEqual(["generators", "generators"]);
+    });
+
+    it("storage present once triggers one /getStorageInv sample; later parts without it trigger none", async () => {
+      const { calls, s } = fake();
+      const seen = fresh();
+      const entries = [snap({ storage: { containers: [container] } }), snap({ factory: { buildings: [] } }), snap({ factory: { buildings: [] } })];
+      await takeAfterNewS4bPosts(s, entries, T0, seen);
+      await takeAfterNewS4bPosts(s, entries, T0, seen);
+      expect(calls).toEqual(["storage"]);
+    });
+
+    it("at most one extra sample per 30 s per endpoint, even for fragments that ride every snapshot", async () => {
+      const { calls, s } = fake();
+      const seen = fresh();
+      const entries: RecordedCall[] = [];
+      let t = T0;
+      for (let i = 0; i < 13; i++) {
+        entries.push(snap({ mapLive: { trains: [], stations: [station] } }, { at: iso(T0 + 60_000 + i * 5_000) }));
+        await takeAfterNewS4bPosts(s, entries, T0, seen, () => t);
+        t += 5_000;
+      }
+      expect(calls).toEqual(["stationRates", "stationRates", "stationRates"]); // t = 0, 30 s, 60 s
     });
 
     it("a refused, non-mod, pre-enrolment or fragment-less snapshot takes nothing", async () => {

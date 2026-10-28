@@ -312,8 +312,9 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   the mod rated, the posted `transferPerMinute` next to FRM's `TransferRate` and platform sum on the two bracketing sides (ids and
   numbers only). The readers also need the `Readers:` line to say `extractors=native generators=native stationRates=native
   storage=native`, and the first three of those (extractors, generators, storage) a `Buildables read` step line. `readers.json` gains the four
-  keys; an S1 to S4-A capture is judged as before. Because the mod posts a snapshot every few seconds, the extra FRM reads (storage is the
-  largest) are one per accepted snapshot per layer.
+  keys; an S1 to S4-A capture is judged as before. Snapshots come every 5 s, so the extra FRM sample (beyond the 90 s periodic one) is
+  taken only after a snapshot carrying a fragment from a new mod read (generators: a different generators array, since it rides every
+  power part), and at most once per 30 s per endpoint.
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S4`: the S3 set plus the map markers, drone routes and power lines readers),
   loading the `Test3` save (`sprint3World`) in both boots. With the S3 keys in the config the judge also needs `railsSource`
