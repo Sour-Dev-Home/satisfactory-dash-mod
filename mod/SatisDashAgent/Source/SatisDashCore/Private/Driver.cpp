@@ -251,7 +251,7 @@ void SatisDash::FDriver::TickTrainsRead(double Now)
 		{
 			bTrainsBeginPending = false;
 			TrainsBudget.Reset();
-			bTrainsReadOpen = Game.BeginTrainsRead();
+			bTrainsReadOpen = Game.BeginTrainsRead(Config.GetStationRatesSource() == ESource::Native);
 			if (!bTrainsReadOpen)
 			{
 				NoteFailedPart(TEXT("mapLive"), Now); // not busy any more, so a real failure: no world or subsystem
@@ -287,6 +287,12 @@ void SatisDash::FDriver::TickTrainsRead(double Now)
 	UE_LOG(LogSatisDash, Display, TEXT("Trains read (game thread only): %d trains, %d stations in %d steps, longest step %.2f ms, total %.2f ms"),
 		Found->Trains.Num(), Found->Stations.Num(), TrainsBudget.Steps(), TrainsBudget.LongestMs(), TrainsBudget.TotalMs());
 	LogLongestStep(TEXT("Trains"), TrainsBudget);
+	if (Config.GetStationRatesSource() == ESource::Native)
+	{
+		// Counts only: no class, station or id.
+		UE_LOG(LogSatisDash, Display, TEXT("Station rates (reflection read): %d platforms read, %d fluid platforms skipped, %d lookups failed"),
+			Found->RatesRead, Found->RatesFluidSkipped, Found->RatesLookupFailed);
+	}
 	if (!Bridge.SubmitNativeMapLive(MoveTemp(Found.GetValue()), Now) && TrainsLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Trains read finished while the last one is still being built: it is dropped"));
@@ -416,7 +422,7 @@ void SatisDash::FDriver::TickSample(double Now)
 			else
 			{
 				TrainsBudget.Reset();
-				bTrainsReadOpen = Game.BeginTrainsRead();
+				bTrainsReadOpen = Game.BeginTrainsRead(Config.GetStationRatesSource() == ESource::Native);
 				if (!bTrainsReadOpen)
 				{
 					NoteFailedPart(TEXT("mapLive"), Now); // no world or subsystem yet (a busy cursor is handled above, not here): the part is left out and FRM is not asked

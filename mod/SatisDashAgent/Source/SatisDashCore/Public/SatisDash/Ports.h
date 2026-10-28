@@ -24,6 +24,8 @@ namespace SatisDash
 	{
 		TArray<FTrainReading> Trains;
 		TArray<FStationReading> Stations;
+		/** S4-B station rates (stationRatesSource native only; all zero otherwise): cargo platforms whose rate was read, skipped as fluid platforms, and whose lookup or call failed. Counts only. */
+		int32 RatesRead = 0, RatesFluidSkipped = 0, RatesLookupFailed = 0;
 	};
 
 	/** Counts of one logistics pass (R5, ADR-0058): numbers only, they go to the log line and nowhere else. */
@@ -173,8 +175,9 @@ namespace SatisDash
 		 * R3: starts a time-sliced read of the trains and stations. False when there is no world or no railroad subsystem, or when
 		 * a read is already open (the reader keeps one cursor: the driver's mapLive pass and the world sender's train-routes pass
 		 * take turns). Call StepTrainsRead every tick until it returns a value. Only called when trainsSource is "native".
+		 * bStationRates (stationRatesSource native, S4-B): also read each station's cargo-platform transfer rate; false adds no lookup and no cost.
 		 */
-		virtual bool BeginTrainsRead() { return false; }
+		virtual bool BeginTrainsRead(bool bStationRates = false) { return false; }
 		/**
 		 * Reads trains, then stations, until the budget is spent, on the game thread. Unset until every one has been read, then
 		 * the snapshot (once; empty arrays for a world with no trains or stations, which is a real, empty railway). Sorting and

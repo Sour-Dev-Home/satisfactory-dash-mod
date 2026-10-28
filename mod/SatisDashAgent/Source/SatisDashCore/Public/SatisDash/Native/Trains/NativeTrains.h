@@ -48,6 +48,14 @@ namespace SatisDash
 		TArray<FString> Items;
 	};
 
+	/**
+	 * R4 / B6: the factor from the game's raw station transfer rate to items per minute. The header states no unit, so 1.0 is an
+	 * assumption, NEEDS VERIFICATION: the first parity run stores the mod's posted value next to FRM's, and the judge fails the
+	 * run when the median ratio is outside its band. A different ratio is fixed here in a ruling PR and the run repeated; the
+	 * tolerance is never loosened. Applied by the game-side station read (GameReader.cpp, S4-B Task 12), not by the builder.
+	 */
+	inline constexpr double NativeStationRateToPerMinute = 1.0;
+
 	/** One train station as the game reports it, before mapping. Positions are in game units (centimetres). */
 	struct FStationReading
 	{
@@ -55,6 +63,8 @@ namespace SatisDash
 		FString Name;
 		double XCm = 0;
 		double YCm = 0;
+		/** The raw transfer rate, already times NativeStationRateToPerMinute (R3: only this one is sent). Unset = not read. */
+		TOptional<double> TransferPerMinute;
 		TArray<FPlatformReading> Platforms;
 	};
 

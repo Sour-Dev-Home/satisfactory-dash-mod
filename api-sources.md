@@ -213,6 +213,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FString::ToUpper | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1553 | header only |
 | FString::TrimStartAndEnd | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1878 | header only |
 | FString::LeftChopInline | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:1184 | header only |
+| FString::SanitizeFloat | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2281 | header only (InMinFractionalDigits 0 gives "60" for 60.0 and "12.346" for 12.346; the station rate writer uses 0) |
 | MakeShared | Engine/Source/Runtime/Core/Public/Templates/SharedPointer.h:2252 | header only |
 | TCHAR_TO_UTF8 | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:1021 | header only |
 | FJsonValue | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:21 | header only |
@@ -780,3 +781,44 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FColor::ToHex | Engine/Source/Runtime/Core/Public/Math/Color.h:706 | header only (RRGGBBAA, upper case; Color.cpp:585) |
 | TestNotEqual | Engine/Source/Runtime/Core/Public/Misc/AutomationTest.h:1972 | header only (the FString overload) |
 | FJsonObject::HasTypedField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:93 | header only (the template overload; :105 takes the EJson as an argument) |
+| UObject/Class.h | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:1 | header only (S4-B Task 12: UFunction, UClass) |
+| UObject/Script.h | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:1 | header only (S4-B Task 12: FUNC_BlueprintPure) |
+| UObject/UnrealType.h | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:1 | header only (S4-B Task 12: FFloatProperty, FIntProperty, FindFProperty) |
+| UClass | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2988 | header only (S4-B Task 12: the cache key and FindFunctionByName's owner) |
+| UFunction | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2021 | header only (S4-B Task 12, R2: only GetCurrentItemTransferRate is called, after NumParms == 1, BlueprintPure, a float or int return and ParmsSize <= 16 are checked) |
+| UFunction::NumParms | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2034 | header only (total parameters, the return value included; 1 means no input parameter) |
+| UFunction::ParmsSize | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2036 | header only (total size of the parameters in memory; must fit the 16-byte block) |
+| UFunction::ReturnValueOffset | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2038 | header only (checked against ParmsSize) |
+| UFunction::GetReturnProperty | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2116 | header only (null when there is no return value: lookup failed) |
+| UFunction::HasAnyFunctionFlags | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2133 | header only |
+| FUNC_BlueprintPure | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:164 | header only (the cargo header marks GetCurrentItemTransferRate UFUNCTION( BlueprintPure ) at FGBuildableTrainPlatformCargo.h:179) |
+| UClass::FindFunctionByName | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:3300 | header only (UClass at :2988; looked up once per class and kept) |
+| UObject::ProcessEvent | Engine/Source/Runtime/CoreUObject/Public/UObject/Object.h:1474 | header only (the one call, with a zeroed parameter block, on a valid object on the game thread) |
+| FProperty | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:180 | header only |
+| FFloatProperty | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:2301 | header only |
+| FIntProperty | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:2175 | header only |
+| FFloatProperty::GetPropertyValue_InContainer | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:1576 | header only (declared in TProperty, the base of TProperty_Numeric; read-only) |
+| FIntProperty::GetPropertyValue_InContainer | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:1576 | header only (declared in TProperty; read-only) |
+| CastField | Engine/Source/Runtime/CoreUObject/Public/UObject/Field.h:975 | header only (the const FField* overload; null when the type differs) |
+| FindFProperty | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:6869 | header only (the FName overload; mSmoothedLoadRate and mSmoothedUnloadRate, found once per class) |
+| FMemory::Memzero | Engine/Source/Runtime/Core/Public/HAL/UnrealMemory.h:131 | header only |
+| IsInGameThread | Engine/Source/Runtime/Core/Public/CoreGlobals.h:747 | header only |
+| AActor::FindComponentByClass | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:3807 | header only (the template overload; read-only, stops at the first match; non-null UFGPipeConnectionComponent = fluid platform) |
+| AActor::GetFunctionCallspace | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:2358 | header only (public virtual override of UObject's :1484; Absorbed or Remote = the call would not run here, so it is not made) |
+| FunctionCallspace | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:95 | header only (namespace; Absorbed :100, Remote :102, Local :104) |
+| FunctionCallspace::Local | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:104 | header only |
+| UObjectBaseUtility::IsUnreachable | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBaseUtility.h:236 | header only (IsValid does not test it, and ProcessEvent asserts on it: ScriptCore.cpp:2036) |
+| FDoubleProperty | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:2332 | header only |
+| FDoubleProperty::GetPropertyValue_InContainer | Engine/Source/Runtime/CoreUObject/Public/UObject/UnrealType.h:1576 | header only (declared in TProperty; read-only) |
+| UFunction::HasAllFunctionFlags | Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h:2144 | header only |
+| FUNC_Native | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:146 | header only (required: the game's own native getter) |
+| FUNC_Net | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:142 | header only (refused) |
+| FUNC_Static | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:149 | header only (refused) |
+| FUNC_HasOutParms | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:158 | header only (refused) |
+| FUNC_Event | Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:147 | header only (refused) |
+| TWeakObjectPtr::IsValid | Engine/Source/Runtime/Core/Public/UObject/WeakObjectPtrTemplates.h:243 | header only (the no-argument overload) |
+| TWeakObjectPtr::Get | Engine/Source/Runtime/Core/Public/UObject/WeakObjectPtrTemplates.h:139 | header only (the no-argument overload) |
+| UFGPipeConnectionComponent | Source/FactoryGame/Public/FGPipeConnectionComponent.h:177 | header only (V8: a cargo platform with any such component is a fluid platform and is skipped) |
+| AFGBuildableTrainPlatformCargo::GetCurrentItemTransferRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:180 | header only (private, BlueprintPure at :179, returns float; never called directly: found by name through reflection, R2) |
+| AFGBuildableTrainPlatformCargo::mSmoothedLoadRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:363 | header only (private float UPROPERTY; fallback, read through FindFProperty only) |
+| AFGBuildableTrainPlatformCargo::mSmoothedUnloadRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:366 | header only (private float UPROPERTY; fallback, read through FindFProperty only) |

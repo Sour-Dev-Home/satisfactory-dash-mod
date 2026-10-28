@@ -297,7 +297,7 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   to S3 capture is judged as before. Known gap: `judgeWires` is called without its optional `{ dropped }` count, because there is no
   wires-only dropped parser, so the dropped-wire check is not applied (the dropped-wire count is not judged). Both
   `native-parity` and `tick-cost-native` write `NATIVE_SOURCES_S4`. The backend images must be built from the contract pin
-  `d9f11da` or a descendant, or the image guard refuses the run (see "The backend host"). The marker, drone-route and wire
+  `9397b85` or a descendant, or the image guard refuses the run (see "The backend host"). The marker, drone-route and wire
   counts on `Test3` are pending the `s4-capture` run (PR #67).
 - `tick-cost-native` is `tick-cost` with the players, resource-node, factory and trains readers set to `native` in the mod's
   config (`mod-config.json`, `NATIVE_SOURCES_S4`: the S3 set plus the map markers, drone routes and power lines readers),

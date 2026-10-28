@@ -68,6 +68,10 @@
 #include "SatisDash/Native/Generators/NativeGenerators.h"
 #include "SatisDash/Native/Rates/NativeRates.h"
 #include "SatisDash/Native/TrainRoutes/NativeTrainRoutes.h"
+#include "SatisDash/Native/Trains/NativeTrains.h"
+#include "UObject/Class.h"
+#include "UObject/Script.h"
+#include "UObject/UnrealType.h"
 
 UFGServerSubsystem* SatisDash::FGameReader::Server() const
 {
@@ -587,8 +591,146 @@ namespace
 		}
 	}
 
-	/** One station and its cargo and empty platforms (a bounded walk along the chain from the station's output). */
-	void TrainsReadStation(AFGTrainStationIdentifier& Identifier, AFGBuildableRailroadStation& Building, SatisDash::FStationReading& Reading)
+	/** The most bytes of parameter block the rate call gets: one float or int return and nothing else (R2). */
+	constexpr int32 StationRateParmsBytes = 16;
+
+	/**
+	 * How one cargo platform class gives its transfer rate (S4-B, R2): the BlueprintPure function GetCurrentItemTransferRate (it is
+	 * private in the header, so only reflection reaches it) with a single float or int return, else the two smoothed-rate floats.
+	 * Looked up once per class and kept; a class with neither is kept as unusable, so it is neither searched nor logged again.
+	 */
+	struct FStationRateAccess
+	{
+		TWeakObjectPtr<UFunction> Function;
+		const FFloatProperty* FloatReturn = nullptr;
+		const FDoubleProperty* DoubleReturn = nullptr;
+		const FIntProperty* IntReturn = nullptr;
+		const FFloatProperty* LoadRate = nullptr;
+		const FFloatProperty* UnloadRate = nullptr;
+
+		bool UsesFunction() const { return Function.IsValid(); }
+		bool IsUsable() const { return Function.IsValid() || (LoadRate != nullptr && UnloadRate != nullptr); }
+	};
+
+	/** The cached access for a class (game thread only). A lookup that finds nothing usable warns once per class, by class name. */
+	FStationRateAccess StationRateAccessFor(UClass* Class)
+	{
+		static TMap<TWeakObjectPtr<UClass>, FStationRateAccess> Cache;
+		const TWeakObjectPtr<UClass> ClassKey = Class;
+		if (const FStationRateAccess* Found = Cache.Find(ClassKey))
+		{
+			return *Found;
+		}
+		FStationRateAccess Access;
+		UFunction* Candidate = Class->FindFunctionByName(FName(TEXT("GetCurrentItemTransferRate")));
+		// Only a call with no input parameters (the return value is the one parameter), a pure function, and a float or int result.
+		// The game's own native getter only: never a Blueprint event, static, net or out-parameter function (M1).
+		if (Candidate != nullptr && Candidate->NumParms == 1 && Candidate->HasAnyFunctionFlags(FUNC_BlueprintPure)
+			&& Candidate->HasAllFunctionFlags(FUNC_Native) && !Candidate->HasAnyFunctionFlags(FUNC_Net | FUNC_Static | FUNC_HasOutParms | FUNC_Event)
+			&& Candidate->ParmsSize <= StationRateParmsBytes && Candidate->ReturnValueOffset < Candidate->ParmsSize)
+		{
+			const FProperty* Return = Candidate->GetReturnProperty();
+			Access.FloatReturn = CastField<FFloatProperty>(Return);
+			Access.DoubleReturn = CastField<FDoubleProperty>(Return);
+			Access.IntReturn = CastField<FIntProperty>(Return);
+			if (Access.FloatReturn != nullptr || Access.DoubleReturn != nullptr || Access.IntReturn != nullptr)
+			{
+				Access.Function = Candidate;
+			}
+		}
+		if (!Access.UsesFunction())
+		{
+			Access.FloatReturn = nullptr;
+			Access.DoubleReturn = nullptr;
+			Access.IntReturn = nullptr;
+			Access.LoadRate = FindFProperty<FFloatProperty>(Class, FName(TEXT("mSmoothedLoadRate")));
+			Access.UnloadRate = FindFProperty<FFloatProperty>(Class, FName(TEXT("mSmoothedUnloadRate")));
+		}
+		if (!Access.IsUsable())
+		{
+			// A game class name, never a station name or id.
+			UE_LOG(LogSatisDash, Warning, TEXT("Station rates: no usable transfer-rate function or property on game class %s; its stations have no rate"), *Class->GetName());
+		}
+		Cache.Add(ClassKey, Access);
+		return Access;
+	}
+
+	/** One platform's raw rate: read-only, on a valid object, game thread. False (nothing in OutRaw) on any failure. */
+	bool ReadCargoRate(AFGBuildableTrainPlatformCargo& Cargo, const FStationRateAccess& Access, double& OutRaw)
+	{
+		// IsValid does not test Unreachable, and ProcessEvent asserts on it (M2).
+		if (!Access.IsUsable() || !IsValid(&Cargo) || Cargo.IsUnreachable() || !IsInGameThread())
+		{
+			return false;
+		}
+		double Raw = 0;
+		if (Access.UsesFunction())
+		{
+			UFunction* Function = Access.Function.Get();
+			// A call that would not run here (absorbed, or sent to a remote) writes nothing: that is a failure, never a 0 (M7).
+			if (Cargo.GetFunctionCallspace(Function, nullptr) != FunctionCallspace::Local)
+			{
+				return false;
+			}
+			alignas(16) uint8 Parms[StationRateParmsBytes];
+			FMemory::Memzero(Parms, sizeof(Parms)); // float, double and int are plain data: nothing to construct or destroy
+			Cargo.ProcessEvent(Function, Parms);
+			if (Access.FloatReturn != nullptr)
+			{
+				Raw = static_cast<double>(Access.FloatReturn->GetPropertyValue_InContainer(Parms));
+			}
+			else if (Access.DoubleReturn != nullptr)
+			{
+				Raw = Access.DoubleReturn->GetPropertyValue_InContainer(Parms);
+			}
+			else
+			{
+				Raw = static_cast<double>(Access.IntReturn->GetPropertyValue_InContainer(Parms));
+			}
+		}
+		else
+		{
+			const FFloatProperty* Rate = Cargo.GetIsInLoadMode() ? Access.LoadRate : Access.UnloadRate;
+			Raw = static_cast<double>(Rate->GetPropertyValue_InContainer(&Cargo));
+		}
+		if (!(Raw >= 0.0))
+		{
+			return false; // NaN or negative: not a rate
+		}
+		OutRaw = Raw;
+		return true;
+	}
+
+	/** Adds one cargo platform's rate to its station (summed over the item platforms), or counts why not. Fluid platforms are skipped (V8). */
+	void TrainsReadCargoRate(AFGBuildableTrainPlatformCargo& Cargo, SatisDash::FStationReading& Reading, SatisDash::FTrainsSnapshot& Counts)
+	{
+		if (!IsInGameThread())
+		{
+			++Counts.RatesLookupFailed; // M3: the class cache is touched on the game thread only
+			return;
+		}
+		// Stops at the first pipe connection and builds no array (M4).
+		if (Cargo.FindComponentByClass<UFGPipeConnectionComponent>() != nullptr)
+		{
+			++Counts.RatesFluidSkipped;
+			return;
+		}
+		double Raw = 0;
+		if (!ReadCargoRate(Cargo, StationRateAccessFor(Cargo.GetClass()), Raw))
+		{
+			++Counts.RatesLookupFailed;
+			return;
+		}
+		++Counts.RatesRead;
+		Reading.TransferPerMinute = Reading.TransferPerMinute.Get(0.0) + Raw * SatisDash::NativeStationRateToPerMinute;
+	}
+
+	/**
+	 * One station and its cargo and empty platforms (a bounded walk along the chain from the station's output). The station's id is
+	 * Reading.Id, set here once: mapLive and trainRoutes both build from this reading (Open question 4). Rates is null unless
+	 * stationRatesSource is native.
+	 */
+	void TrainsReadStation(AFGTrainStationIdentifier& Identifier, AFGBuildableRailroadStation& Building, SatisDash::FStationReading& Reading, SatisDash::FTrainsSnapshot* Rates)
 	{
 		Reading.Id = Building.GetName();
 		Reading.Name = Identifier.GetStationName().ToString();
@@ -607,8 +749,12 @@ namespace
 				break; // the end of the chain, or a cycle
 			}
 			Visited.Add(Platform);
-			if (const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platform))
+			if (AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platform))
 			{
+				if (Rates != nullptr)
+				{
+					TrainsReadCargoRate(*Cargo, Reading, *Rates);
+				}
 				SatisDash::FPlatformReading Entry;
 				Entry.Id = Cargo->GetName();
 				Entry.bLoad = Cargo->GetIsInLoadMode();
@@ -638,9 +784,10 @@ void SatisDash::FGameReader::ResetTrainsRead()
 	StationsCursor = 0;
 	TrainsFound = FTrainsSnapshot();
 	bTrainsOpen = false;
+	bTrainsStationRates = false;
 }
 
-bool SatisDash::FGameReader::BeginTrainsRead()
+bool SatisDash::FGameReader::BeginTrainsRead(bool bStationRates)
 {
 	if (bTrainsOpen)
 	{
@@ -655,6 +802,7 @@ bool SatisDash::FGameReader::BeginTrainsRead()
 	ResetTrainsRead();
 	bTrainsAbandoned = false;
 	TrainsWorld = Current;
+	bTrainsStationRates = bStationRates;
 	// Dozens of pointers, copied once; the arrays themselves are never kept.
 	TArray<AFGTrain*> Trains;
 	Subsystem->GetAllTrains(Trains);
@@ -706,7 +854,7 @@ TOptional<SatisDash::FTrainsSnapshot> SatisDash::FGameReader::StepTrainsRead(FSt
 			if (IsValid(Building) && TrainsFound.Stations.Num() < TrainRoutesMaxItems)
 			{
 				FStationReading Reading;
-				TrainsReadStation(*Identifier, *Building, Reading);
+				TrainsReadStation(*Identifier, *Building, Reading, bTrainsStationRates ? &TrainsFound : nullptr);
 				TrainsFound.Stations.Add(MoveTemp(Reading));
 			}
 		}

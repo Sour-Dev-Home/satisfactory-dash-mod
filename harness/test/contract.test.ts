@@ -203,3 +203,24 @@ describe("vendored contract (S4-B: generators)", () => {
     expect(AgentPowerSchema.safeParse({ circuits: [], generators }).success).toBe(false);
   });
 });
+
+describe("vendored contract (S4-B: station rates)", () => {
+  const station = { id: "st1", name: "Iron Depot", x: 100, y: -200 };
+
+  it("MapTrainStationSchema accepts the three rates (finite >= 0) and the keys absent", async () => {
+    const { MapTrainStationSchema: S } = await import("../contract/src/map");
+    const rates = { transferPerMinute: 120.5, inflowPerMinute: 60, outflowPerMinute: 0 };
+    const parsed = S.safeParse({ ...station, ...rates });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data).toMatchObject(rates);
+    expect(S.safeParse(station).success).toBe(true);
+  });
+
+  it("MapTrainStationSchema rejects a negative and NaN rate on each key", async () => {
+    const { MapTrainStationSchema: S } = await import("../contract/src/map");
+    for (const key of ["transferPerMinute", "inflowPerMinute", "outflowPerMinute"]) {
+      expect(S.safeParse({ ...station, [key]: -1 }).success).toBe(false);
+      expect(S.safeParse({ ...station, [key]: Number.NaN }).success).toBe(false);
+    }
+  });
+});
