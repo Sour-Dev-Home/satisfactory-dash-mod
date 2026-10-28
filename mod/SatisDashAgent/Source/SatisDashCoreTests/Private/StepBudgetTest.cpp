@@ -87,6 +87,47 @@ bool FStepBudgetSlicesTest::RunTest(const FString& Parameters)
 	Tagged.Reset();
 	TestEqual(TEXT("Reset clears the items"), Tagged.LongestItems(), 0);
 	TestEqual(TEXT("and both tags"), Tagged.LongestStartTag() + Tagged.LongestEndTag(), 0);
+	TestEqual(TEXT("Reset clears the longest element"), Tagged.LongestElementMs() + Tagged.LongestElementIndex() + Tagged.LongestElementTag(), 0.0);
+
+	// The longest element (tick-cost run 40626602265): 0.003 ms per element, then a 9 ms jump inside element 319 after SetTag(2).
+	TSharedRef<double> Tick = MakeShared<double>(0.0);
+	FStepBudget Elements{[Tick]() { return *Tick; }, 1.0};
+	Elements.SetTag(1);
+	Elements.Begin();
+	for (int32 Element = 1; Element <= 318; ++Element)
+	{
+		*Tick += 0.000003;
+		Elements.Spent();
+	}
+	Elements.SetTag(2);
+	*Tick += 0.009;
+	Elements.Spent();
+	Elements.End();
+	TestTrue(TEXT("the step is about 9.95 ms (318 x 0.003 ms plus the jump)"), FMath::Abs(Elements.LongestMs() - 9.954) < 0.01);
+	TestEqual(TEXT("the element count is 319"), Elements.LongestItems(), 319);
+	TestTrue(TEXT("the longest element is the 9 ms jump"), FMath::Abs(Elements.LongestElementMs() - 9.0) < 0.001);
+	TestEqual(TEXT("at element 319"), Elements.LongestElementIndex(), 319);
+	TestEqual(TEXT("in phase 2"), Elements.LongestElementTag(), 2);
+
+	// A shorter step later leaves the longest step's element alone, even if its own element is longer than the others in it.
+	Elements.Begin();
+	Elements.Spent();
+	*Tick += 0.002;
+	Elements.End();
+	TestEqual(TEXT("a shorter step does not replace the longest element"), Elements.LongestElementIndex(), 319);
+
+	// A jump between the last Spent() and End() is the element End() closes: StepItems + 1, with the tag at End().
+	TSharedRef<double> Tick2 = MakeShared<double>(0.0);
+	FStepBudget Closing{[Tick2]() { return *Tick2; }, 1.0};
+	Closing.SetTag(1);
+	Closing.Begin();
+	Closing.Spent(); Closing.Spent(); Closing.Spent();
+	Closing.SetTag(3);
+	*Tick2 += 0.004;
+	Closing.End();
+	TestTrue(TEXT("the closing element is 4 ms"), FMath::Abs(Closing.LongestElementMs() - 4.0) < 0.001);
+	TestEqual(TEXT("charged to element 4 (three Spent() calls plus the one End() closes)"), Closing.LongestElementIndex(), 4);
+	TestEqual(TEXT("with the tag at End()"), Closing.LongestElementTag(), 3);
 	return true;
 }
 

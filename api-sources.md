@@ -583,6 +583,9 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FStepBudget::LongestItems | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:39 | the plugin's own declaration (longest-step diagnostic) |
 | FStepBudget::LongestStartTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:41 | the plugin's own declaration (longest-step diagnostic) |
 | FStepBudget::LongestEndTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:42 | the plugin's own declaration (longest-step diagnostic) |
+| FStepBudget::LongestElementMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:48 | the plugin's own declaration (longest-element diagnostic) |
+| FStepBudget::LongestElementIndex | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:49 | the plugin's own declaration (longest-element diagnostic) |
+| FStepBudget::LongestElementTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:50 | the plugin's own declaration (longest-element diagnostic) |
 | LogisticsStepWork | mod/SatisDashAgent/Source/SatisDashCoreTests/Private/DriverFakes.h:240 | the test fake's own hook (longest-step diagnostic test) |
 | FJsonObject::TryGetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:274 | header only (the FStringView overload; test only, Task 8) |
 | FJsonValue::TryGetString | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:74 | header only (test only, Task 8) |

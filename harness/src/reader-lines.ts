@@ -52,6 +52,30 @@ const STEP = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only\\): 
 // A line that names a sliced reader but does not parse as a StepCost is malformed, and fails the ceiling (it never passes as "present").
 const STEP_HEAD = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only\\): `);
 
+/**
+ * The diagnostic `<Name> read longest step: X ms over N elements, phase A to B` (owner, 2026-10-27), with the optional tail
+ * `, longest element Y ms at I (phase T)` added 2026-10-28. Older evidence has no tail, so its element fields are undefined.
+ */
+export interface LongestStepDiagnostic { reader: string; longestStepMs: number; elements: number; startPhase: number; endPhase: number; longestElementMs?: number; longestElementIndex?: number; longestElementPhase?: number }
+const LONGEST_STEP = /LogSatisDash: (?:Display: )?(.+?) read longest step: (\d+(?:\.\d+)?) ms over (\d+) elements, phase (\d+) to (\d+)(?:, longest element (\d+(?:\.\d+)?) ms at (\d+) \(phase (\d+)\))?\s*$/;
+
+/** One entry per longest-step diagnostic line, old and new shapes. Not a pass input. */
+export function longestStepDiagnostics(lines: readonly string[]): LongestStepDiagnostic[] {
+  const out: LongestStepDiagnostic[] = [];
+  for (const line of lines) {
+    const m = LONGEST_STEP.exec(line);
+    if (!m) continue;
+    const d: LongestStepDiagnostic = { reader: m[1]!, longestStepMs: Number(m[2]), elements: Number(m[3]), startPhase: Number(m[4]), endPhase: Number(m[5]) };
+    if (m[6] !== undefined) {
+      d.longestElementMs = Number(m[6]);
+      d.longestElementIndex = Number(m[7]);
+      d.longestElementPhase = Number(m[8]);
+    }
+    out.push(d);
+  }
+  return out;
+}
+
 /** One StepCost per sliced-read line in the log. */
 export function stepCosts(lines: readonly string[]): StepCost[] {
   const out: StepCost[] = [];

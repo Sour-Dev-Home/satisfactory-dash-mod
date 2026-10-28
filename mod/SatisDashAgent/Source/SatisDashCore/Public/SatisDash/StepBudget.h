@@ -40,6 +40,14 @@ namespace SatisDash
 		/** The tag current at Begin() and at End() of the longest step. */
 		int32 LongestStartTag() const { return LongestStartTagValue; }
 		int32 LongestEndTag() const { return LongestEndTagValue; }
+		/**
+		 * The longest single element of the longest step: the gap between consecutive clock reads (Begin to the first Spent(), then
+		 * Spent() to Spent()). A gap between the last Spent() and End() is charged to element StepItems + 1 (End's own read), with the tag at End().
+		 * The index is 1-based, the same count LongestItems() uses. Diagnostic only (tick-cost run 40626602265).
+		 */
+		double LongestElementMs() const { return LongestElementSeconds * 1000.0; }
+		int32 LongestElementIndex() const { return LongestElementIndexValue; }
+		int32 LongestElementTag() const { return LongestElementTagValue; }
 		void Reset();
 
 	private:
@@ -56,11 +64,20 @@ namespace SatisDash
 		int32 LongestItemCount = 0;
 		int32 LongestStartTagValue = 0;
 		int32 LongestEndTagValue = 0;
+		/** The previous clock read of this step, and the longest gap so far in it (Spent() is const, so mutable). */
+		mutable double LastRead = 0.0;
+		mutable double StepElementSeconds = 0.0;
+		mutable int32 StepElementIndex = 0;
+		mutable int32 StepElementTag = 0;
+		double LongestElementSeconds = 0.0;
+		int32 LongestElementIndexValue = 0;
+		int32 LongestElementTagValue = 0;
 	};
 
 	/**
 	 * Owner, 2026-10-27: when a budget's longest step passes MaxNativeStepMs, one extra Display line says what that step was doing:
-	 * "<Name> read longest step: <x.xx> ms over <n> elements, phase <a> to <b>". Counts only, never a name or an id. Logs nothing at or below the ceiling.
+	 * "<Name> read longest step: <x.xx> ms over <n> elements, phase <a> to <b>[, longest element <y.yy> ms at <i> (phase <t>)]". Counts and times only, never a name or an id. Logs nothing at or below the ceiling.
+		 * The bracketed part is written only by the budget overload (the resource node scan has no per-element data).
 	 */
 	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, double LongestMs, int32 Items, int32 StartTag, int32 EndTag);
 	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, const FStepBudget& Budget);

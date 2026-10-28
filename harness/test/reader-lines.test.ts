@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, longestStepDiagnostics, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -94,6 +94,18 @@ describe("step costs", () => {
     expect(stepCosts(lines)).toEqual([]);
     expect(scanCosts(lines)).toEqual([]);
     expect(stepProblems(lines, [])).toEqual([]);
+  });
+  it("does not read the new longest-element tail as a read line either", () => {
+    const lines = [`${P}Logistics read longest step: 10.03 ms over 319 elements, phase 1 to 2, longest element 9.00 ms at 319 (phase 2)`];
+    expect(stepCosts(lines)).toEqual([]);
+    expect(stepProblems(lines, [])).toEqual([]);
+  });
+  it("parses the longest-step diagnostic in both the old and the new shape", () => {
+    const old = "[2026.10.28-04.00.12:868][807]LogSatisDash: Display: Logistics read longest step: 10.03 ms over 319 elements, phase 1 to 2";
+    const next = `${old}, longest element 9.00 ms at 319 (phase 2)`;
+    expect(longestStepDiagnostics([old])).toEqual([{ reader: "Logistics", longestStepMs: 10.03, elements: 319, startPhase: 1, endPhase: 2 }]);
+    expect(longestStepDiagnostics([next])).toEqual([{ reader: "Logistics", longestStepMs: 10.03, elements: 319, startPhase: 1, endPhase: 2, longestElementMs: 9, longestElementIndex: 319, longestElementPhase: 2 }]);
+    expect(longestStepDiagnostics([`${P}Factory (game thread only): 1 items in 1 steps, longest step 1.00 ms, total 1.00 ms`])).toEqual([]);
   });
 });
 
