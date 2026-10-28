@@ -164,7 +164,7 @@ const circuitKey = (c: number | undefined): number | null => (c === undefined ||
  */
 export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
   const { reasons, ok } = collect<ModExtractor, FrmExtractor>(e, { layer: "extractors", endpoint: "getExtractor", schema: FactoryBuildingSchema.array() });
-  let compared = 0, idle = 0, backedUp = 0, modAll = 0;
+  let compared = 0, idle = 0, backedUp = 0, modAll = 0, multi = 0;
   const flat: ModExtractor[] = [];
   for (const a of ok) {
     const full = a.mod.filter((m) => m.production.length > 0);
@@ -182,6 +182,7 @@ export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
       if (cands.length === 0) continue;
       compared++;
       const p = m.production[0]!;
+      if (m.production.length > 1) multi++;
       const any = (ok1: (f: FrmExtractor) => boolean) => cands.some(ok1);
       if (!any((f) => f.className === m.className)) d.add("className", `${m.id} mod=${m.className} frm=${cands[0]!.className}`);
       if (!any((f) => f.resourceClass === p.className)) d.add("resourceClass", `${m.id} mod=${p.className} frm=${cands[0]!.resourceClass}`);
@@ -212,6 +213,7 @@ export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
     `${ok.length} posted extractor list(s) valid against the contract; extractor ids equal FRM's; ${compared} extractors compared; className, resource class and circuit exact; max within max(${EXTRACTOR_MAX_ABS}/min, ${EXTRACTOR_MAX_REL * 100}%); current and percent within ${EXTRACTOR_POINTS} points or between the brackets; isProducing and isPaused equal to a bracket`,
     `isBackedUp: report-only (${RULING_BACKED_UP}); the mod sent true on ${backedUp} of ${modAll} extractors`,
   ];
+  if (multi > 0) out.push(`${multi} extractor(s) sent more than one production entry; only the first is compared with FRM's (reported, not failed)`);
   if (idle > 0) out.push(`${idle} extractor(s) with no production in the mod and none in FRM, reported and not compared`);
   return { pass: true, reasons: out, never };
 }
@@ -286,7 +288,10 @@ export function judgeGenerators(e: GeneratorsEvidence): S4bResult {
       }
     }
     lines.push(...d.lines());
-    if (bad.length) lines.push(...bad.slice(0, 3).map(({ m, f }) => `raw FRM numbers for ${m.id} (mod current=${num(m.currentMW)} capacity=${num(m.capacityMW)}): ${rawLine(f.raw)}`));
+    // Every bracket that has the id is quoted, so both sides are visible.
+    for (const { m } of bad.slice(0, 3)) {
+      candsOf(m.id, a.sides).forEach((f, i) => lines.push(`raw FRM numbers for ${m.id}, bracket ${i + 1} (mod current=${num(m.currentMW)} capacity=${num(m.capacityMW)}): ${rawLine(f.raw)}`));
+    }
     if (lines.length) reasons.push(...postFail(a.at, lines));
   }
   if (reasons.length) return failing(reasons);
@@ -346,18 +351,18 @@ export function judgeStations(e: StationsEvidence): S4bResult {
     if (flows.length) lines.push(`${flows.length} station(s) with inflowPerMinute or outflowPerMinute, which must be absent (R3) (first ${S4B_SHOW}): ${shown(flows)}`);
     const d = new Diffs();
     for (const [id, rate] of rated) {
-      const best = a.sides[side]!.find((f) => f.id === id);
-      if (best === undefined || !(best.transfer > 0)) {
+      const cands = candsOf(id, a.sides);
+      // Controller ruling, 2026-10-27 (review I1): "extra (reported)" only when NO bracketing record has transfer > 0; otherwise the rate is judged against either bracket.
+      if (!cands.some((f) => f.transfer > 0)) {
         extra++;
         extraIds.push(id);
         continue;
       }
       compared++;
-      const cands = candsOf(id, a.sides);
       if (!cands.some((f) => Math.abs(rate - f.transfer) <= Math.max(STATION_ABS, STATION_REL * f.transfer) + EPS)) d.add("rate", `${id} mod=${num(rate)} frm=${cands.map((f) => num(f.transfer)).join("/")}`);
-      // The factor is taken against the bracket nearest the mod's rate (smoothed values at different instants).
-      const nearest = cands.reduce((x, y) => (Math.abs(y.transfer - rate) < Math.abs(x.transfer - rate) ? y : x));
-      if (nearest.transfer >= STATION_FACTOR_MIN_F) ratios.push({ id, m: rate, f: nearest.transfer });
+      // Controller ruling, 2026-10-27: the factor uses the first bracket with f >= 1 (not the one nearest the mod's rate, which would bias the median toward 1).
+      const big = cands.find((f) => f.transfer >= STATION_FACTOR_MIN_F);
+      if (big !== undefined) ratios.push({ id, m: rate, f: big.transfer });
     }
     lines.push(...d.lines());
     if (lines.length) reasons.push(...postFail(a.at, lines));
@@ -393,11 +398,11 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * reads as 0, as a fluid buffer's does); stackMax equal to FRM's for solids and null on every fluid item. slotsUsed and the item class set and
  * amounts are EXACT only for a container whose two bracketing FRM records are identical (a fluid amount within 0.5% or 0.01 m3); a
  * container that changed between the brackets is counted, not judged. fluidCapacityM3 is REPORT-ONLY against FRM (controller ruling): its
- * presence is the mod's own contract rule and is checked by the schema.
+ * presence is FAILED when FRM shows a fluid (an item with stackMax null) or the mod container has no slots but items.
  */
 export function judgeStorage(e: StorageEvidence): S4bResult {
   const { reasons, ok } = collect<ModContainer, FrmContainer>(e, { layer: "storage", endpoint: "getStorageInv", schema: StorageContainerSchema.array() });
-  let compared = 0, stable = 0, changed = 0, unverifiable = 0, fluids = 0;
+  let compared = 0, stable = 0, changed = 0, unverifiable = 0, fluids = 0, fluidSeen = 0;
   let over64 = false, depot = 0;
   for (const a of ok) {
     const lines = idDiff("container", a.mod.map((m) => m.id), a.sides.map((s) => s.map((f) => f.id))).failures;
@@ -407,9 +412,16 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       if (cands.length === 0) continue;
       compared++;
       const fluid = m.fluidCapacityM3 !== undefined;
+      // Controller ruling 2026-10-27 (review I3); no capture shows a fluid buffer yet: if FRM's stackMax for a fluid is not null, the first
+      // parity run shows it and fails, never loosened. An FRM container with an item whose stackMax is null is a fluid buffer; the mod's
+      // matching container must carry fluidCapacityM3 (its value stays report-only). A mod container with no slots but items needs it too.
+      const frmFluid = cands.some((f) => f.items.some((i) => i.stackMax === null));
+      if (frmFluid && !fluid) d.add("fluidCapacityM3", `${m.id} FRM shows a fluid (an item with no stack size) but the mod sent no fluidCapacityM3`);
+      if (m.slots === 0 && m.items.length > 0 && !fluid) d.add("fluidCapacityM3", `${m.id} has no slots and holds items but the mod sent no fluidCapacityM3`);
       if (fluid) fluids++;
+      if (fluid && frmFluid) fluidSeen++;
       if (/CentralStorage|Depot|Uploader/i.test(m.className)) depot++;
-      if (cands.some((f) => f.items.length > STORAGE_MAX_ITEMS_PER_CONTAINER)) over64 = true;
+      if (new Set(m.items.map((x) => x.className)).size < m.items.length) d.add("item classes", `${m.id} repeats an item class (items are merged per class)`);
       if (!cands.some((f) => f.className === m.className)) d.add("className", `${m.id} mod=${m.className} frm=${cands[0]!.className}`);
       if (!cands.some((f) => (f.slots ?? 0) === m.slots)) d.add("slots", `${m.id} mod=${m.slots} frm=${cands.map((f) => f.slots ?? 0).join("/")}`);
       for (const it of m.items) {
@@ -426,16 +438,16 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       stable++;
       if (first.slotsUsed !== null && m.slotsUsed !== first.slotsUsed) d.add("slotsUsed", `${m.id} mod=${m.slotsUsed} frm=${first.slotsUsed}`);
       const mine = new Map(m.items.map((x) => [x.className, x.amount]));
-      const frm = new Map(first.items.map((x) => [x.class, x.amount]));
       const capped = first.items.length > STORAGE_MAX_ITEMS_PER_CONTAINER;
-      const missing = [...frm.keys()].filter((c) => !mine.has(c));
-      const extra = [...mine.keys()].filter((c) => !frm.has(c));
-      // NEW: over the 64-class cap the mod keeps 64 of the classes; it must hold exactly 64, all of them FRM's, and only the shared amounts are compared.
-      if (capped ? m.items.length !== STORAGE_MAX_ITEMS_PER_CONTAINER || extra.length > 0 : missing.length || extra.length) {
-        d.add("item classes", `${m.id} mod-only=[${shown(extra)}] frm-only=[${shown(missing)}]`);
-      }
+      // Controller ruling 2026-10-27 (review M1): over the 64-class cap the mod must hold exactly the first 64 classes in FRM's sorted order
+      // (the oracle sorts by code unit like Core); shared amounts are compared as for any container.
+      const want = new Map((capped ? first.items.slice(0, STORAGE_MAX_ITEMS_PER_CONTAINER) : first.items).map((x) => [x.class, x.amount]));
+      if (capped) over64 = true;
+      const missing = [...want.keys()].filter((c) => !mine.has(c));
+      const extra = [...mine.keys()].filter((c) => !want.has(c));
+      if (missing.length || extra.length) d.add("item classes", `${m.id} mod-only=[${shown(extra)}] frm-only=[${shown(missing)}]`);
       for (const [c, amt] of mine) {
-        const f = frm.get(c);
+        const f = want.get(c);
         if (f === undefined) continue;
         const good = fluid ? Math.abs(amt - f) <= Math.max(STORAGE_FLUID_ABS_M3, STORAGE_FLUID_REL * Math.abs(f)) + EPS : amt === f;
         if (!good) d.add("amount", `${m.id} ${c} mod=${num(amt)} frm=${num(f)}`);
@@ -448,7 +460,7 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
   const never = compared === 0
     ? ["any container (both sides empty)"]
     : [
-        fluids > 0 ? null : "a fluid buffer",
+        fluidSeen > 0 ? null : "a fluid buffer",
         over64 ? null : "a container over 64 classes",
         stable > 0 ? null : "a container unchanged between the brackets (exact contents rule)",
       ].filter((x): x is string => x !== null);
@@ -456,7 +468,7 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
     `${ok.length} posted storage list(s) valid against the contract; container ids equal FRM's; ${compared} containers compared; className and slots exact; stackMax equal to FRM's (null on fluids)`,
     `${stable} container(s) unchanged between the brackets: slotsUsed, item classes and amounts exact (fluid within ${STORAGE_FLUID_REL * 100}% or ${STORAGE_FLUID_ABS_M3} m3)`,
     `${changed} container(s) changed between the brackets and ${unverifiable} had one bracket only: contents report-only`,
-    `fluidCapacityM3: value report-only (${RULING_FLUID_CAP}); ${fluids} mod fluid buffer(s), presence valid against the contract`,
+    `fluidCapacityM3: value report-only (${RULING_FLUID_CAP}); ${fluids} mod fluid buffer(s), ${fluidSeen} matched to an FRM fluid`,
   ];
   if (depot > 0) out.push(`${depot} depot uploader(s) compared like any container`);
   return { pass: true, reasons: out, never };

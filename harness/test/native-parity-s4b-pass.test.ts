@@ -25,16 +25,18 @@ function common<F>(name: string, judge: (e: B.S4bEvidence<F>) => B.S4bResult, mk
   describe(`${name} (shared rules)`, () => {
     it("identical data passes", () => expect(judge(mk({})).pass).toBe(true));
     // Station ids follow the controller's own rule (tested below), not the equal-id-set rule.
-    (o.ids ? it : it.skip)("an id only in FRM fails", () => {
-      const v = judge(mk({ frm: [...(mk({}).distinct.before!), frmExtra] }));
-      expect(v.pass).toBe(false);
-      expect(text(v)).toContain("in FRM only");
-    });
-    (o.ids ? it : it.skip)("an id only in the mod fails", () => {
-      const v = judge(mk({ post: [...(valid as unknown[]), extraId] }));
-      expect(v.pass).toBe(false);
-      expect(text(v)).toContain("in the mod only");
-    });
+    if (o.ids) {
+      it("an id only in FRM fails", () => {
+        const v = judge(mk({ frm: [...(mk({}).distinct.before!), frmExtra] }));
+        expect(v.pass).toBe(false);
+        expect(text(v)).toContain("in FRM only");
+      });
+      it("an id only in the mod fails", () => {
+        const v = judge(mk({ post: [...(valid as unknown[]), extraId] }));
+        expect(v.pass).toBe(false);
+        expect(text(v)).toContain("in the mod only");
+      });
+    }
     it("an invalid post fails", () => {
       const v = judge(mk({ post: [{ id: 5 }] }));
       expect(v.pass).toBe(false);
@@ -94,14 +96,25 @@ describe("judgeExtractors", () => {
     expect(v.never).not.toContain("a fluid extractor (pump)");
   });
   it.each([
-    ["maxPerMinute at the edge (0.1)", { maxPerMinute: 120.1 }, true],
-    ["maxPerMinute past the edge", { maxPerMinute: 121.3 }, false],
+    ["maxPerMinute inside the 1% band (120 max: 1.2)", { maxPerMinute: 121.2 }, true],
+    ["maxPerMinute past the 1% band", { maxPerMinute: 121.3 }, false],
     ["percent at 5 points", { percent: 55 }, true],
     ["percent past 5 points", { percent: 55.1 }, false],
     ["current at 5 points of max (6/min of 120)", { currentPerMinute: 66 }, true],
     ["current past 5 points of max", { currentPerMinute: 66.2 }, false],
   ])("%s", (_n, patch, pass) => {
     expect(B.judgeExtractors(eev({ post: [me({}, patch)] })).pass).toBe(pass);
+  });
+  it("max floor of 0.1/min applies when 1% is smaller (max 5: 5.1 passes, 5.11 fails)", () => {
+    const frm = [fe({ max: 5, current: 2.5 })];
+    expect(B.judgeExtractors(eev({ frm, post: [me({}, { maxPerMinute: 5.1, currentPerMinute: 2.5, percent: 50 })] })).pass).toBe(true);
+    expect(B.judgeExtractors(eev({ frm, post: [me({}, { maxPerMinute: 5.11, currentPerMinute: 2.5, percent: 50 })] })).pass).toBe(false);
+  });
+  it("extra production entries are reported, not failed", () => {
+    const m = me();
+    const v = B.judgeExtractors(eev({ post: [{ ...m, production: [...m.production, ...m.production] }] }));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("sent more than one production entry");
   });
   it("max uses 1% when that is larger (2400/min: 24 passes, 24.1 fails)", () => {
     const frm = [fe({ max: 2400 })];
@@ -166,19 +179,47 @@ describe("judgeGenerators", () => {
     expect(B.judgeGenerators(gev({ post: [noFuel] })).pass).toBe(false);
   });
   it.each([
-    ["capacity at 0.1 MW", { capacityMW: 75.1, currentMW: 75.1 }, true],
-    ["capacity past 0.1 MW and 1%", { capacityMW: 76, currentMW: 76 }, false],
-    ["current at 1.5 MW (2% of 75)", { currentMW: 76.5 }, true],
-    ["current past 2%", { currentMW: 76.6 }, false],
+    ["capacity at the 1% edge (75.75 of 75)", { capacityMW: 75.75, currentMW: 75 }, true],
+    ["capacity just past 1% (75.76)", { capacityMW: 75.76, currentMW: 75 }, false],
+    ["current at the 2% edge (1.5 MW of 75)", { currentMW: 76.5 }, true],
+    ["current just past 2%", { currentMW: 76.51 }, false],
   ])("%s", (_n, patch, pass) => {
     expect(B.judgeGenerators(gev({ post: [mg(patch)] })).pass).toBe(pass);
   });
+  it.each([
+    ["capacity at the 0.1 MW floor (5 MW: 1% is 0.05)", { capacityMW: 5.1 }, true],
+    ["capacity just past the 0.1 MW floor", { capacityMW: 5.11 }, false],
+    ["current at the 0.5 MW floor (10 MW: 2% is 0.2)", { currentMW: 10.5 }, true],
+    ["current just past the 0.5 MW floor", { currentMW: 10.51 }, false],
+  ])("%s", (_n, patch, pass) => {
+    const small = /capacity/.test(_n) ? { capacityMW: 5, currentMW: 0 } : { capacityMW: 10, currentMW: 10 };
+    const body = mg({ capacityMW: small.capacityMW, currentMW: small.currentMW, ...patch });
+    expect(B.judgeGenerators(gev({ frm: [fg(small)], post: [body] })).pass).toBe(pass);
+  });
   it("current is judged against the capacity-scaled range between the brackets", () => {
-    const frm = [fg({ currentMW: 0, capacityMW: 150 })];
-    const after = [fg({ currentMW: 150, capacityMW: 150 })];
-    // The mod's capacity 75 halves FRM's 150: the scaled range is 0 to 75.
-    expect(B.judgeGenerators(gev({ frm, after, post: [mg({ capacityMW: 150, currentMW: 100 })] })).pass).toBe(true);
-    expect(B.judgeGenerators(gev({ frm, after, post: [mg({ capacityMW: 150, currentMW: 150 })] })).pass).toBe(true);
+    // FRM's capacity is 100 and its output 0 then 100; the mod's capacity is 101 (the 1% edge), so FRM's range scales to 0 to 101
+    // (slack max(0.5, 2% of 101) = 2.02). Unscaled, the top of the band would be 102.
+    const frm = [fg({ currentMW: 0, capacityMW: 100 })];
+    const after = [fg({ currentMW: 100, capacityMW: 100 })];
+    const mod = (currentMW: number) => gev({ frm, after, post: [mg({ capacityMW: 101, currentMW })] });
+    expect(B.judgeGenerators(mod(40)).pass).toBe(true);
+    // 103 passes only because of the scaling.
+    expect(B.judgeGenerators(mod(103)).pass).toBe(true);
+    expect(B.judgeGenerators(mod(103.03)).pass).toBe(false);
+    expect(B.judgeGenerators(mod(110)).pass).toBe(false);
+  });
+  it("geothermal: only the capacity is excused when FRM says 0; a mod current above the band still fails", () => {
+    const frm = [fg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 0, currentMW: 0, fuelClass: null, supplementClass: null, supplementAmount: null })];
+    const post = (currentMW: number) => [mg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 200, currentMW, fuel: null, supplement: null })];
+    expect(B.judgeGenerators(gev({ frm, post: post(0.5) })).pass).toBe(true);
+    const v = B.judgeGenerators(gev({ frm, post: post(150) }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("currentMW");
+  });
+  it("a failed MW run quotes every bracket's raw map", () => {
+    const v = B.judgeGenerators(gev({ post: [mg({ currentMW: 10 })], after: [fg({ raw: { RegulatedDemandProd: 74 } })] }));
+    expect(text(v)).toContain("bracket 1");
+    expect(text(v)).toContain("bracket 2");
   });
   it("a failed MW run quotes the oracle's raw map (ids and numbers only)", () => {
     const v = B.judgeGenerators(gev({ post: [mg({ currentMW: 10 })] }));
@@ -273,6 +314,12 @@ describe("judgeStations", () => {
     const v = B.judgeStations(sev({ post: [ms({ transferPerMinute: undefined })] }));
     expect(v.pass).toBe(false);
     expect(text(v)).toContain("1 station ids FRM rates above 0 with no rate in the mod");
+  });
+  it("brackets of 0 and 10 against a mod rate of 50 fail; against 10 they pass", () => {
+    expect(anchored([fs({ transfer: 0 })], [ms({ transferPerMinute: 50 })], [fs()]).pass).toBe(false);
+    expect(anchored([fs({ transfer: 0 })], [ms()], [fs()]).pass).toBe(true);
+    // A bracket at 0 passes only a rate of 0.5 or less.
+    expect(anchored([fs({ transfer: 0 })], [ms({ transferPerMinute: 0.5 })], [fs({ transfer: 0.4 })]).pass).toBe(true);
   });
   it("a mod rate where FRM's is 0 or absent is reported, not failed", () => {
     const v = B.judgeStations(sev({ frm: [fs({ transfer: 0 })], post: [ms({ transferPerMinute: 3 })] }));
@@ -382,14 +429,44 @@ describe("judgeStorage", () => {
     expect(v.pass).toBe(true);
     expect(text(v)).toContain("1 depot uploader(s)");
   });
-  it("a container over 64 classes: the mod must hold 64 of FRM's classes", () => {
-    const many = Array.from({ length: 70 }, (_, i) => ({ class: `Desc_I${String(i).padStart(2, "0")}_C`, amount: 1, stackMax: 100 }));
+  const many = Array.from({ length: 70 }, (_, i) => ({ class: `Desc_I${String(i).padStart(2, "0")}_C`, amount: 1, stackMax: 100 }));
+  const modItems = (xs: typeof many) => xs.map((x) => ({ className: x.class, name: "n", amount: x.amount, stackMax: 100 }));
+  it("a container over 64 classes: the mod must hold exactly the first 64 in FRM's sorted order", () => {
     const frm = [fc({ items: many, slotsUsed: 70 })];
-    const post = [mc({ slotsUsed: 70, items: many.slice(0, 64).map((x) => ({ className: x.class, name: "n", amount: 1, stackMax: 100 })) })];
-    const v = B.judgeStorage(stable(frm, post));
+    const v = B.judgeStorage(stable(frm, [mc({ slotsUsed: 70, items: modItems(many.slice(0, 64)) })]));
     expect(v.pass).toBe(true);
     expect(v.never).not.toContain("a container over 64 classes");
-    expect(B.judgeStorage(stable(frm, [mc({ slotsUsed: 70, items: post[0]!.items.slice(0, 60) })])).pass).toBe(false);
+    expect(B.judgeStorage(stable(frm, [mc({ slotsUsed: 70, items: modItems(many.slice(0, 60)) })])).pass).toBe(false);
+    // Any other 64 of the 70 is no longer accepted.
+    expect(text(B.judgeStorage(stable(frm, [mc({ slotsUsed: 70, items: modItems(many.slice(6, 70)) })])))).toContain("item classes");
+    // A shared amount is still compared.
+    expect(B.judgeStorage(stable(frm, [mc({ slotsUsed: 70, items: modItems(many.slice(0, 64)).map((x, i) => (i === 3 ? { ...x, amount: 2 } : x)) })])).pass).toBe(false);
+  });
+  it("the over-64 line stays NOT EXERCISED when the capped container was not judged exactly", () => {
+    const frm = [fc({ items: many, slotsUsed: 70 })];
+    const v = B.judgeStorage(cev({ frm, after: [fc({ items: many.slice(0, 5), slotsUsed: 5 })], post: [mc({ slotsUsed: 70, items: modItems(many.slice(0, 64)) })] }));
+    expect(v.pass).toBe(true);
+    expect(v.never).toContain("a container over 64 classes");
+  });
+  it("FRM-side fluid signal: a matched mod container without fluidCapacityM3 fails; the line clears only with it", () => {
+    const frm = [ftank(100)];
+    const v = B.judgeStorage(stable(frm, [tank(100)]));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("fluidCapacityM3");
+    expect(B.judgeStorage(stable(frm, [tank(100, 400)])).never).not.toContain("a fluid buffer");
+    // A mod fluid buffer with no FRM fluid evidence does not clear the line.
+    expect(B.judgeStorage(stable([fc({ slots: 0, slotsUsed: 0, items: [{ class: "Desc_Water_C", amount: 100, stackMax: 100 }] })], [{ ...tank(100, 400), items: [{ className: "Desc_Water_C", name: "w", amount: 100, stackMax: null }] }])).never).toContain("a fluid buffer");
+  });
+  it("a mod container with no slots but items and no fluidCapacityM3 fails", () => {
+    const v = B.judgeStorage(stable([fc({ slots: null, slotsUsed: null })], [mc({ slots: 0, slotsUsed: 0 })]));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no slots and holds items");
+  });
+  it("a repeated item class in a mod container fails", () => {
+    const dup = mc({ items: [...mc().items, mc().items[0]!] });
+    const v = B.judgeStorage(cev({ post: [dup] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("repeats an item class");
   });
 });
 
