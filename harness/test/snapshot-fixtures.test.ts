@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { AgentPowerCircuitSchema, AgentPowerSchema, AgentStatusSchema, SnapshotRequestSchema } from "../contract/src/agent";
 import { FactorySchema } from "../contract/src/factory";
 import { PowerGeneratorSchema, PowerSchema } from "../contract/src/power";
+import { StorageContainerSchema, StorageSchema } from "../contract/src/storage";
 import { MapLiveSchema, RailsLayerDataSchema, RailsWorldIngestRequestSchema, ResourceNodesLayerDataSchema } from "../contract/src/map";
 
 const FIXTURES = new URL("../../mod/SatisDashAgent/Source/SatisDashCoreTests/Fixtures/", import.meta.url);
@@ -71,6 +72,24 @@ describe("the core mod's snapshot fixtures, against the pinned contract (spec S1
     expect(list[2].fuel).toBeNull();
     expect(list[2].supplement).toBeNull();
     expect(Object.keys(list[0])).toEqual(Object.keys(PowerGeneratorSchema.shape)); // key order as the contract
+  });
+  it("native-storage.expected.json is a valid storage part: fluidCapacityM3 only on a fluid buffer, a fluid's stackMax null (S4-B)", () => {
+    const part = load("native-storage.expected.json");
+    const r = StorageSchema.safeParse(part);
+    expect(r.success ? [] : r.error.issues).toEqual([]);
+    expect(StorageSchema.strict().safeParse(part).success).toBe(true);
+    const [box, buffer, empty] = part.containers;
+    expect("fluidCapacityM3" in box).toBe(false);
+    expect("fluidCapacityM3" in empty).toBe(false);
+    expect(buffer.fluidCapacityM3).toBe(400);
+    expect(buffer.slots).toBe(0);
+    expect(buffer.items).toHaveLength(1);
+    expect(buffer.items[0].stackMax).toBeNull();
+    expect(empty.items).toEqual([]);
+    expect("location" in empty).toBe(false);
+    expect(Object.keys(box)).toEqual(["id", "name", "className", "location", "slots", "slotsUsed", "items"]);
+    expect(Object.keys(buffer)).toEqual(Object.keys(StorageContainerSchema.shape));
+    for (const c of part.containers) expect(c.slotsUsed).toBeLessThanOrEqual(c.slots);
   });
   it("a circuit has exactly the contract's circuit fields", () => {
     expect(keys(load("snapshot-world.json").power.circuits[0])).toEqual(keys(AgentPowerCircuitSchema.shape));
