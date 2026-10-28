@@ -830,3 +830,5 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FCString::Strlen | Engine/Source/Runtime/Core/Public/Misc/CString.h:444 | header only (FCString is TCString<TCHAR>; the byte length of a part key in the snapshot size rule, S4-B) |
 | ESearchDir::FromEnd | Engine/Source/Runtime/Core/Public/Misc/CString.h:39 | header only (namespace ESearchDir, :31; the last ,"extractors": key of the factory part) |
 | FString::AppendChars | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:406 | header only (the WIDECHAR overload with a count, declared in the class body; a prefix of a held part is appended without a copy) |
+| FString::Reserve | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2200 | header only (final-review fix: PowerJson is reserved before the generators fragment is appended) |
+| TSubclassOf::Get | Engine/Source/Runtime/CoreUObject/Public/Templates/SubclassOf.h:119 | header only (returns the UClass*; the storage reader's per-class merge key) |

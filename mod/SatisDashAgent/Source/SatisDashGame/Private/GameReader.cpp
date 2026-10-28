@@ -1588,8 +1588,9 @@ namespace
 
 	/**
 	 * A storage box's slots and stacks: slots = GetSizeLinear, slotsUsed = the stacks that hold items (counted past the cap), one item
-	 * reading per such stack (Core merges per class) with StackMax = GetSlotSize (honours an arbitrary slot size, survey Q10), at most
-	 * 4 x StorageMaxItems stacks per container so a huge box cannot grow the list without bound. A missing inventory gives 0 slots.
+	 * reading per item class (stacks of one class are summed here; the first stack keeps its name and StackMax = GetSlotSize, which
+	 * honours an arbitrary slot size, survey Q10; Core's own merge then finds nothing left to merge), at most 4 x StorageMaxItems
+	 * classes per container so a huge box cannot grow the list without bound. A missing inventory gives 0 slots.
 	 */
 	void BuildablesReadStorageStacks(const UFGInventoryComponent* Inventory, SatisDash::FContainerReading& Out)
 	{
@@ -1600,6 +1601,7 @@ namespace
 		const int32 MaxStacks = 4 * SatisDash::StorageMaxItems;
 		const int32 Size = Inventory->GetSizeLinear();
 		Out.Slots = Size;
+		TArray<const UClass*> SeenClasses; // parallel to Out.Items: the class of each reading
 		for (int32 Index = 0; Index < Size; ++Index)
 		{
 			FInventoryStack Stack;
@@ -1613,6 +1615,23 @@ namespace
 				continue;
 			}
 			++Out.SlotsUsed;
+			// Merge per class here: a repeat class adds its amount (the first stack keeps its name and StackMax, as Core's merge
+			// does) and builds no name string. The cap now counts classes, not stacks.
+			const UClass* ClassKey = ItemClass.Get();
+			int32 Existing = INDEX_NONE;
+			for (int32 Seen = 0; Seen < SeenClasses.Num(); ++Seen)
+			{
+				if (SeenClasses[Seen] == ClassKey)
+				{
+					Existing = Seen;
+					break;
+				}
+			}
+			if (Existing != INDEX_NONE)
+			{
+				Out.Items[Existing].Amount += Stack.NumItems;
+				continue;
+			}
 			if (Out.Items.Num() >= MaxStacks)
 			{
 				continue;
@@ -1622,6 +1641,7 @@ namespace
 			Item.Name = UFGItemDescriptor::GetItemName(ItemClass).ToString();
 			Item.Amount = Stack.NumItems;
 			Item.StackMax = Inventory->GetSlotSize(Index, ItemClass);
+			SeenClasses.Add(ClassKey);
 			Out.Items.Add(MoveTemp(Item));
 		}
 	}

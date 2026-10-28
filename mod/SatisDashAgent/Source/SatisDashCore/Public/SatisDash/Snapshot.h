@@ -65,8 +65,11 @@ namespace SatisDash
 		TOptional<FAutoPauseReading> AutoPause;
 		TOptional<FStatusReading> Status;
 		TOptional<TArray<FCircuitReading>> Power;
-		/** S4-B: the generators array (JSON text, built off the game thread) written as power.generators; ignored without Power. */
-		TOptional<FString> GeneratorsJson;
+		/**
+		 * S4-B: the generators array (JSON text, built off the game thread) written as power.generators; ignored without Power.
+		 * Shared and immutable: the bridge holds one fragment for many power parts, so a snapshot only takes a reference. Null: none.
+		 */
+		TSharedPtr<const FString> GeneratorsJson;
 		/** The players part (AgentPlayersSchema) as JSON, made by FFrmBridge; spliced in as is. */
 		TOptional<FString> PlayersJson;
 		/** The factory part (AgentFactorySchema) as JSON, made off the game thread by FFactoryParse. */

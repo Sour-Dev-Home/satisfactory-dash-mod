@@ -224,15 +224,16 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 	UE_LOG(LogSatisDash, Display, TEXT("Buildables read (game thread only): %d elements, %d extractors, %d generators, %d containers in %d steps, longest step %.2f ms, total %.2f ms"),
 		Found->Counts.Elements, Found->Counts.Extractors, Found->Counts.Generators, Found->Counts.Containers, BuildablesBudget.Steps(), BuildablesBudget.LongestMs(), BuildablesBudget.TotalMs());
 	LogLongestStep(TEXT("Buildables"), BuildablesBudget);
-	if (Found->Counts.ExtractorsOverCap > 0)
+	// Rate-limited like the other Warnings here: a giant save is over a cap on every pass.
+	if (Found->Counts.ExtractorsOverCap > 0 && BuildablesLog.ShouldLog(TEXT("overCapExtractors"), Now))
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d extractors past the list cap were dropped"), Found->Counts.ExtractorsOverCap);
 	}
-	if (Found->Counts.GeneratorsOverCap > 0)
+	if (Found->Counts.GeneratorsOverCap > 0 && BuildablesLog.ShouldLog(TEXT("overCapGenerators"), Now))
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d generators past the list cap were dropped"), Found->Counts.GeneratorsOverCap);
 	}
-	if (Found->Counts.ContainersOverCap > 0)
+	if (Found->Counts.ContainersOverCap > 0 && BuildablesLog.ShouldLog(TEXT("overCapContainers"), Now))
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d containers past the list cap were dropped"), Found->Counts.ContainersOverCap);
 	}
@@ -472,7 +473,7 @@ void SatisDash::FDriver::TickSample(double Now)
 			Snapshot.StorageJson = Bridge.TakeStorage(Now, Cadence.FactorySeconds);
 		}
 	}
-	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsSet() || Snapshot.StorageJson.IsSet())
+	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsValid() || Snapshot.StorageJson.IsSet())
 	{
 		Bridge.EncodeSnapshot(MoveTemp(Snapshot)); // up to megabytes of JSON, or up to 256 KB of mapLive: serialised and gzipped on the worker
 	}

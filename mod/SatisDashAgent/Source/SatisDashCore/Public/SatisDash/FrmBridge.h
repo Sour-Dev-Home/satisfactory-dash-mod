@@ -103,10 +103,11 @@ namespace SatisDash
 		 */
 		bool SubmitNativeGenerators(TArray<FGeneratorReading> Readings, double ReadAt);
 		/**
-		 * The held generators fragment for a power part (not consumed: the next power part carries it too), or unset when none is
-		 * held or it is older than GeneratorsStaleFactor x FactorySeconds (it is then forgotten: "not read", never a stale list).
+		 * The held generators fragment for a power part (not consumed: the next power part carries it too; a shared reference, never a
+		 * copy), or null when none is held or it is older than GeneratorsStaleFactor x FactorySeconds (it is then forgotten: "not
+		 * read", never a stale list).
 		 */
-		TOptional<FString> TakeGenerators(double Now, double FactorySeconds);
+		TSharedPtr<const FString> TakeGenerators(double Now, double FactorySeconds);
 		/** The generators source is not native (it flipped to bridge): forget the held fragment and any job. */
 		void DropGenerators();
 		/**
@@ -189,6 +190,8 @@ namespace SatisDash
 			bool bRan = false;
 		};
 		struct FReady { FString Json; double At = 0; };
+		/** A held fragment shared with every snapshot that carries it (the generators ride each power part). */
+		struct FSharedReady { TSharedPtr<const FString> Json; double At = 0; };
 
 		/** One of mapLive's two reads: not asked, waiting for FRM, parsing on the worker, or settled (Ok or Failed). */
 		struct FMapJob
@@ -252,7 +255,7 @@ namespace SatisDash
 		TOptional<FReady> ExtractorsReady;
 		/** At most one generators job, and the newest built fragment, held (not consumed) until it is stale (bounded by the 5000-record cap). */
 		TSharedPtr<FGeneratorsJob> GeneratorsTask;
-		TOptional<FReady> GeneratorsReady;
+		TOptional<FSharedReady> GeneratorsReady;
 		/** At most one storage job, and one built fragment held until the next snapshot takes it (bounded by the 2000-container cap). */
 		TSharedPtr<FStorageJob> StorageTask;
 		TOptional<FReady> StorageReady;

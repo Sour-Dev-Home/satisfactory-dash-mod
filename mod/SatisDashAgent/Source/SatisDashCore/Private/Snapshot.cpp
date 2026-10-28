@@ -151,7 +151,7 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot, FSnapshotSizeReport
 		}
 		const TSharedRef<FJsonObject> Power = MakeShared<FJsonObject>();
 		Power->SetArrayField(TEXT("circuits"), Circuits);
-		if (Snapshot.GeneratorsJson.IsSet())
+		if (Snapshot.GeneratorsJson.IsValid())
 		{
 			// power is the root's last field, so it can be written apart and spliced first among the parts with the same bytes
 			// around it; the generators array goes in before its closing brace.
@@ -160,8 +160,9 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot, FSnapshotSizeReport
 			{
 				PowerJson->LeftChopInline(1);
 				PowerBaseLen = PowerJson->Len();
+				PowerJson->Reserve(PowerBaseLen + 14 + Snapshot.GeneratorsJson->Len() + 1); // ,"generators": is 14 chars, then the array and }
 				PowerJson->Append(TEXT(",\"generators\":"));
-				PowerJson->Append(Snapshot.GeneratorsJson.GetValue());
+				PowerJson->Append(*Snapshot.GeneratorsJson);
 				PowerJson->AppendChar(TEXT('}'));
 			}
 			else

@@ -195,7 +195,7 @@ bool FSnapshotGeneratorsTest::RunTest(const FString& Parameters)
 	const FString PlainJson = SnapshotToJson(Plain);
 
 	FSnapshot With = Plain;
-	With.GeneratorsJson = Fragment;
+	With.GeneratorsJson = MakeShared<FString>(Fragment);
 	const FString Json = SnapshotToJson(With);
 	const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(Json);
 	if (!TestTrue(TEXT("valid JSON"), Parsed.IsValid()) || !TestTrue(TEXT("with a power object"), Parsed->HasTypedField<EJson::Object>(TEXT("power"))))
@@ -220,7 +220,7 @@ bool FSnapshotGeneratorsTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("no fragment, same bytes"), SnapshotToJson(NoFragment), PlainJson);
 	TestFalse(TEXT("and no generators key"), PlainJson.Contains(TEXT("generators")));
 	FSnapshot NoPower = Base();
-	NoPower.GeneratorsJson = Fragment;
+	NoPower.GeneratorsJson = MakeShared<FString>(Fragment);
 	SatisDash::Test::SameText(*this, TEXT("a fragment without a power part is ignored"), SnapshotToJson(NoPower), SnapshotToJson(Base()));
 	return true;
 }
@@ -235,7 +235,7 @@ bool FSnapshotStorageTest::RunTest(const FString& Parameters)
 	FSnapshot Full = Base();
 	Full.Status = FStatusReading();
 	Full.Power = TArray<FCircuitReading>{ FCircuitReading() };
-	Full.GeneratorsJson = Generators;
+	Full.GeneratorsJson = MakeShared<FString>(Generators);
 	Full.PlayersJson = TEXT("{\"available\":false,\"players\":[]}");
 	Full.FactoryJson = FString(TEXT("{\"buildings\":[],\"extractors\":")) + Extractors + TEXT("}");
 	Full.MapLiveJson = TEXT("{\"trains\":[],\"stations\":[]}");
@@ -298,7 +298,7 @@ bool FSnapshotStorageTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotMapLiveTest,"SatisDash.Core.Snapshot.MapLive", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSnapshotMapLiveTest, "SatisDash.Core.Snapshot.MapLive", SatisDash::Test::Flags)
 
 bool FSnapshotMapLiveTest::RunTest(const FString& Parameters)
 {

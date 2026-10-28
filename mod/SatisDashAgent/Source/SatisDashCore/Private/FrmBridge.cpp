@@ -293,7 +293,7 @@ bool SatisDash::FFrmBridge::SubmitNativeGenerators(TArray<FGeneratorReading> Rea
 	return true;
 }
 
-TOptional<FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double FactorySeconds)
+TSharedPtr<const FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double FactorySeconds)
 {
 	if (GeneratorsReady.IsSet() && Now - GeneratorsReady->At > GeneratorsStaleFactor * FactorySeconds)
 	{
@@ -301,9 +301,9 @@ TOptional<FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double Fact
 	}
 	if (!GeneratorsReady.IsSet())
 	{
-		return {};
+		return nullptr;
 	}
-	return GeneratorsReady->Json; // a copy: the held fragment stays for the next power part
+	return GeneratorsReady->Json; // a shared reference: the held fragment stays for the next power part, uncopied
 }
 
 void SatisDash::FFrmBridge::DropGenerators()
@@ -398,7 +398,7 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 	}
 	if (GeneratorsTask.IsValid() && GeneratorsTask->bRan)
 	{
-		GeneratorsReady = FReady{ MoveTemp(GeneratorsTask->Fragment), GeneratorsTask->ReadAt }; // replaces the older fragment
+		GeneratorsReady = FSharedReady{ MakeShared<FString>(MoveTemp(GeneratorsTask->Fragment)), GeneratorsTask->ReadAt }; // replaces the older fragment
 		GeneratorsTask.Reset();
 	}
 	if (StorageTask.IsValid() && StorageTask->bRan)
