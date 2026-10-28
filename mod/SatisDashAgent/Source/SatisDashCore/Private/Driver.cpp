@@ -465,7 +465,7 @@ void SatisDash::FDriver::TickSample(double Now)
 		{
 			// Ruling B3: a data part, attached to the first snapshot after the fragment is built and then cleared. Only with a status:
 			// an unreachable snapshot keeps it for the next one (the dash refuses a data part with reachable false).
-			Snapshot.StorageJson = Bridge.TakeStorage();
+			Snapshot.StorageJson = Bridge.TakeStorage(Now, Cadence.FactorySeconds);
 		}
 	}
 	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsSet() || Snapshot.StorageJson.IsSet())

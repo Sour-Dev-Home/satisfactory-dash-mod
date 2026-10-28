@@ -86,9 +86,12 @@ namespace SatisDash
 	/** What SnapshotToJson did about the size cap (sizes in bytes only, never content). */
 	struct FSnapshotSizeReport
 	{
-		/** The UTF-8 size of the body with every part, before any drop. */
+		/**
+		 * The UTF-8 size of the body with every part, before any drop. Exact once the body is over MaxBytes / 3 UTF-16 units; below
+		 * that it is the unit count, an upper bound (the rule needs nothing more there, and no drop happened).
+		 */
 		int64 BytesBefore = 0;
-		/** The UTF-8 size of the body returned. */
+		/** The size of the body returned, with the same exactness as BytesBefore. */
 		int64 BytesAfter = 0;
 		bool bDroppedStorage = false, bDroppedGenerators = false, bDroppedExtractors = false;
 	};

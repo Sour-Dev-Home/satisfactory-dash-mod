@@ -115,8 +115,11 @@ namespace SatisDash
 		 * after it is built and clears it (a data part is sent once per read). False while a fragment job is outstanding.
 		 */
 		bool SubmitNativeStorage(TArray<FContainerReading> Readings, double ReadAt);
-		/** The held storage fragment, once (consumed), or unset when none is built. */
-		TOptional<FString> TakeStorage();
+		/**
+		 * The held storage fragment, once (consumed), or unset when none is built or it is older than 1.5 x FactorySeconds
+		 * (then it is cleared, not sent: the extractors' age gate).
+		 */
+		TOptional<FString> TakeStorage(double Now, double FactorySeconds);
 		/** The storage source is not native (it flipped to bridge): forget the held fragment and any job. */
 		void DropStorage();
 		/** The layer's finished outcome, once. */
@@ -170,6 +173,8 @@ namespace SatisDash
 			double ReadAt = 0;
 			FString Fragment;
 			int32 Dropped = 0, Over = 0, ItemsCut = 0, SlotsClamped = 0;
+			/** The fragment's UTF-8 size, counted on the worker for the log line. */
+			int64 Bytes = 0;
 			bool bRan = false;
 		};
 		/** The snapshot body is made on the worker; Report says what the size rule left out. */

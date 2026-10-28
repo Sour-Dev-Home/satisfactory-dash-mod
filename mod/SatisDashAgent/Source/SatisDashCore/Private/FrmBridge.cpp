@@ -322,13 +322,16 @@ bool SatisDash::FFrmBridge::SubmitNativeStorage(TArray<FContainerReading> Readin
 	return true;
 }
 
-TOptional<FString> SatisDash::FFrmBridge::TakeStorage()
+TOptional<FString> SatisDash::FFrmBridge::TakeStorage(double Now, double FactorySeconds)
 {
 	TOptional<FString> Out;
 	if (StorageReady.IsSet())
 	{
-		Out = MoveTemp(StorageReady->Json); // once: a data part is sent per read, then the memory is free
-		StorageReady.Reset();
+		if (Now - StorageReady->At <= 1.5 * FactorySeconds)
+		{
+			Out = MoveTemp(StorageReady->Json); // once: a data part is sent per read, then the memory is free
+		}
+		StorageReady.Reset(); // a stale fragment is dropped, never sent under a fresh observedAt
 	}
 	return Out;
 }
@@ -401,7 +404,7 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 	if (StorageTask.IsValid() && StorageTask->bRan)
 	{
 		// Counts and bytes only; a container's id and name are player text.
-		UE_LOG(LogSatisDash, Display, TEXT("Buildables storage fragment built (worker): %lld bytes"), int64(FTCHARToUTF8_Convert::ConvertedLength(*StorageTask->Fragment, StorageTask->Fragment.Len())));
+		UE_LOG(LogSatisDash, Display, TEXT("Buildables storage fragment built (worker): %lld bytes"), StorageTask->Bytes);
 		if ((StorageTask->Dropped > 0 || StorageTask->Over > 0 || StorageTask->ItemsCut > 0 || StorageTask->SlotsClamped > 0) && FailLog.ShouldLog(TEXT("storageCuts"), Now))
 		{
 			UE_LOG(LogSatisDash, Warning, TEXT("Storage fragment: %d containers dropped, %d past the list cap, %d items cut, %d slot counts clamped"),
@@ -525,6 +528,7 @@ void SatisDash::FFrmBridge::LaunchNext()
 		{
 			// The whole fragment in one task: sorted, capped and written by the one record writer; the readings are freed after.
 			Job->Fragment = NativeStorageFragment(MoveTemp(Job->Readings), Job->Dropped, Job->Over, Job->ItemsCut, Job->SlotsClamped);
+			Job->Bytes = Job->Fragment.IsEmpty() ? 0 : int64(FTCHARToUTF8_Convert::ConvertedLength(*Job->Fragment, Job->Fragment.Len()));
 			Job->Readings = TArray<FContainerReading>();
 			Job->bRan = true;
 		});

@@ -996,6 +996,22 @@ bool FDriverNativeStorageTest::RunTest(const FString& Parameters)
 	U.Game.Status = Healthy;
 	TestEqual(TEXT("the first one with a status does, once"), Count(DriverNativeRun(U, Unreachable, 6), Part), 1);
 
+	// A fragment held through a long outage (older than 1.5 x FactorySeconds) is dropped, not sent under a fresh observedAt.
+	FDriverFixture S;
+	S.Game.Containers.Add(Box);
+	S.Game.BuildablesCounts.Containers = 1;
+	FDriver Stale{ S.ConfigPath, S.CredentialPath, S.Net, S.Game, S.Worker, S.clock() };
+	S.enrol(Stale, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a pass begins before the outage"), S.runUntil(Stale, [&S] { return S.Game.BuildablesBegins >= 1; }, 20));
+	const TOptional<FStatusReading> Back = S.Game.Status;
+	S.Game.Status.Reset();
+	DriverNativeRun(S, Stale, 60);
+	S.Game.Status = Back;
+	const TArray<FString> AfterOutage = DriverNativeRun(S, Stale, 12);
+	const FString* FirstWithStatus = AfterOutage.FindByPredicate([](const FString& Body) { return Body.Contains(TEXT("\"status\":")); });
+	TestTrue(TEXT("snapshots with a status resume"), FirstWithStatus != nullptr);
+	TestFalse(TEXT("the first one carries no stale storage"), FirstWithStatus != nullptr && FirstWithStatus->Contains(TEXT("\"storage\":")));
+
 	// The bridge source never begins a pass and sends no part.
 	FDriverFixture B;
 	B.Game.Containers.Add(Box);
