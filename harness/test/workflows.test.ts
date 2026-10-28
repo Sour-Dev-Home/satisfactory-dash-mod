@@ -14,9 +14,9 @@ const runsOn = (job: Job) => [job["runs-on"] ?? []].flat();
 describe("mod-test.yml (the self-hosted runner's second door)", () => {
   const wf = load("mod-test.yml");
 
-  it("holds the UE test-count floor at 224 (the suite has 224 tests)", () => {
+  it("holds the UE test-count floor at 226 (the suite has 226 tests)", () => {
     const steps = Object.values(wf.jobs).flatMap((j) => (j as unknown as { steps: Array<{ run?: string }> }).steps);
-    expect(steps.some((s) => /test-mod .*--min 224\b/.test(s.run ?? ""))).toBe(true);
+    expect(steps.some((s) => /test-mod .*--min 226\b/.test(s.run ?? ""))).toBe(true);
   });
 
   it("triggers only on workflow_dispatch and pushes to main, never on a pull request", () => {

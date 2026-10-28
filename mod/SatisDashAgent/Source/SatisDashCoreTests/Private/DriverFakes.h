@@ -284,9 +284,11 @@ namespace SatisDash::Test
 		int32 BuildablesStepsToFinish = 3;
 		TArray<SatisDash::FExtractorReading> Extractors;
 		TArray<SatisDash::FGeneratorReading> Generators;
+		TArray<SatisDash::FContainerReading> Containers;
 		/** Steps taken with each reader's flag on: the real pass casts each element once per flagged class. */
 		int32 ExtractorCasts = 0;
 		int32 GeneratorCasts = 0;
+		int32 ContainerCasts = 0;
 		SatisDash::FBuildablesCounts BuildablesCounts;
 		bool bBuildablesAbandoned = false;
 		bool bBeginBuildablesOk = true;
@@ -314,6 +316,7 @@ namespace SatisDash::Test
 			Budget.End();
 			ExtractorCasts += LastBuildablesFlags.bExtractors ? 1 : 0;
 			GeneratorCasts += LastBuildablesFlags.bGenerators ? 1 : 0;
+			ContainerCasts += LastBuildablesFlags.bStorage ? 1 : 0;
 			if (++BuildablesStepCalls < BuildablesStepsToFinish)
 			{
 				return {};
@@ -324,6 +327,7 @@ namespace SatisDash::Test
 			{
 				Out.Extractors = LastBuildablesFlags.bExtractors ? Extractors : TArray<SatisDash::FExtractorReading>();
 				Out.Generators = LastBuildablesFlags.bGenerators ? Generators : TArray<SatisDash::FGeneratorReading>();
+				Out.Containers = LastBuildablesFlags.bStorage ? Containers : TArray<SatisDash::FContainerReading>();
 				Out.Counts = BuildablesCounts;
 			}
 			return Out;

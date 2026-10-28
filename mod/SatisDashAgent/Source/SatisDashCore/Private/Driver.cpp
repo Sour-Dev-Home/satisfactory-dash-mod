@@ -112,6 +112,10 @@ void SatisDash::FDriver::Tick()
 	{
 		Bridge.DropGenerators(); // the same for the generators fragment held for the power part
 	}
+	if (Config.GetStorageSource() != ESource::Native)
+	{
+		Bridge.DropStorage(); // and for a storage fragment not yet sent
+	}
 	Bridge.Tick(Now, Config.GetFrmPort(), Config.FrmToken);
 	if (TOptional<FEncodedBody> Encoded = Bridge.TakeEncoded())
 	{
@@ -235,6 +239,10 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 	if (BuildablesAsked.bGenerators && !Bridge.SubmitNativeGenerators(MoveTemp(Found->Generators), Now) && BuildablesLog.ShouldLog(TEXT("heldGenerators"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last generators fragment is still being built: it is dropped"));
+	}
+	if (BuildablesAsked.bStorage && !Bridge.SubmitNativeStorage(MoveTemp(Found->Containers), Now) && BuildablesLog.ShouldLog(TEXT("heldStorage"), Now))
+	{
+		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last storage fragment is still being built: it is dropped"));
 	}
 }
 
@@ -453,8 +461,14 @@ void SatisDash::FDriver::TickSample(double Now)
 		}
 		Snapshot.FactoryJson = Bridge.TakeFactory(Now, Cadence.FactorySeconds);
 		Snapshot.MapLiveJson = Bridge.TakeMapLive(Now, Cadence.FactorySeconds);
+		if (Config.GetStorageSource() == ESource::Native)
+		{
+			// Ruling B3: a data part, attached to the first snapshot after the fragment is built and then cleared. Only with a status:
+			// an unreachable snapshot keeps it for the next one (the dash refuses a data part with reachable false).
+			Snapshot.StorageJson = Bridge.TakeStorage();
+		}
 	}
-	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsSet())
+	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsSet() || Snapshot.StorageJson.IsSet())
 	{
 		Bridge.EncodeSnapshot(MoveTemp(Snapshot)); // up to megabytes of JSON, or up to 256 KB of mapLive: serialised and gzipped on the worker
 	}

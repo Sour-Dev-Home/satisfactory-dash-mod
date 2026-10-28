@@ -822,3 +822,6 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AFGBuildableTrainPlatformCargo::GetCurrentItemTransferRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:180 | header only (private, BlueprintPure at :179, returns float; never called directly: found by name through reflection, R2) |
 | AFGBuildableTrainPlatformCargo::mSmoothedLoadRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:363 | header only (private float UPROPERTY; fallback, read through FindFProperty only) |
 | AFGBuildableTrainPlatformCargo::mSmoothedUnloadRate | Source/FactoryGame/Public/Buildables/FGBuildableTrainPlatformCargo.h:366 | header only (private float UPROPERTY; fallback, read through FindFProperty only) |
+| FCString::Strlen | Engine/Source/Runtime/Core/Public/Misc/CString.h:444 | header only (FCString is TCString<TCHAR>; the byte length of a part key in the snapshot size rule, S4-B) |
+| ESearchDir::FromEnd | Engine/Source/Runtime/Core/Public/Misc/CString.h:39 | header only (namespace ESearchDir, :31; the last ,"extractors": key of the factory part) |
+| FString::AppendChars | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:406 | header only (the WIDECHAR overload with a count, declared in the class body; a prefix of a held part is appended without a copy) |

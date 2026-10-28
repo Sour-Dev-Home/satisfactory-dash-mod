@@ -927,3 +927,84 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 	Log.Take();
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeStorageTest, "SatisDash.Core.Driver.NativeStorage", SatisDash::Test::Flags)
+
+bool FDriverNativeStorageTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Log;
+	const TCHAR* Native = TEXT(",\"storageSource\":\"native\"");
+	const TCHAR* Part = TEXT(",\"storage\":{\"containers\":[{\"id\":\"Test_Box_1\"");
+	FContainerReading Box;
+	Box.Id = TEXT("Test_Box_1");
+	Box.Name = TEXT("Box");
+	Box.ClassName = TEXT("Build_Box_C");
+	Box.Slots = 8;
+	const auto Count = [](const TArray<FString>& Bodies, const TCHAR* Needle)
+	{
+		int32 Found = 0;
+		for (const FString& Body : Bodies)
+		{
+			Found += Body.Contains(Needle) ? 1 : 0;
+		}
+		return Found;
+	};
+
+	// The pass runs with only the storage flag; the part rides one snapshot per read, then is gone until the next read.
+	FDriverFixture F;
+	F.Game.Containers.Add(Box);
+	F.Game.BuildablesCounts.Elements = 4;
+	F.Game.BuildablesCounts.Containers = 1;
+	FExtractorReading Miner;
+	Miner.Id = TEXT("Build_MinerMk1_C_1");
+	F.Game.Extractors.Add(Miner);
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("the first factory-cadence tick begins a pass"), F.runUntil(Driver, [&F] { return F.Game.BuildablesBegins >= 1; }, 20));
+	TestTrue(TEXT("with the storage flag only"), F.Game.LastBuildablesFlags.bStorage && !F.Game.LastBuildablesFlags.bExtractors && !F.Game.LastBuildablesFlags.bGenerators);
+	const TArray<FString> First = DriverNativeRun(F, Driver, 12);
+	TestEqual(TEXT("the part is on exactly one snapshot of the read"), Count(First, Part), 1);
+	TestTrue(TEXT("and other snapshots of that read are sent without it"), First.Num() >= 2);
+	TestTrue(TEXT("the containers are cast"), F.Game.ContainerCasts >= 3);
+	TestEqual(TEXT("the extractors are not cast"), F.Game.ExtractorCasts, 0);
+	TestFalse(TEXT("no extractors key: that source is bridge"), DriverNativeAny(First, TEXT("\"extractors\":")));
+	TestTrue(TEXT("the body parses as JSON with a top-level storage object"), [&First, Part]
+	{
+		for (const FString& Body : First)
+		{
+			if (Body.Contains(Part))
+			{
+				const TSharedPtr<FJsonObject> Parsed = SatisDash::Json::ParseObject(Body);
+				return Parsed.IsValid() && Parsed->HasTypedField<EJson::Object>(TEXT("storage")) && Parsed->GetObjectField(TEXT("storage"))->GetArrayField(TEXT("containers")).Num() == 1;
+			}
+		}
+		return false;
+	}());
+	TestEqual(TEXT("not again before the next read"), Count(DriverNativeRun(F, Driver, 8), Part), 0);
+	TestTrue(TEXT("the next read sends it again"), Count(DriverNativeRun(F, Driver, 60), Part) >= 1);
+
+	// A failed status read: the fragment is built but not written (unreachable), and it goes out with the first reachable snapshot.
+	FDriverFixture U;
+	U.Game.Containers.Add(Box);
+	U.Game.BuildablesCounts.Containers = 1;
+	FDriver Unreachable{ U.ConfigPath, U.CredentialPath, U.Net, U.Game, U.Worker, U.clock() };
+	U.enrol(Unreachable, SatisDash::Test::FakeSecret(), Native);
+	TestTrue(TEXT("a pass begins"), U.runUntil(Unreachable, [&U] { return U.Game.BuildablesBegins >= 1; }, 20));
+	const TOptional<FStatusReading> Healthy = U.Game.Status;
+	U.Game.Status.Reset();
+	TestEqual(TEXT("no snapshot without a status carries storage"), Count(DriverNativeRun(U, Unreachable, 10), TEXT("\"storage\":")), 0);
+	U.Game.Status = Healthy;
+	TestEqual(TEXT("the first one with a status does, once"), Count(DriverNativeRun(U, Unreachable, 6), Part), 1);
+
+	// The bridge source never begins a pass and sends no part.
+	FDriverFixture B;
+	B.Game.Containers.Add(Box);
+	FDriver Plain{ B.ConfigPath, B.CredentialPath, B.Net, B.Game, B.Worker, B.clock() };
+	B.enrol(Plain, SatisDash::Test::FakeSecret(), TEXT(",\"storageSource\":\"bridge\""));
+	const TArray<FString> PlainBodies = DriverNativeRun(B, Plain, 80);
+	TestEqual(TEXT("the bridge source never begins a pass"), B.Game.BuildablesBegins, 0);
+	TestTrue(TEXT("snapshots are still sent"), PlainBodies.Num() > 0);
+	TestFalse(TEXT("byte-identical to today: no storage key"), DriverNativeAny(PlainBodies, TEXT("storage")));
+	Log.Take();
+	return true;
+}

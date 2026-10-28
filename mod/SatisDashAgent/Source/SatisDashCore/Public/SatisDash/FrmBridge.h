@@ -109,6 +109,16 @@ namespace SatisDash
 		TOptional<FString> TakeGenerators(double Now, double FactorySeconds);
 		/** The generators source is not native (it flipped to bridge): forget the held fragment and any job. */
 		void DropGenerators();
+		/**
+		 * S4-B (ruling B3): the containers a native Buildables pass finished, moved into a job. The worker builds the storage
+		 * fragment (NativeStorageFragment), holds it, and the readings are freed. TakeStorage hands it to the first snapshot taken
+		 * after it is built and clears it (a data part is sent once per read). False while a fragment job is outstanding.
+		 */
+		bool SubmitNativeStorage(TArray<FContainerReading> Readings, double ReadAt);
+		/** The held storage fragment, once (consumed), or unset when none is built. */
+		TOptional<FString> TakeStorage();
+		/** The storage source is not native (it flipped to bridge): forget the held fragment and any job. */
+		void DropStorage();
 		/** The layer's finished outcome, once. */
 		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
@@ -152,7 +162,18 @@ namespace SatisDash
 			FString Fragment;
 			bool bRan = false;
 		};
-		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; bool bRan = false; };
+		/** S4-B: the containers readings, then (worker) the fragment text and its counts; the readings are freed once it is built. */
+		struct FStorageJob
+		{
+			FStorageJob(TArray<FContainerReading> InReadings, double InReadAt) : Readings{MoveTemp(InReadings)}, ReadAt{InReadAt} {}
+			TArray<FContainerReading> Readings;
+			double ReadAt = 0;
+			FString Fragment;
+			int32 Dropped = 0, Over = 0, ItemsCut = 0, SlotsClamped = 0;
+			bool bRan = false;
+		};
+		/** The snapshot body is made on the worker; Report says what the size rule left out. */
+		struct FEncodeJob { FSnapshot Snapshot; FEncodedBody Body; FSnapshotSizeReport Report; bool bRan = false; };
 		/** R3: the game's own trains and stations; the worker writes the joined part (Json, or Ok false when it is over its cap). */
 		struct FNativeMapLiveJob
 		{
@@ -227,6 +248,9 @@ namespace SatisDash
 		/** At most one generators job, and the newest built fragment, held (not consumed) until it is stale (bounded by the 5000-record cap). */
 		TSharedPtr<FGeneratorsJob> GeneratorsTask;
 		TOptional<FReady> GeneratorsReady;
+		/** At most one storage job, and one built fragment held until the next snapshot takes it (bounded by the 2000-container cap). */
+		TSharedPtr<FStorageJob> StorageTask;
+		TOptional<FReady> StorageReady;
 		TSharedPtr<FEncodeJob> Encode;
 		TSharedPtr<FNativeMapLiveJob> NativeMapLive;
 		TOptional<FReady> PlayersReady;
@@ -239,7 +263,7 @@ namespace SatisDash
 		bool bPlayersAbsent = false;
 		bool bFactoryFailed = false;
 		double LastNow = 0;
-		/** Bounded: five keys ("players", "factory", "mapLive", "mapLiveOverCap", "extractorsDropped"), each at most once per 600 s. */
+		/** Bounded: keys ("players", "factory", "mapLive", "mapLiveOverCap", "extractorsDropped", "snapshotOverCap", "storageCuts"), each at most once per 600 s. */
 		FRateLimitedLog FailLog;
 	};
 }

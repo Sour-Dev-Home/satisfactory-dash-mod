@@ -73,6 +73,24 @@ namespace SatisDash
 		TOptional<FString> FactoryJson;
 		/** The mapLive part ({"trains":[...],"stations":[...]}, FRM bridge 3B) as JSON, joined by FFrmBridge; spliced in as is. */
 		TOptional<FString> MapLiveJson;
+		/** S4-B: the storage part ({"containers":[...]}, built off the game thread) written as the top-level "storage"; not written without Status. */
+		TOptional<FString> StorageJson;
+	};
+
+	/**
+	 * The dash backend's SNAPSHOT_MAX_BYTES (backend config, 5 MB; the vendored contract does not export it). The uncompressed
+	 * assembled body is checked against it (conservative: the gzipped body is smaller).
+	 */
+	inline constexpr int64 SnapshotMaxBytes = 5LL * 1024 * 1024;
+
+	/** What SnapshotToJson did about the size cap (sizes in bytes only, never content). */
+	struct FSnapshotSizeReport
+	{
+		/** The UTF-8 size of the body with every part, before any drop. */
+		int64 BytesBefore = 0;
+		/** The UTF-8 size of the body returned. */
+		int64 BytesAfter = 0;
+		bool bDroppedStorage = false, bDroppedGenerators = false, bDroppedExtractors = false;
 	};
 
 	/** At most 200 UTF-16 code units (the contract's string length, as JavaScript counts it), never splitting a pair. */
@@ -90,4 +108,9 @@ namespace SatisDash
 	 * (spec "Data flow"). paused is the status reading's gamePaused, or null with no status.
 	 */
 	SATISDASHCORE_API FString SnapshotToJson(const FSnapshot& Snapshot);
+	/**
+	 * The same, with the size rule: when the assembled body would pass SnapshotMaxBytes, the storage part is left out first, then
+	 * power.generators, then factory.extractors, re-checking after each (never a partial part). Report says what was left out.
+	 */
+	SATISDASHCORE_API FString SnapshotToJson(const FSnapshot& Snapshot, FSnapshotSizeReport& Report, int64 MaxBytes = SnapshotMaxBytes);
 }
