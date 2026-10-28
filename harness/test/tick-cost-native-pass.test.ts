@@ -327,9 +327,11 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
     describe("S4-B: the Buildables pass (Task 20)", () => {
       const S4B = NATIVE_SOURCES_S4B;
       const buildables = (longest = "0.70", prefix = IN) => `${prefix}Buildables read (game thread only): 4 elements, 1 extractors, 0 generators, 0 containers in 3 steps, longest step ${longest} ms, total 1.00 ms`;
-      const base = () => {
+      const S4A_READERS = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native`;
+      const S4B_READERS = `${S4A_READERS} extractors=native generators=native stationRates=native storage=native`;
+      const base = (readers = S4B_READERS) => {
         const s = ((): string[] => {
-          const READERS = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native`;
+          const READERS = readers;
           const logistics = `${IN}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, wires 843, expected wires 843, longest step 0.80 ms, total 12.00 ms`;
           const markers = `${IN}Map markers read (game thread only): 120 markers, 0 dropped in 3 steps, longest step 0.50 ms, total 1.00 ms`;
           const drones = `${IN}Drone routes read (game thread only): 8 ports, 0 dropped in 2 steps, longest step 0.60 ms, total 1.00 ms`;
@@ -337,7 +339,14 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
         })();
         return s;
       };
-      const s4bLines = (longest = "0.70") => [...base(), buildables(longest)];
+      const s4bLines = (longest = "0.70", readers = S4B_READERS) => [...base(readers), buildables(longest)];
+      it("fails when the Readers line shows storage=bridge, or is the nine-field S4-A line, for an S4-B config", () => {
+        const b = Native.evaluate(evidence({ sources: S4B, lines: s4bLines("0.7", S4B_READERS.replace("storage=native", "storage=bridge")) }));
+        expect(b.pass).toBe(false);
+        expect(b.reasons.join("\n")).toMatch(/storage=bridge/);
+        const nine = Native.evaluate(evidence({ sources: S4B, lines: s4bLines("0.7", S4A_READERS) }));
+        expect(nine.pass).toBe(false);
+      });
 
       it("passes S4-B evidence with every longest step at 1.9 ms or less", () => {
         const v = Native.evaluate(evidence({ sources: S4B, lines: s4bLines("1.90") }));
@@ -374,7 +383,7 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
         expect(Native.requiredStepReaders({ stationRatesSource: "native" })).toEqual(["Resource node scan"]);
       });
       it("S4-A evidence still passes as before", () => {
-        expect(Native.evaluate(evidence({ sources: NATIVE_SOURCES_S4, lines: base() })).pass).toBe(true);
+        expect(Native.evaluate(evidence({ sources: NATIVE_SOURCES_S4, lines: base(S4A_READERS) })).pass).toBe(true);
       });
     });
   });
