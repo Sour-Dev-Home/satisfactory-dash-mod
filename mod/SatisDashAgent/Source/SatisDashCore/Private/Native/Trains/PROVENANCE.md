@@ -11,6 +11,7 @@ Headers: Source/FactoryGame/Public/FGVehicle.h:339
 Headers: Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:2505
 Headers: this task (R3, pure mapping) calls no game symbol; the rows above are the ones the game-side read of Task 9 uses, opened and confirmed in the pinned checkout. ETrainStatus is TS_Parked, TS_ManualDriving, TS_SelfDriving, TS_Derailed with DisplayNames "Parked", "Manual Driving", "Self Driving", "Derailed" (FGTrain.h:66-69); the header's wording is not used for the status text
 Survey: mod-native-readers-s2-headers-2026-10-26.md
+Survey: mod-native-readers-s4b-headers-2026-10-27.md (section 3, station rates: the item transfer rate getter and the fluid-only inflow/outflow getters)
 Captures: frm-getTrains-2026-09-27-full.json (satisfactory-dash captured-responses; FRM HTTP output only)
 Captures: frm-getTrains-2026-10-21-trimmed.json
 Captures: frm-getTrainStation-2026-09-27-full.json
