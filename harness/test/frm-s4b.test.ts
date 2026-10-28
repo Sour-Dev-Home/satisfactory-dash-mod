@@ -26,8 +26,9 @@ const box = (o: Record<string, unknown> = {}) => ({
 describe("mapFrmExtractors", () => {
   it("copies current, max, percent and the clock", () => {
     expect(mapFrmExtractors([extractor()])).toEqual([{
-      id: "Build_MinerMk1_C_1", className: "Build_MinerMk1_C", producing: true, paused: false, backedUp: false,
+      id: "Build_MinerMk1_C_1", className: "Build_MinerMk1_C", producing: true, paused: false, backedUp: null,
       resourceClass: "Desc_OreIron_C", current: 18.5, max: 120, percent: 15.4, clockPercent: 100, circuit: 6,
+      raw: { Amount: 100, MaxAmount: 100, CurrentProd: 18.5, MaxProd: 120, ProdPercent: 15.4, ManuSpeed: 100 },
     }]);
   });
   it("omits an unconnected circuit and drops malformed records", () => {
@@ -47,6 +48,7 @@ describe("mapFrmGenerators", () => {
     expect(g).toEqual({
       id: "Build_GeneratorCoal_C_1", className: "Build_GeneratorCoal_C", nameHash: evidenceHash("Secret Plant"), currentMW: 75, capacityMW: 75,
       clockPercent: 100, producing: true, fuelClass: "Desc_Coal_C", fuelAmount: 26, supplementClass: "Desc_Water_C", supplementAmount: 50, circuit: 6,
+      raw: { RegulatedDemandProd: 75, CurrentPotential: 100, ProductionCapacity: 75, FuelAmount: 0.9 },
     });
   });
   it("gives null for a missing slot", () => {
@@ -79,9 +81,9 @@ describe("mapFrmStorage", () => {
       fluidCapacity: null, items: [{ class: "Desc_Cable_C", amount: 3, stackMax: 200 }, { class: "Desc_Wire_C", amount: 600, stackMax: 500 }],
     });
   });
-  it("gives null for a missing slot count or stack size, and a fluid buffer has fluidCapacity", () => {
+  it("gives null for a missing slot count or stack size, and fluidCapacity is always null", () => {
     const [c] = mapFrmStorage([box({ Slots: undefined, FluidCapacity: 400, Inventory: [{ ClassName: "Desc_Water_C", Amount: 5 }] })]);
-    expect(c).toMatchObject({ slots: null, slotsUsed: 2, fluidCapacity: 400, items: [{ class: "Desc_Water_C", amount: 5, stackMax: null }] });
+    expect(c).toMatchObject({ slots: null, slotsUsed: 2, fluidCapacity: null, items: [{ class: "Desc_Water_C", amount: 5, stackMax: null }] });
   });
   it("never returns a raw name", () => {
     expect(JSON.stringify(mapFrmStorage([box()]))).not.toContain("Secret");

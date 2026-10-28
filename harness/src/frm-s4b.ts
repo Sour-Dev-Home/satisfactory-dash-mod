@@ -33,8 +33,11 @@ export interface FrmExtractor {
   id: string; className: string;
   /** IsProducing and IsPaused as FRM wrote them. */
   producing: boolean; paused: boolean;
-  /** Derived: FRM has no such flag (see mapFrmExtractors). */
-  backedUp: boolean;
+  /** FRM output has no backed-up flag; not an oracle for ours. Always null. */
+  backedUp: null;
+  /** Every finite numeric rate field FRM wrote, by FRM's own key (production[0] Amount, MaxAmount, CurrentProd, MaxProd,
+   *  ProdPercent, and ManuSpeed). Evidence for the first parity run to show which field matches ours. */
+  raw: Record<string, number>;
   /** production[0].ClassName. */
   resourceClass: string;
   /** production[0].CurrentProd: observed per minute, 18.8 on a Mk.1 miner at 15.7 percent, 150 on an oil pump. Not specified. */
@@ -48,9 +51,18 @@ export interface FrmExtractor {
   circuit?: number;
 }
 
-/** getExtractor. FRM's output has no backed-up flag (observed keys: IsConfigured, IsPaused, IsProducing, production[]); backedUp is
- *  reported as `IsPaused === false && IsProducing === false`, the closest reading of an extractor that is switched on but not
- *  running (observed, not specified). A record without a production entry with numeric figures is dropped. */
+const RAW_PRODUCTION_KEYS = ["Amount", "MaxAmount", "CurrentProd", "MaxProd", "ProdPercent"];
+const RAW_GENERATOR_KEYS = [
+  "BaseProd", "DynamicProdCapacity", "DynamicProdDemandFactor", "RegulatedDemandProd", "ProdPowerConsumption", "CurrentPotential",
+  "ProductionCapacity", "DefaultProductionCapacity", "PowerProductionPotential", "LoadPercentage", "FuelAmount", "GeoMinPower", "GeoMaxPower",
+];
+const pickNumbers = (from: Record<string, unknown>, keys: string[], into: Record<string, number> = {}): Record<string, number> => {
+  for (const k of keys) { const v = from[k]; if (isNum(v)) into[k] = v; }
+  return into;
+};
+
+/** getExtractor. FRM's output has no backed-up flag (observed keys: IsConfigured, IsPaused, IsProducing, production[]), so backedUp
+ *  is null. A record without a production entry with numeric figures is dropped. */
 export function mapFrmExtractors(body: unknown): FrmExtractor[] {
   const out: FrmExtractor[] = [];
   for (const r of arrayBody(body, "getExtractor")) {
@@ -61,8 +73,9 @@ export function mapFrmExtractors(body: unknown): FrmExtractor[] {
     if (!isNum(p.CurrentProd) || !isNum(p.MaxProd) || !isNum(p.ProdPercent) || !isNum(r.ManuSpeed)) continue;
     if (typeof r.IsProducing !== "boolean" || typeof r.IsPaused !== "boolean") continue;
     const e: FrmExtractor = {
-      id, className: r.ClassName, producing: r.IsProducing, paused: r.IsPaused, backedUp: !r.IsPaused && !r.IsProducing,
+      id, className: r.ClassName, producing: r.IsProducing, paused: r.IsPaused, backedUp: null,
       resourceClass: p.ClassName, current: p.CurrentProd, max: p.MaxProd, percent: p.ProdPercent, clockPercent: r.ManuSpeed,
+      raw: pickNumbers(r, ["ManuSpeed"], pickNumbers(p, RAW_PRODUCTION_KEYS)),
     };
     const circuit = circuitOf(r);
     if (circuit !== undefined) e.circuit = circuit;
@@ -87,6 +100,10 @@ export interface FrmGenerator {
   fuelClass: string | null; fuelAmount: number | null;
   /** The FuelInventory entry whose class is Supplement.ClassName (water on a coal generator), and its Amount. */
   supplementClass: string | null; supplementAmount: number | null;
+  /** Every finite numeric power field FRM wrote, by FRM's own key (BaseProd, RegulatedDemandProd, DynamicProdCapacity,
+   *  ProductionCapacity, PowerProductionPotential, DefaultProductionCapacity, CurrentPotential, LoadPercentage, ...). Evidence for
+   *  the first parity run to show which FRM field matches ours. */
+  raw: Record<string, number>;
   circuit?: number;
 }
 
@@ -114,6 +131,7 @@ export function mapFrmGenerators(body: unknown): FrmGenerator[] {
       producing: r.RegulatedDemandProd > 0,
       fuelClass, fuelAmount,
       supplementClass: supplementAmount === null ? null : supplementClass, supplementAmount,
+      raw: pickNumbers(r, RAW_GENERATOR_KEYS),
     };
     const circuit = circuitOf(r);
     if (circuit !== undefined) g.circuit = circuit;
@@ -161,9 +179,8 @@ export interface FrmContainer {
   id: string; className: string; nameHash: string;
   /** Slots and SlotsUsed as FRM wrote them; a missing or non-numeric value is null. */
   slots: number | null; slotsUsed: number | null;
-  /** FluidCapacity, for a fluid buffer. The four captures hold no fluid buffer, so this key is NOT observed: it is read when
-   *  present and numeric, else null. Unverified until a fluid buffer is captured. */
-  fluidCapacity: number | null;
+  /** No capture shows FRM's key for a fluid buffer's capacity; the judge reports it, never judges it, until a capture does. Always null. */
+  fluidCapacity: null;
   /** Inventory entries: ClassName, Amount, MaxAmount (the stack size, observed; null when absent). */
   items: FrmContainerItem[];
 }
@@ -185,7 +202,7 @@ export function mapFrmStorage(body: unknown): FrmContainer[] {
     out.push({
       id, className: r.ClassName, nameHash: evidenceHash(r.Name),
       slots: isNum(r.Slots) ? r.Slots : null, slotsUsed: isNum(r.SlotsUsed) ? r.SlotsUsed : null,
-      fluidCapacity: isNum(r.FluidCapacity) ? r.FluidCapacity : null, items,
+      fluidCapacity: null, items,
     });
   }
   return byId(out);
