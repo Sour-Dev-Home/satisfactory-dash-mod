@@ -283,6 +283,35 @@ void SatisDash::FFrmBridge::DropExtractors()
 	ExtractorsReady.Reset();
 }
 
+bool SatisDash::FFrmBridge::SubmitNativeGenerators(TArray<FGeneratorReading> Readings, double ReadAt)
+{
+	if (GeneratorsTask.IsValid())
+	{
+		return false;
+	}
+	GeneratorsTask = MakeShared<FGeneratorsJob>(MoveTemp(Readings), ReadAt);
+	return true;
+}
+
+TOptional<FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double FactorySeconds)
+{
+	if (GeneratorsReady.IsSet() && Now - GeneratorsReady->At > GeneratorsStaleFactor * FactorySeconds)
+	{
+		GeneratorsReady.Reset(); // older than the rule allows: not read, and not kept
+	}
+	if (!GeneratorsReady.IsSet())
+	{
+		return {};
+	}
+	return GeneratorsReady->Json; // a copy: the held fragment stays for the next power part
+}
+
+void SatisDash::FFrmBridge::DropGenerators()
+{
+	GeneratorsTask.Reset();
+	GeneratorsReady.Reset();
+}
+
 TOptional<SatisDash::FWorldOutcome> SatisDash::FFrmBridge::TakeWorld(EWorldLayer Layer)
 {
 	FWorldSlot& Slot = World[int32(Layer)];
@@ -328,6 +357,11 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 	{
 		ExtractorsReady = FReady{ MoveTemp(ExtractorsTask->Fragment), ExtractorsTask->ReadAt };
 		ExtractorsTask.Reset();
+	}
+	if (GeneratorsTask.IsValid() && GeneratorsTask->bRan)
+	{
+		GeneratorsReady = FReady{ MoveTemp(GeneratorsTask->Fragment), GeneratorsTask->ReadAt }; // replaces the older fragment
+		GeneratorsTask.Reset();
 	}
 	if (Factory.IsValid() && Factory->bRan)
 	{
@@ -422,6 +456,17 @@ void SatisDash::FFrmBridge::LaunchNext()
 			int32 Dropped = 0, Over = 0;
 			Job->Fragment = NativeExtractorsFragment(MoveTemp(Job->Readings), Dropped, Over);
 			Job->Readings = TArray<FExtractorReading>();
+			Job->bRan = true;
+		});
+	}
+	else if (GeneratorsTask.IsValid() && !GeneratorsTask->bRan)
+	{
+		Worker.Launch([Job = GeneratorsTask]
+		{
+			// The whole fragment in one task: sorted, capped and written by the one record writer; the readings are freed after.
+			int32 Dropped = 0, Over = 0;
+			Job->Fragment = NativeGeneratorsFragment(MoveTemp(Job->Readings), Dropped, Over);
+			Job->Readings = TArray<FGeneratorReading>();
 			Job->bRan = true;
 		});
 	}
@@ -542,6 +587,7 @@ void SatisDash::FFrmBridge::Stop()
 	Factory.Reset();
 	ExtractorsTask.Reset();
 	ExtractorsReady.Reset();
+	DropGenerators();
 	Encode.Reset();
 	NativeMapLive.Reset();
 	PlayersReady.Reset();

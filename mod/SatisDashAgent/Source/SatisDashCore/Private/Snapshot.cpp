@@ -133,6 +133,7 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 	{
 		Root->SetObjectField(TEXT("status"), StatusToJson(ConformStatus(Snapshot.Status.GetValue())));
 	}
+	TOptional<FString> PowerJson; // the power object with generators, spliced as a part (only when there are generators)
 	if (Snapshot.Power.IsSet())
 	{
 		TArray<TSharedPtr<FJsonValue>> Circuits;
@@ -143,12 +144,33 @@ FString SatisDash::SnapshotToJson(const FSnapshot& Snapshot)
 		}
 		const TSharedRef<FJsonObject> Power = MakeShared<FJsonObject>();
 		Power->SetArrayField(TEXT("circuits"), Circuits);
-		Root->SetObjectField(TEXT("power"), Power);
+		if (Snapshot.GeneratorsJson.IsSet())
+		{
+			// power is the root's last field, so it can be written apart and spliced first among the parts with the same bytes
+			// around it; the generators array goes in before its closing brace.
+			PowerJson = SatisDash::Json::Write(Power);
+			if (PowerJson->EndsWith(TEXT("}"), ESearchCase::CaseSensitive))
+			{
+				PowerJson->LeftChopInline(1);
+				PowerJson->Append(TEXT(",\"generators\":"));
+				PowerJson->Append(Snapshot.GeneratorsJson.GetValue());
+				PowerJson->AppendChar(TEXT('}'));
+			}
+			else
+			{
+				PowerJson.Reset(); // not the condensed shape: the generators are left out
+			}
+		}
+		if (!PowerJson.IsSet())
+		{
+			Root->SetObjectField(TEXT("power"), Power);
+		}
 	}
 	FString Json = SatisDash::Json::Write(Root);
 	// Parts that arrive as finished JSON, spliced in this order before the root's closing brace.
 	struct FPart { const TCHAR* Key; const TOptional<FString>* Value; };
 	const FPart Parts[] = {
+		{ TEXT(",\"power\":"), &PowerJson },
 		{ TEXT(",\"players\":"), &Snapshot.PlayersJson },
 		{ TEXT(",\"factory\":"), &Snapshot.FactoryJson },
 		{ TEXT(",\"mapLive\":"), &Snapshot.MapLiveJson },

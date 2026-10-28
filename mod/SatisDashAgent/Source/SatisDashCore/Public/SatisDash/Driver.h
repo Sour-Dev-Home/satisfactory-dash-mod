@@ -98,7 +98,7 @@ namespace SatisDash
 		bool bBuildablesReadOpen = false;
 		/** The readers the open pass was begun for. */
 		FBuildablesFlags BuildablesAsked;
-		/** Bounded: one key ("busy"), at most once per 60 s. */
+		/** Bounded: keys "busy", "held" and "heldGenerators", each at most once per 60 s. */
 		FRateLimitedLog BuildablesLog{ 60.0 };
 		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */
 		bool bTrainsReadOpen = false;

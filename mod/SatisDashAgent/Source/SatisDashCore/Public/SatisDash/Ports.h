@@ -6,6 +6,7 @@
 #include "SatisDash/Native/DroneRoutes/NativeDroneRoutes.h"
 #include "SatisDash/Native/Extractors/NativeExtractors.h"
 #include "SatisDash/Native/Factory/NativeFactory.h"
+#include "SatisDash/Native/Generators/NativeGenerators.h"
 #include "SatisDash/Native/MapMarkers/NativeMapMarkers.h"
 #include "SatisDash/Native/PowerLines/NativePowerLines.h"
 #include "SatisDash/Native/Rails/NativeRails.h"
@@ -73,12 +74,16 @@ namespace SatisDash
 		int32 Elements = 0, Extractors = 0, Generators = 0, Containers = 0;
 		/** Extractors seen past the reader's own list cap and dropped (a count, never ids). */
 		int32 ExtractorsOverCap = 0;
+		/** Generators seen past the reader's own list cap and dropped (a count, never ids). */
+		int32 GeneratorsOverCap = 0;
 	};
 
 	/** What a finished Buildables pass hands over; the readings are freed once the fragments are built. */
 	struct FBuildablesSnapshot
 	{
 		TArray<FExtractorReading> Extractors;
+		/** Empty unless the generators flag was on. */
+		TArray<FGeneratorReading> Generators;
 		FBuildablesCounts Counts;
 	};
 

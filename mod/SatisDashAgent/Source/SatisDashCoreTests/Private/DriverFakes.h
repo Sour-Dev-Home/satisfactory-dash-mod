@@ -283,6 +283,10 @@ namespace SatisDash::Test
 		/** S4-B: what a finished Buildables pass returns. A pass finishes on its BuildablesStepsToFinish-th step. */
 		int32 BuildablesStepsToFinish = 3;
 		TArray<SatisDash::FExtractorReading> Extractors;
+		TArray<SatisDash::FGeneratorReading> Generators;
+		/** Steps taken with each reader's flag on: the real pass casts each element once per flagged class. */
+		int32 ExtractorCasts = 0;
+		int32 GeneratorCasts = 0;
 		SatisDash::FBuildablesCounts BuildablesCounts;
 		bool bBuildablesAbandoned = false;
 		bool bBeginBuildablesOk = true;
@@ -308,6 +312,8 @@ namespace SatisDash::Test
 		{
 			Budget.Begin();
 			Budget.End();
+			ExtractorCasts += LastBuildablesFlags.bExtractors ? 1 : 0;
+			GeneratorCasts += LastBuildablesFlags.bGenerators ? 1 : 0;
 			if (++BuildablesStepCalls < BuildablesStepsToFinish)
 			{
 				return {};
@@ -316,7 +322,8 @@ namespace SatisDash::Test
 			SatisDash::FBuildablesSnapshot Out;
 			if (!bBuildablesAbandoned)
 			{
-				Out.Extractors = Extractors;
+				Out.Extractors = LastBuildablesFlags.bExtractors ? Extractors : TArray<SatisDash::FExtractorReading>();
+				Out.Generators = LastBuildablesFlags.bGenerators ? Generators : TArray<SatisDash::FGeneratorReading>();
 				Out.Counts = BuildablesCounts;
 			}
 			return Out;

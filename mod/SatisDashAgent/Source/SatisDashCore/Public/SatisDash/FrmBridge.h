@@ -13,6 +13,9 @@
 
 namespace SatisDash
 {
+	/** Ruling B3: a held generators fragment is attached to power parts until it is older than this many factory cadences. */
+	inline constexpr double GeneratorsStaleFactor = 3.0;
+
 	/**
 	 * The FRM bridge's live lane (spec "Design"): asks FRM for players, the factory, mapLive and the world layers through
 	 * FFrmQueue, parses the bodies on the worker, and keeps the newest finished part of each for the driver's next snapshot
@@ -92,6 +95,20 @@ namespace SatisDash
 		bool SubmitNativeExtractors(TArray<FExtractorReading> Readings, double ReadAt);
 		/** The extractors source is not native (it flipped to bridge): forget the held fragment and any job, so nothing is spliced after the flip. */
 		void DropExtractors();
+		/**
+		 * S4-B (ruling B3): the generators a native Buildables pass finished, moved into a job. The worker builds the fragment
+		 * (NativeGeneratorsFragment), replaces the held one with it, and the readings are freed. TakeGenerators then attaches it to
+		 * every power part until it is older than GeneratorsStaleFactor x the factory cadence. False while a fragment job is
+		 * outstanding (the readings are then dropped).
+		 */
+		bool SubmitNativeGenerators(TArray<FGeneratorReading> Readings, double ReadAt);
+		/**
+		 * The held generators fragment for a power part (not consumed: the next power part carries it too), or unset when none is
+		 * held or it is older than GeneratorsStaleFactor x FactorySeconds (it is then forgotten: "not read", never a stale list).
+		 */
+		TOptional<FString> TakeGenerators(double Now, double FactorySeconds);
+		/** The generators source is not native (it flipped to bridge): forget the held fragment and any job. */
+		void DropGenerators();
 		/** The layer's finished outcome, once. */
 		TOptional<FWorldOutcome> TakeWorld(EWorldLayer Layer);
 		/** Hands a snapshot carrying the factory or mapLive part to the worker for SnapshotToJson and EncodeBody. */
@@ -122,6 +139,15 @@ namespace SatisDash
 		{
 			FExtractorsJob(TArray<FExtractorReading> InReadings, double InReadAt) : Readings{MoveTemp(InReadings)}, ReadAt{InReadAt} {}
 			TArray<FExtractorReading> Readings;
+			double ReadAt = 0;
+			FString Fragment;
+			bool bRan = false;
+		};
+		/** S4-B: the generators readings, then (worker) the fragment text; the readings are freed once it is built. */
+		struct FGeneratorsJob
+		{
+			FGeneratorsJob(TArray<FGeneratorReading> InReadings, double InReadAt) : Readings{MoveTemp(InReadings)}, ReadAt{InReadAt} {}
+			TArray<FGeneratorReading> Readings;
 			double ReadAt = 0;
 			FString Fragment;
 			bool bRan = false;
@@ -198,6 +224,9 @@ namespace SatisDash
 		/** At most one extractors job, and one built fragment held until the next factory part takes it (bounded by the 5000-record cap). */
 		TSharedPtr<FExtractorsJob> ExtractorsTask;
 		TOptional<FReady> ExtractorsReady;
+		/** At most one generators job, and the newest built fragment, held (not consumed) until it is stale (bounded by the 5000-record cap). */
+		TSharedPtr<FGeneratorsJob> GeneratorsTask;
+		TOptional<FReady> GeneratorsReady;
 		TSharedPtr<FEncodeJob> Encode;
 		TSharedPtr<FNativeMapLiveJob> NativeMapLive;
 		TOptional<FReady> PlayersReady;
