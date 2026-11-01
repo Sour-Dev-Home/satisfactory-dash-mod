@@ -75,7 +75,9 @@ const me = (o: Record<string, unknown> = {}, p: Record<string, unknown> = {}) =>
   id: "E1", name: "Miner Mk.1", className: "Build_MinerMk1_C", recipe: null, isProducing: true, isPaused: false, isBackedUp: false, circuitGroupId: 1,
   production: [{ name: "Iron Ore", className: "Desc_OreIron_C", currentPerMinute: 60, maxPerMinute: 120, percent: 50, ...p }], ...o,
 });
-const eev = (o: Opts<FrmExtractor> = {}) => ev(o, [fe()], [me()]);
+// Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): a flag is judged only on a stable post (both FRM brackets present and
+// agreeing), so the default evidence has two identical brackets; a test of one bracket passes `after: []`-free evidence explicitly.
+const eev = (o: Opts<FrmExtractor> = {}) => ev({ ...o, after: o.after ?? o.frm ?? [fe()] }, [fe()], [me()]);
 
 common("judgeExtractors", B.judgeExtractors, eev, "extractors", "getExtractor", me({ id: "E9" }), fe({ id: "E9" }), [me()]);
 
@@ -172,8 +174,48 @@ describe("judgeExtractors", () => {
   it("a resource class mismatch fails", () => {
     expect(text(B.judgeExtractors(eev({ post: [me({}, { className: "Desc_Coal_C" })] })))).toContain("resourceClass");
   });
-  it("a state that matches the other bracket passes", () => {
-    expect(B.judgeExtractors(eev({ frm: [fe({ producing: false })], after: [fe()] })).pass).toBe(true);
+  // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): was "a state that matches the other bracket passes" (any bracket
+  // sufficed). Now brackets that disagree make the post unstable: its flags are report-only, and a run with no stable post fails.
+  const E = (i: number) => `E${i}`;
+  const fleet = (n: number, o: Partial<FrmExtractor> = {}) => Array.from({ length: n }, (_x, i) => fe({ id: E(i), ...o }));
+  it("FRM brackets that disagree on the flag: the post is report-only (counted), not a miss", () => {
+    const frm = [fe({ id: "E0", producing: false }), fe({ id: "E1" })];
+    const after = [fe({ id: "E0" }), fe({ id: "E1" })];
+    const v = B.judgeExtractors(eev({ frm, after, post: [me({ id: "E0" }), me({ id: "E1", isProducing: true })] }));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("of 1 stable extractor-posts");
+    expect(text(v)).toContain("1 where the FRM brackets disagree");
+  });
+  it("a mod neighbour post that disagrees (previous or next): report-only", () => {
+    const frms = [fe({ id: "E0" }), fe({ id: "E1" })];
+    const mk = (flip: boolean[]) => [0, 1, 2].map((p) => ({ at: iso(T0 + p * 1000), status: 200, data: [me({ id: "E0", ...(flip[p] ? { isProducing: false } : {}) }), me({ id: "E1" })] }));
+    const run = (flip: boolean[]) => B.judgeExtractors(eev({ frm: frms, after: frms, posts: mk(flip) }));
+    // The middle post's own flag is wrong against FRM, but it differs from both neighbours (and they from it): all three are report-only.
+    const mid = run([false, true, false]);
+    expect(mid.pass).toBe(true);
+    expect(text(mid)).toContain("3 where the mod's neighbouring posts disagree");
+    // The first two posts differ from each other (unstable); the third agrees with its previous post and is judged.
+    expect(text(run([true, false, false]))).toContain("2 where the mod's neighbouring posts disagree");
+  });
+  it("stable and wrong counts as a miss: the S2 share applies over stable posts only", () => {
+    const run = (misses: number) => B.judgeExtractors(eev({ frm: fleet(100), after: fleet(100), post: fleet(100).map((f, i) => me({ id: f.id, ...(i < misses ? { isProducing: false } : {}) })) }));
+    expect(run(1).pass).toBe(true);
+    expect(run(2).pass).toBe(false);
+    // 50 unstable extractors do not dilute the share: 1 miss of 50 stable is 98% and fails.
+    const unstable = fleet(50).map((f) => ({ ...f, id: `U${f.id}`, producing: false }));
+    const mixed = (misses: number) => B.judgeExtractors(eev({
+      frm: [...fleet(50), ...unstable], after: [...fleet(50), ...unstable.map((f) => ({ ...f, producing: true }))],
+      post: [...fleet(50).map((f, i) => me({ id: f.id, ...(i < misses ? { isProducing: false } : {}) })), ...unstable.map((f) => me({ id: f.id }))],
+    }));
+    expect(mixed(1).pass).toBe(false);
+    expect(text(mixed(1))).toContain("98.00% of 50 stable");
+  });
+  it("extractors compared but none stable fails", () => {
+    const v = B.judgeExtractors(eev({ frm: [fe({ producing: false })], after: [fe()] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no stable extractor-post among 1 compared");
+    // a single bracket is never stable
+    expect(B.judgeExtractors(ev({}, [fe()], [me()])).pass).toBe(false);
   });
   it("an unoccupied extractor with no production passes when FRM has none", () => {
     const v = B.judgeExtractors(eev({ frm: [], post: [me({ production: [] })] }));
@@ -239,13 +281,64 @@ describe("judgeGenerators", () => {
     expect(B.judgeGenerators(mod(103.03)).pass).toBe(false);
     expect(B.judgeGenerators(mod(110)).pass).toBe(false);
   });
-  it("geothermal: only the capacity is excused when FRM says 0; a mod current above the band still fails", () => {
-    const frm = [fg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 0, currentMW: 0, fuelClass: null, supplementClass: null, supplementAmount: null })];
-    const post = (currentMW: number) => [mg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 200, currentMW, fuel: null, supplement: null })];
-    expect(B.judgeGenerators(gev({ frm, post: post(0.5) })).pass).toBe(true);
-    const v = B.judgeGenerators(gev({ frm, post: post(150) }));
-    expect(v.pass).toBe(false);
-    expect(text(v)).toContain("currentMW");
+  // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): geothermal (FRM GeoMaxPower > 0) is judged on the range rule. This
+  // replaces "geothermal: only the capacity is excused when FRM says 0; a mod current above the band still fails".
+  describe("geothermal range rule", () => {
+    const GEO = "Build_GeneratorGeoThermal_C";
+    const geoFrm = (o: Partial<FrmGenerator> = {}, raw: Record<string, number> = {}) => fg({
+      className: GEO, capacityMW: 200, currentMW: 200, clockPercent: 100, fuelClass: null, fuelAmount: null, supplementClass: null, supplementAmount: null,
+      raw: { GeoMinPower: 100, GeoMaxPower: 300, BaseProd: 200, ...raw }, ...o,
+    });
+    const geoMod = (capacityMW: number, currentMW: number) => [mg({ className: GEO, capacityMW, currentMW, fuel: null, supplement: null })];
+    const run = (capacityMW: number, currentMW: number, o: Opts<FrmGenerator> = {}) => B.judgeGenerators(gev({ frm: [geoFrm()], ...o, post: geoMod(capacityMW, currentMW) }));
+    it.each([
+      ["inside the range", 200, 200, true],
+      ["at the top edge (300 + 0.1 floor)", 300.1, 300.1, true],
+      ["just past the top edge", 300.11, 300.11, false],
+      ["at the bottom edge (100 - 0.1 floor)", 99.9, 99.9, true],
+      ["just below the bottom edge", 99.89, 99.89, false],
+      ["current equal to capacity within 0.1 MW", 200, 200.1, true],
+      ["current past 0.1 MW from capacity (both in range)", 200, 200.2, false],
+      ["capacity in range, current out of range", 250, 350, false],
+      ["capacity out of range, current in range", 350, 250, false],
+    ])("%s", (_n, cap, cur, pass) => {
+      const v = run(cap, cur);
+      expect(v.pass).toBe(pass);
+      if (pass) expect(text(v)).toContain("1 geothermal generator(s) (FRM GeoMaxPower above 0) judged on the range rule");
+      else expect(text(v)).toContain("geothermal power");
+    });
+    it("the range scales with the FRM clock (CurrentPotential is a percent)", () => {
+      const half = (c: number) => run(c, c, { frm: [geoFrm({ clockPercent: 50 })] });
+      expect(half(150).pass).toBe(true);
+      expect(half(150.11).pass).toBe(false);
+      expect(half(49.9).pass).toBe(true);
+      expect(half(49.89).pass).toBe(false);
+    });
+    it("one bracketing record suffices", () => {
+      const frm = [geoFrm({}, { GeoMinPower: 100, GeoMaxPower: 150 })];
+      const after = [geoFrm({}, { GeoMinPower: 250, GeoMaxPower: 300 })];
+      expect(run(280, 280, { frm, after }).pass).toBe(true);
+      expect(run(200, 200, { frm, after }).pass).toBe(false);
+    });
+    it("FRM capacity 0: the mod's capacity and current must both be 0 (within 0.1 MW)", () => {
+      const frm = [geoFrm({ capacityMW: 0, currentMW: 0 })];
+      expect(run(0, 0, { frm }).pass).toBe(true);
+      expect(run(0.1, 0.1, { frm }).pass).toBe(true);
+      expect(run(0.11, 0.11, { frm }).pass).toBe(false);
+      expect(run(200, 0, { frm }).pass).toBe(false);
+      expect(run(0, 150, { frm }).pass).toBe(false);
+    });
+    it("a non-geothermal FRM record (no GeoMaxPower) keeps the bands, whatever the mod's class", () => {
+      const frm = [fg({ className: GEO, capacityMW: 200, currentMW: 200, raw: {}, fuelClass: null, supplementClass: null, supplementAmount: null })];
+      expect(run(200, 200, { frm }).pass).toBe(true);
+      expect(run(250, 250, { frm }).pass).toBe(false);
+    });
+    it("geothermal class, circuit and fuel rules still apply", () => {
+      const v = B.judgeGenerators(gev({ frm: [geoFrm()], post: [mg({ className: GEO, capacityMW: 200, currentMW: 200, fuel: { className: "Desc_Coal_C", name: "Coal", amount: 1 }, supplement: null, circuitGroupId: 9 })] }));
+      expect(v.pass).toBe(false);
+      expect(text(v)).toContain("fuel class");
+      expect(text(v)).toContain("circuitGroupId");
+    });
   });
   it("a failed MW run quotes every bracket's raw map", () => {
     const v = B.judgeGenerators(gev({ post: [mg({ currentMW: 10 })], after: [fg({ raw: { RegulatedDemandProd: 74 } })] }));
@@ -282,12 +375,14 @@ describe("judgeGenerators", () => {
     expect(text(v)).toContain("the largest 5 on G1");
     expect(text(v)).toContain("the largest 10 on G1");
   });
-  it("a geothermal capacity is report-only when FRM says 0; nuclear is exercised by class", () => {
-    const frm = [fg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 0, currentMW: 0, fuelClass: null, supplementClass: null, supplementAmount: null })];
-    const v = B.judgeGenerators(gev({ frm, post: [mg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 200, currentMW: 0, fuel: null, supplement: null })] }));
+  // Owner ruling 2026-11-01: was "a geothermal capacity is report-only when FRM says 0" (V5); the mod now must send 0 as well.
+  it("a geothermal generator is exercised by class; an idle one (FRM capacity 0) must be sent at 0", () => {
+    const frm = [fg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 0, currentMW: 0, fuelClass: null, supplementClass: null, supplementAmount: null, raw: { GeoMinPower: 100, GeoMaxPower: 300 } })];
+    const geo = (capacityMW: number) => [mg({ className: "Build_GeneratorGeoThermal_C", capacityMW, currentMW: 0, fuel: null, supplement: null })];
+    const v = B.judgeGenerators(gev({ frm, post: geo(0) }));
     expect(v.pass).toBe(true);
-    expect(text(v)).toContain("capacity report-only (V5)");
     expect(v.never).not.toContain("a geothermal generator");
+    expect(B.judgeGenerators(gev({ frm, post: geo(200) })).pass).toBe(false);
   });
 });
 

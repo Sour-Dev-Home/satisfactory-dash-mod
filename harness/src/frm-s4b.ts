@@ -92,11 +92,13 @@ export function mapFrmExtractors(body: unknown): FrmExtractor[] {
 
 export interface FrmGenerator {
   id: string; className: string; nameHash: string;
-  /** BaseProd + RegulatedDemandProd (the base/dynamic split the mod uses: base production plus regulated dynamic production), observed
-   *  megawatts (75 on a running coal generator, 0 on an idle burner; a geothermal generator has BaseProd above 0 and RegulatedDemandProd 0).
-   *  A missing BaseProd counts as 0. Owner ruling 2026-10-28 after run 40623235820: this was RegulatedDemandProd alone. */
+  /** RegulatedDemandProd + (GeoMaxPower > 0 ? BaseProd : 0), observed megawatts (75 on a running coal generator, 0 on an idle burner;
+   *  a geothermal generator has BaseProd above 0 and RegulatedDemandProd 0). A missing BaseProd counts as 0. Owner ruling 2026-11-01
+   *  after run 40717842374 (gen-ext-analysis): this was BaseProd + RegulatedDemandProd, which counts a non-geothermal BaseProd (equal
+   *  to its nameplate) twice. */
   currentMW: number;
-  /** ProductionCapacity: observed megawatts (75 coal, 250 fuel, 30 automated biomass). Not specified. */
+  /** GeoMaxPower > 0 ? BaseProd : DynamicProdCapacity, observed megawatts (75 coal, 250 fuel, 30 automated biomass). Owner ruling
+   *  2026-11-01 after run 40717842374 (gen-ext-analysis): this was ProductionCapacity. */
   capacityMW: number;
   /** CurrentPotential: observed 100 at default clock. Not specified. */
   clockPercent: number;
@@ -122,7 +124,11 @@ export function mapFrmGenerators(body: unknown): FrmGenerator[] {
     if (!isObj(r)) continue;
     const id = idOf(r);
     if (id === undefined || !goodString(r.ClassName) || !nameOk(r.Name)) continue;
-    if (!isNum(r.RegulatedDemandProd) || !isNum(r.ProductionCapacity) || !isNum(r.CurrentPotential)) continue;
+    // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): a geothermal generator (GeoMaxPower > 0) takes its figures from
+    // BaseProd, every other generator capacity from DynamicProdCapacity; the one that applies must be numeric.
+    const geo = isNum(r.GeoMaxPower) && r.GeoMaxPower > 0;
+    const base = isNum(r.BaseProd) ? r.BaseProd : 0;
+    if (!isNum(r.RegulatedDemandProd) || !isNum(r.CurrentPotential) || !isNum(geo ? r.BaseProd : r.DynamicProdCapacity)) continue;
     const supplementClass = isObj(r.Supplement) && goodString(r.Supplement.ClassName) ? r.Supplement.ClassName : null;
     let fuelClass: string | null = null;
     let fuelAmount: number | null = null;
@@ -136,8 +142,8 @@ export function mapFrmGenerators(body: unknown): FrmGenerator[] {
     }
     const g: FrmGenerator = {
       id, className: r.ClassName, nameHash: evidenceHash(r.Name),
-      currentMW: (isNum(r.BaseProd) ? r.BaseProd : 0) + r.RegulatedDemandProd, capacityMW: r.ProductionCapacity, clockPercent: r.CurrentPotential,
-      producing: (isNum(r.BaseProd) ? r.BaseProd : 0) + r.RegulatedDemandProd > 0,
+      currentMW: r.RegulatedDemandProd + (geo ? base : 0), capacityMW: geo ? base : (r.DynamicProdCapacity as number), clockPercent: r.CurrentPotential,
+      producing: r.RegulatedDemandProd + (geo ? base : 0) > 0,
       fuelClass, fuelAmount,
       supplementClass: supplementAmount === null ? null : supplementClass, supplementAmount,
       raw: pickNumbers(r, RAW_GENERATOR_KEYS),

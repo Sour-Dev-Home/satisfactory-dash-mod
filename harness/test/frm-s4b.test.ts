@@ -9,7 +9,7 @@ const extractor = (o: Record<string, unknown> = {}) => ({
   ManuSpeed: 100, IsConfigured: true, IsProducing: true, IsPaused: false, PowerInfo: { CircuitGroupID: 6, CircuitID: 0 }, ...o,
 });
 const generator = (o: Record<string, unknown> = {}) => ({
-  ID: "Build_GeneratorCoal_C_1", Name: "Secret Plant", ClassName: "Build_GeneratorCoal_C", RegulatedDemandProd: 75, ProductionCapacity: 75,
+  ID: "Build_GeneratorCoal_C_1", Name: "Secret Plant", ClassName: "Build_GeneratorCoal_C", RegulatedDemandProd: 75, DynamicProdCapacity: 75, ProductionCapacity: 75,
   CurrentPotential: 100, FuelAmount: 0.9, Supplement: { Name: "Water", ClassName: "Desc_Water_C" },
   FuelInventory: [{ Name: "Coal", ClassName: "Desc_Coal_C", Amount: 26, MaxAmount: 100 }, { Name: "Water", ClassName: "Desc_Water_C", Amount: 50, MaxAmount: 50 }],
   PowerInfo: { CircuitGroupID: 6 }, ...o,
@@ -53,22 +53,29 @@ describe("mapFrmGenerators", () => {
     expect(g).toEqual({
       id: "Build_GeneratorCoal_C_1", className: "Build_GeneratorCoal_C", nameHash: evidenceHash("Secret Plant"), currentMW: 75, capacityMW: 75,
       clockPercent: 100, producing: true, fuelClass: "Desc_Coal_C", fuelAmount: 26, supplementClass: "Desc_Water_C", supplementAmount: 50, circuit: 6,
-      raw: { RegulatedDemandProd: 75, CurrentPotential: 100, ProductionCapacity: 75, FuelAmount: 0.9 },
+      raw: { RegulatedDemandProd: 75, DynamicProdCapacity: 75, CurrentPotential: 100, ProductionCapacity: 75, FuelAmount: 0.9 },
     });
   });
-  it("adds BaseProd to RegulatedDemandProd (a geothermal shape: base above 0, regulated 0)", () => {
-    const [g] = mapFrmGenerators([generator({ ClassName: "Build_GeneratorGeoThermal_C", BaseProd: 304.5, RegulatedDemandProd: 0, FuelInventory: [], Supplement: {} })]);
-    expect(g).toMatchObject({ currentMW: 304.5, producing: true });
-    expect(g!.raw).toMatchObject({ BaseProd: 304.5, RegulatedDemandProd: 0 });
-    const [h] = mapFrmGenerators([generator({ BaseProd: 10, RegulatedDemandProd: 65 })]);
-    expect(h!.currentMW).toBe(75);
+  // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): was "adds BaseProd to RegulatedDemandProd" and capacity from ProductionCapacity.
+  it("geothermal (GeoMaxPower above 0): current is RegulatedDemandProd + BaseProd, capacity is BaseProd", () => {
+    const [g] = mapFrmGenerators([generator({ ClassName: "Build_GeneratorGeoThermal_C", BaseProd: 304.5, RegulatedDemandProd: 0, DynamicProdCapacity: 0, ProductionCapacity: 999, GeoMinPower: 100, GeoMaxPower: 300, FuelInventory: [], Supplement: {} })]);
+    expect(g).toMatchObject({ currentMW: 304.5, capacityMW: 304.5, producing: true });
+    expect(g!.raw).toMatchObject({ BaseProd: 304.5, RegulatedDemandProd: 0, GeoMinPower: 100, GeoMaxPower: 300 });
+    const [z] = mapFrmGenerators([generator({ BaseProd: 5, RegulatedDemandProd: 2, GeoMaxPower: 300 })]);
+    expect(z).toMatchObject({ currentMW: 7, capacityMW: 5 });
+  });
+  it("non-geothermal: BaseProd is not added; capacity is DynamicProdCapacity, not ProductionCapacity", () => {
+    const [h] = mapFrmGenerators([generator({ BaseProd: 75, RegulatedDemandProd: 65, DynamicProdCapacity: 70, ProductionCapacity: 75 })]);
+    expect(h).toMatchObject({ currentMW: 65, capacityMW: 70 });
+    const [k] = mapFrmGenerators([generator({ GeoMaxPower: 0, BaseProd: 75 })]);
+    expect(k).toMatchObject({ currentMW: 75, capacityMW: 75 });
   });
   it("gives null for a missing slot", () => {
     const [g] = mapFrmGenerators([generator({ FuelInventory: [], Supplement: {}, RegulatedDemandProd: 0 })]);
     expect(g).toMatchObject({ fuelClass: null, fuelAmount: null, supplementClass: null, supplementAmount: null, producing: false });
   });
   it("drops a malformed or over-long-named record", () => {
-    expect(mapFrmGenerators([generator({ ID: "" }), generator({ Name: "n".repeat(201) }), generator({ ProductionCapacity: "x" }), 1])).toEqual([]);
+    expect(mapFrmGenerators([generator({ ID: "" }), generator({ Name: "n".repeat(201) }), generator({ DynamicProdCapacity: "x" }), generator({ GeoMaxPower: 300 }), 1])).toEqual([]);
   });
   it("never returns a raw name", () => {
     expect(JSON.stringify(mapFrmGenerators([generator()]))).not.toContain("Secret");
