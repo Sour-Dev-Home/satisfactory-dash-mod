@@ -14,14 +14,24 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, Bridge{InTransport, InWorker}
 	, WorldLayers{InTransport, Bridge, Clock.Random01}
 	// Every budget is begun and ended on the game thread (the driver ticks there), so its thread cycle counts are comparable (StepBudget.h).
-	, FactoryBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
-	, TrainsBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
-	, RoutesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
-	, LogisticsBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
-	, MarkersBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
-	, DronesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
-	, BuildablesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
+	// The cycle source tests the config's "stepDiagnostics" on each call, so a re-read config takes effect and off means no clock call.
+	, FactoryBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
+	, TrainsBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
+	, RoutesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
+	, LogisticsBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
+	, MarkersBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
+	, DronesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
+	, BuildablesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
 {
+}
+
+TOptional<uint64> SatisDash::FDriver::StepCycles() const
+{
+	if (!Agent.GetConfig().bStepDiagnostics || !Clock.ThreadCycles)
+	{
+		return {};
+	}
+	return Clock.ThreadCycles();
 }
 
 void SatisDash::FDriver::Boot()

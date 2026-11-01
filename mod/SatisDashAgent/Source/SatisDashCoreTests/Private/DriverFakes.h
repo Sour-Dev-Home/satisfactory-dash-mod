@@ -221,9 +221,12 @@ namespace SatisDash::Test
 		bool bOpenRails = false;
 		bool bOpenConveyors = false;
 		bool bOpenPowerLines = false;
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) override
+		bool bOpenCallTiming = false;
+		bool bLastBeginCallTiming = false;
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines, bool bCallTiming = false) override
 		{
 			++LogisticsBegins;
+			bLastBeginCallTiming = bCallTiming;
 			bLastBeginRails = bRails;
 			bLastBeginConveyors = bConveyors;
 			bLastBeginPowerLines = bPowerLines;
@@ -236,6 +239,7 @@ namespace SatisDash::Test
 			bOpenRails = bRails;
 			bOpenConveyors = bConveyors;
 			bOpenPowerLines = bPowerLines;
+			bOpenCallTiming = bCallTiming;
 			return true;
 		}
 		/** Diagnostic tests: each step counts this many elements, sits in this phase, and runs the work hook (a test advances the fake clock there). */
@@ -276,7 +280,10 @@ namespace SatisDash::Test
 					Out.PowerLines = LogisticsPowerLines;
 				}
 				Out.Counts = LogisticsCounts;
-				Out.CallTiming = LogisticsCallTiming;
+				if (bOpenCallTiming)
+				{
+					Out.CallTiming = LogisticsCallTiming; // as the real reader's: timed only when the pass was begun with call timing
+				}
 			}
 			return Out;
 		}

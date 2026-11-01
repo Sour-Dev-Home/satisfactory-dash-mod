@@ -1175,10 +1175,11 @@ void SatisDash::FGameReader::ResetLogisticsRead()
 	bLogisticsRails = false;
 	bLogisticsConveyors = false;
 	bLogisticsPowerLines = false;
+	bLogisticsCallTiming = false;
 	bLogisticsOpen = false;
 }
 
-bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines)
+bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines, bool bCallTiming)
 {
 	if (bLogisticsOpen)
 	{
@@ -1196,6 +1197,7 @@ bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bo
 	bLogisticsRails = bRails;
 	bLogisticsConveyors = bConveyors;
 	bLogisticsPowerLines = bPowerLines;
+	bLogisticsCallTiming = bCallTiming;
 	if (bRails)
 	{
 		// Advisory only (the subsystem's own count of tracks, logged next to what was read).
@@ -1353,12 +1355,14 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const int32 Slot = LogisticsCursor++;
 			FLogisticsCounts& Counts = LogisticsFound.Counts;
 			FConveyorReading Reading;
-			// Temporary diagnostic (owner 2026-11-01, NativeConveyorCallTiming): each lap closes one group of calls and keeps the
-			// per-read maximum with its slot. One FPlatformTime::Seconds() per group, nothing else; nothing is logged here.
-			[[maybe_unused]] double Mark = NativeConveyorCallTiming ? FPlatformTime::Seconds() : 0.0;
+			// Diagnostic (owner 2026-11-01), only when the pass was begun with the config's "stepDiagnostics": each lap closes one group
+			// of calls and keeps the per-read maximum with its slot. One FPlatformTime::Seconds() per group; nothing is logged here.
+			// Off: no clock is read and nothing is noted.
+			const bool bTimeCalls = bLogisticsCallTiming;
+			double Mark = bTimeCalls ? FPlatformTime::Seconds() : 0.0;
 			const auto lap = [&](FConveyorCallTiming::EGroup Group)
 			{
-				if constexpr (NativeConveyorCallTiming)
+				if (bTimeCalls)
 				{
 					const double Now = FPlatformTime::Seconds();
 					LogisticsFound.CallTiming.Note(Group, Now - Mark, Slot);

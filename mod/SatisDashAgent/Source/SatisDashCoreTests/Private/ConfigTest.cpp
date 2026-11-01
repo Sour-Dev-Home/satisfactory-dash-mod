@@ -303,6 +303,23 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 		}
 	}
 
+	// "stepDiagnostics" (owner 2026-11-01): a boolean, absent = false, written back only when true, a non-boolean names the key.
+	TestFalse(TEXT("no key: stepDiagnostics is off"), None.Config.bStepDiagnostics);
+	TestFalse(TEXT("no key: stepDiagnostics is not written back"), ConfigToJson(None.Config).Contains(TEXT("stepDiagnostics")));
+	const FConfigResult DiagOn = ParseConfig(Base + TEXT(",\"stepDiagnostics\":true}"));
+	TestTrue(TEXT("stepDiagnostics true: valid and on"), DiagOn.Status == EConfigStatus::Valid && DiagOn.Config.bStepDiagnostics);
+	TestTrue(TEXT("round trip keeps stepDiagnostics"), ConfigToJson(DiagOn.Config).Contains(TEXT("\"stepDiagnostics\": true")));
+	const FConfigResult DiagBack = ParseConfig(ConfigToJson(DiagOn.Config));
+	TestTrue(TEXT("and the written file parses back to on"), DiagBack.Status == EConfigStatus::Valid && DiagBack.Config.bStepDiagnostics);
+	const FConfigResult DiagOff = ParseConfig(Base + TEXT(",\"stepDiagnostics\":false}"));
+	TestTrue(TEXT("stepDiagnostics false: valid and off"), DiagOff.Status == EConfigStatus::Valid && !DiagOff.Config.bStepDiagnostics);
+	for (const TCHAR* Bad : { TEXT("\"true\""), TEXT("1"), TEXT("null"), TEXT("{}") })
+	{
+		const FConfigResult R = ParseConfig(Base + TEXT(",\"stepDiagnostics\":") + Bad + TEXT("}"));
+		TestTrue(*FString::Printf(TEXT("stepDiagnostics %s is refused"), Bad), R.Status == EConfigStatus::Broken);
+		TestEqual(*FString::Printf(TEXT("stepDiagnostics %s names the key"), Bad), R.BadField, FString(TEXT("stepDiagnostics")));
+	}
+
 	// Written back only when set, and kept when the code is blanked after enrolment.
 	const FString Json = ConfigToJson(Native.Config);
 	TestTrue(TEXT("round trip keeps the keys"), Json.Contains(TEXT("\"playersSource\": \"native\"")) && Json.Contains(TEXT("\"resourceNodesSource\": \"bridge\"")));

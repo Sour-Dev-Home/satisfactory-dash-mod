@@ -70,6 +70,11 @@ namespace SatisDash
 		/** commandRunner.ts: poll, run each command, report its result, one thing at a time (DriverCommands.cpp). */
 		void TickCommands(double Now);
 		void StopCommands();
+		/**
+		 * The budgets' cycle source. Reads the config's "stepDiagnostics" on every call (the config can be re-read while running),
+		 * and only when it is true calls Clock.ThreadCycles: off, this is one flag test and the clock is never asked.
+		 */
+		TOptional<uint64> StepCycles() const;
 
 		FDriverClock Clock;
 		ITransport& Transport;

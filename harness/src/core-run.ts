@@ -43,6 +43,8 @@ export interface NativeSources {
   generatorsSource?: "bridge" | "native";
   stationRatesSource?: "bridge" | "native";
   storageSource?: "bridge" | "native";
+  /** The mod's test-run diagnostics switch (owner 2026-11-01): thread cycles per step and conveyor call timing. Off in the mod unless a run writes true. */
+  stepDiagnostics?: boolean;
 }
 export const NATIVE_SOURCES: NativeSources = { playersSource: "native", resourceNodesSource: "native" };
 /** S2: all four readers native. */

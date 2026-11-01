@@ -277,7 +277,7 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					const bool bRails = WorldSenderIsNative(EWorldLayer::Rails, Context) && Layers[int32(EWorldLayer::Rails)].Phase == EPhase::Waiting;
 					const bool bConveyors = WorldSenderIsNative(EWorldLayer::Conveyors, Context) && Layers[int32(EWorldLayer::Conveyors)].Phase == EPhase::Waiting;
 					const bool bPowerLines = WorldSenderIsNative(EWorldLayer::PowerLines, Context) && Layers[int32(EWorldLayer::PowerLines)].Phase == EPhase::Waiting;
-					if (Context.LogisticsBudget != nullptr && Context.NativeReaders->BeginLogisticsRead(bRails, bConveyors, bPowerLines))
+					if (Context.LogisticsBudget != nullptr && Context.NativeReaders->BeginLogisticsRead(bRails, bConveyors, bPowerLines, Context.Config != nullptr && Context.Config->bStepDiagnostics))
 					{
 						Context.LogisticsBudget->Reset();
 						bPassOpen = true;

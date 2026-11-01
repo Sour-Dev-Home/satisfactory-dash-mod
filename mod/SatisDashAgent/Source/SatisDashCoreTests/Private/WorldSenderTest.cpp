@@ -1005,12 +1005,12 @@ bool FWorldSenderLogisticsTest::RunTest(const FString& Parameters)
 		FWorldFixture S;
 		worldLogisticsNative(S);
 		worldLogisticsReadings(S.Game);
-		if (bTimed)
-		{
-			S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Get, 0.0004, 3);
-			S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Text, 0.0089, 7);
-			S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Ends, 0.00123, 11);
-		}
+		// Owner 2026-11-01: the sender asks for call timing only when the config says "stepDiagnostics"; the fake holds timing either way,
+		// so a pass begun without it must come back untimed and its line carry no tail.
+		S.Config.bStepDiagnostics = bTimed;
+		S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Get, 0.0004, 3);
+		S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Text, 0.0089, 7);
+		S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Ends, 0.00123, 11);
 		S.Game.LogisticsStepElements = 7;
 		S.Game.LogisticsStepTag = 2;
 		S.Game.LogisticsStepWork = [&S, StepSeconds] { if (S.Game.LogisticsStepCalls == 1) { S.T += StepSeconds; } };
@@ -1033,6 +1033,7 @@ bool FWorldSenderLogisticsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("and no other longest-step line"), AnyLongest, Exact);
 		TestEqual(TEXT("the calls tail ends that line only when the snapshot carries timing"), WithTail, (bTimed && StepSeconds > 0.002) ? 1 : 0);
 		TestEqual(TEXT("and appears nowhere else"), TailAnywhere, WithTail);
+		TestEqual(TEXT("the pass was begun with call timing only when stepDiagnostics is on"), S.Game.bLastBeginCallTiming, bTimed);
 		TestEqual(TEXT("and the existing read line is still there"), ReadLine, 1);
 	}
 

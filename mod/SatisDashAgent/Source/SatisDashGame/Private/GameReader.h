@@ -48,7 +48,7 @@ namespace SatisDash
 		virtual bool DroneRoutesReadAbandoned() const override { return bDroneAbandoned; }
 		virtual void EndDroneRoutesRead() override { ResetDroneRoutesRead(); }
 		virtual bool IsDroneRoutesReadOpen() const override { return bDroneOpen; }
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) override;
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines, bool bCallTiming = false) override;
 		virtual TOptional<FLogisticsSnapshot> StepLogisticsRead(FStepBudget& Budget) override;
 		virtual bool LogisticsReadAbandoned() const override { return bLogisticsAbandoned; }
 		virtual void EndLogisticsRead() override { ResetLogisticsRead(); }
@@ -168,6 +168,8 @@ namespace SatisDash
 		bool bLogisticsRails = false;
 		bool bLogisticsConveyors = false;
 		bool bLogisticsPowerLines = false;
+		/** Config "stepDiagnostics": the conveyor phase times its calls (FConveyorCallTiming). Off: no clock reads. */
+		bool bLogisticsCallTiming = false;
 		bool bLogisticsOpen = false;
 		/** The pass that just returned was abandoned (no subsystem, a world swap, or zero buildables), not finished. */
 		bool bLogisticsAbandoned = false;

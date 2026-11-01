@@ -17,13 +17,12 @@ namespace SatisDash
 	inline constexpr ECapacityMode NativeConveyorCapacityMode = ECapacityMode::SpeedHalf;
 
 	/**
-	 * TEMPORARY DIAGNOSTIC (owner 2026-11-01, after tick-cost run 41349617818); remove once the cause of the one ~9 ms element in the
-	 * conveyor phase is known. When true, the game reader times five groups of calls per conveyor element with FPlatformTime::Seconds()
-	 * and keeps the maximum of each; they ride the existing over-ceiling Logistics line as a tail. False: no clock reads, no tail.
+	 * DIAGNOSTIC (owner 2026-11-01, after tick-cost run 41349617818), off unless the mod config says "stepDiagnostics": true (test runs
+	 * only). When on, the game reader times five groups of calls per conveyor element with FPlatformTime::Seconds() and keeps the
+	 * maximum of each; they ride the existing over-ceiling Logistics line as a tail. Off: no clock reads, no tail.
+	 *
+	 * The per-group maxima of one conveyor read (milliseconds) and the conveyor slot (0-based) each occurred at. Numbers only.
 	 */
-	inline constexpr bool NativeConveyorCallTiming = true;
-
-	/** The per-group maxima of one conveyor read (milliseconds) and the conveyor slot (0-based) each occurred at. Numbers only. */
 	struct FConveyorCallTiming
 	{
 		/** Groups: the weak pointer and connection getters, GetName, the tier text, speed and location, the two-end loop. */

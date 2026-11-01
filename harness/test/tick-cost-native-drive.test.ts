@@ -46,7 +46,7 @@ describe("tick-cost-native: spec and drive", () => {
   it("is registered, in the run ids, and writes native sources into the mod's config", () => {
     expect(CORE_RUN_IDS).toContain("tick-cost-native");
     expect(CORE_RUNS["tick-cost-native"]).toBe(tickCostNative);
-    expect(tickCostNative.modConfig).toEqual(NATIVE_SOURCES_S4B);
+    expect(tickCostNative.modConfig).toEqual({ ...NATIVE_SOURCES_S4B, stepDiagnostics: true });
     expect(tickCostNative.baseline).toBe(true);
     expect(tickCost.modConfig).toBeUndefined();
   });

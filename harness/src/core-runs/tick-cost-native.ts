@@ -15,7 +15,8 @@ export const tickCostNative: CoreRunSpec = {
   ...tickCost,
   requirements: Pass.requirements,
   worldKey: "sprint3",
-  modConfig: NATIVE_SOURCES_S4B,
+  // stepDiagnostics (owner 2026-11-01): the mod's thread-cycle and conveyor call-timing diagnostics are off in a normal install; this run turns them on.
+  modConfig: { ...NATIVE_SOURCES_S4B, stepDiagnostics: true },
   evaluate: Pass.evaluate,
   drive: (ctx) => driveTickCost(ctx, "world-first", "sprint3"),
 };
