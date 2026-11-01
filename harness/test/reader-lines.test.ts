@@ -109,6 +109,17 @@ describe("step costs", () => {
     expect(longestStepDiagnostics([cycles])).toEqual([{ reader: "Logistics", longestStepMs: 10.03, elements: 319, startPhase: 1, endPhase: 2, longestElementMs: 9, longestElementIndex: 319, longestElementPhase: 2, cyclesPerMsInStep: 41000, cyclesPerMsInOtherSteps: 3000000, otherSteps: 10 }]);
     expect(stepCosts([cycles])).toEqual([]);
     expect(stepProblems([cycles], [])).toEqual([]);
+    const calls = `${cycles}, conveyor calls max: get 0.40 ms at 3, name 0.00 ms at 0, text 8.90 ms at 7, speed 0.10 ms at 12, ends 1.23 ms at 11`;
+    const parsed = longestStepDiagnostics([calls]);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]).toMatchObject({ cyclesPerMsInStep: 41000, otherSteps: 10 });
+    expect(parsed[0]!.conveyorCalls).toEqual({ getMs: 0.4, getSlot: 3, nameMs: 0, nameSlot: 0, textMs: 8.9, textSlot: 7, speedMs: 0.1, speedSlot: 12, endsMs: 1.23, endsSlot: 11 });
+    const callsOnly = longestStepDiagnostics([`${next}, conveyor calls max: get 0.40 ms at 3, name 0.00 ms at 0, text 8.90 ms at 7, speed 0.10 ms at 12, ends 1.23 ms at 11`]);
+    expect(callsOnly[0]!.conveyorCalls?.textMs).toBe(8.9);
+    expect(callsOnly[0]!.cyclesPerMsInStep).toBeUndefined();
+    expect(longestStepDiagnostics([cycles])[0]!.conveyorCalls).toBeUndefined();
+    expect(stepCosts([calls])).toEqual([]);
+    expect(stepProblems([calls], [])).toEqual([]);
     expect(longestStepDiagnostics([`${P}Factory (game thread only): 1 items in 1 steps, longest step 1.00 ms, total 1.00 ms`])).toEqual([]);
   });
 });

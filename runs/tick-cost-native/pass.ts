@@ -129,6 +129,10 @@ function diagnosticLines(lines: readonly string[]): string[] {
     const cycles = d.cyclesPerMsInStep === undefined || d.cyclesPerMsInOtherSteps === undefined
       ? ""
       : `; thread cycles per ms ${d.cyclesPerMsInStep} in this step vs ${d.cyclesPerMsInOtherSteps} in ${d.otherSteps} other steps${d.cyclesPerMsInOtherSteps > 0 ? ` (${((100 * d.cyclesPerMsInStep) / d.cyclesPerMsInOtherSteps).toFixed(1)}%)` : ""}`;
-    return `diagnostic (report-only): ${d.reader} longest step ${d.longestStepMs.toFixed(2)} ms${element}${cycles}`;
+    const c = d.conveyorCalls;
+    const calls = c === undefined
+      ? ""
+      : `; conveyor calls max: get ${c.getMs.toFixed(2)} ms at ${c.getSlot}, name ${c.nameMs.toFixed(2)} ms at ${c.nameSlot}, text ${c.textMs.toFixed(2)} ms at ${c.textSlot}, speed ${c.speedMs.toFixed(2)} ms at ${c.speedSlot}, ends ${c.endsMs.toFixed(2)} ms at ${c.endsSlot}`;
+    return `diagnostic (report-only): ${d.reader} longest step ${d.longestStepMs.toFixed(2)} ms${element}${cycles}${calls}`;
   });
 }

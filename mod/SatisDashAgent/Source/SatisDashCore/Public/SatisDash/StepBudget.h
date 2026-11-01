@@ -102,7 +102,8 @@ namespace SatisDash
 	 * (owner 2026-11-01) only when the budget has a cycle source and both rates are available, else the line is unchanged.
 	 */
 	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, double LongestMs, int32 Items, int32 StartTag, int32 EndTag);
-	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, const FStepBudget& Budget);
+	/** ExtraTail (owner 2026-11-01, Logistics only) is appended after the cycles tail; empty leaves the line byte-identical. */
+	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, const FStepBudget& Budget, const FString& ExtraTail = FString());
 	/** The cycles tail of that line (", thread cycles per ms ..."), or an empty string when either rate is unavailable. */
 	SATISDASHCORE_API FString LongestStepCyclesTail(const FStepBudget& Budget);
 }

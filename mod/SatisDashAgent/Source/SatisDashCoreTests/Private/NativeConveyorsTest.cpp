@@ -356,3 +356,21 @@ bool FNativeConveyorsGoldenTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("sort-insensitive"), BuildNativeConveyors(NativeConveyorsObserved, Reversed).Json, Body.Json);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FNativeConveyorsCallTimingTest, "SatisDash.Core.NativeConveyors.CallTiming", SatisDash::Test::Flags)
+bool FNativeConveyorsCallTimingTest::RunTest(const FString& Parameters)
+{
+	// Owner 2026-11-01 diagnostic: nothing timed gives no tail, so the Logistics line stays byte-identical.
+	FConveyorCallTiming Timing;
+	TestEqual(TEXT("untimed: empty tail"), ConveyorCallsTail(Timing), FString());
+
+	// Each group keeps its own maximum and the slot it occurred at; a later, smaller value changes nothing.
+	Timing.Note(FConveyorCallTiming::Get, 0.0001, 0);
+	Timing.Note(FConveyorCallTiming::Text, 0.0089, 7);
+	Timing.Note(FConveyorCallTiming::Text, 0.0002, 9);
+	Timing.Note(FConveyorCallTiming::Get, 0.0004, 3);
+	Timing.Note(FConveyorCallTiming::Ends, 0.00123, 11);
+	TestEqual(TEXT("the tail"), ConveyorCallsTail(Timing),
+		FString(TEXT(", conveyor calls max: get 0.40 ms at 3, name 0.00 ms at 0, text 8.90 ms at 7, speed 0.00 ms at 0, ends 1.23 ms at 11")));
+	return true;
+}

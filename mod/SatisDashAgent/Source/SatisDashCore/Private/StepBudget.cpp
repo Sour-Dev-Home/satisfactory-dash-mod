@@ -145,13 +145,13 @@ namespace SatisDash
 		return FString::Printf(TEXT(", thread cycles per ms %.0f in this step, %.0f in %d other steps"), InStep.GetValue(), InOthers.GetValue(), Budget.OtherStepsWithCycles());
 	}
 
-	void LogLongestStep(const TCHAR* ReaderName, const FStepBudget& Budget)
+	void LogLongestStep(const TCHAR* ReaderName, const FStepBudget& Budget, const FString& ExtraTail)
 	{
 		if (Budget.LongestMs() > MaxNativeStepMs)
 		{
-			UE_LOG(LogSatisDash, Display, TEXT("%s read longest step: %.2f ms over %d elements, phase %d to %d, longest element %.2f ms at %d (phase %d)%s"),
+			UE_LOG(LogSatisDash, Display, TEXT("%s read longest step: %.2f ms over %d elements, phase %d to %d, longest element %.2f ms at %d (phase %d)%s%s"),
 				ReaderName, Budget.LongestMs(), Budget.LongestItems(), Budget.LongestStartTag(), Budget.LongestEndTag(),
-				Budget.LongestElementMs(), Budget.LongestElementIndex(), Budget.LongestElementTag(), *LongestStepCyclesTail(Budget));
+				Budget.LongestElementMs(), Budget.LongestElementIndex(), Budget.LongestElementTag(), *LongestStepCyclesTail(Budget), *ExtraTail);
 		}
 	}
 }

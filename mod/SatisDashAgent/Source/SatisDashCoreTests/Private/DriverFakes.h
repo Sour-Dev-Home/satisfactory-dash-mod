@@ -202,6 +202,8 @@ namespace SatisDash::Test
 		/** R6: what a pass that asked for conveyors returns (the rails and conveyors lists are each given only when asked, as the real reader's). */
 		TArray<SatisDash::FConveyorReading> LogisticsConveyors;
 		SatisDash::FLogisticsCounts LogisticsCounts;
+		/** The conveyor call-timing diagnostic a finished pass carries (owner 2026-11-01); untimed by default. */
+		SatisDash::FConveyorCallTiming LogisticsCallTiming;
 		/** The pass ends abandoned (no subsystem, a world swap, or zero buildables): empty and flagged, as the game reader does. */
 		bool bLogisticsAbandoned = false;
 		bool bBeginLogisticsOk = true;
@@ -274,6 +276,7 @@ namespace SatisDash::Test
 					Out.PowerLines = LogisticsPowerLines;
 				}
 				Out.Counts = LogisticsCounts;
+				Out.CallTiming = LogisticsCallTiming;
 			}
 			return Out;
 		}

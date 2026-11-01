@@ -63,6 +63,8 @@ namespace SatisDash
 		/** Empty when power lines were not asked for. */
 		TArray<FPowerLineReading> PowerLines;
 		FLogisticsCounts Counts;
+		/** Temporary diagnostic (owner 2026-11-01): per-call maxima of the conveyor phase; not timed unless NativeConveyorCallTiming and conveyors were read. */
+		FConveyorCallTiming CallTiming;
 	};
 
 	/** S4-B: which readers the Buildables pass is asked for (each is on when its source is native). */

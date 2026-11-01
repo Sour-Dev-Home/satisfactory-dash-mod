@@ -1353,6 +1353,18 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const int32 Slot = LogisticsCursor++;
 			FLogisticsCounts& Counts = LogisticsFound.Counts;
 			FConveyorReading Reading;
+			// Temporary diagnostic (owner 2026-11-01, NativeConveyorCallTiming): each lap closes one group of calls and keeps the
+			// per-read maximum with its slot. One FPlatformTime::Seconds() per group, nothing else; nothing is logged here.
+			[[maybe_unused]] double Mark = NativeConveyorCallTiming ? FPlatformTime::Seconds() : 0.0;
+			const auto lap = [&](FConveyorCallTiming::EGroup Group)
+			{
+				if constexpr (NativeConveyorCallTiming)
+				{
+					const double Now = FPlatformTime::Seconds();
+					LogisticsFound.CallTiming.Note(Group, Now - Mark, Slot);
+					Mark = Now;
+				}
+			};
 			if (Slot < BeltCount + LiftCount)
 			{
 				const bool bLift = Slot >= BeltCount;
@@ -1368,13 +1380,17 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					++Counts.Dropped; // no end 0, so no position (ruling S8)
 					continue;
 				}
+				lap(FConveyorCallTiming::Get);
 				Reading.Id = Edge->GetName();
 				Reading.Kind = bLift ? EConveyorKind::Lift : EConveyorKind::Belt;
+				lap(FConveyorCallTiming::Name);
 				Reading.Tier = Edge->mDisplayName.ToString();
+				lap(FConveyorCallTiming::Text);
 				Reading.RawRate = Edge->GetSpeed();
 				const FVector At = C0->GetConnectorLocation();
 				Reading.XCm = At.X;
 				Reading.YCm = At.Y;
+				lap(FConveyorCallTiming::Speed);
 				for (int32 End = 0; End < 2; ++End)
 				{
 					const UFGFactoryConnectionComponent* Conn = End == 0 ? C0 : C1;
@@ -1383,6 +1399,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					// A connected end whose far side or owner is gone is ownerless, and open; a missing component is just open.
 					ConvReadEnd(IsValid(Other) ? Other->GetOuterBuildable() : nullptr, bConnected, End, Counts, End == 0 ? Reading.FromId : Reading.ToId);
 				}
+				lap(FConveyorCallTiming::Ends);
 				if (bLift)
 				{
 					++Counts.Lifts;
@@ -1406,13 +1423,17 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					++Counts.Dropped;
 					continue;
 				}
+				lap(FConveyorCallTiming::Get);
 				Reading.Id = Edge->GetName();
 				Reading.Kind = EConveyorKind::Pipe;
+				lap(FConveyorCallTiming::Name);
 				Reading.Tier = Edge->mDisplayName.ToString();
+				lap(FConveyorCallTiming::Text);
 				Reading.RawRate = Edge->GetFlowLimit();
 				const FVector At = P0->GetComponentLocation();
 				Reading.XCm = At.X;
 				Reading.YCm = At.Y;
+				lap(FConveyorCallTiming::Speed);
 				for (int32 End = 0; End < 2; ++End)
 				{
 					const UFGPipeConnectionComponentBase* Conn = End == 0 ? P0 : P1;
@@ -1420,6 +1441,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					const UFGPipeConnectionComponentBase* Other = bConnected ? Conn->GetConnection() : nullptr;
 					ConvReadEnd(IsValid(Other) ? Other->GetOwner() : nullptr, bConnected, End, Counts, End == 0 ? Reading.FromId : Reading.ToId);
 				}
+				lap(FConveyorCallTiming::Ends);
 				++Counts.Pipes;
 			}
 			NoteConveyorTier(Counts.Tiers, Reading.Kind, Reading.Tier, Reading.RawRate);
