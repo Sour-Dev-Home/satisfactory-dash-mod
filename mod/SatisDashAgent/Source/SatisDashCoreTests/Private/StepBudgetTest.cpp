@@ -131,6 +131,88 @@ bool FStepBudgetSlicesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStepBudgetThreadCyclesTest, "SatisDash.Core.StepBudget.ThreadCycles", SatisDash::Test::Flags)
+
+bool FStepBudgetThreadCyclesTest::RunTest(const FString& Parameters)
+{
+	// Tick-cost run 41334503941: nine normal steps (1 ms wall, 3,000,000 cycles each) and one stalled step (9 ms wall, 41,000 cycles).
+	// Cycle reads come from a queue: one per Begin() and one per End(), so the test also proves there are exactly two per step.
+	TSharedRef<double> Now = MakeShared<double>(0.0);
+	TSharedRef<TArray<uint64>> Reads = MakeShared<TArray<uint64>>();
+	TSharedRef<int32> ReadCount = MakeShared<int32>(0);
+	FStepBudget Budget{[Now]() { return *Now; }, 1.0, [Reads, ReadCount]() -> TOptional<uint64>
+	{
+		const int32 Index = (*ReadCount)++;
+		return Reads->IsValidIndex(Index) ? TOptional<uint64>((*Reads)[Index]) : TOptional<uint64>();
+	}};
+	auto runStep = [&](double WallSeconds, uint64 Cycles)
+	{
+		// Begin's reading, then End's.
+		Reads->Add(10000000);
+		Reads->Add(10000000 + Cycles);
+		Budget.Begin();
+		Budget.Spent();
+		*Now += WallSeconds;
+		Budget.End();
+	};
+	for (int32 Step = 0; Step < 4; ++Step)
+	{
+		runStep(0.001, 3000000);
+	}
+	runStep(0.009, 41000);
+	for (int32 Step = 0; Step < 5; ++Step)
+	{
+		runStep(0.001, 3000000);
+	}
+	TestEqual(TEXT("two cycle reads per step, never per element"), *ReadCount, 20);
+	TestEqual(TEXT("ten steps"), Budget.Steps(), 10);
+	TestTrue(TEXT("the longest step is the stalled one"), FMath::Abs(Budget.LongestMs() - 9.0) < 0.001);
+	TestTrue(TEXT("its rate is 41000 / 9 ms"), Budget.LongestStepCyclesPerMs().IsSet() && FMath::Abs(Budget.LongestStepCyclesPerMs().GetValue() - 41000.0 / 9.0) < 0.5);
+	TestTrue(TEXT("the other nine steps run at 3,000,000 per ms"), Budget.OtherStepsCyclesPerMs().IsSet() && FMath::Abs(Budget.OtherStepsCyclesPerMs().GetValue() - 3000000.0) < 0.5);
+	TestEqual(TEXT("over 9 other steps"), Budget.OtherStepsWithCycles(), 9);
+	TestEqual(TEXT("the log tail"), LongestStepCyclesTail(Budget), FString(TEXT(", thread cycles per ms 4556 in this step, 3000000 in 9 other steps")));
+	Budget.Reset();
+	TestFalse(TEXT("Reset clears the longest rate"), Budget.LongestStepCyclesPerMs().IsSet());
+	TestFalse(TEXT("Reset clears the other rate"), Budget.OtherStepsCyclesPerMs().IsSet());
+	TestEqual(TEXT("Reset clears the other steps"), Budget.OtherStepsWithCycles(), 0);
+	TestEqual(TEXT("and the tail"), LongestStepCyclesTail(Budget), FString());
+
+	// No source: no cycles, and the tail is empty so the log line is byte-identical to the one without this diagnostic.
+	TSharedRef<double> Now2 = MakeShared<double>(0.0);
+	FStepBudget NoSource{[Now2]() { return *Now2; }, 1.0};
+	NoSource.Begin();
+	*Now2 += 0.009;
+	NoSource.End();
+	TestFalse(TEXT("no source: no longest rate"), NoSource.LongestStepCyclesPerMs().IsSet());
+	TestEqual(TEXT("no source: empty tail"), LongestStepCyclesTail(NoSource), FString());
+
+	// A source that returns unset, or End's reading smaller than Begin's: the step has no cycles.
+	TSharedRef<int32> Calls = MakeShared<int32>(0);
+	TSharedRef<double> Now3 = MakeShared<double>(0.0);
+	FStepBudget Backwards{[Now3]() { return *Now3; }, 1.0, [Calls]() -> TOptional<uint64> { return (*Calls)++ == 0 ? TOptional<uint64>(500) : TOptional<uint64>(100); }};
+	Backwards.Begin();
+	*Now3 += 0.003;
+	Backwards.End();
+	TestFalse(TEXT("End reading smaller than Begin's: no cycles"), Backwards.LongestStepCyclesPerMs().IsSet());
+	FStepBudget Unset{[Now3]() { return *Now3; }, 1.0, []() -> TOptional<uint64> { return {}; }};
+	Unset.Begin();
+	*Now3 += 0.003;
+	Unset.End();
+	TestFalse(TEXT("an unset source: no cycles"), Unset.LongestStepCyclesPerMs().IsSet());
+
+	// A single step has no other steps to compare with: no other-steps rate, so no tail.
+	TSharedRef<int32> Pair = MakeShared<int32>(0);
+	TSharedRef<double> Now4 = MakeShared<double>(0.0);
+	FStepBudget Single{[Now4]() { return *Now4; }, 1.0, [Pair]() -> TOptional<uint64> { return TOptional<uint64>(uint64(1000 * (*Pair)++)); }};
+	Single.Begin();
+	*Now4 += 0.003;
+	Single.End();
+	TestTrue(TEXT("one step: its own rate is known"), Single.LongestStepCyclesPerMs().IsSet());
+	TestFalse(TEXT("one step: no other steps"), Single.OtherStepsCyclesPerMs().IsSet());
+	TestEqual(TEXT("one step: empty tail"), LongestStepCyclesTail(Single), FString());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStepBudgetAlwaysOneElementTest, "SatisDash.Core.StepBudget.AlwaysOneElement", SatisDash::Test::Flags)
 
 bool FStepBudgetAlwaysOneElementTest::RunTest(const FString& Parameters)

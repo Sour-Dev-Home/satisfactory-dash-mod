@@ -573,19 +573,27 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | AActor::GetActorRotation | Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:2511 | header only (the survey's :1601 is K2_GetActorRotation) |
 | UObjectBase::GetClass | Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBase.h:190 | header only |
 | IsValid | Engine/Source/Runtime/CoreUObject/Public/UObject/Object.h:1857 | header only (IsValid(const UObject*): null or pending-kill is false) |
-| FStepBudget::Begin | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:28 | the plugin's own declaration, not an engine symbol (Task 2): the game reader calls it on the budget the driver passes |
-| FStepBudget::Spent | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:30 | the plugin's own declaration (Task 2) |
-| FStepBudget::End | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:32 | the plugin's own declaration (Task 2) |
-| FStepBudget::Steps | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:33 | the plugin's own declaration (Task 2) |
-| FStepBudget::LongestMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:34 | the plugin's own declaration (Task 2) |
-| FStepBudget::TotalMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:35 | the plugin's own declaration (Task 2) |
-| FStepBudget::SetTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:37 | the plugin's own declaration (longest-step diagnostic, 2026-10-27) |
-| FStepBudget::LongestItems | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:39 | the plugin's own declaration (longest-step diagnostic) |
-| FStepBudget::LongestStartTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:41 | the plugin's own declaration (longest-step diagnostic) |
-| FStepBudget::LongestEndTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:42 | the plugin's own declaration (longest-step diagnostic) |
-| FStepBudget::LongestElementMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:48 | the plugin's own declaration (longest-element diagnostic) |
-| FStepBudget::LongestElementIndex | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:49 | the plugin's own declaration (longest-element diagnostic) |
-| FStepBudget::LongestElementTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:50 | the plugin's own declaration (longest-element diagnostic) |
+| FStepBudget::Begin | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:32 | the plugin's own declaration, not an engine symbol (Task 2): the game reader calls it on the budget the driver passes |
+| FStepBudget::Spent | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:34 | the plugin's own declaration (Task 2) |
+| FStepBudget::End | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:36 | the plugin's own declaration (Task 2) |
+| FStepBudget::Steps | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:37 | the plugin's own declaration (Task 2) |
+| FStepBudget::LongestMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:38 | the plugin's own declaration (Task 2) |
+| FStepBudget::TotalMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:39 | the plugin's own declaration (Task 2) |
+| FStepBudget::SetTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:41 | the plugin's own declaration (longest-step diagnostic, 2026-10-27) |
+| FStepBudget::LongestItems | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:43 | the plugin's own declaration (longest-step diagnostic) |
+| FStepBudget::LongestStartTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:45 | the plugin's own declaration (longest-step diagnostic) |
+| FStepBudget::LongestEndTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:46 | the plugin's own declaration (longest-step diagnostic) |
+| FStepBudget::LongestElementMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:52 | the plugin's own declaration (longest-element diagnostic) |
+| FStepBudget::LongestElementIndex | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:53 | the plugin's own declaration (longest-element diagnostic) |
+| FStepBudget::LongestElementTag | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:54 | the plugin's own declaration (longest-element diagnostic) |
+| FStepBudget::LongestStepCyclesPerMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:61 | the plugin's own declaration (thread-cycles diagnostic, owner 2026-11-01) |
+| FStepBudget::OtherStepsCyclesPerMs | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:62 | the plugin's own declaration (thread-cycles diagnostic) |
+| FStepBudget::OtherStepsWithCycles | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:64 | the plugin's own declaration (thread-cycles diagnostic) |
+| ThreadCycles | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/StepBudget.h:69 | the plugin's own TFunction member (FStepBudget; FDriverClock has one of the same name, Driver.h:29): the call that reads the thread's cycle count, once in Begin() and once in End() |
+| Windows/AllowWindowsPlatformTypes.h | Engine/Source/Runtime/Core/Public/Windows/AllowWindowsPlatformTypes.h:1 | header only (pulls in Windows/WindowsHWrapper.h:10, which includes the full Windows.h through MinWindows.h:78; UE's own pattern: Core/Private/Windows/WindowsPlatformProcess.cpp:36-42) |
+| Windows/HideWindowsPlatformTypes.h | Engine/Source/Runtime/Core/Public/Windows/HideWindowsPlatformTypes.h:1 | header only (closes the Allow block above) |
+| QueryThreadCycleTime | WindowsKits/10/Include/10.0.26100.0/um/realtimeapiset.h:32 | Win32, not Unreal (the SDK folder is "Windows Kits" under Program Files (x86); the path is written without the space because a header cell must be one token): owner's rule-1 exception, 2026-11-01 (diagnostic only). `BOOL QueryThreadCycleTime(HANDLE ThreadHandle, PULONG64 CycleTime)`, declared for _WIN32_WINNT >= 0x0600 (:27), reached through Windows.h -> WinBase.h:70. Microsoft's docs say the cycle count must not be converted to elapsed time, so the mod compares cycles per wall ms of the longest step with the same read's other steps |
+| GetCurrentThread | WindowsKits/10/Include/10.0.26100.0/um/processthreadsapi.h:231 | Win32, not Unreal: owner's rule-1 exception, 2026-11-01. `HANDLE GetCurrentThread(VOID)`, a pseudo handle for the calling thread; UE calls it as ::GetCurrentThread() in Core/Private/Windows/WindowsPlatformProcess.cpp:707 |
 | LogisticsStepWork | mod/SatisDashAgent/Source/SatisDashCoreTests/Private/DriverFakes.h:240 | the test fake's own hook (longest-step diagnostic test) |
 | FJsonObject::TryGetArrayField | Engine/Source/Runtime/Json/Public/Dom/JsonObject.h:274 | header only (the FStringView overload; test only, Task 8) |
 | FJsonValue::TryGetString | Engine/Source/Runtime/Json/Public/Dom/JsonValue.h:74 | header only (test only, Task 8) |

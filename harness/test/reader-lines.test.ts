@@ -105,6 +105,10 @@ describe("step costs", () => {
     const next = `${old}, longest element 9.00 ms at 319 (phase 2)`;
     expect(longestStepDiagnostics([old])).toEqual([{ reader: "Logistics", longestStepMs: 10.03, elements: 319, startPhase: 1, endPhase: 2 }]);
     expect(longestStepDiagnostics([next])).toEqual([{ reader: "Logistics", longestStepMs: 10.03, elements: 319, startPhase: 1, endPhase: 2, longestElementMs: 9, longestElementIndex: 319, longestElementPhase: 2 }]);
+    const cycles = `${next}, thread cycles per ms 41000 in this step, 3000000 in 10 other steps`;
+    expect(longestStepDiagnostics([cycles])).toEqual([{ reader: "Logistics", longestStepMs: 10.03, elements: 319, startPhase: 1, endPhase: 2, longestElementMs: 9, longestElementIndex: 319, longestElementPhase: 2, cyclesPerMsInStep: 41000, cyclesPerMsInOtherSteps: 3000000, otherSteps: 10 }]);
+    expect(stepCosts([cycles])).toEqual([]);
+    expect(stepProblems([cycles], [])).toEqual([]);
     expect(longestStepDiagnostics([`${P}Factory (game thread only): 1 items in 1 steps, longest step 1.00 ms, total 1.00 ms`])).toEqual([]);
   });
 });

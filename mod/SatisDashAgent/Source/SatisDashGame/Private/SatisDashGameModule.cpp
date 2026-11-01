@@ -11,6 +11,11 @@
 #include "SatisDashCurl.h"
 #include "TaskWorker.h"
 
+#if PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
 namespace
 {
 	SatisDash::FDriverClock gameClock()
@@ -19,6 +24,18 @@ namespace
 		Clock.Now = [] { return FPlatformTime::Seconds(); };
 		Clock.UtcNow = [] { return FDateTime::UtcNow(); };
 		Clock.Random01 = [] { return double(FMath::FRand()); };
+#if PLATFORM_WINDOWS
+		// Owner, 2026-11-01 (tick-cost run 41334503941): the calling thread's CPU cycles, so a slow step can be told from a stalled one. Diagnostic only.
+		Clock.ThreadCycles = []() -> TOptional<uint64>
+		{
+			ULONG64 Cycles = 0;
+			if (QueryThreadCycleTime(GetCurrentThread(), &Cycles) == 0)
+			{
+				return {};
+			}
+			return TOptional<uint64>(uint64(Cycles));
+		};
+#endif
 		return Clock;
 	}
 }

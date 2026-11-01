@@ -56,8 +56,9 @@ const STEP_HEAD = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only
  * The diagnostic `<Name> read longest step: X ms over N elements, phase A to B` (owner, 2026-10-27), with the optional tail
  * `, longest element Y ms at I (phase T)` added 2026-10-28. Older evidence has no tail, so its element fields are undefined.
  */
-export interface LongestStepDiagnostic { reader: string; longestStepMs: number; elements: number; startPhase: number; endPhase: number; longestElementMs?: number; longestElementIndex?: number; longestElementPhase?: number }
-const LONGEST_STEP = /LogSatisDash: (?:Display: )?(.+?) read longest step: (\d+(?:\.\d+)?) ms over (\d+) elements, phase (\d+) to (\d+)(?:, longest element (\d+(?:\.\d+)?) ms at (\d+) \(phase (\d+)\))?\s*$/;
+export interface LongestStepDiagnostic { reader: string; longestStepMs: number; elements: number; startPhase: number; endPhase: number; longestElementMs?: number; longestElementIndex?: number; longestElementPhase?: number; cyclesPerMsInStep?: number; cyclesPerMsInOtherSteps?: number; otherSteps?: number }
+// The cycles tail (owner 2026-11-01, tick-cost run 41334503941): `, thread cycles per ms A in this step, B in N other steps`. Report-only.
+const LONGEST_STEP = /LogSatisDash: (?:Display: )?(.+?) read longest step: (\d+(?:\.\d+)?) ms over (\d+) elements, phase (\d+) to (\d+)(?:, longest element (\d+(?:\.\d+)?) ms at (\d+) \(phase (\d+)\))?(?:, thread cycles per ms (\d+) in this step, (\d+) in (\d+) other steps)?\s*$/;
 
 /** One entry per longest-step diagnostic line, old and new shapes. Not a pass input. */
 export function longestStepDiagnostics(lines: readonly string[]): LongestStepDiagnostic[] {
@@ -70,6 +71,11 @@ export function longestStepDiagnostics(lines: readonly string[]): LongestStepDia
       d.longestElementMs = Number(m[6]);
       d.longestElementIndex = Number(m[7]);
       d.longestElementPhase = Number(m[8]);
+    }
+    if (m[9] !== undefined) {
+      d.cyclesPerMsInStep = Number(m[9]);
+      d.cyclesPerMsInOtherSteps = Number(m[10]);
+      d.otherSteps = Number(m[11]);
     }
     out.push(d);
   }

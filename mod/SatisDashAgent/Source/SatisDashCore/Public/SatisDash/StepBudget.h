@@ -23,7 +23,11 @@ namespace SatisDash
 	class SATISDASHCORE_API FStepBudget
 	{
 	public:
-		FStepBudget(TFunction<double()> InNow, double InBudgetSeconds = NativeStepBudgetSeconds);
+		/**
+		 * InThreadCycles is optional (empty or unset = not available): the calling thread's CPU cycle count, read once in Begin() and
+		 * once in End(), never per element. Diagnostic only; it never changes what the 2 ms ceiling judges (wall time).
+		 */
+		FStepBudget(TFunction<double()> InNow, double InBudgetSeconds = NativeStepBudgetSeconds, TFunction<TOptional<uint64>()> InThreadCycles = {});
 		/** Starts a step. */
 		void Begin();
 		/** True once the budget is used up. Samples the clock. */
@@ -48,10 +52,27 @@ namespace SatisDash
 		double LongestElementMs() const { return LongestElementSeconds * 1000.0; }
 		int32 LongestElementIndex() const { return LongestElementIndexValue; }
 		int32 LongestElementTag() const { return LongestElementTagValue; }
+		/**
+		 * Thread CPU cycles (tick-cost run 41334503941): a step has cycles only when the source gave a reading at Begin() and at End()
+		 * and End's was not smaller. Windows says a cycle count must not be converted to elapsed time, so the longest step is judged
+		 * against the same read's other steps: cycles per wall millisecond in each. A stalled (descheduled) step shows few cycles per ms.
+		 * Each is unset when it cannot be computed (no cycles, no other steps, or zero wall time).
+		 */
+		TOptional<double> LongestStepCyclesPerMs() const;
+		TOptional<double> OtherStepsCyclesPerMs() const;
+		/** Steps that had cycles, minus the longest one: the "other steps" the rate above is over. 0 when the longest has no cycles. */
+		int32 OtherStepsWithCycles() const;
 		void Reset();
 
 	private:
 		FStepClock TimeSource;
+		TFunction<TOptional<uint64>()> ThreadCycles;
+		TOptional<uint64> StepStartCycles;
+		/** The longest step's cycles (unset when that step had none), and totals over every step that had cycles. */
+		TOptional<uint64> LongestCycles;
+		uint64 CyclesTotal = 0;
+		double CyclesWallSeconds = 0.0;
+		int32 CyclesStepCount = 0;
 		double BudgetSeconds;
 		double StepStart = 0.0;
 		int32 StepCount = 0;
@@ -76,9 +97,12 @@ namespace SatisDash
 
 	/**
 	 * Owner, 2026-10-27: when a budget's longest step passes MaxNativeStepMs, one extra Display line says what that step was doing:
-	 * "<Name> read longest step: <x.xx> ms over <n> elements, phase <a> to <b>[, longest element <y.yy> ms at <i> (phase <t>)]". Counts and times only, never a name or an id. Logs nothing at or below the ceiling.
-		 * The bracketed part is written only by the budget overload (the resource node scan has no per-element data).
+	 * "<Name> read longest step: <x.xx> ms over <n> elements, phase <a> to <b>[, longest element <y.yy> ms at <i> (phase <t>)][, thread cycles per ms <a> in this step, <b> in <n> other steps]". Counts and times only, never a name or an id. Logs nothing at or below the ceiling.
+	 * The bracketed parts are written only by the budget overload (the resource node scan has no per-element data); the cycles tail
+	 * (owner 2026-11-01) only when the budget has a cycle source and both rates are available, else the line is unchanged.
 	 */
 	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, double LongestMs, int32 Items, int32 StartTag, int32 EndTag);
 	SATISDASHCORE_API void LogLongestStep(const TCHAR* ReaderName, const FStepBudget& Budget);
+	/** The cycles tail of that line (", thread cycles per ms ..."), or an empty string when either rate is unavailable. */
+	SATISDASHCORE_API FString LongestStepCyclesTail(const FStepBudget& Budget);
 }

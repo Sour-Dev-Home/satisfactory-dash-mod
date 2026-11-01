@@ -13,13 +13,14 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, Pusher{Clock.Random01}
 	, Bridge{InTransport, InWorker}
 	, WorldLayers{InTransport, Bridge, Clock.Random01}
-	, FactoryBudget{[this] { return Clock.Now(); }}
-	, TrainsBudget{[this] { return Clock.Now(); }}
-	, RoutesBudget{[this] { return Clock.Now(); }}
-	, LogisticsBudget{[this] { return Clock.Now(); }}
-	, MarkersBudget{[this] { return Clock.Now(); }}
-	, DronesBudget{[this] { return Clock.Now(); }}
-	, BuildablesBudget{[this] { return Clock.Now(); }}
+	// Every budget is begun and ended on the game thread (the driver ticks there), so its thread cycle counts are comparable (StepBudget.h).
+	, FactoryBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
+	, TrainsBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
+	, RoutesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
+	, LogisticsBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
+	, MarkersBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
+	, DronesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
+	, BuildablesBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return Clock.ThreadCycles ? Clock.ThreadCycles() : TOptional<uint64>(); }}
 {
 }
 

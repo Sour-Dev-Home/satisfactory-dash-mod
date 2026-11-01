@@ -25,6 +25,8 @@ namespace SatisDash
 		TFunction<FDateTime()> UtcNow;
 		/** Uniform in [0, 1]: FMath::FRand() in the game. */
 		TFunction<double()> Random01;
+		/** The calling thread's CPU cycle count (QueryThreadCycleTime in the game). Diagnostic only (StepBudget.h); may be empty (non-Windows, tests) or return unset. */
+		TFunction<TOptional<uint64>()> ThreadCycles;
 	};
 
 	/**
