@@ -440,8 +440,9 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
 /**
  * storage (Task 18 table + controller rulings): valid against the contract; id sets equal; className and slots exact (FRM's missing Slots
  * reads as 0, as a fluid buffer's does); stackMax equal to FRM's for solids and null on every fluid item. slotsUsed and the item class set and
- * amounts are EXACT only for a container whose two bracketing FRM records are identical (a fluid amount within 0.5% or 0.01 m3); a
- * container that changed between the brackets is counted, not judged. fluidCapacityM3 is REPORT-ONLY against FRM (controller ruling): its
+ * amounts are judged only for a container whose two bracketing FRM records are identical (a fluid amount within 0.5% or 0.01 m3); a
+ * container that changed between the brackets is counted, not judged. slotsUsed and the class set are exact; the amounts must be exact on
+ * S2_DYNAMIC_SHARE of the stable container-posts (owner ruling 2026-11-01 after run 41331276923). fluidCapacityM3 is REPORT-ONLY against FRM (controller ruling): its
  * presence is FAILED when FRM shows a fluid (an item with stackMax null) or the mod container has no slots but items.
  */
 export function judgeStorage(e: StorageEvidence): S4bResult {
@@ -454,7 +455,8 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
   // reads at a different instant from FRM while belts move, so a container the mod itself saw change is report-only.
   const contentKey = (m: ModContainer) => JSON.stringify([m.slotsUsed, m.items.map((x) => [x.className, x.amount]).sort((p, q) => (p[0]! < q[0]! ? -1 : p[0]! > q[0]! ? 1 : 0))]);
   const keysOf = (a: Accepted<ModContainer, FrmContainer> | undefined) => new Map((a?.mod ?? []).map((m) => [m.id, contentKey(m)]));
-  let modMoved = 0;
+  let modMoved = 0, amountMisses = 0;
+  const amountLines: string[] = [];
   for (const [pi, a] of ok.entries()) {
     const neighbours = [keysOf(ok[pi - 1]), keysOf(ok[pi + 1])];
     const lines = idDiff("container", a.mod.map((m) => m.id), a.sides.map((s) => s.map((f) => f.id))).failures;
@@ -500,11 +502,19 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       const missing = [...want.keys()].filter((c) => !mine.has(c));
       const extra = [...mine.keys()].filter((c) => !want.has(c));
       if (missing.length || extra.length) d.add("item classes", `${m.id} mod-only=[${shown(extra)}] frm-only=[${shown(missing)}]`);
+      // Owner ruling 2026-11-01 after run 41331276923: amounts are judged as S2's dynamic flags are. A stable container-post misses when
+      // any amount differs, and the share of misses must stay within S2_DYNAMIC_SHARE over all stable container-posts (a full container's
+      // count flickers by one while a belt drains and refills it, and two FRM samples can both land on the flicker).
+      const wrongAmounts: string[] = [];
       for (const [c, amt] of mine) {
         const f = want.get(c);
         if (f === undefined) continue;
         const good = fluid ? Math.abs(amt - f) <= Math.max(STORAGE_FLUID_ABS_M3, STORAGE_FLUID_REL * Math.abs(f)) + EPS : amt === f;
-        if (!good) d.add("amount", `${m.id} ${c} mod=${num(amt)} frm=${num(f)}`);
+        if (!good) wrongAmounts.push(`${c} mod=${num(amt)} frm=${num(f)}`);
+      }
+      if (wrongAmounts.length) {
+        amountMisses++;
+        if (amountLines.length < S4B_SHOW) amountLines.push(`${a.at}: ${m.id} ${wrongAmounts.join("; ")}`);
       }
     }
     lines.push(...d.lines());
@@ -512,6 +522,8 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
   }
   // Owner ruling 2026-10-28: a run where containers were compared but none was stable never judged any contents, so it cannot pass.
   if (compared > 0 && stable === 0) reasons.push(`no stable container among ${compared} compared: contents never judged (owner ruling 2026-10-28)`);
+  const amountShare = stable === 0 ? 1 : 1 - amountMisses / stable;
+  if (amountShare < S2_DYNAMIC_SHARE) reasons.push(`amounts matched FRM's for ${(amountShare * 100).toFixed(2)}% of ${stable} stable container-posts, need ${S2_DYNAMIC_SHARE * 100}% (as S2's dynamic flags; owner ruling 2026-11-01 after run 41331276923)`, ...amountLines);
   if (reasons.length) return failing(reasons);
   const never = compared === 0
     ? ["any container (both sides empty)"]
@@ -522,7 +534,7 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       ].filter((x): x is string => x !== null);
   const out = [
     `${ok.length} posted storage list(s) valid against the contract; container ids equal FRM's; ${compared} containers compared; className and slots exact; stackMax equal to FRM's (null on fluids)`,
-    `${stable} container(s) unchanged between the brackets and across the mod's neighbouring posts: slotsUsed, item classes and amounts exact (fluid within ${STORAGE_FLUID_REL * 100}% or ${STORAGE_FLUID_ABS_M3} m3)`,
+    `${stable} container(s) unchanged between the brackets and across the mod's neighbouring posts: slotsUsed and item classes exact; amounts exact (fluid within ${STORAGE_FLUID_REL * 100}% or ${STORAGE_FLUID_ABS_M3} m3) for ${(amountShare * 100).toFixed(2)}% of them (need ${S2_DYNAMIC_SHARE * 100}%, as S2; owner ruling 2026-11-01 after run 41331276923${amountMisses ? `; ${amountMisses} within the allowance, first ${amountLines.length}: ${amountLines.join(" | ")}` : ""})`,
     `${changed} container(s) changed between the brackets, ${modMoved} changed between the mod's own neighbouring posts and ${unverifiable} had one bracket only: contents report-only`,
     `fluidCapacityM3: value report-only (${RULING_FLUID_CAP}); ${fluids} mod fluid buffer(s), ${fluidSeen} matched to an FRM fluid`,
   ];

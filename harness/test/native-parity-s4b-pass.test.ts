@@ -513,7 +513,8 @@ describe("judgeStorage (the mod's own neighbouring posts, owner ruling 2026-10-2
   it("a post whose neighbours all agree with it is judged exactly: it fails when it differs from FRM", () => {
     const v = run([[off], [off], [off]]);
     expect(v.pass).toBe(false);
-    expect(text(v)).toContain("amount: ");
+    expect(text(v)).toContain("amounts matched FRM's for 50.00% of 6 stable container-posts, need 99%");
+    expect(text(v)).toContain("C1 Desc_Coal_C mod=149 frm=150");
   });
   it("all agree with each other and with FRM: passes", () => {
     const v = run([[mc()], [mc()], [mc()]]);
@@ -536,12 +537,42 @@ describe("judgeStorage (the mod's own neighbouring posts, owner ruling 2026-10-2
   it("a container in one post only has no neighbour holding it and is judged on the FRM brackets", () => {
     const v = run([[], [off], []]);
     expect(v.pass).toBe(false);
-    expect(text(v)).toContain("amount: ");
+    expect(text(v)).toContain("C1 Desc_Coal_C mod=149 frm=150");
   });
   it("no stable container among those compared fails", () => {
     const v = B.judgeStorage(threePosts([[moved], [mc({ slotsUsed: 2 })], [moved]]));
     expect(v.pass).toBe(false);
     expect(text(v)).toContain("no stable container among 3 compared: contents never judged");
+  });
+});
+
+describe("judgeStorage amounts share (owner ruling 2026-11-01 after run 41331276923)", () => {
+  // One post, so no container has a neighbour: all 150 are stable and judged on the brackets.
+  const ids = Array.from({ length: 150 }, (_, i) => `C${i}`);
+  const frm = ids.map((id) => fc({ id }));
+  const off = (id: string) => mc({ id, items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }, { className: "Desc_OreIron_C", name: "Iron Ore", amount: 30, stackMax: 100 }] });
+  const post = (offIds: string[], o: Record<string, unknown> = {}) => ids.map((id) => (offIds.includes(id) ? off(id) : mc({ id, ...(id === "C7" ? o : {}) })));
+  it("one wrong amount among 150 stable container-posts is within the 1% allowance and listed", () => {
+    const v = B.judgeStorage(stable(frm, post(["C3"])));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("for 99.33% of them (need 99%");
+    expect(text(v)).toContain("1 within the allowance");
+    expect(text(v)).toContain("C3 Desc_Coal_C mod=149 frm=150");
+  });
+  it("two wrong amounts among 150 fall below 99% and fail", () => {
+    const v = B.judgeStorage(stable(frm, post(["C3", "C4"])));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("amounts matched FRM's for 98.67% of 150 stable container-posts, need 99%");
+  });
+  it("slotsUsed stays exact: one wrong slotsUsed among 150 fails", () => {
+    const v = B.judgeStorage(stable(frm, post([], { slotsUsed: 9 })));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("slotsUsed");
+  });
+  it("the item class set stays exact: one missing class among 150 fails", () => {
+    const v = B.judgeStorage(stable(frm, post([], { items: [{ className: "Desc_Coal_C", name: "Coal", amount: 150, stackMax: 100 }] })));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("item classes");
   });
 });
 
