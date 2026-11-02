@@ -42,8 +42,19 @@ export function writeBundle(dir: string, name: string, startedAt: string, result
   }
   writeFileSync(join(out, "result.json"), redact(`${JSON.stringify(result, null, 2)}\n`));
   for (const [name, value] of Object.entries(captures)) {
-    const text = typeof value === "string" ? value : `${JSON.stringify(value, null, 2)}\n`;
+    const text = typeof value === "string" ? value : captureText(value);
     writeFileSync(join(out, name), redact(text));
   }
   return out;
+}
+
+/**
+ * A capture whose compact JSON passes this many characters is written compact, the rest indented. Owner 2026-11-02: the S4-B
+ * native-parity.json was 82 MB indented and 38 MB compact; the data is identical, only the whitespace goes.
+ */
+export const COMPACT_CAPTURE_CHARS = 1_000_000;
+
+function captureText(value: unknown): string {
+  const compact = JSON.stringify(value);
+  return `${compact !== undefined && compact.length > COMPACT_CAPTURE_CHARS ? compact : JSON.stringify(value, null, 2)}\n`;
 }
