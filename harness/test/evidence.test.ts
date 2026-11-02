@@ -40,6 +40,18 @@ describe("writeEvidence", () => {
     expect(JSON.parse(readFileSync(join(out, "result.json"), "utf8"))).toEqual(result);
   });
 
+  it("writes a large capture compact and a small one indented, with the same data", () => {
+    dir = mkdtempSync(join(tmpdir(), "ev-"));
+    const big = { rows: Array.from({ length: 40_000 }, (_, i) => ({ id: `r${i}`, value: i })) };
+    const out = writeEvidence(dir, result, { "big.json": big, "small.json": { a: 1 } });
+    const bigText = readFileSync(join(out, "big.json"), "utf8");
+    expect(bigText).toBe(`${JSON.stringify(big)}\n`);
+    expect(JSON.parse(bigText)).toEqual(big);
+    expect(readFileSync(join(out, "small.json"), "utf8")).toBe(`${JSON.stringify({ a: 1 }, null, 2)}\n`);
+    // result.json stays indented whatever its size.
+    expect(readFileSync(join(out, "result.json"), "utf8")).toContain('\n  "spike": "S0"');
+  });
+
   it("redacts home paths in the result and the captures", () => {
     dir = mkdtempSync(join(tmpdir(), "ev-"));
     const out = writeEvidence(dir, { ...result, modLines: [`satis-mod loaded from C:\\${U}\\someone\\Mods`] }, { "echo.json": `C:\\${U}\\someone` });
