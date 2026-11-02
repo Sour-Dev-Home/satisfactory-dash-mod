@@ -92,8 +92,8 @@ bool FDriverNativePlayersTest::RunTest(const FString& Parameters)
 	int32 BridgeLines = 0;
 	for (const FString& Line : Log.Take())
 	{
-		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
-		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
+		NativeLines += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=native generators=native stationRates=native storage=native")) ? 1 : 0;
+		BridgeLines += Line.EndsWith(TEXT("Readers: players=bridge resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=native generators=native stationRates=native storage=native")) ? 1 : 0;
 	}
 	TestEqual(TEXT("one Readers line for the default (native players) driver"), NativeLines, 1);
 	TestEqual(TEXT("one Readers line for the bridge-key driver"), BridgeLines, 1);
@@ -166,7 +166,7 @@ bool FDriverNativeNodesTest::RunTest(const FString& Parameters)
 	F.Game.Nodes.Add(Iron);
 	F.Game.bHasWorld = false; // no world yet: the scan can't start
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
-	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\",\"trainsSource\":\"bridge\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\"")); // trains, rails, conveyors and the S4 layers on the bridge keep their layers off, so only nodes post
+	F.enrol(Driver, SatisDash::Test::FakeSecret(), TEXT(",\"resourceNodesSource\":\"native\",\"trainsSource\":\"bridge\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\"")); // trains, rails, conveyors and the S4 layers on the bridge keep their layers off, so only nodes post
 
 	// Ruling F18: no game running (an idle server) means no scan starts, past the first read's due time (528 s) and the log
 	// stays quiet; it starts once a game runs.
@@ -257,9 +257,9 @@ bool FDriverNativeBridgeFlagsTest::RunTest(const FString& Parameters)
 	int32 AllNative = 0;
 	for (const FString& Line : Log.Take())
 	{
-		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=bridge generators=bridge stationRates=bridge storage=bridge")) ? 1 : 0;
+		AllNative += Line.EndsWith(TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=native generators=native stationRates=native storage=native")) ? 1 : 0;
 	}
-	TestEqual(TEXT("one Readers line shows the default driver's: nine native, the four S4-B keys bridge"), AllNative, 1);
+	TestEqual(TEXT("one Readers line shows the default driver's: all thirteen native"), AllNative, 1);
 	return true;
 }
 
@@ -268,7 +268,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeTrainsTest, "SatisDash.Core.Driver
 bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"trainsSource\":\"native\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\"");
+	const TCHAR* Native = TEXT(",\"trainsSource\":\"native\",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\"");
 	FDriverFixture F;
 	FTrainReading Train;
 	Train.Id = TEXT("BP_Train_C_1");
@@ -377,7 +377,7 @@ bool FDriverNativeTrainsTest::RunTest(const FString& Parameters)
 	J.enrol(Switched, SatisDash::Test::FakeSecret(), Native);
 	TestTrue(TEXT("a read is open"), J.runUntil(Switched, [&J] { return J.Game.TrainsBegins >= 1; }, 20));
 	const int32 Ends = J.Game.TrainsEnds;
-	J.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"trainsSource\":\"bridge\""));
+	J.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"trainsSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	TestTrue(TEXT("a source change ends the open read"), J.runUntil(Switched, [&J, Ends] { return J.Game.TrainsEnds > Ends; }, 120));
 
 	// Contention (one cursor, two consumers). The sender's train-routes read holds the cursor at a factory due time: the driver
@@ -440,7 +440,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeFactoryTest, "SatisDash.Core.Drive
 bool FDriverNativeFactoryTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"factorySource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"factorySource\":\"native\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""); // the S4-B readers default to native: keep their passes out of this test
 	FDriverFixture F;
 	FFactoryReading Machine;
 	Machine.Id = TEXT("Build_ConstructorMk1_C_77");
@@ -544,7 +544,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeLogisticsTest, "SatisDash.Core.Dri
 bool FDriverNativeLogisticsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"railsSource\":\"native\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\"");
+	const TCHAR* Native = TEXT(",\"railsSource\":\"native\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\"");
 	const TCHAR* RailsPost = TEXT("/agent/v1/world/rails");
 	FDriverFixture F;
 	FRailReading Track;
@@ -592,7 +592,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativePowerLinesTest, "SatisDash.Core.Dr
 bool FDriverNativePowerLinesTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"native\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\"");
 	const TCHAR* PowerLinesPost = TEXT("/agent/v1/world/powerLines");
 	FDriverFixture F;
 	FPowerLineReading Wire;
@@ -648,7 +648,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeMapMarkersTest, "SatisDash.Core.Dr
 bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\"");
+	const TCHAR* Native = TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\"");
 	const TCHAR* MarkersPost = TEXT("/agent/v1/world/mapMarkers");
 	FDriverFixture F;
 	FMapMarkerReading Marker;
@@ -689,7 +689,7 @@ bool FDriverNativeMapMarkersTest::RunTest(const FString& Parameters)
 	H.Game.MarkersStepsToFinish = 1000000;
 	H.Game.DronesStepsToFinish = 1000000;
 	FDriver Halted{ H.ConfigPath, H.CredentialPath, H.Net, H.Game, H.Worker, H.clock() };
-	H.enrol(Halted, SatisDash::Test::FakeSecret(), TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"native\",\"powerLinesSource\":\"bridge\""));
+	H.enrol(Halted, SatisDash::Test::FakeSecret(), TEXT(",\"mapMarkersSource\":\"native\",\"droneRoutesSource\":\"native\",\"powerLinesSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	TestTrue(TEXT("a read is open"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.MarkersStepCalls >= 1; }, 560));
 	TestEqual(TEXT("not ended yet"), H.Game.MarkersEnds, 0);
 	TestTrue(TEXT("the drone-routes read is open beside it"), DriverNativeRunUntil(H, Halted, [&H] { return H.Game.DronesStepCalls >= 1; }, 60));
@@ -713,7 +713,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeBuildablesTest, "SatisDash.Core.Dr
 bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"extractorsSource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"extractorsSource\":\"native\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\"");
 	FDriverFixture F;
 	FExtractorReading Miner;
 	Miner.Id = TEXT("Build_MinerMk1_C_1");
@@ -769,7 +769,7 @@ bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("skipped ticks are noted, rate-limited"), Notes >= 1 && Notes <= 3);
 
 	// The source flips to bridge under an open pass: it is dropped.
-	G.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"extractorsSource\":\"bridge\""));
+	G.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	TestTrue(TEXT("the source change ends the pass"), G.runUntil(Slow, [&G] { return G.Game.BuildablesEnds >= 1; }, 130));
 	const int32 BeginsAfterFlip = G.Game.BuildablesBegins;
 	DriverNativeRun(G, Slow, 70);
@@ -804,13 +804,13 @@ bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("the factory part is unchanged"), DriverNativeAny(EmptyBodies, TEXT("\"factory\":{\"buildings\":[]}")));
 	Log.Take();
 
-	// Default config: the extractors source is bridge, so no pass begins and the factory part has no extractors key.
+	// Every Buildables source bridge (the defaults are native since the S4-B switch): no pass begins and the factory part has no extractors key.
 	FDriverFixture D;
 	FDriver Plain{ D.ConfigPath, D.CredentialPath, D.Net, D.Game, D.Worker, D.clock() };
-	D.enrol(Plain, SatisDash::Test::FakeSecret());
+	D.enrol(Plain, SatisDash::Test::FakeSecret(), TEXT(",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	D.Game.Extractors.Add(Miner);
 	const TArray<FString> PlainBodies = DriverNativeRun(D, Plain, 80);
-	TestEqual(TEXT("the default config never begins a pass"), D.Game.BuildablesBegins, 0);
+	TestEqual(TEXT("the bridge config never begins a pass"), D.Game.BuildablesBegins, 0);
 	TestTrue(TEXT("but the factory part is sent"), DriverNativeAny(PlainBodies, TEXT("\"factory\":{\"buildings\":[]}")));
 	TestFalse(TEXT("with no extractors key"), DriverNativeAny(PlainBodies, TEXT("\"extractors\":")));
 
@@ -833,7 +833,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeGeneratorsTest, "SatisDash.Core.Dr
 bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"generatorsSource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"generatorsSource\":\"native\",\"extractorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\"");
 	const TCHAR* InPower = TEXT("\"power\":{\"circuits\":[");
 	const TCHAR* Attached = TEXT("],\"generators\":[{\"id\":\"Test_Coal_1\"");
 	FGeneratorReading Coal;
@@ -899,7 +899,7 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 	FDriverFixture B;
 	B.Game.Generators.Add(Coal);
 	FDriver Plain{ B.ConfigPath, B.CredentialPath, B.Net, B.Game, B.Worker, B.clock() };
-	B.enrol(Plain, SatisDash::Test::FakeSecret(), TEXT(",\"generatorsSource\":\"bridge\""));
+	B.enrol(Plain, SatisDash::Test::FakeSecret(), TEXT(",\"generatorsSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	const TArray<FString> PlainBodies = DriverNativeRun(B, Plain, 80);
 	TestEqual(TEXT("the bridge source never begins a pass"), B.Game.BuildablesBegins, 0);
 	TestTrue(TEXT("the power part is sent"), DriverNativeAny(PlainBodies, InPower));
@@ -910,7 +910,7 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 	Dual.Game.Generators.Add(Coal);
 	Dual.Game.Extractors.Add(Miner);
 	FDriver Both{ Dual.ConfigPath, Dual.CredentialPath, Dual.Net, Dual.Game, Dual.Worker, Dual.clock() };
-	Dual.enrol(Both, SatisDash::Test::FakeSecret(), TEXT(",\"generatorsSource\":\"native\",\"extractorsSource\":\"native\""));
+	Dual.enrol(Both, SatisDash::Test::FakeSecret(), TEXT(",\"generatorsSource\":\"native\",\"extractorsSource\":\"native\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	const TArray<FString> BothBodies = DriverNativeRun(Dual, Both, 20);
 	TestEqual(TEXT("one pass for both readers"), Dual.Game.BuildablesBegins, 1);
 	TestTrue(TEXT("both flags are on"), Dual.Game.LastBuildablesFlags.bGenerators && Dual.Game.LastBuildablesFlags.bExtractors);
@@ -919,7 +919,7 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 	// bridge test (FrmBridge.Extractors) pins that both fragments and the part come out together.
 
 	// The source flips to bridge: the held fragment is no longer attached.
-	Dual.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"generatorsSource\":\"bridge\",\"extractorsSource\":\"native\""));
+	Dual.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"generatorsSource\":\"bridge\",\"extractorsSource\":\"native\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	DriverNativeRun(Dual, Both, 130); // the config is read again on its own cadence; the held fragment is dropped on the next tick after
 	const TArray<FString> Flipped = DriverNativeRun(Dual, Both, 20);
 	TestTrue(TEXT("power parts are still sent after the flip"), DriverNativeAny(Flipped, InPower));
@@ -933,7 +933,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNativeStorageTest, "SatisDash.Core.Drive
 bool FDriverNativeStorageTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
-	const TCHAR* Native = TEXT(",\"storageSource\":\"native\"");
+	const TCHAR* Native = TEXT(",\"storageSource\":\"native\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\"");
 	const TCHAR* Part = TEXT(",\"storage\":{\"containers\":[{\"id\":\"Test_Box_1\"");
 	FContainerReading Box;
 	Box.Id = TEXT("Test_Box_1");
@@ -1016,7 +1016,7 @@ bool FDriverNativeStorageTest::RunTest(const FString& Parameters)
 	FDriverFixture B;
 	B.Game.Containers.Add(Box);
 	FDriver Plain{ B.ConfigPath, B.CredentialPath, B.Net, B.Game, B.Worker, B.clock() };
-	B.enrol(Plain, SatisDash::Test::FakeSecret(), TEXT(",\"storageSource\":\"bridge\""));
+	B.enrol(Plain, SatisDash::Test::FakeSecret(), TEXT(",\"storageSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\""));
 	const TArray<FString> PlainBodies = DriverNativeRun(B, Plain, 80);
 	TestEqual(TEXT("the bridge source never begins a pass"), B.Game.BuildablesBegins, 0);
 	TestTrue(TEXT("snapshots are still sent"), PlainBodies.Num() > 0);

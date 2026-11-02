@@ -24,10 +24,10 @@ namespace SatisDash
 	inline constexpr ESource DefaultMapMarkersSource = ESource::Native;
 	inline constexpr ESource DefaultDroneRoutesSource = ESource::Native;
 	inline constexpr ESource DefaultPowerLinesSource = ESource::Native;
-	inline constexpr ESource DefaultExtractorsSource = ESource::Bridge;
-	inline constexpr ESource DefaultGeneratorsSource = ESource::Bridge;
-	inline constexpr ESource DefaultStationRatesSource = ESource::Bridge;
-	inline constexpr ESource DefaultStorageSource = ESource::Bridge;
+	inline constexpr ESource DefaultExtractorsSource = ESource::Native;
+	inline constexpr ESource DefaultGeneratorsSource = ESource::Native;
+	inline constexpr ESource DefaultStationRatesSource = ESource::Native;
+	inline constexpr ESource DefaultStorageSource = ESource::Native;
 
 	struct FAgentConfig
 	{

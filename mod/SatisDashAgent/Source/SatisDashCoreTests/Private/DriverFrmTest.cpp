@@ -8,7 +8,7 @@ namespace
 {
 	const TCHAR* DriverFrmSnapshots = TEXT("/agent/v1/snapshots");
 	/** These tests cover the bridge's players, factory and trains paths, which are no longer the default (ADR-0058 switch PRs): the keys select them. */
-	const TCHAR* DriverFrmBridgePlayers = TEXT(",\"playersSource\":\"bridge\",\"factorySource\":\"bridge\",\"trainsSource\":\"bridge\"");
+	const TCHAR* DriverFrmBridgePlayers = TEXT(",\"playersSource\":\"bridge\",\"factorySource\":\"bridge\",\"trainsSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""); // the S4-B readers default to native since their switch: an FRM-only config keeps them off
 
 	/** Answers every open snapshot post with 200, and returns the bodies it answered. */
 	TArray<FString> DriverFrmDrain(FDriverFixture& F)

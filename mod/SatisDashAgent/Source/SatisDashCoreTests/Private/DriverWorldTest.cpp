@@ -7,7 +7,7 @@ using SatisDash::Test::FDriverFixture;
 namespace
 {
 	const TCHAR* DriverWorldSnapshots = TEXT("/agent/v1/snapshots");
-	const TCHAR* DriverWorldBridgeKeys = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\""); // rails, conveyors and the S4 layers default to native since the S3 and S4 switches
+	const TCHAR* DriverWorldBridgeKeys = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""); // rails, conveyors and the S4 layers default to native since the S3 and S4 switches
 	const TCHAR* DriverWorldRailsRead = TEXT("/getTrainRails");
 	const TCHAR* DriverWorldRailsPost = TEXT("/agent/v1/world/rails");
 	const TCHAR* DriverWorldRails = TEXT("[{\"ID\":\"R1\",\"SplineData\":[{\"x\":0,\"y\":0},{\"x\":300,\"y\":0}]}]");
