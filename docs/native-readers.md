@@ -44,7 +44,8 @@ Until the bridge is removed (ADR-0058, R7) a host can force a reader's source in
 
 The value is exactly `bridge` or `native` (anything else makes the config Broken, as a bad `frmPort` does). With no key a
 reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource`, `DefaultConveyorsSource` in `Config.h`; all six are `native`: the factory and trains ones since the S2 switch, the rails and conveyors ones since the S3 switch). The S4-A keys (`mapMarkersSource`, `droneRoutesSource`, `powerLinesSource`; `DefaultMapMarkersSource`, `DefaultDroneRoutesSource`, `DefaultPowerLinesSource`) are `native` too, since the S4 switch; `bridge` for these three layers means the layer is not sent. The S4-B keys (`extractorsSource`, `generatorsSource`, `stationRatesSource`, `storageSource`; `DefaultExtractorsSource`, `DefaultGeneratorsSource`, `DefaultStationRatesSource`, `DefaultStorageSource`) default to `bridge`, which for now means the layer is not sent; set a key to `native` to send it. For the other keys `bridge` needs FRM installed.
-The keys are deleted with the bridge in the removal release; do not build on them. There is no key for power: it has no
+`"stepDiagnostics"` is a separate, test-run-only switch: a JSON boolean, default `false`, anything else makes the config Broken. Off, a normal install does no diagnostic work: no thread-cycle reads and no per-call conveyor clock reads. On (`tick-cost-native` writes `true`), each step reads the thread's CPU cycles twice and the conveyor phase times its calls, and the Logistics longest-step line gains the tails. It stays after the bridge is removed.
+The source keys are deleted with the bridge in the removal release; do not build on them. There is no key for power: it has no
 bridge path.
 
 ## Where each reader stands (the S3 and S4 switches)

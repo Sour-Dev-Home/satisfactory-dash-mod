@@ -46,7 +46,7 @@ describe("tick-cost-native: spec and drive", () => {
   it("is registered, in the run ids, and writes native sources into the mod's config", () => {
     expect(CORE_RUN_IDS).toContain("tick-cost-native");
     expect(CORE_RUNS["tick-cost-native"]).toBe(tickCostNative);
-    expect(tickCostNative.modConfig).toEqual(NATIVE_SOURCES_S4B);
+    expect(tickCostNative.modConfig).toEqual({ ...NATIVE_SOURCES_S4B, stepDiagnostics: true });
     expect(tickCostNative.baseline).toBe(true);
     expect(tickCost.modConfig).toBeUndefined();
   });
@@ -85,6 +85,26 @@ describe("tick-cost-native: spec and drive", () => {
     };
     const { captures } = await drive(tickCostNative, { resolveHost }, base);
     expect((captures["tick-cost.json"] as { outboundForwardWithMod: unknown }).outboundForwardWithMod).toEqual({
+      "api.ipify.org": ["104.26.12.205", "104.26.13.205"],
+      "down.example.com": [],
+    });
+    expect(asked).toEqual(["api.ipify.org", "down.example.com"]);
+  });
+  it("forward-resolves the with-mod boot's own names for addresses the baseline didn't contact, failures as [] (owner, 2026-10-28)", async () => {
+    const asked: string[] = [];
+    const resolveHost = async (name: string) => {
+      asked.push(name);
+      if (name === "down.example.com") throw new Error("ENOTFOUND");
+      return ["104.26.13.205", "104.26.12.205"];
+    };
+    const sampleOutbound = async () => ({
+      endpoints: ["104.26.12.205:443", "203.0.113.5:443", "104.26.13.205:443"],
+      names: { "104.26.12.205": ["api.ipify.org"], "203.0.113.5": ["down.example.com"], "104.26.13.205": ["baseline-only.example.com"] },
+      dnsFailed: false,
+    });
+    const base = { outbound: ["104.26.13.205:443"], outboundNames: {} };
+    const { captures } = await drive(tickCostNative, { resolveHost, sampleOutbound } as Partial<CoreDeps>, base);
+    expect((captures["tick-cost.json"] as { outboundForwardWithModNames: unknown }).outboundForwardWithModNames).toEqual({
       "api.ipify.org": ["104.26.12.205", "104.26.13.205"],
       "down.example.com": [],
     });

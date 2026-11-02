@@ -166,6 +166,31 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/Resource node scan: longest step 2\.01 ms exceeds the 2 ms ceiling/);
   });
+  it("adds a report-only diagnostic line with the thread cycles to a failing verdict, and changes nothing else", () => {
+    const over = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 2.01 ms, total 41.50 ms`];
+    const diag = `${PREFIX}Logistics read longest step: 9.12 ms over 67 elements, phase 1 to 2, longest element 9.00 ms at 67 (phase 2), thread cycles per ms 41000 in this step, 3000000 in 10 other steps`;
+    const without = Native.evaluate(evidence({ lines: over }));
+    const withDiag = Native.evaluate(evidence({ lines: [...over, diag] }));
+    expect(withDiag.pass).toBe(false);
+    expect(withDiag.reasons).toEqual([...without.reasons, "diagnostic (report-only): Logistics longest step 9.12 ms, longest element 9.00 ms at 67 (phase 2); thread cycles per ms 41000 in this step vs 3000000 in 10 other steps (1.4%)"]);
+  });
+  it("a diagnostic line with the conveyor-calls tail prints the five maxima after the cycles, and pass is unchanged", () => {
+    const over = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 2.01 ms, total 41.50 ms`];
+    const diag = `${PREFIX}Logistics read longest step: 9.12 ms over 67 elements, phase 1 to 2, longest element 9.00 ms at 67 (phase 2), thread cycles per ms 41000 in this step, 3000000 in 10 other steps, conveyor calls max: get 0.40 ms at 3, name 0.00 ms at 0, text 8.90 ms at 7, speed 0.10 ms at 12, ends 1.23 ms at 11`;
+    const without = Native.evaluate(evidence({ lines: over }));
+    const withDiag = Native.evaluate(evidence({ lines: [...over, diag] }));
+    expect(withDiag.pass).toBe(false);
+    expect(withDiag.reasons).toEqual([...without.reasons, "diagnostic (report-only): Logistics longest step 9.12 ms, longest element 9.00 ms at 67 (phase 2); thread cycles per ms 41000 in this step vs 3000000 in 10 other steps (1.4%); conveyor calls max: get 0.40 ms at 3, name 0.00 ms at 0, text 8.90 ms at 7, speed 0.10 ms at 12, ends 1.23 ms at 11"]);
+  });
+  it("a diagnostic line without the cycles tail reports the step only", () => {
+    const over = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 2.01 ms, total 41.50 ms`,
+      `${PREFIX}Logistics read longest step: 9.12 ms over 67 elements, phase 1 to 2`];
+    expect(Native.evaluate(evidence({ lines: over })).reasons).toContain("diagnostic (report-only): Logistics longest step 9.12 ms");
+  });
+  it("leaves a passing verdict unchanged by a diagnostic line", () => {
+    const diag = `${PREFIX}Logistics read longest step: 1.90 ms over 67 elements, phase 1 to 2, thread cycles per ms 41000 in this step, 3000000 in 10 other steps`;
+    expect(Native.evaluate(evidence({ lines: [...NATIVE_LINES, diag] }))).toEqual(Native.evaluate(evidence()));
+  });
   it("passes S2-shaped evidence at 1.9 ms or less and lists the longest step per reader", () => {
     const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("1.90", "0.40", "0.60") }));
     expect(v.pass).toBe(true);

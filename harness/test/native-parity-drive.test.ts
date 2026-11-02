@@ -91,6 +91,7 @@ describe("native-parity drive: counts and spec", () => {
   });
 
   it("writes the native sources into the mod's config, needs the backend, the world and FRM", () => {
+    expect(nativeParity.modConfig).not.toHaveProperty("stepDiagnostics"); // the diagnostics are for tick-cost-native only (owner 2026-11-01)
     expect(nativeParity.modConfig).toEqual(NATIVE_SOURCES_S4B); // S4-B: all thirteen readers native (S1 wrote the first two, S2 the next two, S3 two more, S4-A three, S4-B four)
     expect(nativeParity.backend && nativeParity.world).toBe(true);
     expect(() => nativeParity.preflight!({ config: {} } as never)).toThrow(/frmBaseUrl/);

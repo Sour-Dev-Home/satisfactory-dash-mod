@@ -6,13 +6,13 @@ import { evidenceHash } from "../src/evidence-hash";
 const extractor = (o: Record<string, unknown> = {}) => ({
   ID: "Build_MinerMk1_C_1", Name: "Secret Miner", ClassName: "Build_MinerMk1_C", Recipe: "Iron Ore", RecipeClassName: "Desc_OreIron_C",
   production: [{ Name: "Iron Ore", ClassName: "Desc_OreIron_C", Amount: 100, MaxAmount: 100, CurrentProd: 18.5, MaxProd: 120, ProdPercent: 15.4 }],
-  ManuSpeed: 100, IsConfigured: true, IsProducing: true, IsPaused: false, PowerInfo: { CircuitGroupID: 0, CircuitID: 6 }, ...o,
+  ManuSpeed: 100, IsConfigured: true, IsProducing: true, IsPaused: false, PowerInfo: { CircuitGroupID: 6, CircuitID: 0 }, ...o,
 });
 const generator = (o: Record<string, unknown> = {}) => ({
-  ID: "Build_GeneratorCoal_C_1", Name: "Secret Plant", ClassName: "Build_GeneratorCoal_C", RegulatedDemandProd: 75, ProductionCapacity: 75,
+  ID: "Build_GeneratorCoal_C_1", Name: "Secret Plant", ClassName: "Build_GeneratorCoal_C", RegulatedDemandProd: 75, DynamicProdCapacity: 75, ProductionCapacity: 75,
   CurrentPotential: 100, FuelAmount: 0.9, Supplement: { Name: "Water", ClassName: "Desc_Water_C" },
   FuelInventory: [{ Name: "Coal", ClassName: "Desc_Coal_C", Amount: 26, MaxAmount: 100 }, { Name: "Water", ClassName: "Desc_Water_C", Amount: 50, MaxAmount: 50 }],
-  PowerInfo: { CircuitID: 6 }, ...o,
+  PowerInfo: { CircuitGroupID: 6 }, ...o,
 });
 const station = (o: Record<string, unknown> = {}) => ({
   ID: "Build_TrainStation_C_1", Name: "Secret Station", ClassName: "Build_TrainStation_C", TransferRate: 2, InflowRate: 0, OutflowRate: 0,
@@ -32,9 +32,14 @@ describe("mapFrmExtractors", () => {
     }]);
   });
   it("omits an unconnected circuit and drops malformed records", () => {
-    const out = mapFrmExtractors([extractor({ PowerInfo: { CircuitID: -1 } }), extractor({ ID: "" }), extractor({ production: [] }), 7, null]);
+    const out = mapFrmExtractors([extractor({ PowerInfo: { CircuitGroupID: -1, CircuitID: 3 } }), extractor({ ID: "" }), extractor({ production: [] }), 7, null]);
     expect(out).toHaveLength(1);
     expect("circuit" in out[0]!).toBe(false);
+  });
+  it("reads PowerInfo.CircuitGroupID, not CircuitID, and treats a missing one as unconnected", () => {
+    const [a, b] = mapFrmExtractors([extractor(), extractor({ ID: "Build_MinerMk1_C_2", PowerInfo: { CircuitID: 5 } })]);
+    expect(a!.circuit).toBe(6);
+    expect("circuit" in b!).toBe(false);
   });
   it("throws on a non-array body and never returns a raw name", () => {
     expect(() => mapFrmExtractors({})).toThrow();
@@ -48,15 +53,29 @@ describe("mapFrmGenerators", () => {
     expect(g).toEqual({
       id: "Build_GeneratorCoal_C_1", className: "Build_GeneratorCoal_C", nameHash: evidenceHash("Secret Plant"), currentMW: 75, capacityMW: 75,
       clockPercent: 100, producing: true, fuelClass: "Desc_Coal_C", fuelAmount: 26, supplementClass: "Desc_Water_C", supplementAmount: 50, circuit: 6,
-      raw: { RegulatedDemandProd: 75, CurrentPotential: 100, ProductionCapacity: 75, FuelAmount: 0.9 },
+      raw: { RegulatedDemandProd: 75, DynamicProdCapacity: 75, CurrentPotential: 100, ProductionCapacity: 75, FuelAmount: 0.9 },
     });
+  });
+  // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): was "adds BaseProd to RegulatedDemandProd" and capacity from ProductionCapacity.
+  it("geothermal (GeoMaxPower above 0): current is RegulatedDemandProd + BaseProd, capacity is BaseProd", () => {
+    const [g] = mapFrmGenerators([generator({ ClassName: "Build_GeneratorGeoThermal_C", BaseProd: 304.5, RegulatedDemandProd: 0, DynamicProdCapacity: 0, ProductionCapacity: 999, GeoMinPower: 100, GeoMaxPower: 300, FuelInventory: [], Supplement: {} })]);
+    expect(g).toMatchObject({ currentMW: 304.5, capacityMW: 304.5, producing: true });
+    expect(g!.raw).toMatchObject({ BaseProd: 304.5, RegulatedDemandProd: 0, GeoMinPower: 100, GeoMaxPower: 300 });
+    const [z] = mapFrmGenerators([generator({ BaseProd: 5, RegulatedDemandProd: 2, GeoMaxPower: 300 })]);
+    expect(z).toMatchObject({ currentMW: 7, capacityMW: 5 });
+  });
+  it("non-geothermal: BaseProd is not added; capacity is DynamicProdCapacity, not ProductionCapacity", () => {
+    const [h] = mapFrmGenerators([generator({ BaseProd: 75, RegulatedDemandProd: 65, DynamicProdCapacity: 70, ProductionCapacity: 75 })]);
+    expect(h).toMatchObject({ currentMW: 65, capacityMW: 70 });
+    const [k] = mapFrmGenerators([generator({ GeoMaxPower: 0, BaseProd: 75 })]);
+    expect(k).toMatchObject({ currentMW: 75, capacityMW: 75 });
   });
   it("gives null for a missing slot", () => {
     const [g] = mapFrmGenerators([generator({ FuelInventory: [], Supplement: {}, RegulatedDemandProd: 0 })]);
     expect(g).toMatchObject({ fuelClass: null, fuelAmount: null, supplementClass: null, supplementAmount: null, producing: false });
   });
   it("drops a malformed or over-long-named record", () => {
-    expect(mapFrmGenerators([generator({ ID: "" }), generator({ Name: "n".repeat(201) }), generator({ ProductionCapacity: "x" }), 1])).toEqual([]);
+    expect(mapFrmGenerators([generator({ ID: "" }), generator({ Name: "n".repeat(201) }), generator({ DynamicProdCapacity: "x" }), generator({ GeoMaxPower: 300 }), 1])).toEqual([]);
   });
   it("never returns a raw name", () => {
     expect(JSON.stringify(mapFrmGenerators([generator()]))).not.toContain("Secret");

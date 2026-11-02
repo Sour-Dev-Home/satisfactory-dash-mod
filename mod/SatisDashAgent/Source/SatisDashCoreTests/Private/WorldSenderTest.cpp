@@ -996,12 +996,21 @@ bool FWorldSenderLogisticsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("no id in the log"), Leaks, 0);
 
 	// The longest-step diagnostic: a step over the 2 ms ceiling logs one extra line with its element count and phase; one under it logs none.
+	// Owner 2026-11-01: with a conveyor call-timing diagnostic on the snapshot the over-ceiling line gains a tail; without it the line is unchanged.
+	const FString expectedTail(TEXT(", conveyor calls max: get 0.40 ms at 3, name 0.00 ms at 0, text 8.90 ms at 7, speed 0.00 ms at 0, ends 1.23 ms at 11"));
+	for (const bool bTimed : { false, true })
 	for (const double StepSeconds : { 0.00971, 0.0015 })
 	{
 		SatisDash::Test::FLogCapture StepLog;
 		FWorldFixture S;
 		worldLogisticsNative(S);
 		worldLogisticsReadings(S.Game);
+		// Owner 2026-11-01: the sender asks for call timing only when the config says "stepDiagnostics"; the fake holds timing either way,
+		// so a pass begun without it must come back untimed and its line carry no tail.
+		S.Config.bStepDiagnostics = bTimed;
+		S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Get, 0.0004, 3);
+		S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Text, 0.0089, 7);
+		S.Game.LogisticsCallTiming.Note(SatisDash::FConveyorCallTiming::Ends, 0.00123, 11);
 		S.Game.LogisticsStepElements = 7;
 		S.Game.LogisticsStepTag = 2;
 		S.Game.LogisticsStepWork = [&S, StepSeconds] { if (S.Game.LogisticsStepCalls == 1) { S.T += StepSeconds; } };
@@ -1010,14 +1019,21 @@ bool FWorldSenderLogisticsTest::RunTest(const FString& Parameters)
 		int32 Exact = 0;
 		int32 AnyLongest = 0;
 		int32 ReadLine = 0;
+		int32 WithTail = 0;
+		int32 TailAnywhere = 0;
 		for (const FString& Line : StepLog.Take())
 		{
 			Exact += Line.Contains(TEXT("Logistics read longest step: 9.71 ms over 7 elements, phase 2 to 2")) ? 1 : 0;
+			WithTail += Line.Contains(TEXT("Logistics read longest step: ")) && Line.EndsWith(expectedTail) ? 1 : 0;
+			TailAnywhere += Line.Contains(TEXT(", conveyor calls max: ")) ? 1 : 0;
 			AnyLongest += Line.Contains(TEXT("read longest step: ")) ? 1 : 0;
 			ReadLine += Line.Contains(TEXT("Logistics read (game thread only): ")) ? 1 : 0;
 		}
 		TestEqual(TEXT("a step over the ceiling logs one diagnostic line with its counts, a step under it none"), Exact, StepSeconds > 0.002 ? 1 : 0);
 		TestEqual(TEXT("and no other longest-step line"), AnyLongest, Exact);
+		TestEqual(TEXT("the calls tail ends that line only when the snapshot carries timing"), WithTail, (bTimed && StepSeconds > 0.002) ? 1 : 0);
+		TestEqual(TEXT("and appears nowhere else"), TailAnywhere, WithTail);
+		TestEqual(TEXT("the pass was begun with call timing only when stepDiagnostics is on"), S.Game.bLastBeginCallTiming, bTimed);
 		TestEqual(TEXT("and the existing read line is still there"), ReadLine, 1);
 	}
 

@@ -239,6 +239,8 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   or a folder left behind fails the run) and prunes the test server's application tokens
   (`server.InvalidateAPITokens`). `parity.json` also records `agent.cjs`'s sha256 and the contract pin. It takes about
   45 minutes plus the build.
+- `tick-cost-native` also writes `"stepDiagnostics": true` into the mod's config (the mod's thread-cycle and conveyor call-timing
+  diagnostics are off otherwise; the judge treats their lines as report-only). `native-parity` does not.
 - `native-parity` needs the backend host, the staged world and `frmBaseUrl`. It writes `playersSource` and `resourceNodesSource`
   as `native` into the mod's config (`modConfig`, recorded in `mod-config.json`), loads the world with auto-pause off, starts
   reading the test server's FRM as a black box (`getPower` back to back, `getPlayer` every 2 s with names hashed before they

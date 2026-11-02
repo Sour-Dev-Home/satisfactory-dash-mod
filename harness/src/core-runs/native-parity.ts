@@ -462,7 +462,10 @@ export async function takeAfterNewS4bPosts(
     }
   }
   const t = now();
-  const due = S4B_LAYERS.filter((l) => fresh.has(l) && t - seen.layers[l].takenAt >= S4B_TAKE_MIN_MS);
+  // Owner ruling 2026-10-28 after run 40623235820: the extractors endpoint has no floor (a sample right after EVERY new extractors post,
+  // so the brackets are tight); the other endpoints keep S4B_TAKE_MIN_MS.
+  const floorOf = (l: S4bLayer) => (l === "extractors" ? 0 : S4B_TAKE_MIN_MS);
+  const due = S4B_LAYERS.filter((l) => fresh.has(l) && t - seen.layers[l].takenAt >= floorOf(l));
   for (const l of due) seen.layers[l].takenAt = t;
   await Promise.all(due.map((l) => s[l].take()));
   return due;

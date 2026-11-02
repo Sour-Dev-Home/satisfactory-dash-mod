@@ -52,6 +52,45 @@ const STEP = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only\\): 
 // A line that names a sliced reader but does not parse as a StepCost is malformed, and fails the ceiling (it never passes as "present").
 const STEP_HEAD = new RegExp(`(${STEP_LINE_NAMES.join("|")}) \\(game thread only\\): `);
 
+/**
+ * The diagnostic `<Name> read longest step: X ms over N elements, phase A to B` (owner, 2026-10-27), with the optional tail
+ * `, longest element Y ms at I (phase T)` added 2026-10-28. Older evidence has no tail, so its element fields are undefined.
+ */
+export interface LongestStepDiagnostic { reader: string; longestStepMs: number; elements: number; startPhase: number; endPhase: number; longestElementMs?: number; longestElementIndex?: number; longestElementPhase?: number; cyclesPerMsInStep?: number; cyclesPerMsInOtherSteps?: number; otherSteps?: number; conveyorCalls?: ConveyorCallMaxima }
+/** The conveyor-call tail's five maxima: milliseconds and the conveyor slot each occurred at. */
+export interface ConveyorCallMaxima { getMs: number; getSlot: number; nameMs: number; nameSlot: number; textMs: number; textSlot: number; speedMs: number; speedSlot: number; endsMs: number; endsSlot: number }
+// The cycles tail (owner 2026-11-01, tick-cost run 41334503941): `, thread cycles per ms A in this step, B in N other steps`. Report-only.
+// The conveyor-calls tail (owner 2026-11-01, run 41349617818), Logistics only, after it: `, conveyor calls max: get A ms at I, name B ms at J, text C ms at K, speed D ms at L, ends E ms at M`.
+const LONGEST_STEP = /LogSatisDash: (?:Display: )?(.+?) read longest step: (\d+(?:\.\d+)?) ms over (\d+) elements, phase (\d+) to (\d+)(?:, longest element (\d+(?:\.\d+)?) ms at (\d+) \(phase (\d+)\))?(?:, thread cycles per ms (\d+) in this step, (\d+) in (\d+) other steps)?(?:, conveyor calls max: get (\d+(?:\.\d+)?) ms at (\d+), name (\d+(?:\.\d+)?) ms at (\d+), text (\d+(?:\.\d+)?) ms at (\d+), speed (\d+(?:\.\d+)?) ms at (\d+), ends (\d+(?:\.\d+)?) ms at (\d+))?\s*$/;
+
+/** One entry per longest-step diagnostic line, old and new shapes. Not a pass input. */
+export function longestStepDiagnostics(lines: readonly string[]): LongestStepDiagnostic[] {
+  const out: LongestStepDiagnostic[] = [];
+  for (const line of lines) {
+    const m = LONGEST_STEP.exec(line);
+    if (!m) continue;
+    const d: LongestStepDiagnostic = { reader: m[1]!, longestStepMs: Number(m[2]), elements: Number(m[3]), startPhase: Number(m[4]), endPhase: Number(m[5]) };
+    if (m[6] !== undefined) {
+      d.longestElementMs = Number(m[6]);
+      d.longestElementIndex = Number(m[7]);
+      d.longestElementPhase = Number(m[8]);
+    }
+    if (m[9] !== undefined) {
+      d.cyclesPerMsInStep = Number(m[9]);
+      d.cyclesPerMsInOtherSteps = Number(m[10]);
+      d.otherSteps = Number(m[11]);
+    }
+    if (m[12] !== undefined) {
+      d.conveyorCalls = {
+        getMs: Number(m[12]), getSlot: Number(m[13]), nameMs: Number(m[14]), nameSlot: Number(m[15]), textMs: Number(m[16]),
+        textSlot: Number(m[17]), speedMs: Number(m[18]), speedSlot: Number(m[19]), endsMs: Number(m[20]), endsSlot: Number(m[21]),
+      };
+    }
+    out.push(d);
+  }
+  return out;
+}
+
 /** One StepCost per sliced-read line in the log. */
 export function stepCosts(lines: readonly string[]): StepCost[] {
   const out: StepCost[] = [];

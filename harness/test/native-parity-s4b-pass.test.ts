@@ -75,7 +75,9 @@ const me = (o: Record<string, unknown> = {}, p: Record<string, unknown> = {}) =>
   id: "E1", name: "Miner Mk.1", className: "Build_MinerMk1_C", recipe: null, isProducing: true, isPaused: false, isBackedUp: false, circuitGroupId: 1,
   production: [{ name: "Iron Ore", className: "Desc_OreIron_C", currentPerMinute: 60, maxPerMinute: 120, percent: 50, ...p }], ...o,
 });
-const eev = (o: Opts<FrmExtractor> = {}) => ev(o, [fe()], [me()]);
+// Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): a flag is judged only on a stable post (both FRM brackets present and
+// agreeing), so the default evidence has two identical brackets; a test of one bracket passes `after: []`-free evidence explicitly.
+const eev = (o: Opts<FrmExtractor> = {}) => ev({ ...o, after: o.after ?? o.frm ?? [fe()] }, [fe()], [me()]);
 
 common("judgeExtractors", B.judgeExtractors, eev, "extractors", "getExtractor", me({ id: "E9" }), fe({ id: "E9" }), [me()]);
 
@@ -130,19 +132,90 @@ describe("judgeExtractors", () => {
   });
   it.each([
     ["className", { className: "Build_MinerMk2_C" }, "className"],
-    ["isProducing", { isProducing: false }, "isProducing"],
-    ["isPaused", { isPaused: true }, "isPaused"],
     ["circuit", { circuitGroupId: 2 }, "circuitGroupId"],
   ])("a %s mismatch against both brackets fails, counted per field", (_n, patch, field) => {
     const v = B.judgeExtractors(eev({ post: [me(patch)], after: [fe()] }));
     expect(v.pass).toBe(false);
     expect(text(v)).toContain(`${field}: 1 difference(s)`);
   });
+  // Owner ruling 2026-10-28 after run 40623235820: isProducing and isPaused are judged as S2's dynamic flags (share >= S2_DYNAMIC_SHARE).
+  it.each([
+    ["isProducing", { isProducing: false }],
+    ["isPaused", { isPaused: true }],
+  ])("a %s mismatch on the only extractor fails (0% matched)", (field, patch) => {
+    const v = B.judgeExtractors(eev({ post: [me(patch)], after: [fe()] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain(`${field} mod=`);
+    expect(text(v)).toContain("need 99%");
+  });
+  it("flags matching for exactly the S2 share pass, just below fail", () => {
+    const many = (n: number) => Array.from({ length: n }, (_x, i) => fe({ id: `E${i}` }));
+    const post = (misses: number) => many(100).map((f, i) => me({ id: f.id, ...(i < misses ? { isProducing: false } : {}) }));
+    const run = (misses: number) => B.judgeExtractors(eev({ frm: many(100), after: many(100), post: post(misses) }));
+    expect(run(0).pass).toBe(true);
+    expect(run(1).pass).toBe(true);
+    expect(text(run(1))).toContain("99.00% of 100");
+    const bad = run(2);
+    expect(bad.pass).toBe(false);
+    expect(text(bad)).toContain("98.00% of 100");
+  });
+  it("isPaused is held to the same share: 1 of 100 passes, 2 of 100 fails", () => {
+    const many = Array.from({ length: 100 }, (_x, i) => fe({ id: `E${i}` }));
+    const run = (misses: number) => B.judgeExtractors(eev({ frm: many, after: many, post: many.map((f, i) => me({ id: f.id, ...(i < misses ? { isPaused: true } : {}) })) }));
+    expect(run(1).pass).toBe(true);
+    expect(run(2).pass).toBe(false);
+  });
+  it("an extractor missing both flags counts once", () => {
+    const many = Array.from({ length: 100 }, (_x, i) => fe({ id: `E${i}` }));
+    const v = B.judgeExtractors(eev({ frm: many, after: many, post: many.map((f, i) => me({ id: f.id, ...(i === 0 ? { isProducing: false, isPaused: true } : {}) })) }));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("99.00% of 100");
+  });
   it("a resource class mismatch fails", () => {
     expect(text(B.judgeExtractors(eev({ post: [me({}, { className: "Desc_Coal_C" })] })))).toContain("resourceClass");
   });
-  it("a state that matches the other bracket passes", () => {
-    expect(B.judgeExtractors(eev({ frm: [fe({ producing: false })], after: [fe()] })).pass).toBe(true);
+  // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): was "a state that matches the other bracket passes" (any bracket
+  // sufficed). Now brackets that disagree make the post unstable: its flags are report-only, and a run with no stable post fails.
+  const E = (i: number) => `E${i}`;
+  const fleet = (n: number, o: Partial<FrmExtractor> = {}) => Array.from({ length: n }, (_x, i) => fe({ id: E(i), ...o }));
+  it("FRM brackets that disagree on the flag: the post is report-only (counted), not a miss", () => {
+    const frm = [fe({ id: "E0", producing: false }), fe({ id: "E1" })];
+    const after = [fe({ id: "E0" }), fe({ id: "E1" })];
+    const v = B.judgeExtractors(eev({ frm, after, post: [me({ id: "E0" }), me({ id: "E1", isProducing: true })] }));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("of 1 stable extractor-posts");
+    expect(text(v)).toContain("1 where the FRM brackets disagree");
+  });
+  it("a mod neighbour post that disagrees (previous or next): report-only", () => {
+    const frms = [fe({ id: "E0" }), fe({ id: "E1" })];
+    const mk = (flip: boolean[]) => [0, 1, 2].map((p) => ({ at: iso(T0 + p * 1000), status: 200, data: [me({ id: "E0", ...(flip[p] ? { isProducing: false } : {}) }), me({ id: "E1" })] }));
+    const run = (flip: boolean[]) => B.judgeExtractors(eev({ frm: frms, after: frms, posts: mk(flip) }));
+    // The middle post's own flag is wrong against FRM, but it differs from both neighbours (and they from it): all three are report-only.
+    const mid = run([false, true, false]);
+    expect(mid.pass).toBe(true);
+    expect(text(mid)).toContain("3 where the mod's neighbouring posts disagree");
+    // The first two posts differ from each other (unstable); the third agrees with its previous post and is judged.
+    expect(text(run([true, false, false]))).toContain("2 where the mod's neighbouring posts disagree");
+  });
+  it("stable and wrong counts as a miss: the S2 share applies over stable posts only", () => {
+    const run = (misses: number) => B.judgeExtractors(eev({ frm: fleet(100), after: fleet(100), post: fleet(100).map((f, i) => me({ id: f.id, ...(i < misses ? { isProducing: false } : {}) })) }));
+    expect(run(1).pass).toBe(true);
+    expect(run(2).pass).toBe(false);
+    // 50 unstable extractors do not dilute the share: 1 miss of 50 stable is 98% and fails.
+    const unstable = fleet(50).map((f) => ({ ...f, id: `U${f.id}`, producing: false }));
+    const mixed = (misses: number) => B.judgeExtractors(eev({
+      frm: [...fleet(50), ...unstable], after: [...fleet(50), ...unstable.map((f) => ({ ...f, producing: true }))],
+      post: [...fleet(50).map((f, i) => me({ id: f.id, ...(i < misses ? { isProducing: false } : {}) })), ...unstable.map((f) => me({ id: f.id }))],
+    }));
+    expect(mixed(1).pass).toBe(false);
+    expect(text(mixed(1))).toContain("98.00% of 50 stable");
+  });
+  it("extractors compared but none stable fails", () => {
+    const v = B.judgeExtractors(eev({ frm: [fe({ producing: false })], after: [fe()] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no stable extractor-post among 1 compared");
+    // a single bracket is never stable
+    expect(B.judgeExtractors(ev({}, [fe()], [me()])).pass).toBe(false);
   });
   it("an unoccupied extractor with no production passes when FRM has none", () => {
     const v = B.judgeExtractors(eev({ frm: [], post: [me({ production: [] })] }));
@@ -208,13 +281,64 @@ describe("judgeGenerators", () => {
     expect(B.judgeGenerators(mod(103.03)).pass).toBe(false);
     expect(B.judgeGenerators(mod(110)).pass).toBe(false);
   });
-  it("geothermal: only the capacity is excused when FRM says 0; a mod current above the band still fails", () => {
-    const frm = [fg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 0, currentMW: 0, fuelClass: null, supplementClass: null, supplementAmount: null })];
-    const post = (currentMW: number) => [mg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 200, currentMW, fuel: null, supplement: null })];
-    expect(B.judgeGenerators(gev({ frm, post: post(0.5) })).pass).toBe(true);
-    const v = B.judgeGenerators(gev({ frm, post: post(150) }));
-    expect(v.pass).toBe(false);
-    expect(text(v)).toContain("currentMW");
+  // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): geothermal (FRM GeoMaxPower > 0) is judged on the range rule. This
+  // replaces "geothermal: only the capacity is excused when FRM says 0; a mod current above the band still fails".
+  describe("geothermal range rule", () => {
+    const GEO = "Build_GeneratorGeoThermal_C";
+    const geoFrm = (o: Partial<FrmGenerator> = {}, raw: Record<string, number> = {}) => fg({
+      className: GEO, capacityMW: 200, currentMW: 200, clockPercent: 100, fuelClass: null, fuelAmount: null, supplementClass: null, supplementAmount: null,
+      raw: { GeoMinPower: 100, GeoMaxPower: 300, BaseProd: 200, ...raw }, ...o,
+    });
+    const geoMod = (capacityMW: number, currentMW: number) => [mg({ className: GEO, capacityMW, currentMW, fuel: null, supplement: null })];
+    const run = (capacityMW: number, currentMW: number, o: Opts<FrmGenerator> = {}) => B.judgeGenerators(gev({ frm: [geoFrm()], ...o, post: geoMod(capacityMW, currentMW) }));
+    it.each([
+      ["inside the range", 200, 200, true],
+      ["at the top edge (300 + 0.1 floor)", 300.1, 300.1, true],
+      ["just past the top edge", 300.11, 300.11, false],
+      ["at the bottom edge (100 - 0.1 floor)", 99.9, 99.9, true],
+      ["just below the bottom edge", 99.89, 99.89, false],
+      ["current equal to capacity within 0.1 MW", 200, 200.1, true],
+      ["current past 0.1 MW from capacity (both in range)", 200, 200.2, false],
+      ["capacity in range, current out of range", 250, 350, false],
+      ["capacity out of range, current in range", 350, 250, false],
+    ])("%s", (_n, cap, cur, pass) => {
+      const v = run(cap, cur);
+      expect(v.pass).toBe(pass);
+      if (pass) expect(text(v)).toContain("1 geothermal generator(s) (FRM GeoMaxPower above 0) judged on the range rule");
+      else expect(text(v)).toContain("geothermal power");
+    });
+    it("the range scales with the FRM clock (CurrentPotential is a percent)", () => {
+      const half = (c: number) => run(c, c, { frm: [geoFrm({ clockPercent: 50 })] });
+      expect(half(150).pass).toBe(true);
+      expect(half(150.11).pass).toBe(false);
+      expect(half(49.9).pass).toBe(true);
+      expect(half(49.89).pass).toBe(false);
+    });
+    it("one bracketing record suffices", () => {
+      const frm = [geoFrm({}, { GeoMinPower: 100, GeoMaxPower: 150 })];
+      const after = [geoFrm({}, { GeoMinPower: 250, GeoMaxPower: 300 })];
+      expect(run(280, 280, { frm, after }).pass).toBe(true);
+      expect(run(200, 200, { frm, after }).pass).toBe(false);
+    });
+    it("FRM capacity 0: the mod's capacity and current must both be 0 (within 0.1 MW)", () => {
+      const frm = [geoFrm({ capacityMW: 0, currentMW: 0 })];
+      expect(run(0, 0, { frm }).pass).toBe(true);
+      expect(run(0.1, 0.1, { frm }).pass).toBe(true);
+      expect(run(0.11, 0.11, { frm }).pass).toBe(false);
+      expect(run(200, 0, { frm }).pass).toBe(false);
+      expect(run(0, 150, { frm }).pass).toBe(false);
+    });
+    it("a non-geothermal FRM record (no GeoMaxPower) keeps the bands, whatever the mod's class", () => {
+      const frm = [fg({ className: GEO, capacityMW: 200, currentMW: 200, raw: {}, fuelClass: null, supplementClass: null, supplementAmount: null })];
+      expect(run(200, 200, { frm }).pass).toBe(true);
+      expect(run(250, 250, { frm }).pass).toBe(false);
+    });
+    it("geothermal class, circuit and fuel rules still apply", () => {
+      const v = B.judgeGenerators(gev({ frm: [geoFrm()], post: [mg({ className: GEO, capacityMW: 200, currentMW: 200, fuel: { className: "Desc_Coal_C", name: "Coal", amount: 1 }, supplement: null, circuitGroupId: 9 })] }));
+      expect(v.pass).toBe(false);
+      expect(text(v)).toContain("fuel class");
+      expect(text(v)).toContain("circuitGroupId");
+    });
   });
   it("a failed MW run quotes every bracket's raw map", () => {
     const v = B.judgeGenerators(gev({ post: [mg({ currentMW: 10 })], after: [fg({ raw: { RegulatedDemandProd: 74 } })] }));
@@ -251,12 +375,14 @@ describe("judgeGenerators", () => {
     expect(text(v)).toContain("the largest 5 on G1");
     expect(text(v)).toContain("the largest 10 on G1");
   });
-  it("a geothermal capacity is report-only when FRM says 0; nuclear is exercised by class", () => {
-    const frm = [fg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 0, currentMW: 0, fuelClass: null, supplementClass: null, supplementAmount: null })];
-    const v = B.judgeGenerators(gev({ frm, post: [mg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 200, currentMW: 0, fuel: null, supplement: null })] }));
+  // Owner ruling 2026-11-01: was "a geothermal capacity is report-only when FRM says 0" (V5); the mod now must send 0 as well.
+  it("a geothermal generator is exercised by class; an idle one (FRM capacity 0) must be sent at 0", () => {
+    const frm = [fg({ className: "Build_GeneratorGeoThermal_C", capacityMW: 0, currentMW: 0, fuelClass: null, supplementClass: null, supplementAmount: null, raw: { GeoMinPower: 100, GeoMaxPower: 300 } })];
+    const geo = (capacityMW: number) => [mg({ className: "Build_GeneratorGeoThermal_C", capacityMW, currentMW: 0, fuel: null, supplement: null })];
+    const v = B.judgeGenerators(gev({ frm, post: geo(0) }));
     expect(v.pass).toBe(true);
-    expect(text(v)).toContain("capacity report-only (V5)");
     expect(v.never).not.toContain("a geothermal generator");
+    expect(B.judgeGenerators(gev({ frm, post: geo(200) })).pass).toBe(false);
   });
 });
 
@@ -361,7 +487,94 @@ const cev = (o: Opts<FrmContainer> = {}) => ev(o, [fc()], [mc()]);
 /** Both brackets hold the same container: the exact rule applies. */
 const stable = (frm: FrmContainer[] = [fc()], post: unknown[] = [mc()]) => cev({ frm, after: frm, post });
 
-common("judgeStorage", B.judgeStorage, cev, "storage", "getStorageInv", mc({ id: "C9" }), fc({ id: "C9" }), [mc()]);
+/** Three posts (30 s apart) with an FRM sample between each; `mods[i]` is post i's container list, `frm` the same record in every sample. */
+const threePosts = (mods: unknown[][], frm: FrmContainer[] = [fc()]): B.StorageEvidence => ({
+  posts: mods.map((data, i) => ({ at: iso(T0 + i * 30_000), status: 200, data })),
+  frmSamples: [-1, 0, 1, 2].map((k) => ({ startedAt: iso(T0 + k * 30_000 + 10_000), endedAt: iso(T0 + k * 30_000 + 20_000), value: "s" })).map((s, i) => ({ ...s, value: `s${i}` })),
+  distinct: { s0: frm, s1: frm, s2: frm, s3: frm },
+  frm: { reads: 5, failed: 0 },
+});
+
+// Both brackets carry the same FRM records, so a container can be stable (the owner ruling 2026-10-28 fails a run with none).
+common("judgeStorage", B.judgeStorage, (o: Opts<FrmContainer>) => cev({ ...o, after: o.after ?? o.frm ?? [fc()] }), "storage", "getStorageInv", mc({ id: "C9" }), fc({ id: "C9" }), [mc()]);
+
+describe("judgeStorage (the mod's own neighbouring posts, owner ruling 2026-10-28 after run 40623235820)", () => {
+  const moved = mc({ slotsUsed: 1, items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }] });
+  const off = mc({ items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }, { className: "Desc_OreIron_C", name: "Iron Ore", amount: 30, stackMax: 100 }] });
+  // A second container C2 that never changes, so a run always has a stable container (the none-stable rule is tested apart).
+  const c2 = mc({ id: "C2" });
+  const run = (c1s: unknown[][]) => B.judgeStorage(threePosts(c1s.map((c) => [...c, c2]), [fc(), fc({ id: "C2" })]));
+  it("FRM brackets equal but the mod's neighbours differ: contents are report-only", () => {
+    // The middle post differs from FRM and from both neighbours; the first and third posts have a differing neighbour too: no amount check ran.
+    const v = run([[mc()], [moved], [mc()]]);
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("3 changed between the mod's own neighbouring posts");
+  });
+  it("a post whose neighbours all agree with it is judged exactly: it fails when it differs from FRM", () => {
+    const v = run([[off], [off], [off]]);
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("amounts matched FRM's for 50.00% of 6 stable container-posts, need 99%");
+    expect(text(v)).toContain("C1 Desc_Coal_C mod=149 frm=150");
+  });
+  it("all agree with each other and with FRM: passes", () => {
+    const v = run([[mc()], [mc()], [mc()]]);
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("6 container(s) unchanged between the brackets and across the mod's neighbouring posts");
+  });
+  it("a changing mod container that differs from FRM passes as report-only", () => {
+    const v = run([[moved], [mc({ slotsUsed: 2 })], [moved]]);
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("3 changed between the mod's own neighbouring posts");
+  });
+  it("the first and last post check their one neighbour (the first differs from the second, the last agrees with FRM and the second)", () => {
+    const v = run([[off], [mc()], [mc()]]);
+    // Post 1 differs from its only neighbour: report-only. Post 2 has a differing neighbour: report-only. Post 3 agrees with post 2 and FRM: judged, passes.
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("2 changed between the mod's own neighbouring posts");
+    // The last post alone differing from FRM and agreeing with its neighbour fails.
+    expect(run([[mc()], [off], [off]]).pass).toBe(false);
+  });
+  it("a container in one post only has no neighbour holding it and is judged on the FRM brackets", () => {
+    const v = run([[], [off], []]);
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("C1 Desc_Coal_C mod=149 frm=150");
+  });
+  it("no stable container among those compared fails", () => {
+    const v = B.judgeStorage(threePosts([[moved], [mc({ slotsUsed: 2 })], [moved]]));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no stable container among 3 compared: contents never judged");
+  });
+});
+
+describe("judgeStorage amounts share (owner ruling 2026-11-01 after run 41331276923)", () => {
+  // One post, so no container has a neighbour: all 150 are stable and judged on the brackets.
+  const ids = Array.from({ length: 150 }, (_, i) => `C${i}`);
+  const frm = ids.map((id) => fc({ id }));
+  const off = (id: string) => mc({ id, items: [{ className: "Desc_Coal_C", name: "Coal", amount: 149, stackMax: 100 }, { className: "Desc_OreIron_C", name: "Iron Ore", amount: 30, stackMax: 100 }] });
+  const post = (offIds: string[], o: Record<string, unknown> = {}) => ids.map((id) => (offIds.includes(id) ? off(id) : mc({ id, ...(id === "C7" ? o : {}) })));
+  it("one wrong amount among 150 stable container-posts is within the 1% allowance and listed", () => {
+    const v = B.judgeStorage(stable(frm, post(["C3"])));
+    expect(v.pass).toBe(true);
+    expect(text(v)).toContain("for 99.33% of them (need 99%");
+    expect(text(v)).toContain("1 within the allowance");
+    expect(text(v)).toContain("C3 Desc_Coal_C mod=149 frm=150");
+  });
+  it("two wrong amounts among 150 fall below 99% and fail", () => {
+    const v = B.judgeStorage(stable(frm, post(["C3", "C4"])));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("amounts matched FRM's for 98.67% of 150 stable container-posts, need 99%");
+  });
+  it("slotsUsed stays exact: one wrong slotsUsed among 150 fails", () => {
+    const v = B.judgeStorage(stable(frm, post([], { slotsUsed: 9 })));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("slotsUsed");
+  });
+  it("the item class set stays exact: one missing class among 150 fails", () => {
+    const v = B.judgeStorage(stable(frm, post([], { items: [{ className: "Desc_Coal_C", name: "Coal", amount: 150, stackMax: 100 }] })));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("item classes");
+  });
+});
 
 describe("judgeStorage", () => {
   it("passes and lists NOT EXERCISED", () => {
@@ -372,14 +585,22 @@ describe("judgeStorage", () => {
   });
   it("one bracket only is report-only for contents (and says so in NOT EXERCISED)", () => {
     const v = B.judgeStorage(cev({ post: [mc({ slotsUsed: 9, items: [] })] }));
-    expect(v.pass).toBe(true);
-    expect(text(v)).toContain("1 had one bracket only");
-    expect(v.never).toContain("a container unchanged between the brackets (exact contents rule)");
+    // Owner ruling 2026-10-28: nothing was stable, so the run fails, but the contents were not judged.
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no stable container among 1 compared");
+    expect(text(v)).not.toContain("slotsUsed:");
   });
-  it("a container that changed between the brackets is report-only for contents", () => {
-    const v = B.judgeStorage(cev({ after: [fc({ slotsUsed: 3, items: [{ class: "Desc_Coal_C", amount: 1, stackMax: 100 }] })], post: [mc({ slotsUsed: 9, items: [] })] }));
+  it("a container that changed between the brackets is report-only for contents (another container is stable)", () => {
+    const c2 = fc({ id: "C2" });
+    const v = B.judgeStorage(cev({ frm: [fc(), c2], after: [fc({ slotsUsed: 3, items: [{ class: "Desc_Coal_C", amount: 1, stackMax: 100 }] }), c2], post: [mc({ slotsUsed: 9, items: [] }), mc({ id: "C2" })] }));
     expect(v.pass).toBe(true);
     expect(text(v)).toContain("1 container(s) changed between the brackets");
+  });
+  it("owner ruling 2026-10-28: containers compared but none stable fails; one stable passes as before", () => {
+    const v = B.judgeStorage(cev({ after: [fc({ slotsUsed: 3 })] }));
+    expect(v.pass).toBe(false);
+    expect(text(v)).toContain("no stable container among 1 compared: contents never judged");
+    expect(B.judgeStorage(stable()).pass).toBe(true);
   });
   it.each([
     ["className", { className: "Build_Other_C" }, "className"],
@@ -444,7 +665,8 @@ describe("judgeStorage", () => {
   });
   it("the over-64 line stays NOT EXERCISED when the capped container was not judged exactly", () => {
     const frm = [fc({ items: many, slotsUsed: 70 })];
-    const v = B.judgeStorage(cev({ frm, after: [fc({ items: many.slice(0, 5), slotsUsed: 5 })], post: [mc({ slotsUsed: 70, items: modItems(many.slice(0, 64)) })] }));
+    const c2 = fc({ id: "C2" });
+    const v = B.judgeStorage(cev({ frm: [...frm, c2], after: [fc({ items: many.slice(0, 5), slotsUsed: 5 }), c2], post: [mc({ slotsUsed: 70, items: modItems(many.slice(0, 64)) }), mc({ id: "C2" })] }));
     expect(v.pass).toBe(true);
     expect(v.never).toContain("a container over 64 classes");
   });

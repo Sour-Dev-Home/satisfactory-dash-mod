@@ -135,7 +135,7 @@ describe("runCore", () => {
   it("adds the spec's modConfig to every config it writes and records it in mod-config.json; none without one", async () => {
     const written: Record<string, unknown>[] = [];
     const dirs: string[] = [];
-    for (const modConfig of [{ playersSource: "native" as const }, undefined]) {
+    for (const modConfig of [{ playersSource: "native" as const, stepDiagnostics: true }, undefined]) {
       const { deps, serverDir } = fakeDeps();
       const { dir } = await runCore("http-probe", spec({
         modConfig,
@@ -145,10 +145,10 @@ describe("runCore", () => {
         },
       }), deps);
       dirs.push(dir);
-      if (modConfig) expect(JSON.parse(readFileSync(join(dir, "mod-config.json"), "utf8"))).toEqual({ playersSource: "native" });
+      if (modConfig) expect(JSON.parse(readFileSync(join(dir, "mod-config.json"), "utf8"))).toEqual({ playersSource: "native", stepDiagnostics: true });
       else expect(existsSync(join(dir, "mod-config.json"))).toBe(false);
     }
-    expect(written[0]).toMatchObject({ backendUrl: "http://127.0.0.1:1", playersSource: "native" });
+    expect(written[0]).toMatchObject({ backendUrl: "http://127.0.0.1:1", playersSource: "native", stepDiagnostics: true }); // a boolean stays a JSON boolean in the written file
     expect(written[1]).not.toHaveProperty("playersSource");
   });
 

@@ -1175,10 +1175,11 @@ void SatisDash::FGameReader::ResetLogisticsRead()
 	bLogisticsRails = false;
 	bLogisticsConveyors = false;
 	bLogisticsPowerLines = false;
+	bLogisticsCallTiming = false;
 	bLogisticsOpen = false;
 }
 
-bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines)
+bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines, bool bCallTiming)
 {
 	if (bLogisticsOpen)
 	{
@@ -1196,6 +1197,7 @@ bool SatisDash::FGameReader::BeginLogisticsRead(bool bRails, bool bConveyors, bo
 	bLogisticsRails = bRails;
 	bLogisticsConveyors = bConveyors;
 	bLogisticsPowerLines = bPowerLines;
+	bLogisticsCallTiming = bCallTiming;
 	if (bRails)
 	{
 		// Advisory only (the subsystem's own count of tracks, logged next to what was read).
@@ -1353,6 +1355,20 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 			const int32 Slot = LogisticsCursor++;
 			FLogisticsCounts& Counts = LogisticsFound.Counts;
 			FConveyorReading Reading;
+			// Diagnostic (owner 2026-11-01), only when the pass was begun with the config's "stepDiagnostics": each lap closes one group
+			// of calls and keeps the per-read maximum with its slot. One FPlatformTime::Seconds() per group; nothing is logged here.
+			// Off: no clock is read and nothing is noted.
+			const bool bTimeCalls = bLogisticsCallTiming;
+			double Mark = bTimeCalls ? FPlatformTime::Seconds() : 0.0;
+			const auto lap = [&](FConveyorCallTiming::EGroup Group)
+			{
+				if (bTimeCalls)
+				{
+					const double Now = FPlatformTime::Seconds();
+					LogisticsFound.CallTiming.Note(Group, Now - Mark, Slot);
+					Mark = Now;
+				}
+			};
 			if (Slot < BeltCount + LiftCount)
 			{
 				const bool bLift = Slot >= BeltCount;
@@ -1368,13 +1384,17 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					++Counts.Dropped; // no end 0, so no position (ruling S8)
 					continue;
 				}
+				lap(FConveyorCallTiming::Get);
 				Reading.Id = Edge->GetName();
 				Reading.Kind = bLift ? EConveyorKind::Lift : EConveyorKind::Belt;
+				lap(FConveyorCallTiming::Name);
 				Reading.Tier = Edge->mDisplayName.ToString();
+				lap(FConveyorCallTiming::Text);
 				Reading.RawRate = Edge->GetSpeed();
 				const FVector At = C0->GetConnectorLocation();
 				Reading.XCm = At.X;
 				Reading.YCm = At.Y;
+				lap(FConveyorCallTiming::Speed);
 				for (int32 End = 0; End < 2; ++End)
 				{
 					const UFGFactoryConnectionComponent* Conn = End == 0 ? C0 : C1;
@@ -1383,6 +1403,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					// A connected end whose far side or owner is gone is ownerless, and open; a missing component is just open.
 					ConvReadEnd(IsValid(Other) ? Other->GetOuterBuildable() : nullptr, bConnected, End, Counts, End == 0 ? Reading.FromId : Reading.ToId);
 				}
+				lap(FConveyorCallTiming::Ends);
 				if (bLift)
 				{
 					++Counts.Lifts;
@@ -1406,13 +1427,17 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					++Counts.Dropped;
 					continue;
 				}
+				lap(FConveyorCallTiming::Get);
 				Reading.Id = Edge->GetName();
 				Reading.Kind = EConveyorKind::Pipe;
+				lap(FConveyorCallTiming::Name);
 				Reading.Tier = Edge->mDisplayName.ToString();
+				lap(FConveyorCallTiming::Text);
 				Reading.RawRate = Edge->GetFlowLimit();
 				const FVector At = P0->GetComponentLocation();
 				Reading.XCm = At.X;
 				Reading.YCm = At.Y;
+				lap(FConveyorCallTiming::Speed);
 				for (int32 End = 0; End < 2; ++End)
 				{
 					const UFGPipeConnectionComponentBase* Conn = End == 0 ? P0 : P1;
@@ -1420,6 +1445,7 @@ TOptional<SatisDash::FLogisticsSnapshot> SatisDash::FGameReader::StepLogisticsRe
 					const UFGPipeConnectionComponentBase* Other = bConnected ? Conn->GetConnection() : nullptr;
 					ConvReadEnd(IsValid(Other) ? Other->GetOwner() : nullptr, bConnected, End, Counts, End == 0 ? Reading.FromId : Reading.ToId);
 				}
+				lap(FConveyorCallTiming::Ends);
 				++Counts.Pipes;
 			}
 			NoteConveyorTier(Counts.Tiers, Reading.Kind, Reading.Tier, Reading.RawRate);
@@ -1681,8 +1707,9 @@ namespace
 	 * S4-B generator MW (V4, survey Q3), both in MW:
 	 *   Current  = power info GetBaseProduction() (FGPowerInfoComponent.h:137, "the power we always provide to the circuit") plus
 	 *              GetRegulatedDynamicProduction() (:160, "the dynamic power production we provide to the circuit").
-	 *   Capacity = CalcPowerProductionCapacityForPotential(GetCurrentPotential()) (FGBuildableGenerator.h:95, "with a given potential",
-	 *              mPowerProduction :126 "in MW"). GetPowerProductionCapacity :87 does not say it follows the clock, so it is not used.
+	 *   Capacity = power info GetBaseProduction() + GetDynamicProductionCapacity() (FGPowerInfoComponent.h:137, :148; owner ruling
+	 *              2026-10-28 after run 40623235820, see the body). GetPowerProductionCapacity (FGBuildableGenerator.h:87) does not say it
+	 *              follows the clock, so it is not used; CalcPowerProductionCapacityForPotential :95 is the fallback without a power info.
 	 * NEEDS VERIFICATION (the parity run judges, a failure goes to a ruling PR, never a weakened judge): the power-info getters state no
 	 * unit (MW assumed), nor whether a generator's output sits in the base or the dynamic part (the sum is read), and the headers do not
 	 * say what a geothermal generator gives through this path (no min/max invented, survey Q4). Also open: the production boost
@@ -1692,11 +1719,22 @@ namespace
 	 */
 	void BuildablesReadGeneratorPower(const AFGBuildableGenerator& Generator, const UFGPowerInfoComponent* PowerInfo, SatisDash::FGeneratorReading& Out)
 	{
+		// Owner ruling 2026-10-28 after run 40623235820 (capacity): the game's own capacity at the current clock is what the generator
+		// registers on its power info, the same split Current uses: GetBaseProduction() (FGPowerInfoComponent.h:137, the power "we always
+		// provide", a geothermal generator's part) plus GetDynamicProductionCapacity() (:148, "the maximum dynamic power production",
+		// set by SetDynamicProductionCapacity :145 "the maximum dynamic power production we can provide to the circuit"). The header does
+		// not say GetPowerProductionCapacity (FGBuildableGenerator.h:87, "the power this generator can produce") follows the clock, so it
+		// is still not used. The run showed CalcPowerProductionCapacityForPotential(GetCurrentPotential()) = 82.5 on a fuel generator at
+		// about a third clock where FRM's DynamicProdCapacity and our current read 83.333. Without a power info the old formula stays.
 		if (PowerInfo != nullptr)
 		{
 			Out.CurrentMW = static_cast<double>(PowerInfo->GetBaseProduction()) + static_cast<double>(PowerInfo->GetRegulatedDynamicProduction());
+			Out.CapacityMW = static_cast<double>(PowerInfo->GetBaseProduction()) + static_cast<double>(PowerInfo->GetDynamicProductionCapacity());
 		}
-		Out.CapacityMW = static_cast<double>(Generator.CalcPowerProductionCapacityForPotential(Generator.GetCurrentPotential()));
+		else
+		{
+			Out.CapacityMW = static_cast<double>(Generator.CalcPowerProductionCapacityForPotential(Generator.GetCurrentPotential()));
+		}
 	}
 }
 

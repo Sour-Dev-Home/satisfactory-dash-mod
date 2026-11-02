@@ -299,6 +299,17 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 		Result.BadField = TEXT("storageSource");
 		return Result;
 	}
+	bool bStepDiagnostics = false;
+	if (Object->HasField(TEXT("stepDiagnostics")))
+	{
+		const TSharedPtr<FJsonValue> DiagnosticsValue = SatisDash::Json::Field(Object, TEXT("stepDiagnostics"), EJson::Boolean);
+		if (!DiagnosticsValue.IsValid())
+		{
+			Result.BadField = TEXT("stepDiagnostics");
+			return Result;
+		}
+		bStepDiagnostics = DiagnosticsValue->AsBool();
+	}
 	Result.Status = EConfigStatus::Valid;
 	Result.Config.BackendUrl = Url;
 	Result.Config.EnrollmentCode = Code;
@@ -317,6 +328,7 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 	Result.Config.GeneratorsSource = GeneratorsSource;
 	Result.Config.StationRatesSource = StationRatesSource;
 	Result.Config.StorageSource = StorageSource;
+	Result.Config.bStepDiagnostics = bStepDiagnostics;
 	return Result;
 }
 
@@ -384,6 +396,10 @@ FString SatisDash::ConfigToJson(const FAgentConfig& Config)
 	if (Config.StorageSource.IsSet())
 	{
 		Object->SetStringField(TEXT("storageSource"), ConfigSourceName(Config.StorageSource.GetValue()));
+	}
+	if (Config.bStepDiagnostics)
+	{
+		Object->SetBoolField(TEXT("stepDiagnostics"), true);
 	}
 	return SatisDash::Json::WritePretty(Object);
 }

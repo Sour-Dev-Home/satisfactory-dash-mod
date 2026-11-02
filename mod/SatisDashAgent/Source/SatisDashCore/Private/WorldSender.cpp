@@ -277,7 +277,7 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					const bool bRails = WorldSenderIsNative(EWorldLayer::Rails, Context) && Layers[int32(EWorldLayer::Rails)].Phase == EPhase::Waiting;
 					const bool bConveyors = WorldSenderIsNative(EWorldLayer::Conveyors, Context) && Layers[int32(EWorldLayer::Conveyors)].Phase == EPhase::Waiting;
 					const bool bPowerLines = WorldSenderIsNative(EWorldLayer::PowerLines, Context) && Layers[int32(EWorldLayer::PowerLines)].Phase == EPhase::Waiting;
-					if (Context.LogisticsBudget != nullptr && Context.NativeReaders->BeginLogisticsRead(bRails, bConveyors, bPowerLines))
+					if (Context.LogisticsBudget != nullptr && Context.NativeReaders->BeginLogisticsRead(bRails, bConveyors, bPowerLines, Context.Config != nullptr && Context.Config->bStepDiagnostics))
 					{
 						Context.LogisticsBudget->Reset();
 						bPassOpen = true;
@@ -659,7 +659,8 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 		bWasRails ? 1 : 0, bWasConveyors ? 1 : 0, bWasPowerLines ? 1 : 0, C.Buildables, C.Tracks, C.Belts, C.Lifts, C.Pipes, C.OpenEnds, C.OwnerlessEnds, C.Wires, C.ExpectedWires,
 		Budget.Steps(), Budget.LongestMs(), Budget.TotalMs(), C.ExpectedTracks, C.Dropped, C.Over);
 	// If the longest step passed the ceiling: its element count and phase (0 Collect, 1 ReadRails, 2 ReadConveyors, 3 ReadPowerLines).
-	LogLongestStep(TEXT("Logistics"), Budget);
+	// Owner 2026-11-01: the conveyor phase's per-call maxima ride this line as a tail (empty when nothing was timed).
+	LogLongestStep(TEXT("Logistics"), Budget, ConveyorCallsTail(Found->CallTiming));
 	if (bWasPowerLines && WireCountSuspect(C.Wires, C.WiresDropped, C.ExpectedWires) && ShouldLog(PowerLinesLayer, TEXT("wires"), Context.Now))
 	{
 		// Counts only. A warning, never a change to the output: the parity id-set is the judge.

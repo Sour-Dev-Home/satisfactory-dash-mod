@@ -25,6 +25,8 @@ namespace SatisDash
 		TFunction<FDateTime()> UtcNow;
 		/** Uniform in [0, 1]: FMath::FRand() in the game. */
 		TFunction<double()> Random01;
+		/** The calling thread's CPU cycle count (QueryThreadCycleTime in the game). Diagnostic only (StepBudget.h); may be empty (non-Windows, tests) or return unset. */
+		TFunction<TOptional<uint64>()> ThreadCycles;
 	};
 
 	/**
@@ -68,6 +70,11 @@ namespace SatisDash
 		/** commandRunner.ts: poll, run each command, report its result, one thing at a time (DriverCommands.cpp). */
 		void TickCommands(double Now);
 		void StopCommands();
+		/**
+		 * The budgets' cycle source. Reads the config's "stepDiagnostics" on every call (the config can be re-read while running),
+		 * and only when it is true calls Clock.ThreadCycles: off, this is one flag test and the clock is never asked.
+		 */
+		TOptional<uint64> StepCycles() const;
 
 		FDriverClock Clock;
 		ITransport& Transport;

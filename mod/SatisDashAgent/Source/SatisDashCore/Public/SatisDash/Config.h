@@ -62,6 +62,12 @@ namespace SatisDash
 		TOptional<ESource> GeneratorsSource;
 		TOptional<ESource> StationRatesSource;
 		TOptional<ESource> StorageSource;
+		/**
+		 * The key "stepDiagnostics" (owner 2026-11-01): test runs only, off unless the file says true. When on, the step budgets read
+		 * the thread's CPU cycles and the conveyor read times its calls, for the longest-step lines. When off, none of that work is
+		 * done. Written back only when true.
+		 */
+		bool bStepDiagnostics = false;
 
 		int32 GetFrmPort() const { return FrmPort.Get(DefaultFrmPort); }
 		ESource GetPlayersSource() const { return PlayersSource.Get(DefaultPlayersSource); }
@@ -83,7 +89,7 @@ namespace SatisDash
 	{
 		/** There was no file; one was written with the default URL and no code. Config holds those defaults. */
 		Missing,
-		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource", "railsSource", "conveyorsSource", "mapMarkersSource", "droneRoutesSource", "powerLinesSource", "extractorsSource", "generatorsSource", "stationRatesSource" or "storageSource". */
+		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource", "railsSource", "conveyorsSource", "mapMarkersSource", "droneRoutesSource", "powerLinesSource", "extractorsSource", "generatorsSource", "stationRatesSource", "storageSource" or "stepDiagnostics". */
 		Broken,
 		Valid,
 	};

@@ -307,3 +307,17 @@ SatisDash::FNativeWorldBody SatisDash::BuildNativeConveyors(const FString& Obser
 	Out.Bytes = FTCHARToUTF8_Convert::ConvertedLength(*Out.Json, Out.Json.Len());
 	return Out;
 }
+
+FString SatisDash::ConveyorCallsTail(const FConveyorCallTiming& Timing)
+{
+	if (!Timing.bTimed)
+	{
+		return FString();
+	}
+	return FString::Printf(TEXT(", conveyor calls max: get %.2f ms at %d, name %.2f ms at %d, text %.2f ms at %d, speed %.2f ms at %d, ends %.2f ms at %d"),
+		Timing.MaxMs[FConveyorCallTiming::Get], Timing.Slot[FConveyorCallTiming::Get],
+		Timing.MaxMs[FConveyorCallTiming::Name], Timing.Slot[FConveyorCallTiming::Name],
+		Timing.MaxMs[FConveyorCallTiming::Text], Timing.Slot[FConveyorCallTiming::Text],
+		Timing.MaxMs[FConveyorCallTiming::Speed], Timing.Slot[FConveyorCallTiming::Speed],
+		Timing.MaxMs[FConveyorCallTiming::Ends], Timing.Slot[FConveyorCallTiming::Ends]);
+}

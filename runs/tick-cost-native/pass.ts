@@ -6,7 +6,7 @@
 // since the owner's decision of 2026-10-26 the longest step of every sliced native read is judged against 2 ms.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { TICK_WARMUP_MS } from "../../harness/src/ticks";
-import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, mapMarkersLogProblems, droneRoutesLogProblems, powerLinesLogProblems, extractorsLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLineProblems, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
+import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, mapMarkersLogProblems, droneRoutesLogProblems, powerLinesLogProblems, extractorsLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLineProblems, longestStepDiagnostics, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import * as Base from "../tick-cost/pass";
 
@@ -115,5 +115,24 @@ export function evaluate(e: CoreEvidence): Verdict {
     return { pass: true, reasons: [...base.reasons, `native readers live in the window: ${withPlayers} snapshots with players, ${nodePosts.length} resourceNodes post(s)`, describeScanCost(scans), `step ceiling ${MAX_NATIVE_STEP_MS} ms held (sliced native reads only): ${steps}`] };
   }
   // When the base verdict passes, its reasons describe what passed, so they are listed only on success.
-  return { pass: false, reasons: [...(base.pass ? [] : base.reasons), ...extra, ...(scans.length ? [describeScanCost(scans)] : [])] };
+  return { pass: false, reasons: [...(base.pass ? [] : base.reasons), ...extra, ...(scans.length ? [describeScanCost(scans)] : []), ...diagnosticLines(e.lines)] };
+}
+
+/**
+ * Report-only (owner 2026-11-01, tick-cost run 41334503941): one line per longest-step diagnostic the mod logged, with the thread
+ * cycles when it had them, so a reader of a failed verdict can tell a slow step from a stalled one. It never decides `pass`, and it
+ * is added to failing verdicts only.
+ */
+function diagnosticLines(lines: readonly string[]): string[] {
+  return longestStepDiagnostics(lines).map((d) => {
+    const element = d.longestElementMs === undefined ? "" : `, longest element ${d.longestElementMs.toFixed(2)} ms at ${d.longestElementIndex} (phase ${d.longestElementPhase})`;
+    const cycles = d.cyclesPerMsInStep === undefined || d.cyclesPerMsInOtherSteps === undefined
+      ? ""
+      : `; thread cycles per ms ${d.cyclesPerMsInStep} in this step vs ${d.cyclesPerMsInOtherSteps} in ${d.otherSteps} other steps${d.cyclesPerMsInOtherSteps > 0 ? ` (${((100 * d.cyclesPerMsInStep) / d.cyclesPerMsInOtherSteps).toFixed(1)}%)` : ""}`;
+    const c = d.conveyorCalls;
+    const calls = c === undefined
+      ? ""
+      : `; conveyor calls max: get ${c.getMs.toFixed(2)} ms at ${c.getSlot}, name ${c.nameMs.toFixed(2)} ms at ${c.nameSlot}, text ${c.textMs.toFixed(2)} ms at ${c.textSlot}, speed ${c.speedMs.toFixed(2)} ms at ${c.speedSlot}, ends ${c.endsMs.toFixed(2)} ms at ${c.endsSlot}`;
+    return `diagnostic (report-only): ${d.reader} longest step ${d.longestStepMs.toFixed(2)} ms${element}${cycles}${calls}`;
+  });
 }

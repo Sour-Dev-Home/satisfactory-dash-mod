@@ -16,6 +16,41 @@ namespace SatisDash
 	enum class ECapacityMode : uint8 { SpeedHalf, ClassTable };
 	inline constexpr ECapacityMode NativeConveyorCapacityMode = ECapacityMode::SpeedHalf;
 
+	/**
+	 * DIAGNOSTIC (owner 2026-11-01, after tick-cost run 41349617818), off unless the mod config says "stepDiagnostics": true (test runs
+	 * only). When on, the game reader times five groups of calls per conveyor element with FPlatformTime::Seconds() and keeps the
+	 * maximum of each; they ride the existing over-ceiling Logistics line as a tail. Off: no clock reads, no tail.
+	 *
+	 * The per-group maxima of one conveyor read (milliseconds) and the conveyor slot (0-based) each occurred at. Numbers only.
+	 */
+	struct FConveyorCallTiming
+	{
+		/** Groups: the weak pointer and connection getters, GetName, the tier text, speed and location, the two-end loop. */
+		enum EGroup : int32 { Get, Name, Text, Speed, Ends, GroupCount };
+
+		/** False until the first Note: a read without timing (flag off, no conveyors) has no tail. */
+		bool bTimed = false;
+		double MaxMs[GroupCount] = {};
+		int32 Slot[GroupCount] = {};
+
+		void Note(int32 Group, double Seconds, int32 AtSlot)
+		{
+			const double Ms = Seconds * 1000.0;
+			if (!bTimed || Ms > MaxMs[Group])
+			{
+				MaxMs[Group] = Ms;
+				Slot[Group] = AtSlot;
+			}
+			bTimed = true;
+		}
+	};
+
+	/**
+	 * The tail of the Logistics longest-step line: ", conveyor calls max: get <a> ms at <i>, name <b> ms at <j>, text <c> ms at <k>,
+	 * speed <d> ms at <l>, ends <e> ms at <m>" (%.2f ms, slot as an integer), or an empty string when nothing was timed.
+	 */
+	SATISDASHCORE_API FString ConveyorCallsTail(const FConveyorCallTiming& Timing);
+
 	/** One belt, lift or pipe as the game read it. */
 	struct FConveyorReading
 	{

@@ -87,6 +87,129 @@ bool FStepBudgetSlicesTest::RunTest(const FString& Parameters)
 	Tagged.Reset();
 	TestEqual(TEXT("Reset clears the items"), Tagged.LongestItems(), 0);
 	TestEqual(TEXT("and both tags"), Tagged.LongestStartTag() + Tagged.LongestEndTag(), 0);
+	TestEqual(TEXT("Reset clears the longest element"), Tagged.LongestElementMs() + Tagged.LongestElementIndex() + Tagged.LongestElementTag(), 0.0);
+
+	// The longest element (tick-cost run 40626602265): 0.003 ms per element, then a 9 ms jump inside element 319 after SetTag(2).
+	TSharedRef<double> Tick = MakeShared<double>(0.0);
+	FStepBudget Elements{[Tick]() { return *Tick; }, 1.0};
+	Elements.SetTag(1);
+	Elements.Begin();
+	for (int32 Element = 1; Element <= 318; ++Element)
+	{
+		*Tick += 0.000003;
+		Elements.Spent();
+	}
+	Elements.SetTag(2);
+	*Tick += 0.009;
+	Elements.Spent();
+	Elements.End();
+	TestTrue(TEXT("the step is about 9.95 ms (318 x 0.003 ms plus the jump)"), FMath::Abs(Elements.LongestMs() - 9.954) < 0.01);
+	TestEqual(TEXT("the element count is 319"), Elements.LongestItems(), 319);
+	TestTrue(TEXT("the longest element is the 9 ms jump"), FMath::Abs(Elements.LongestElementMs() - 9.0) < 0.001);
+	TestEqual(TEXT("at element 319"), Elements.LongestElementIndex(), 319);
+	TestEqual(TEXT("in phase 2"), Elements.LongestElementTag(), 2);
+
+	// A shorter step later leaves the longest step's element alone, even if its own element is longer than the others in it.
+	Elements.Begin();
+	Elements.Spent();
+	*Tick += 0.002;
+	Elements.End();
+	TestEqual(TEXT("a shorter step does not replace the longest element"), Elements.LongestElementIndex(), 319);
+
+	// A jump between the last Spent() and End() is the element End() closes: StepItems + 1, with the tag at End().
+	TSharedRef<double> Tick2 = MakeShared<double>(0.0);
+	FStepBudget Closing{[Tick2]() { return *Tick2; }, 1.0};
+	Closing.SetTag(1);
+	Closing.Begin();
+	Closing.Spent(); Closing.Spent(); Closing.Spent();
+	Closing.SetTag(3);
+	*Tick2 += 0.004;
+	Closing.End();
+	TestTrue(TEXT("the closing element is 4 ms"), FMath::Abs(Closing.LongestElementMs() - 4.0) < 0.001);
+	TestEqual(TEXT("charged to element 4 (three Spent() calls plus the one End() closes)"), Closing.LongestElementIndex(), 4);
+	TestEqual(TEXT("with the tag at End()"), Closing.LongestElementTag(), 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStepBudgetThreadCyclesTest, "SatisDash.Core.StepBudget.ThreadCycles", SatisDash::Test::Flags)
+
+bool FStepBudgetThreadCyclesTest::RunTest(const FString& Parameters)
+{
+	// Tick-cost run 41334503941: nine normal steps (1 ms wall, 3,000,000 cycles each) and one stalled step (9 ms wall, 41,000 cycles).
+	// Cycle reads come from a queue: one per Begin() and one per End(), so the test also proves there are exactly two per step.
+	TSharedRef<double> Now = MakeShared<double>(0.0);
+	TSharedRef<TArray<uint64>> Reads = MakeShared<TArray<uint64>>();
+	TSharedRef<int32> ReadCount = MakeShared<int32>(0);
+	FStepBudget Budget{[Now]() { return *Now; }, 1.0, [Reads, ReadCount]() -> TOptional<uint64>
+	{
+		const int32 Index = (*ReadCount)++;
+		return Reads->IsValidIndex(Index) ? TOptional<uint64>((*Reads)[Index]) : TOptional<uint64>();
+	}};
+	auto runStep = [&](double WallSeconds, uint64 Cycles)
+	{
+		// Begin's reading, then End's.
+		Reads->Add(10000000);
+		Reads->Add(10000000 + Cycles);
+		Budget.Begin();
+		Budget.Spent();
+		*Now += WallSeconds;
+		Budget.End();
+	};
+	for (int32 Step = 0; Step < 4; ++Step)
+	{
+		runStep(0.001, 3000000);
+	}
+	runStep(0.009, 41000);
+	for (int32 Step = 0; Step < 5; ++Step)
+	{
+		runStep(0.001, 3000000);
+	}
+	TestEqual(TEXT("two cycle reads per step, never per element"), *ReadCount, 20);
+	TestEqual(TEXT("ten steps"), Budget.Steps(), 10);
+	TestTrue(TEXT("the longest step is the stalled one"), FMath::Abs(Budget.LongestMs() - 9.0) < 0.001);
+	TestTrue(TEXT("its rate is 41000 / 9 ms"), Budget.LongestStepCyclesPerMs().IsSet() && FMath::Abs(Budget.LongestStepCyclesPerMs().GetValue() - 41000.0 / 9.0) < 0.5);
+	TestTrue(TEXT("the other nine steps run at 3,000,000 per ms"), Budget.OtherStepsCyclesPerMs().IsSet() && FMath::Abs(Budget.OtherStepsCyclesPerMs().GetValue() - 3000000.0) < 0.5);
+	TestEqual(TEXT("over 9 other steps"), Budget.OtherStepsWithCycles(), 9);
+	TestEqual(TEXT("the log tail"), LongestStepCyclesTail(Budget), FString(TEXT(", thread cycles per ms 4556 in this step, 3000000 in 9 other steps")));
+	Budget.Reset();
+	TestFalse(TEXT("Reset clears the longest rate"), Budget.LongestStepCyclesPerMs().IsSet());
+	TestFalse(TEXT("Reset clears the other rate"), Budget.OtherStepsCyclesPerMs().IsSet());
+	TestEqual(TEXT("Reset clears the other steps"), Budget.OtherStepsWithCycles(), 0);
+	TestEqual(TEXT("and the tail"), LongestStepCyclesTail(Budget), FString());
+
+	// No source: no cycles, and the tail is empty so the log line is byte-identical to the one without this diagnostic.
+	TSharedRef<double> Now2 = MakeShared<double>(0.0);
+	FStepBudget NoSource{[Now2]() { return *Now2; }, 1.0};
+	NoSource.Begin();
+	*Now2 += 0.009;
+	NoSource.End();
+	TestFalse(TEXT("no source: no longest rate"), NoSource.LongestStepCyclesPerMs().IsSet());
+	TestEqual(TEXT("no source: empty tail"), LongestStepCyclesTail(NoSource), FString());
+
+	// A source that returns unset, or End's reading smaller than Begin's: the step has no cycles.
+	TSharedRef<int32> Calls = MakeShared<int32>(0);
+	TSharedRef<double> Now3 = MakeShared<double>(0.0);
+	FStepBudget Backwards{[Now3]() { return *Now3; }, 1.0, [Calls]() -> TOptional<uint64> { return (*Calls)++ == 0 ? TOptional<uint64>(500) : TOptional<uint64>(100); }};
+	Backwards.Begin();
+	*Now3 += 0.003;
+	Backwards.End();
+	TestFalse(TEXT("End reading smaller than Begin's: no cycles"), Backwards.LongestStepCyclesPerMs().IsSet());
+	FStepBudget Unset{[Now3]() { return *Now3; }, 1.0, []() -> TOptional<uint64> { return {}; }};
+	Unset.Begin();
+	*Now3 += 0.003;
+	Unset.End();
+	TestFalse(TEXT("an unset source: no cycles"), Unset.LongestStepCyclesPerMs().IsSet());
+
+	// A single step has no other steps to compare with: no other-steps rate, so no tail.
+	TSharedRef<int32> Pair = MakeShared<int32>(0);
+	TSharedRef<double> Now4 = MakeShared<double>(0.0);
+	FStepBudget Single{[Now4]() { return *Now4; }, 1.0, [Pair]() -> TOptional<uint64> { return TOptional<uint64>(uint64(1000 * (*Pair)++)); }};
+	Single.Begin();
+	*Now4 += 0.003;
+	Single.End();
+	TestTrue(TEXT("one step: its own rate is known"), Single.LongestStepCyclesPerMs().IsSet());
+	TestFalse(TEXT("one step: no other steps"), Single.OtherStepsCyclesPerMs().IsSet());
+	TestEqual(TEXT("one step: empty tail"), LongestStepCyclesTail(Single), FString());
 	return true;
 }
 

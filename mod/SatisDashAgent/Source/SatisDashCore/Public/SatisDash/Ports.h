@@ -63,6 +63,8 @@ namespace SatisDash
 		/** Empty when power lines were not asked for. */
 		TArray<FPowerLineReading> PowerLines;
 		FLogisticsCounts Counts;
+		/** Temporary diagnostic (owner 2026-11-01): per-call maxima of the conveyor phase; not timed unless the pass was begun with bCallTiming (config "stepDiagnostics") and conveyors were read. */
+		FConveyorCallTiming CallTiming;
 	};
 
 	/** S4-B: which readers the Buildables pass is asked for (each is on when its source is native). */
@@ -202,8 +204,9 @@ namespace SatisDash
 		 * R5: starts the shared, time-sliced logistics pass over the buildables, for the rails layer and/or the conveyors layer.
 		 * False when there is no world or subsystem, or when a pass is already open. Call StepLogisticsRead every tick until it returns
 		 * a value. Bridge-sourced layers never reach this. bConveyors asks for the belts, lifts and pipes too; bPowerLines (S4-A R10) for the wires.
+		 * bCallTiming (the config's "stepDiagnostics", owner 2026-11-01) turns on the per-call conveyor timing; false does no clock reads for it.
 		 */
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) { return false; }
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines, bool bCallTiming = false) { return false; }
 		/**
 		 * Reads buildables until the budget is spent, on the game thread. Unset until the pass has seen every one, then the
 		 * snapshot (once). Sorting and building the bodies are not done here.

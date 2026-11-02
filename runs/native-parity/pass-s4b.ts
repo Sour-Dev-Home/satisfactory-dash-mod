@@ -11,6 +11,7 @@ import { PowerGeneratorSchema } from "../../harness/contract/src/power";
 import { StorageContainerSchema, STORAGE_MAX_ITEMS_PER_CONTAINER } from "../../harness/contract/src/storage";
 import type { FrmContainer, FrmExtractor, FrmGenerator, FrmStationRate } from "../../harness/src/frm-s4b";
 import { evidenceId } from "../../harness/src/frm-s4";
+import { S2_DYNAMIC_SHARE } from "./pass-s2";
 import type { Bracket, Counts } from "./pass-s2";
 
 export type { Bracket, Counts };
@@ -33,6 +34,8 @@ export const GENERATOR_CAP_REL = 0.01;
 /** NEW (Task 18, generators): currentMW within max(0.5 MW, 2%) of the capacity-scaled range between the brackets. Reason: output follows demand. */
 export const GENERATOR_CUR_ABS_MW = 0.5;
 export const GENERATOR_CUR_REL = 0.02;
+/** Geothermal range rule (owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis)): absolute floor on the range bounds and on current == capacity. */
+export const GENERATOR_GEO_ABS_MW = 0.1;
 /** NEW (Task 18, stations): a rate passes when |m - f| <= max(0.5, 25% of f) against either bracket. Reason: smoothed values taken at different instants. */
 export const STATION_ABS = 0.5;
 export const STATION_REL = 0.25;
@@ -164,9 +167,12 @@ const circuitKey = (c: number | undefined): number | null => (c === undefined ||
  */
 export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
   const { reasons, ok } = collect<ModExtractor, FrmExtractor>(e, { layer: "extractors", endpoint: "getExtractor", schema: FactoryBuildingSchema.array() });
-  let compared = 0, idle = 0, backedUp = 0, modAll = 0, multi = 0;
+  let compared = 0, idle = 0, backedUp = 0, modAll = 0, multi = 0, flagMisses = 0, stableN = 0, unstableFrm = 0, unstableMod = 0;
+  const flagLines: string[] = [];
   const flat: ModExtractor[] = [];
-  for (const a of ok) {
+  const flagKeys = (a: Accepted<ModExtractor, FrmExtractor> | undefined) => new Map((a?.mod ?? []).filter((m) => m.production.length > 0).map((m) => [m.id, `${m.isProducing}/${m.isPaused}`]));
+  for (const [pi, a] of ok.entries()) {
+    const neighbours = [flagKeys(ok[pi - 1]), flagKeys(ok[pi + 1])];
     const full = a.mod.filter((m) => m.production.length > 0);
     const empty = a.mod.filter((m) => m.production.length === 0);
     idle += empty.length;
@@ -193,8 +199,25 @@ export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
       if (!curOk) d.add("currentPerMinute", `${m.id} mod=${num(p.currentPerMinute)} frm=${cands.map((f) => num(f.current)).join("/")} of max ${num(cands[0]!.max)}`);
       const pctOk = any((f) => Math.abs(p.percent - f.percent) <= EXTRACTOR_POINTS + EPS) || inRange(p.percent, cands.map((f) => f.percent), 0);
       if (!pctOk) d.add("percent", `${m.id} mod=${num(p.percent)} frm=${cands.map((f) => num(f.percent)).join("/")}`);
-      if (!any((f) => f.producing === m.isProducing)) d.add("isProducing", `${m.id} mod=${m.isProducing}`);
-      if (!any((f) => f.paused === m.isPaused)) d.add("isPaused", `${m.id} mod=${m.isPaused}`);
+      // Owner ruling 2026-10-28 after run 40623235820: the flags are judged as S2's factory flags are (pass-s2.ts judgeFactory): a
+      // machine-round misses when isProducing or isPaused is wrong, and the share of misses must stay within S2_DYNAMIC_SHARE.
+      // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): the flags are judged only on STABLE posts, where both
+      // bracketing FRM records agree on the flag AND the mod's own neighbouring posts (previous and next accepted post holding the id)
+      // agree with this post; an unstable post is counted and report-only. The share is over stable posts.
+      const first = cands[0]!;
+      const twoSides = a.sides.length >= 2 && cands.length === a.sides.length;
+      const sameFlags = (x: { producing: boolean; paused: boolean }) => x.producing === first.producing && x.paused === first.paused;
+      if (!twoSides || !cands.every(sameFlags)) { unstableFrm++; continue; }
+      if (neighbours.some((n) => n.has(m.id) && n.get(m.id) !== `${m.isProducing}/${m.isPaused}`)) { unstableMod++; continue; }
+      stableN++;
+      const badFlags = [
+        ...(first.producing === m.isProducing ? [] : [`isProducing mod=${m.isProducing}`]),
+        ...(first.paused === m.isPaused ? [] : [`isPaused mod=${m.isPaused}`]),
+      ];
+      if (badFlags.length) {
+        flagMisses++;
+        if (flagLines.length < S4B_SHOW) flagLines.push(`${a.at}: ${m.id} ${badFlags.join("; ")}`);
+      }
     }
     lines.push(...d.lines());
     modAll += full.length;
@@ -202,6 +225,10 @@ export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
     flat.push(...full);
     if (lines.length) reasons.push(...postFail(a.at, lines));
   }
+  const share = stableN === 0 ? 1 : 1 - flagMisses / stableN;
+  if (share < S2_DYNAMIC_SHARE) reasons.push(`isProducing and isPaused matched FRM for ${(share * 100).toFixed(2)}% of ${stableN} stable extractor-posts, need ${S2_DYNAMIC_SHARE * 100}% (as S2's dynamic flags; owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis))`, ...flagLines);
+  // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): as for storage, a run where extractors were compared but no post was stable never judged a flag.
+  if (compared > 0 && stableN === 0) reasons.push(`no stable extractor-post among ${compared} compared: isProducing and isPaused never judged (owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis))`);
   if (reasons.length) return failing(reasons);
   const never = compared === 0
     ? ["any extractor (both sides empty)"]
@@ -210,7 +237,7 @@ export function judgeExtractors(e: ExtractorsEvidence): S4bResult {
         flat.some((m) => m.isBackedUp) ? null : "an occupied-and-backed-up extractor",
       ].filter((x): x is string => x !== null);
   const out = [
-    `${ok.length} posted extractor list(s) valid against the contract; extractor ids equal FRM's; ${compared} extractors compared; className, resource class and circuit exact; max within max(${EXTRACTOR_MAX_ABS}/min, ${EXTRACTOR_MAX_REL * 100}%); current and percent within ${EXTRACTOR_POINTS} points or between the brackets; isProducing and isPaused equal to a bracket`,
+    `${ok.length} posted extractor list(s) valid against the contract; extractor ids equal FRM's; ${compared} extractors compared; className, resource class and circuit exact; max within max(${EXTRACTOR_MAX_ABS}/min, ${EXTRACTOR_MAX_REL * 100}%); current and percent within ${EXTRACTOR_POINTS} points or between the brackets; isProducing and isPaused equal to FRM's for ${(share * 100).toFixed(2)}% of ${stableN} stable extractor-posts (need ${S2_DYNAMIC_SHARE * 100}%, as S2${flagMisses ? `; ${flagMisses} within the allowance, first ${flagLines.length}: ${flagLines.join(" | ")}` : ""}); owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): stable = both FRM brackets agree and the mod's neighbouring posts agree; report-only: ${unstableFrm} where the FRM brackets disagree or one is missing, ${unstableMod} where the mod's neighbouring posts disagree`,
     `isBackedUp: report-only (${RULING_BACKED_UP}); the mod sent true on ${backedUp} of ${modAll} extractors`,
   ];
   if (multi > 0) out.push(`${multi} extractor(s) sent more than one production entry; only the first is compared with FRM's (reported, not failed)`);
@@ -230,13 +257,13 @@ const rawLine = (raw: Record<string, number>) => Object.entries(raw).map(([k, v]
 /**
  * generators (Task 18 table): valid against the contract (a `fuel` key on every record); id sets equal; className, circuit, fuel class and
  * supplement class exact (null = null); capacityMW within max(0.1, 1%) of either bracket; currentMW within max(0.5, 2%) of the
- * capacity-scaled range between the brackets. REPORT-ONLY: isProducing (controller ruling), fuel and supplement amounts, and a
- * geothermal capacity when FRM says 0 (V5). The oracle's currentMW and capacityMW are picks ("observed, not specified"): a failure
+ * capacity-scaled range between the brackets; a geothermal generator (FRM GeoMaxPower > 0) is judged on the range rule instead (owner ruling
+ * 2026-11-01 after run 40717842374 (gen-ext-analysis)). REPORT-ONLY: isProducing (controller ruling), fuel and supplement amounts. The oracle's currentMW and capacityMW are picks ("observed, not specified"): a failure
  * quotes the oracle's raw map for the first mismatching generators so the run shows which FRM field matches.
  */
 export function judgeGenerators(e: GeneratorsEvidence): S4bResult {
   const { reasons, ok } = collect<ModGenerator, FrmGenerator>(e, { layer: "generators", endpoint: "getGenerators", schema: PowerGeneratorSchema.array() });
-  let compared = 0, prodDiff = 0, geoZero = 0;
+  let compared = 0, prodDiff = 0, geoJudged = 0;
   const amounts: Record<"fuel" | "supplement", { n: number; seen: number; largest: number; at: string }> = {
     fuel: { n: 0, seen: 0, largest: 0, at: "" }, supplement: { n: 0, seen: 0, largest: 0, at: "" },
   };
@@ -259,17 +286,34 @@ export function judgeGenerators(e: GeneratorsEvidence): S4bResult {
       if (!any((f) => f.fuelClass === (m.fuel?.className ?? null))) d.add("fuel class", `${m.id} mod=${m.fuel?.className ?? "null"} frm=${cands[0]!.fuelClass ?? "null"}`);
       if (!any((f) => f.supplementClass === (m.supplement?.className ?? null))) d.add("supplement class", `${m.id} mod=${m.supplement?.className ?? "null"} frm=${cands[0]!.supplementClass ?? "null"}`);
       let wrong = false;
-      if (/Geothermal/i.test(m.className) && cands.every((f) => f.capacityMW === 0)) geoZero++;
-      else if (!any((f) => near(m.capacityMW, f.capacityMW, GENERATOR_CAP_ABS_MW, GENERATOR_CAP_REL))) {
-        d.add("capacityMW", `${m.id} mod=${num(m.capacityMW)} frm=${cands.map((f) => num(f.capacityMW)).join("/")}`);
-        wrong = true;
-      }
-      // The brackets' output scaled to the mod's capacity (output follows demand and clock), widened by max(0.5 MW, 2% of the range's top).
-      const scaled = cands.map((f) => (f.capacityMW > 0 ? (f.currentMW * m.capacityMW) / f.capacityMW : f.currentMW));
-      const slack = Math.max(GENERATOR_CUR_ABS_MW, GENERATOR_CUR_REL * Math.max(...scaled));
-      if (!inRange(m.currentMW, scaled, slack)) {
-        d.add("currentMW", `${m.id} mod=${num(m.currentMW)} frm(scaled)=${scaled.map(num).join("/")}`);
-        wrong = true;
+      // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): a generator whose FRM record has GeoMaxPower > 0 is judged on
+      // a range, not the bands (its output cycles between GeoMinPower and GeoMaxPower about every 62 s, faster than the sampling).
+      const geoCands = cands.filter((f) => (f.raw.GeoMaxPower ?? 0) > 0);
+      if (geoCands.length > 0) {
+        geoJudged++;
+        const within = (v: number, f: FrmGenerator) => {
+          const k = f.clockPercent / 100;
+          return v >= (f.raw.GeoMinPower ?? 0) * k - GENERATOR_GEO_ABS_MW - EPS && v <= (f.raw.GeoMaxPower ?? 0) * k + GENERATOR_GEO_ABS_MW + EPS;
+        };
+        const geoOk = geoCands.some((f) => Math.abs(m.currentMW - m.capacityMW) <= GENERATOR_GEO_ABS_MW + EPS
+          && (f.capacityMW === 0 ? Math.abs(m.capacityMW) <= GENERATOR_GEO_ABS_MW + EPS && Math.abs(m.currentMW) <= GENERATOR_GEO_ABS_MW + EPS
+            : within(m.capacityMW, f) && within(m.currentMW, f)));
+        if (!geoOk) {
+          d.add("geothermal power", `${m.id} mod capacity=${num(m.capacityMW)} current=${num(m.currentMW)} frm=${geoCands.map((f) => `[${num((f.raw.GeoMinPower ?? 0) * f.clockPercent / 100)}..${num((f.raw.GeoMaxPower ?? 0) * f.clockPercent / 100)}] capacity ${num(f.capacityMW)}`).join(" / ")}`);
+          wrong = true;
+        }
+      } else {
+        if (!any((f) => near(m.capacityMW, f.capacityMW, GENERATOR_CAP_ABS_MW, GENERATOR_CAP_REL))) {
+          d.add("capacityMW", `${m.id} mod=${num(m.capacityMW)} frm=${cands.map((f) => num(f.capacityMW)).join("/")}`);
+          wrong = true;
+        }
+        // The brackets' output scaled to the mod's capacity (output follows demand and clock), widened by max(0.5 MW, 2% of the range's top).
+        const scaled = cands.map((f) => (f.capacityMW > 0 ? (f.currentMW * m.capacityMW) / f.capacityMW : f.currentMW));
+        const slack = Math.max(GENERATOR_CUR_ABS_MW, GENERATOR_CUR_REL * Math.max(...scaled));
+        if (!inRange(m.currentMW, scaled, slack)) {
+          d.add("currentMW", `${m.id} mod=${num(m.currentMW)} frm(scaled)=${scaled.map(num).join("/")}`);
+          wrong = true;
+        }
       }
       if (wrong) bad.push({ m, f: cands[0]! });
       if (!any((f) => f.producing === m.isProducing)) prodDiff++;
@@ -310,7 +354,7 @@ export function judgeGenerators(e: GeneratorsEvidence): S4bResult {
     const a = amounts[k];
     out.push(`${k} amounts: report-only (they change every second); ${a.n} of ${a.seen} differ${a.n ? `, the largest ${num(a.largest)} on ${a.at}` : ""}`);
   }
-  if (geoZero > 0) out.push(`${geoZero} geothermal generator(s) with an FRM capacity of 0: capacity report-only (V5)`);
+  if (geoJudged > 0) out.push(`${geoJudged} geothermal generator(s) (FRM GeoMaxPower above 0) judged on the range rule (owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis)): capacity and current within [GeoMinPower, GeoMaxPower] x clock +/- ${GENERATOR_GEO_ABS_MW} MW, current equals capacity, both 0 when FRM's capacity is 0`);
   return { pass: true, reasons: out, never };
 }
 
@@ -396,15 +440,25 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
 /**
  * storage (Task 18 table + controller rulings): valid against the contract; id sets equal; className and slots exact (FRM's missing Slots
  * reads as 0, as a fluid buffer's does); stackMax equal to FRM's for solids and null on every fluid item. slotsUsed and the item class set and
- * amounts are EXACT only for a container whose two bracketing FRM records are identical (a fluid amount within 0.5% or 0.01 m3); a
- * container that changed between the brackets is counted, not judged. fluidCapacityM3 is REPORT-ONLY against FRM (controller ruling): its
+ * amounts are judged only for a container whose two bracketing FRM records are identical (a fluid amount within 0.5% or 0.01 m3); a
+ * container that changed between the brackets is counted, not judged. slotsUsed and the class set are exact; the amounts must be exact on
+ * S2_DYNAMIC_SHARE of the stable container-posts (owner ruling 2026-11-01 after run 41331276923). fluidCapacityM3 is REPORT-ONLY against FRM (controller ruling): its
  * presence is FAILED when FRM shows a fluid (an item with stackMax null) or the mod container has no slots but items.
  */
 export function judgeStorage(e: StorageEvidence): S4bResult {
   const { reasons, ok } = collect<ModContainer, FrmContainer>(e, { layer: "storage", endpoint: "getStorageInv", schema: StorageContainerSchema.array() });
   let compared = 0, stable = 0, changed = 0, unverifiable = 0, fluids = 0, fluidSeen = 0;
   let over64 = false, depot = 0;
-  for (const a of ok) {
+  // Owner ruling 2026-10-28 after run 40623235820: a container is "stable" (contents judged exactly) only when its two bracketing FRM
+  // records agree AND the mod's own neighbouring posts agree with this post. The neighbours are the immediately previous and next
+  // ACCEPTED posts (ok[pi-1], ok[pi+1]; no further search, no time bound); a neighbour that does not hold the id is skipped. The mod
+  // reads at a different instant from FRM while belts move, so a container the mod itself saw change is report-only.
+  const contentKey = (m: ModContainer) => JSON.stringify([m.slotsUsed, m.items.map((x) => [x.className, x.amount]).sort((p, q) => (p[0]! < q[0]! ? -1 : p[0]! > q[0]! ? 1 : 0))]);
+  const keysOf = (a: Accepted<ModContainer, FrmContainer> | undefined) => new Map((a?.mod ?? []).map((m) => [m.id, contentKey(m)]));
+  let modMoved = 0, amountMisses = 0;
+  const amountLines: string[] = [];
+  for (const [pi, a] of ok.entries()) {
+    const neighbours = [keysOf(ok[pi - 1]), keysOf(ok[pi + 1])];
     const lines = idDiff("container", a.mod.map((m) => m.id), a.sides.map((s) => s.map((f) => f.id))).failures;
     const d = new Diffs();
     for (const m of a.mod) {
@@ -435,6 +489,8 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       const first = cands[0]!;
       if (a.sides.length < 2 || cands.length < a.sides.length) { unverifiable++; continue; }
       if (!cands.every((f) => f.slotsUsed === first.slotsUsed && sameJson(f.items, first.items))) { changed++; continue; }
+      const mineKey = contentKey(m);
+      if (neighbours.some((n) => n.has(m.id) && n.get(m.id) !== mineKey)) { modMoved++; continue; }
       stable++;
       if (first.slotsUsed !== null && m.slotsUsed !== first.slotsUsed) d.add("slotsUsed", `${m.id} mod=${m.slotsUsed} frm=${first.slotsUsed}`);
       const mine = new Map(m.items.map((x) => [x.className, x.amount]));
@@ -446,16 +502,28 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       const missing = [...want.keys()].filter((c) => !mine.has(c));
       const extra = [...mine.keys()].filter((c) => !want.has(c));
       if (missing.length || extra.length) d.add("item classes", `${m.id} mod-only=[${shown(extra)}] frm-only=[${shown(missing)}]`);
+      // Owner ruling 2026-11-01 after run 41331276923: amounts are judged as S2's dynamic flags are. A stable container-post misses when
+      // any amount differs, and the share of misses must stay within S2_DYNAMIC_SHARE over all stable container-posts (a full container's
+      // count flickers by one while a belt drains and refills it, and two FRM samples can both land on the flicker).
+      const wrongAmounts: string[] = [];
       for (const [c, amt] of mine) {
         const f = want.get(c);
         if (f === undefined) continue;
         const good = fluid ? Math.abs(amt - f) <= Math.max(STORAGE_FLUID_ABS_M3, STORAGE_FLUID_REL * Math.abs(f)) + EPS : amt === f;
-        if (!good) d.add("amount", `${m.id} ${c} mod=${num(amt)} frm=${num(f)}`);
+        if (!good) wrongAmounts.push(`${c} mod=${num(amt)} frm=${num(f)}`);
+      }
+      if (wrongAmounts.length) {
+        amountMisses++;
+        if (amountLines.length < S4B_SHOW) amountLines.push(`${a.at}: ${m.id} ${wrongAmounts.join("; ")}`);
       }
     }
     lines.push(...d.lines());
     if (lines.length) reasons.push(...postFail(a.at, lines));
   }
+  // Owner ruling 2026-10-28: a run where containers were compared but none was stable never judged any contents, so it cannot pass.
+  if (compared > 0 && stable === 0) reasons.push(`no stable container among ${compared} compared: contents never judged (owner ruling 2026-10-28)`);
+  const amountShare = stable === 0 ? 1 : 1 - amountMisses / stable;
+  if (amountShare < S2_DYNAMIC_SHARE) reasons.push(`amounts matched FRM's for ${(amountShare * 100).toFixed(2)}% of ${stable} stable container-posts, need ${S2_DYNAMIC_SHARE * 100}% (as S2's dynamic flags; owner ruling 2026-11-01 after run 41331276923)`, ...amountLines);
   if (reasons.length) return failing(reasons);
   const never = compared === 0
     ? ["any container (both sides empty)"]
@@ -466,8 +534,8 @@ export function judgeStorage(e: StorageEvidence): S4bResult {
       ].filter((x): x is string => x !== null);
   const out = [
     `${ok.length} posted storage list(s) valid against the contract; container ids equal FRM's; ${compared} containers compared; className and slots exact; stackMax equal to FRM's (null on fluids)`,
-    `${stable} container(s) unchanged between the brackets: slotsUsed, item classes and amounts exact (fluid within ${STORAGE_FLUID_REL * 100}% or ${STORAGE_FLUID_ABS_M3} m3)`,
-    `${changed} container(s) changed between the brackets and ${unverifiable} had one bracket only: contents report-only`,
+    `${stable} container(s) unchanged between the brackets and across the mod's neighbouring posts: slotsUsed and item classes exact; amounts exact (fluid within ${STORAGE_FLUID_REL * 100}% or ${STORAGE_FLUID_ABS_M3} m3) for ${(amountShare * 100).toFixed(2)}% of them (need ${S2_DYNAMIC_SHARE * 100}%, as S2; owner ruling 2026-11-01 after run 41331276923${amountMisses ? `; ${amountMisses} within the allowance, first ${amountLines.length}: ${amountLines.join(" | ")}` : ""})`,
+    `${changed} container(s) changed between the brackets, ${modMoved} changed between the mod's own neighbouring posts and ${unverifiable} had one bracket only: contents report-only`,
     `fluidCapacityM3: value report-only (${RULING_FLUID_CAP}); ${fluids} mod fluid buffer(s), ${fluidSeen} matched to an FRM fluid`,
   ];
   if (depot > 0) out.push(`${depot} depot uploader(s) compared like any container`);

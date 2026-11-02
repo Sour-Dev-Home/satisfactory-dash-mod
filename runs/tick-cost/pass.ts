@@ -33,6 +33,12 @@
 //   name the baseline contacted on the same port. Any other new endpoint fails as before. A failed lookup matches nothing
 //   and doesn't fail S12 by itself; a capture without the field behaves as before. The pass reason lists these matches
 //   like the name matches, marked "(forward lookup)".
+//   Owner ruling 2026-10-28 after run 40706193392 (S12 failed only on 104.26.12.205:443, api.ipify.org, while the baseline
+//   contacted 104.26.13.205:443 with no DNS name): an endpoint seen only in the with-mod boot also passes when a name N the
+//   with-mod boot's own DNS cache gave its address (never a reverse lookup) forward-resolves to that address AND to at least
+//   one address the baseline contacted. The harness records the lookups as `outboundForwardWithModNames` (name -> sorted
+//   addresses, [] on failure = no match). The pass reason lists each such match with N and the forward result. A capture
+//   without the field behaves as before.
 // - Same save (controller ruling, review of 1ca0065): both boots load the same staged world, and the session hash each
 //   boot runs is recorded; differing or missing hashes fail the run, since the comparison is valid only on the same save.
 // - Memory (owner decision, 2026-10-20): the server process tree's working set (the reader memory.json uses, by pid),
@@ -95,6 +101,12 @@ export interface TickCost {
    * forward-resolved through the system resolver: name -> its sorted addresses, [] on a failed lookup. Absent in older evidence.
    */
   outboundForwardWithMod?: Record<string, string[]>;
+  /**
+   * Owner ruling 2026-10-28 after run 40706193392: after the with-mod window, each name the with-mod boot's own DNS cache gave
+   * to an address it contacted that the baseline didn't, forward-resolved: name -> sorted addresses, [] on a failed lookup.
+   * Absent in older evidence.
+   */
+  outboundForwardWithModNames?: Record<string, string[]>;
 }
 /** "a.b.c.d:443" or "[v6]:443" into its address and port. */
 function splitEndpoint(x: string): { address: string; port: string } {
@@ -159,6 +171,7 @@ export function evaluate(e: CoreEvidence): Verdict {
       baselineByName.set(key, [...(baselineByName.get(key) ?? []), x]);
     }
   }
+  const baselineAddresses = new Set(c.outboundBaseline.map((x) => splitEndpoint(x).address));
   const byName: string[] = [];
   for (const x of added) {
     if (recorderOk && x === c.recorder) continue;
@@ -172,6 +185,15 @@ export function evaluate(e: CoreEvidence): Verdict {
       .map((key) => key.slice(0, key.lastIndexOf(":")));
     if (forward.length && !names.some((n) => baselineByName.has(`${n}:${port}`))) {
       for (const n of forward) byName.push(`${x} as ${n} (forward lookup; baseline ${baselineByName.get(`${n}:${port}`)!.join(", ")})`);
+      continue;
+    }
+    // Owner ruling 2026-10-28 after run 40706193392: one of the with-mod boot's own names for this address forward-resolves
+    // to this address and to at least one address the baseline contacted.
+    const own = names
+      .map((n) => ({ n, result: c.outboundForwardWithModNames?.[n] ?? [] }))
+      .filter(({ result }) => result.includes(address) && result.some((a) => baselineAddresses.has(a)));
+    if (own.length && !names.some((n) => baselineByName.has(`${n}:${port}`))) {
+      for (const { n, result } of own) byName.push(`${x} as ${n} (own-name forward lookup [${result.join(", ")}]; baseline contacted ${result.filter((a) => baselineAddresses.has(a)).join(", ")})`);
       continue;
     }
     if (!names.length) {

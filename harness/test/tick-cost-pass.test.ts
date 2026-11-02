@@ -152,6 +152,41 @@ describe("tick-cost pass", () => {
         expect(reasons(older)).toEqual([unnamed]);
       });
     });
+    describe("own-name forward lookup (owner ruling 2026-10-28, after run 40706193392)", () => {
+      // Baseline contacted 104.26.13.205 (no name); the with-mod boot 104.26.12.205, which its own DNS cache names api.ipify.org.
+      const run40706193392: Partial<TickCost> = {
+        recorder: RUN_RECORDER,
+        outboundBaseline: ["104.26.13.205:443", "34.160.81.0:443"],
+        outboundWithMod: ["104.26.12.205:443", RUN_RECORDER],
+        outboundNamesBaseline: { "34.160.81.0": ["example.google.test"] },
+        outboundNamesWithMod: { "104.26.12.205": ["api.ipify.org"] },
+        outboundSamples: { baseline: { ok: 28, failed: 0, dnsFailed: 0 }, withMod: { ok: 28, failed: 0, dnsFailed: 0 } },
+        outboundForwardWithModNames: { "api.ipify.org": ["104.26.12.205", "104.26.13.205"] },
+      };
+      const failure = `S12: the mod's boot contacted 104.26.12.205:443 (api.ipify.org), which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and none of its names was contacted in the baseline`;
+      it("passes the run's case and records the name and forward result", () => {
+        const v = evaluate(ev(capture(run40706193392)));
+        expect(v.pass).toBe(true);
+        expect(v.reasons[0]).toContain("104.26.12.205:443 as api.ipify.org (own-name forward lookup [104.26.12.205, 104.26.13.205]; baseline contacted 104.26.13.205)");
+      });
+      it("fails when the forward result does not include the address", () => {
+        expect(reasons({ ...run40706193392, outboundForwardWithModNames: { "api.ipify.org": ["104.26.13.205"] } })).toContain(failure);
+      });
+      it("fails when the forward result includes no baseline address", () => {
+        expect(reasons({ ...run40706193392, outboundForwardWithModNames: { "api.ipify.org": ["104.26.12.205", "172.67.74.152"] } })).toContain(failure);
+      });
+      it("fails when the name is absent from the with-mod DNS cache", () => {
+        expect(reasons({ ...run40706193392, outboundNamesWithMod: {} })).toContain(
+          `S12: the mod's boot contacted 104.26.12.205:443, which the baseline didn't, isn't the recorder (${RUN_RECORDER}), and has no DNS name`);
+      });
+      it("fails on a failed lookup ([])", () => {
+        expect(reasons({ ...run40706193392, outboundForwardWithModNames: { "api.ipify.org": [] } })).toContain(failure);
+      });
+      it("judges an older capture without the field as before", () => {
+        const { outboundForwardWithModNames: _, ...older } = run40706193392;
+        expect(reasons(older)).toContain(failure);
+      });
+    });
     it("fails when the sampler never saw the mod's connection to the recorder (review I1: no vacuous pass)", () => {
       expect(reasons({ outboundWithMod: ["203.0.113.7:443"] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");
       expect(reasons({ outboundBaseline: [], outboundWithMod: [] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");

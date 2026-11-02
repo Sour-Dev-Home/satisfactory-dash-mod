@@ -1024,3 +1024,38 @@ bool FDriverNativeStorageTest::RunTest(const FString& Parameters)
 	Log.Take();
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverStepDiagnosticsTest, "SatisDash.Core.Driver.StepDiagnostics", SatisDash::Test::Flags)
+
+bool FDriverStepDiagnosticsTest::RunTest(const FString& Parameters)
+{
+	// Owner 2026-11-01: the thread cycle source is asked only when the config says "stepDiagnostics": true. Off, it is never called.
+	SatisDash::Test::FLogCapture Log;
+	for (const bool bOn : { false, true })
+	{
+		FContainerReading Box;
+		Box.Id = TEXT("Test_Box_1");
+		Box.ClassName = TEXT("Build_Box_C");
+		FDriverFixture F;
+		F.Game.Containers.Add(Box);
+		F.Game.BuildablesCounts.Containers = 1;
+		int32 CycleCalls = 0;
+		SatisDash::FDriverClock Clock = F.clock();
+		Clock.ThreadCycles = [&CycleCalls]() -> TOptional<uint64> { return TOptional<uint64>(uint64(++CycleCalls) * 1000); };
+		FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, MoveTemp(Clock) };
+		F.enrol(Driver, SatisDash::Test::FakeSecret(), bOn ? TEXT(",\"storageSource\":\"native\",\"stepDiagnostics\":true") : TEXT(",\"storageSource\":\"native\""));
+		TestTrue(TEXT("a Buildables pass begins"), F.runUntil(Driver, [&F] { return F.Game.BuildablesBegins >= 1; }, 20));
+		DriverNativeRun(F, Driver, 40);
+		TestTrue(TEXT("the pass was stepped (the budget began and ended each step)"), F.Game.ContainerCasts >= 1);
+		if (bOn)
+		{
+			TestTrue(TEXT("stepDiagnostics on: the cycle source is asked at each step's begin and end"), CycleCalls >= 2 && CycleCalls % 2 == 0);
+		}
+		else
+		{
+			TestEqual(TEXT("stepDiagnostics off: the cycle source is never asked"), CycleCalls, 0);
+		}
+	}
+	Log.Take();
+	return true;
+}

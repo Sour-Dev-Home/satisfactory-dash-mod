@@ -408,9 +408,12 @@ function s4bEvidence(over: { extractors?: unknown; generators?: unknown; station
   const at = iso(T0 + 8 * 60_000);
   const samples = [{ startedAt: iso(T0 + 7 * 60_000), endedAt: iso(T0 + 7 * 60_000 + 500), value: "f1" }];
   const block = <F>(data: unknown, frm: F[]) => ({ posts: [{ at, status: 200, data }], frmSamples: samples, distinct: { f1: frm }, frm: { reads: 3, failed: 0 } });
+  // Owner ruling 2026-11-01 after run 40717842374 (gen-ext-analysis): an extractor flag is judged only on a stable post, which needs two
+  // agreeing FRM brackets, so the extractors block carries a second sample of the same record.
+  const twoBrackets = <F>(b: ReturnType<typeof block<F>>) => ({ ...b, frmSamples: [...samples, { startedAt: iso(T0 + 9 * 60_000), endedAt: iso(T0 + 9 * 60_000 + 500), value: "f1" }] });
   return {
-    extractors: block(over.extractors ?? [{ id: "E1", name: "Miner", className: "Build_MinerMk1_C", recipe: null, isProducing: true, isPaused: false, isBackedUp: false, production: [{ name: "Iron Ore", className: "Desc_OreIron_C", currentPerMinute: 60, maxPerMinute: 120, percent: 50 }] }],
-      [{ id: "E1", className: "Build_MinerMk1_C", producing: true, paused: false, backedUp: null, raw: {}, resourceClass: "Desc_OreIron_C", current: 60, max: 120, percent: 50, clockPercent: 100 }]),
+    extractors: twoBrackets(block(over.extractors ?? [{ id: "E1", name: "Miner", className: "Build_MinerMk1_C", recipe: null, isProducing: true, isPaused: false, isBackedUp: false, production: [{ name: "Iron Ore", className: "Desc_OreIron_C", currentPerMinute: 60, maxPerMinute: 120, percent: 50 }] }],
+      [{ id: "E1", className: "Build_MinerMk1_C", producing: true, paused: false, backedUp: null, raw: {}, resourceClass: "Desc_OreIron_C", current: 60, max: 120, percent: 50, clockPercent: 100 }])),
     generators: block(over.generators ?? [], []),
     stations: block(over.stations ?? [{ id: "S1", name: NAME_HASH, x: 1, y: 2, transferPerMinute: 10 }], [{ id: "S1", nameHash: NAME_HASH, transfer: 10, platformSum: 10, platformCount: 1, platforms: [] }]),
     storage: block(over.storage ?? [], []),

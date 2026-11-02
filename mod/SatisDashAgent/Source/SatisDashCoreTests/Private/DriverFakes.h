@@ -202,6 +202,8 @@ namespace SatisDash::Test
 		/** R6: what a pass that asked for conveyors returns (the rails and conveyors lists are each given only when asked, as the real reader's). */
 		TArray<SatisDash::FConveyorReading> LogisticsConveyors;
 		SatisDash::FLogisticsCounts LogisticsCounts;
+		/** The conveyor call-timing diagnostic a finished pass carries (owner 2026-11-01); untimed by default. */
+		SatisDash::FConveyorCallTiming LogisticsCallTiming;
 		/** The pass ends abandoned (no subsystem, a world swap, or zero buildables): empty and flagged, as the game reader does. */
 		bool bLogisticsAbandoned = false;
 		bool bBeginLogisticsOk = true;
@@ -219,9 +221,12 @@ namespace SatisDash::Test
 		bool bOpenRails = false;
 		bool bOpenConveyors = false;
 		bool bOpenPowerLines = false;
-		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines) override
+		bool bOpenCallTiming = false;
+		bool bLastBeginCallTiming = false;
+		virtual bool BeginLogisticsRead(bool bRails, bool bConveyors, bool bPowerLines, bool bCallTiming = false) override
 		{
 			++LogisticsBegins;
+			bLastBeginCallTiming = bCallTiming;
 			bLastBeginRails = bRails;
 			bLastBeginConveyors = bConveyors;
 			bLastBeginPowerLines = bPowerLines;
@@ -234,6 +239,7 @@ namespace SatisDash::Test
 			bOpenRails = bRails;
 			bOpenConveyors = bConveyors;
 			bOpenPowerLines = bPowerLines;
+			bOpenCallTiming = bCallTiming;
 			return true;
 		}
 		/** Diagnostic tests: each step counts this many elements, sits in this phase, and runs the work hook (a test advances the fake clock there). */
@@ -274,6 +280,10 @@ namespace SatisDash::Test
 					Out.PowerLines = LogisticsPowerLines;
 				}
 				Out.Counts = LogisticsCounts;
+				if (bOpenCallTiming)
+				{
+					Out.CallTiming = LogisticsCallTiming; // as the real reader's: timed only when the pass was begun with call timing
+				}
 			}
 			return Out;
 		}
