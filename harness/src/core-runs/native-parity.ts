@@ -417,22 +417,23 @@ export function s4bLayerPosts(entries: readonly RecordedCall[], layer: S4bLayer,
 
 /** The least time between two extra samples of one endpoint (controller ruling, 2026-10-27): snapshots come every 5 s. */
 export const S4B_TAKE_MIN_MS = 30_000;
-export interface S4bSeen { hash: string | null; takenAt: number }
+export interface S4bSeen { takenAt: number }
 /** The incremental state of takeAfterNewS4bPosts: `cursor` is how many recorder entries were looked at already, `examined` counts the work done (tests). */
 export interface S4bState { cursor: number; examined: number; layers: Record<S4bLayer, S4bSeen> }
 export const newS4bSeen = (): S4bState => ({
   cursor: 0, examined: 0,
   layers: {
-    extractors: { hash: null, takenAt: -Infinity }, generators: { hash: null, takenAt: -Infinity },
-    stationRates: { hash: null, takenAt: -Infinity }, storage: { hash: null, takenAt: -Infinity },
+    extractors: { takenAt: -Infinity }, generators: { takenAt: -Infinity },
+    stationRates: { takenAt: -Infinity }, storage: { takenAt: -Infinity },
   },
 });
 
 /**
  * An extra FRM sample for an S4-B layer only after a snapshot that carries a fragment from a NEW mod read, and at most once per
  * S4B_TAKE_MIN_MS per endpoint (the periodic samplers stay). Extractors, storage and station rates: a snapshot carrying the fragment
- * is new (the mod sends them once per read; mapLive rides every snapshot, so the 30 s floor bounds it). Generators ride every power
- * part, so a part is new only when a hash of its generators array's JSON text differs from the last one seen.
+ * is new (the mod sends them once per read; mapLive rides every snapshot, so the 30 s floor bounds it). Generators are the same
+ * since contract #807 (owner 2026-10-27, once per read): only the power part of a read carries them, and a part without the key is
+ * not a read, so it triggers nothing.
  * Incremental: only the entries added since the last call are looked at (a cursor, as createRoundCollector does) and no evidence
  * record is built here (s4bEvidenceFrom does that once), so the cost per call is O(new entries). `seen` is updated here.
  * The due takes run concurrently. Returns the layers sampled.
@@ -451,14 +452,7 @@ export async function takeAfterNewS4bPosts(
     if (e.agent !== "mod" || e.path !== "/agent/v1/snapshots" || e.status !== 200 || !e.parts || Date.parse(e.at) < enrolledAt) continue;
     for (const layer of S4B_LAYERS) {
       const fragment = s4bFragment(e.parts, layer);
-      if (!Array.isArray(fragment)) continue;
-      if (layer !== "generators") {
-        fresh.add(layer);
-        continue;
-      }
-      const h = createHash("sha256").update(JSON.stringify(fragment)).digest("hex");
-      if (h !== seen.layers.generators.hash) fresh.add(layer);
-      seen.layers.generators.hash = h;
+      if (Array.isArray(fragment)) fresh.add(layer);
     }
   }
   const t = now();

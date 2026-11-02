@@ -13,9 +13,6 @@
 
 namespace SatisDash
 {
-	/** Ruling B3: a held generators fragment is attached to power parts until it is older than this many factory cadences. */
-	inline constexpr double GeneratorsStaleFactor = 3.0;
-
 	/**
 	 * The FRM bridge's live lane (spec "Design"): asks FRM for players, the factory, mapLive and the world layers through
 	 * FFrmQueue, parses the bodies on the worker, and keeps the newest finished part of each for the driver's next snapshot
@@ -97,15 +94,14 @@ namespace SatisDash
 		void DropExtractors();
 		/**
 		 * S4-B (ruling B3): the generators a native Buildables pass finished, moved into a job. The worker builds the fragment
-		 * (NativeGeneratorsFragment), replaces the held one with it, and the readings are freed. TakeGenerators then attaches it to
-		 * every power part until it is older than GeneratorsStaleFactor x the factory cadence. False while a fragment job is
-		 * outstanding (the readings are then dropped).
+		 * (NativeGeneratorsFragment), replaces the held one with it, and the readings are freed. TakeGenerators then hands it to the
+		 * NEXT power part only (contract #807: once per read). False while a fragment job is outstanding (the readings are then dropped).
 		 */
 		bool SubmitNativeGenerators(TArray<FGeneratorReading> Readings, double ReadAt);
 		/**
-		 * The held generators fragment for a power part (not consumed: the next power part carries it too; a shared reference, never a
-		 * copy), or null when none is held or it is older than GeneratorsStaleFactor x FactorySeconds (it is then forgotten: "not
-		 * read", never a stale list).
+		 * The built generators fragment for the next power part, consumed (a shared reference, never a copy; later power parts get null
+		 * until the next read finishes), or null when none is ready or it is older than 1.5 x FactorySeconds (dropped: the read time is
+		 * the snapshot's observedAt, so a stale list is never sent under a fresh one).
 		 */
 		TSharedPtr<const FString> TakeGenerators(double Now, double FactorySeconds);
 		/** The generators source is not native (it flipped to bridge): forget the held fragment and any job. */
@@ -190,7 +186,7 @@ namespace SatisDash
 			bool bRan = false;
 		};
 		struct FReady { FString Json; double At = 0; };
-		/** A held fragment shared with every snapshot that carries it (the generators ride each power part). */
+		/** A held fragment shared with every snapshot that carries it (the generators fragment, handed out once). */
 		struct FSharedReady { TSharedPtr<const FString> Json; double At = 0; };
 
 		/** One of mapLive's two reads: not asked, waiting for FRM, parsing on the worker, or settled (Ok or Failed). */
@@ -253,7 +249,7 @@ namespace SatisDash
 		/** At most one extractors job, and one built fragment held until the next factory part takes it (bounded by the 5000-record cap). */
 		TSharedPtr<FExtractorsJob> ExtractorsTask;
 		TOptional<FReady> ExtractorsReady;
-		/** At most one generators job, and the newest built fragment, held (not consumed) until it is stale (bounded by the 5000-record cap). */
+		/** At most one generators job, and the newest built fragment, held until the next power part takes it (bounded by the 5000-record cap). */
 		TSharedPtr<FGeneratorsJob> GeneratorsTask;
 		TOptional<FSharedReady> GeneratorsReady;
 		/** At most one storage job, and one built fragment held until the next snapshot takes it (bounded by the 2000-container cap). */

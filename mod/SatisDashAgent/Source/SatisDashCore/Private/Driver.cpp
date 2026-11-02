@@ -372,7 +372,7 @@ void SatisDash::FDriver::TickSample(double Now)
 			}
 			else if (Config.GetGeneratorsSource() == ESource::Native)
 			{
-				// Ruling B3: the held fragment rides every power part until it is older than GeneratorsStaleFactor x FactorySeconds.
+				// Owner 2026-10-27 (a), contract #807: a finished read rides the NEXT power part only; later power parts omit the key.
 				Snapshot.GeneratorsJson = Bridge.TakeGenerators(Now, Cadence.FactorySeconds);
 			}
 		}

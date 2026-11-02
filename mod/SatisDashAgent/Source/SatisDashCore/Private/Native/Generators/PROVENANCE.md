@@ -18,3 +18,5 @@ Author: Task 7 implementer subagent (Sprint S4-B, 2026-10-27)
 Date: 2026-10-27
 
 FRM source was not opened
+
+Attach rule: a finished generators read goes out once, on the next power part (`power.generators`; `[]` when none were found); later power parts omit the key. Contract: dash #807 (`d8b3641`), owner 2026-10-27.

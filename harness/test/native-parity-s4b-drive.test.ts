@@ -78,33 +78,46 @@ describe("native-parity drive (S4-B)", () => {
 
     const gens = (g: unknown[], i: number) => snap({ power: { circuits: [], generators: g } }, { at: iso(T0 + 60_000 + i * 5_000) });
 
-    it("12 consecutive power parts with the same generators fragment trigger exactly one extra /getGenerators sample", async () => {
+    const noGens = (i: number) => snap({ power: { circuits: [] } }, { at: iso(T0 + 60_000 + i * 5_000) });
+
+    it("once per read: power parts without the generators key trigger nothing; the one carrying it triggers exactly one /getGenerators sample", async () => {
       const { calls, s } = fake();
       const seen = fresh();
       const entries: RecordedCall[] = [];
       let t = T0;
       for (let i = 0; i < 12; i++) {
-        entries.push(gens([generator], i));
+        entries.push(i === 3 ? gens([generator], i) : noGens(i));
         t += 5_000;
         await takeAfterNewS4bPosts(s, entries, T0, seen, () => t);
       }
       expect(calls).toEqual(["generators"]);
     });
 
-    it("a new generators fragment triggers another (after the 30 s floor), and not before it", async () => {
+    it("a second read with the same list triggers another (after the 30 s floor), and not before it", async () => {
       const { calls, s } = fake();
       const seen = fresh();
       let t = T0;
       const entries = [gens([generator], 0)];
       await takeAfterNewS4bPosts(s, entries, T0, seen, () => t);
-      entries.push(gens([{ ...generator, currentMW: 10 }], 1));
+      entries.push(gens([generator], 1));
       t += 5_000;
-      await takeAfterNewS4bPosts(s, entries, T0, seen, () => t); // new content, but inside 30 s
+      await takeAfterNewS4bPosts(s, entries, T0, seen, () => t); // a new read, but inside 30 s
       expect(calls).toEqual(["generators"]);
-      entries.push(gens([{ ...generator, currentMW: 20 }], 2));
+      entries.push(gens([generator], 2));
       t += 30_000;
       await takeAfterNewS4bPosts(s, entries, T0, seen, () => t);
       expect(calls).toEqual(["generators", "generators"]);
+    });
+
+    it("an empty read ([]) is a read too", async () => {
+      const { calls, s } = fake();
+      await takeAfterNewS4bPosts(s, [gens([], 0)], T0, fresh(), () => T0);
+      expect(calls).toEqual(["generators"]);
+    });
+
+    it("the judge's posts are only those carrying the key", () => {
+      const posts = s4bLayerPosts([gens([generator], 0), noGens(1), noGens(2), gens([generator], 7)], "generators", T0);
+      expect(posts).toHaveLength(2);
     });
 
     it("storage present once triggers one /getStorageInv sample; later parts without it trigger none", async () => {

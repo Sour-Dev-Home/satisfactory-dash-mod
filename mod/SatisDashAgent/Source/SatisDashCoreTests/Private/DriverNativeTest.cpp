@@ -842,7 +842,7 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 	Coal.ClassName = TEXT("Build_GeneratorCoal_C");
 	Coal.CapacityMW = 75;
 
-	// The pass runs with only the generators flag, and the fragment rides inside power, on every power part, until stale.
+	// The pass runs with only the generators flag, and a finished read rides inside power, on the next power part only.
 	FDriverFixture F;
 	F.Game.Generators.Add(Coal);
 	F.Game.BuildablesCounts.Elements = 4;
@@ -866,8 +866,8 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 		WithFragment += Body.Contains(Attached) ? 1 : 0;
 		TestFalse(TEXT("no top-level generators key"), Body.Contains(TEXT("}},\"generators\":")));
 	}
-	TestTrue(TEXT("the fragment is inside power on the next power part"), WithFragment >= 1);
-	TestTrue(TEXT("and on later power parts too (held, not consumed)"), WithFragment >= 2 && PowerParts >= WithFragment);
+	TestEqual(TEXT("the fragment is inside power on exactly one power part: the next one after the read (once per read)"), WithFragment, 1);
+	TestTrue(TEXT("and later power parts omit the generators key"), PowerParts >= 2);
 	TestFalse(TEXT("no extractors key: that source is bridge"), DriverNativeAny(Early, TEXT("\"extractors\":")));
 	TestTrue(TEXT("the factory part is unchanged"), DriverNativeAny(Early, TEXT("\"factory\":{\"buildings\":[]}")));
 	TestTrue(TEXT("the body parses as JSON with generators inside power"), [&Early, Attached]
@@ -883,7 +883,18 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 		return false;
 	}());
 
-	// No new fragment: after 3 x FactorySeconds (90 s) the key is gone, and the power part is still sent.
+	// The next factory-cadence read (30 s) attaches again, on one power part; every other power part omits the key.
+	const TArray<FString> Next = DriverNativeRun(F, Driver, 40);
+	int32 NextWith = 0, NextPower = 0;
+	for (const FString& Body : Next)
+	{
+		NextPower += Body.Contains(InPower) ? 1 : 0;
+		NextWith += Body.Contains(Attached) ? 1 : 0;
+	}
+	TestTrue(TEXT("the next read is attached again"), NextWith >= 1);
+	TestTrue(TEXT("but not on every power part"), NextPower > NextWith);
+
+	// No new read: the key stays gone (nothing is held over), and the power part is still sent.
 	F.Game.bBeginBuildablesOk = false;
 	DriverNativeRun(F, Driver, 100);
 	const TArray<FString> Late = DriverNativeRun(F, Driver, 20);
@@ -893,7 +904,7 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 		LatePower += Body.Contains(InPower) ? 1 : 0;
 	}
 	TestTrue(TEXT("power parts are still sent"), LatePower >= 1);
-	TestFalse(TEXT("but a fragment older than 3 x FactorySeconds is not attached"), DriverNativeAny(Late, TEXT("\"generators\":")));
+	TestFalse(TEXT("but with no read since, no generators key"), DriverNativeAny(Late, TEXT("\"generators\":")));
 
 	// With the generators source bridge the power part is as it was, and no pass begins.
 	FDriverFixture B;
