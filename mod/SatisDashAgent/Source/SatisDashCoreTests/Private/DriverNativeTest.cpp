@@ -919,15 +919,16 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 	// Both flags in one pass: one begin, both fragments.
 	FDriverFixture Dual;
 	Dual.Game.Generators.Add(Coal);
-	Dual.Game.Extractors.Add(Miner);
+	// No extractor in the fixture (the fragment is []): the one power part that carries the generators once per read must stay under
+	// the 1 KB gzip threshold, or the fake keeps gzipped bytes and the text check cannot see it. That a real extractors fragment
+	// rides the factory part is pinned by the bridge test (FrmBridge.Extractors) and the extractors-only test above.
 	FDriver Both{ Dual.ConfigPath, Dual.CredentialPath, Dual.Net, Dual.Game, Dual.Worker, Dual.clock() };
 	Dual.enrol(Both, SatisDash::Test::FakeSecret(), TEXT(",\"generatorsSource\":\"native\",\"extractorsSource\":\"native\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	const TArray<FString> BothBodies = DriverNativeRun(Dual, Both, 20);
 	TestEqual(TEXT("one pass for both readers"), Dual.Game.BuildablesBegins, 1);
 	TestTrue(TEXT("both flags are on"), Dual.Game.LastBuildablesFlags.bGenerators && Dual.Game.LastBuildablesFlags.bExtractors);
+	TestTrue(TEXT("both readers are cast in the one pass"), Dual.Game.GeneratorCasts >= 3 && Dual.Game.ExtractorCasts >= 3);
 	TestTrue(TEXT("generators in power"), DriverNativeAny(BothBodies, Attached));
-	// The extractors fragment rides the factory part, whose snapshot is over 1 KB and so gzipped (the fake keeps its bytes): the
-	// bridge test (FrmBridge.Extractors) pins that both fragments and the part come out together.
 
 	// The source flips to bridge: the held fragment is no longer attached.
 	Dual.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("AB3D-7XQ2-K5MN"), TEXT(",\"generatorsSource\":\"bridge\",\"extractorsSource\":\"native\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
