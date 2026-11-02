@@ -1,6 +1,6 @@
 # R7 plan: remove the FRM dependency from the mod (ADR-0058)
 
-Status: **draft for owner sign-off**. Scope A is recommended and must be confirmed by the owner before step 1.
+Status: **scope A confirmed by the owner (2026-11-02, "A as recommended").** D2-D7 take the recommended defaults below unless the owner changes them.
 Inventory: a read-only pass on 2026-11-02, mod `main` 1c26359 and dash `main`. Paths are repo-relative.
 Counts are file counts from a text search for "frm", so they include docs and fixtures.
 
@@ -8,8 +8,8 @@ Counts are file counts from a text search for "frm", so they include docs and fi
 
 ADR-0058 Decision 4 (R7) covers the **mod**. Decision 5 and owner answer 2 keep the dash's Node agent and its FRM adapter (`packages/game-adapter`) on FRM, frozen, for hosts that run FRM themselves, until a later ADR retires them.
 
-- **A (recommended): R7 as the ADR says.** The mod stops talking to FRM and loses every FRM code path and setting. The dash stops its direct FRM reads only where the mod now sends the data. The Node agent, the game adapter, the local poller and the per-server FRM settings stay for hosts without the mod, frozen.
-- **B: remove FRM everywhere.** This also retires the game adapter (about 15 endpoints), the Node agent, the local poller, the FRM DB columns, the UI and the contracts. Hosts without the mod lose all data, and it needs an ADR amendment first. If B is ever wanted, it gets its own ADR after A ships.
+- **A (confirmed): R7 as the ADR says.** The mod stops talking to FRM and loses every FRM code path and setting. The dash stops its direct FRM reads only where the mod now sends the data. The Node agent, the game adapter, the local poller and the per-server FRM settings stay for hosts without the mod, frozen.
+- **B (not chosen): remove FRM everywhere.** This would also retire the game adapter (about 15 endpoints), the Node agent, the local poller, the FRM DB columns, the UI and the contracts. Hosts without the mod would lose all data, and it would need an ADR amendment first. If B is ever wanted, it gets its own ADR after A ships.
 
 The rest of this plan is scope A.
 
@@ -65,7 +65,7 @@ The rest of this plan is scope A.
 |---|------|-------|-------|------|
 | 1 | dash | Mod-fed servers take markers, drones and cables from the mod, and their test connection stops calling `getSessionInfo`. Hosts without the mod are unchanged. | dash CI, backend and agent unit tests; a mod-fed server shows every layer with FRM not running | low |
 | 2 | mod | **Refactor, no behaviour change:** split `FFrmBridge` into a snapshot and world assembler (kept) and the FRM request and queue role. Move the shared record writers out. | `DriverNativeTest`, `WorldSenderTest`, `SnapshotTest` unchanged and green; `mod-test`; `tick-cost-native` | highest: shared code paths |
-| 3 | mod | **Deletion:** Frm*/FrmQueue, `ESource` and the 13 `*Source` keys, `frmPort`/`frmToken`, the bridge branches, FRM tests and FRM-shaped fixtures. Stale keys handled per D2. Docs updated. Version bump. | `check-api`, `check-provenance`, a grep showing no `Frm`/`frmPort` symbol is left, `mod-test`, `tick-cost-native`, and the 24 h soak if D3 keeps it | installs that set removed keys (D2) |
+| 3 | mod | **Deletion:** Frm*/FrmQueue, `ESource` and the 13 `*Source` keys, `frmPort`/`frmToken`, the bridge branches, FRM tests and FRM-shaped fixtures. Stale keys handled per D2. Docs updated. Version bump. | `check-api`, `check-provenance`, a grep showing no `Frm`/`frmPort` symbol is left, `mod-test`, `tick-cost-native`, and the 24 h soak (D3) | installs that set removed keys (D2) |
 | 4 | mod | **Harness retirement:** the `frm*` oracles, `frmBaseUrl`, `native-parity`, `parity`, `s4-capture`, `node-agent` (moves to the dash if still wanted), the FRM legs of the other runs; `docs/runner.md`. The last evidence is kept (D4). | harness Vitest, CI, `mod-test` and `tick-cost-native` still dispatchable | no oracle for later reader changes (D5) |
 | 5 | both | **Release:** mod release notes ("FRM can be removed from a host running this mod"); dash notes and runbooks drop "install FRM" for mod hosts only; ADR-0058 status set to done. | release checklist; smoke test on the test server with FRM uninstalled | hosts update when they choose (ADR-0057) |
 
@@ -74,10 +74,10 @@ The mod already sends everything natively by default, so steps 2-4 don't depend 
 
 ## Owner decisions
 
-- **D1, scope:** A (recommended) or B. See "Scope" above.
-- **D2, existing installs that still set `bridge`, `frmPort` or `frmToken`:** recommend **warn once in the log, then ignore**. A removed key must not mark a server's config Broken.
-- **D3, the ADR's 24 h all-readers soak:** recommend **keep it** as the gate for step 3's release.
-- **D4, the last evidence:** recommend **keep** native-parity 41340686528, tick-cost-native 41357114391 and the earlier sprint runs as the permanent record. They're already copied into the dash's `raw-sources/` for S1-S4-B.
-- **D5, the `frm-*.ts` oracles:** recommend **delete them in step 4**, so nothing in the mod repo references FRM afterwards (the clean-room argument). Under scope A the dash's adapter keeps its own FRM knowledge.
-- **D6, release timing and version numbers:** the owner's call. The public mod release was held until R0-R4 (ADR answer 3).
+- **D1, scope:** **A**, confirmed by the owner on 2026-11-02.
+- **D2, existing installs that still set `bridge`, `frmPort` or `frmToken`:** default **warn once in the log, then ignore**. A removed key must not mark a server's config Broken.
+- **D3, the ADR's 24 h all-readers soak:** default **keep it** as the gate for step 3's release.
+- **D4, the last evidence:** default **keep** native-parity 41340686528, tick-cost-native 41357114391 and the earlier sprint runs as the permanent record. They're already copied into the dash's `raw-sources/` for S1-S4-B.
+- **D5, the `frm-*.ts` oracles:** default **delete them in step 4**, so nothing in the mod repo references FRM afterwards (the clean-room argument). Under scope A the dash's adapter keeps its own FRM knowledge.
+- **D6, release timing and version numbers:** the owner's call, asked at step 5. The public mod release was held until R0-R4 (ADR answer 3).
 - **D7, the dash's 39 FRM captures and FRM wiki pages:** under scope A they stay, because the frozen adapter still uses them.
