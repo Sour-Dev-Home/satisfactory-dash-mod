@@ -8,6 +8,7 @@
 #include "SatisDash/Ports.h"
 #include "SatisDash/RateLimit.h"
 #include "SatisDash/Responses.h"
+#include "SatisDash/SnapshotAssembler.h"
 
 namespace SatisDash
 {
@@ -53,7 +54,7 @@ namespace SatisDash
 	 * The Node agent's WorldReader (agent/src/worldReader.ts) on the game thread's tick: each layer is read on its own slow,
 	 * jittered schedule, posted to POST /agent/v1/world/:layer only when its mapped data changed since the last ACCEPTED send,
 	 * retried with backoff when the backend is unwell, and given up on until the next cycle when it refuses. The FRM read,
-	 * hashing, parsing and gzip are FFrmBridge's (on the worker); this class never touches a body's bytes.
+	 * hashing, parsing and gzip are FFrmBridge's and FSnapshotAssembler's (on the worker); this class never touches a body's bytes.
 	 *
 	 * Memory (it lives for the server's uptime): per layer two hashes (32 bytes each) and at most one encoded body (at most
 	 * 2,000,000 bytes before gzip) held from Ready until accepted, refused or stopped.
@@ -61,7 +62,7 @@ namespace SatisDash
 	class SATISDASHCORE_API FWorldSender
 	{
 	public:
-		FWorldSender(ITransport& InTransport, FFrmBridge& InBridge, TFunction<double()> InRandom01);
+		FWorldSender(ITransport& InTransport, FFrmBridge& InBridge, FSnapshotAssembler& InAssembler, TFunction<double()> InRandom01);
 		FWorldSender(const FWorldSender&) = delete;
 		FWorldSender& operator=(const FWorldSender&) = delete;
 
@@ -115,6 +116,7 @@ namespace SatisDash
 
 		ITransport& Transport;
 		FFrmBridge& Bridge;
+		FSnapshotAssembler& Assembler;
 		TFunction<double()> random01Source;
 		FLayer Layers[WorldLayerCount];
 		bool bActive = false;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "SatisDash/FrmPlayers.h"
+#include "SatisDash/PlayersPart.h"
 #include "SatisDash/Native/Conveyors/NativeConveyors.h"
 #include "SatisDash/Native/DroneRoutes/NativeDroneRoutes.h"
 #include "SatisDash/Native/Extractors/NativeExtractors.h"

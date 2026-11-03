@@ -1,8 +1,6 @@
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 
-#include "SatisDash/FrmMap.h"
-#include "SatisDash/FrmRecords.h"
-#include "SatisDash/FrmResourceNodes.h"
+#include "SatisDash/Records.h"
 #include "SatisDash/Snapshot.h"
 
 namespace

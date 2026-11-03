@@ -921,7 +921,7 @@ bool FDriverNativeGeneratorsTest::RunTest(const FString& Parameters)
 	Dual.Game.Generators.Add(Coal);
 	// No extractor in the fixture (the fragment is []): the one power part that carries the generators once per read must stay under
 	// the 1 KB gzip threshold, or the fake keeps gzipped bytes and the text check cannot see it. That a real extractors fragment
-	// rides the factory part is pinned by the bridge test (FrmBridge.Extractors) and the extractors-only test above.
+	// rides the factory part is pinned by the bridge test (SnapshotAssembler.Extractors) and the extractors-only test above.
 	FDriver Both{ Dual.ConfigPath, Dual.CredentialPath, Dual.Net, Dual.Game, Dual.Worker, Dual.clock() };
 	Dual.enrol(Both, SatisDash::Test::FakeSecret(), TEXT(",\"generatorsSource\":\"native\",\"extractorsSource\":\"native\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""));
 	const TArray<FString> BothBodies = DriverNativeRun(Dual, Both, 20);

@@ -1,19 +1,10 @@
 #include "SatisDash/FrmBridge.h"
 
-#include "SatisDash/Log.h"
-
-SatisDash::FFrmBridge::FFrmBridge(ITransport& InTransport, IWorker& InWorker)
+SatisDash::FFrmBridge::FFrmBridge(ITransport& InTransport, IWorker& InWorker, FSnapshotAssembler& InAssembler)
 	: Worker{InWorker}
+	, Assembler{InAssembler}
 	, FrmLanes{InTransport}
 {
-}
-
-void SatisDash::FFrmBridge::NoteFailed(const TCHAR* Part, double Now)
-{
-	if (FailLog.ShouldLog(Part, Now))
-	{
-		UE_LOG(LogSatisDash, Warning, TEXT("Couldn't read %s from FRM; leaving it out of the snapshot"), Part);
-	}
 }
 
 void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue, bool bPlayers, bool bFactoryFromFrm, bool bTrainsFromFrm)
@@ -40,7 +31,7 @@ void SatisDash::FFrmBridge::RequestPass(bool bFactoryDue, bool bPlayers, bool bF
 		{
 			if (Reply.Code >= 200 && Reply.Code < 300)
 			{
-				Factory = MakeShared<FFactoryJob>(MoveTemp(Reply.Body));
+				Factory = MakeShared<FFrmFactoryJob>(MoveTemp(Reply.Body));
 				Factory->ReadAt = LastNow;
 			}
 			else
@@ -138,234 +129,57 @@ void SatisDash::FFrmBridge::FinishMapLive(double Now)
 		TOptional<FString> Joined = JoinMapLive(MapTrains.Json, MapTrains.Bytes, MapStations.Json, MapStations.Bytes);
 		if (Joined.IsSet())
 		{
-			MapLiveReady = FReady{ MoveTemp(Joined.GetValue()), FMath::Min(MapTrains.ReadAt, MapStations.ReadAt) };
+			Assembler.SetMapLivePart(MoveTemp(Joined.GetValue()), FMath::Min(MapTrains.ReadAt, MapStations.ReadAt));
 		}
-		else if (FailLog.ShouldLog(TEXT("mapLiveOverCap"), Now))
+		else
 		{
-			UE_LOG(LogSatisDash, Warning, TEXT("mapLive is over its %lld-byte cap; leaving it out of the snapshot"), MapLiveMaxBytes);
+			Assembler.NoteMapLiveOverCap(Now);
 		}
 	}
 	else
 	{
-		NoteFailed(TEXT("mapLive"), Now);
+		Assembler.NoteFailed(TEXT("mapLive"), Now);
 	}
 	MapTrains = FMapSide();
 	MapStations = FMapSide();
 }
 
-TOptional<FString> SatisDash::FFrmBridge::TakeMapLive(double Now, double MaxAgeSeconds)
-{
-	return TakeFresh(MapLiveReady, Now, MaxAgeSeconds);
-}
-
 bool SatisDash::FFrmBridge::LargeBusy() const
 {
-	if (Factory.IsValid())
-	{
-		return true;
-	}
-	for (const FWorldSlot& Slot : World)
-	{
-		if (Slot.Job.IsValid())
-		{
-			return true;
-		}
-	}
-	return false;
-}
-
-SatisDash::FFrmBridge::FWorldSlot* SatisDash::FFrmBridge::NextWorldJob()
-{
-	for (FWorldSlot& Slot : World)
-	{
-		if (Slot.Job.IsValid() && !Slot.Job->bRan)
-		{
-			return &Slot;
-		}
-	}
-	return nullptr;
+	return Factory.IsValid() || Assembler.LargeBusy();
 }
 
 bool SatisDash::FFrmBridge::RequestWorld(EWorldLayer Layer, const FString& ObservedAt, TOptional<FBlake3Hash> LastRaw, TOptional<FBlake3Hash> LastData)
 {
-	FWorldSlot& Slot = World[int32(Layer)];
-	if (WorldLayer(Layer).Endpoint == nullptr)
+	if (FrmWorldEndpoint(Layer) == nullptr)
 	{
 		return false; // a native-only layer (trainRoutes): there is nothing to ask FRM, and a null endpoint never reaches the queue
 	}
-	if (Slot.bRequested || Slot.Job.IsValid() || Slot.Outcome.IsSet())
+	if (!Assembler.ClaimWorld(Layer))
 	{
 		return false;
 	}
-	Slot.bRequested = true;
-	if (!FrmLanes.Enqueue(FFrmRead{ WorldLayer(Layer).Endpoint, [this, Layer, ObservedAt, LastRaw, LastData](FHttpReply& Reply)
+	if (!FrmLanes.Enqueue(FFrmRead{ FrmWorldEndpoint(Layer), [this, Layer, ObservedAt, LastRaw, LastData](FHttpReply& Reply)
 	{
-		FWorldSlot& Each = World[int32(Layer)];
 		if (Reply.Code >= 200 && Reply.Code < 300)
 		{
-			Each.Job = MakeShared<FWorldJob>(Layer, MoveTemp(Reply.Body), ObservedAt, LastRaw, LastData);
+			Assembler.SetWorldRead(Layer, MakeUnique<FFrmWorldRead>(Layer, MoveTemp(Reply.Body), ObservedAt, LastRaw, LastData));
 		}
 		else
 		{
-			FWorldOutcome Failed;
-			Failed.Kind = FWorldOutcome::EKind::ReadFailed;
-			Each.Outcome = MoveTemp(Failed);
-			Each.bRequested = false;
+			Assembler.FailWorld(Layer);
 		}
 	} }))
 	{
 		// The endpoint is still in flight from a stopped run: FRM was not asked, so the layer is not requested. The caller asks again.
-		Slot.bRequested = false;
+		Assembler.ReleaseWorld(Layer);
 		return false;
 	}
 	return true;
-}
-
-bool SatisDash::FFrmBridge::SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, TArray<FResourceNodeReading> Readings, TOptional<FBlake3Hash> LastData)
-{
-	FWorldSlot& Slot = World[int32(Layer)];
-	if (Slot.bRequested || Slot.Job.IsValid() || Slot.Outcome.IsSet())
-	{
-		return false;
-	}
-	Slot.bRequested = true;
-	Slot.Job = MakeShared<FWorldJob>(Layer, MoveTemp(Readings), ObservedAt, LastData);
-	return true;
-}
-
-bool SatisDash::FFrmBridge::SubmitNativeWorld(EWorldLayer Layer, const FString& ObservedAt, FNativeWorldBuilder Builder, TOptional<FBlake3Hash> LastData)
-{
-	FWorldSlot& Slot = World[int32(Layer)];
-	if (Slot.bRequested || Slot.Job.IsValid() || Slot.Outcome.IsSet())
-	{
-		return false;
-	}
-	Slot.bRequested = true;
-	Slot.Job = MakeShared<FWorldJob>(Layer, MoveTemp(Builder), ObservedAt, LastData);
-	return true;
-}
-
-bool SatisDash::FFrmBridge::SubmitNativeMapLive(FTrainsSnapshot Snapshot, double ReadAt)
-{
-	if (NativeMapLive.IsValid())
-	{
-		return false;
-	}
-	NativeMapLive = MakeShared<FNativeMapLiveJob>();
-	NativeMapLive->Readings = MoveTemp(Snapshot);
-	NativeMapLive->ReadAt = ReadAt;
-	return true;
-}
-
-bool SatisDash::FFrmBridge::SubmitNativeFactory(TArray<FFactoryReading> Readings, double ReadAt)
-{
-	if (Factory.IsValid())
-	{
-		return false;
-	}
-	Factory = MakeShared<FFactoryJob>(MoveTemp(Readings), ReadAt);
-	return true;
-}
-
-bool SatisDash::FFrmBridge::SubmitNativeExtractors(TArray<FExtractorReading> Readings, double ReadAt)
-{
-	if (ExtractorsTask.IsValid())
-	{
-		return false;
-	}
-	ExtractorsTask = MakeShared<FExtractorsJob>(MoveTemp(Readings), ReadAt);
-	return true;
-}
-
-void SatisDash::FFrmBridge::DropExtractors()
-{
-	ExtractorsTask.Reset();
-	ExtractorsReady.Reset();
-}
-
-bool SatisDash::FFrmBridge::SubmitNativeGenerators(TArray<FGeneratorReading> Readings, double ReadAt)
-{
-	if (GeneratorsTask.IsValid())
-	{
-		return false;
-	}
-	GeneratorsTask = MakeShared<FGeneratorsJob>(MoveTemp(Readings), ReadAt);
-	return true;
-}
-
-TSharedPtr<const FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double FactorySeconds)
-{
-	TSharedPtr<const FString> Out;
-	if (GeneratorsReady.IsSet())
-	{
-		if (Now - GeneratorsReady->At <= 1.5 * FactorySeconds)
-		{
-			Out = GeneratorsReady->Json; // once: the contract's read time is the snapshot's observedAt, so a read goes out in one power part
-		}
-		GeneratorsReady.Reset(); // a stale fragment is dropped, never sent under a fresh observedAt
-	}
-	return Out;
-}
-
-void SatisDash::FFrmBridge::DropGenerators()
-{
-	GeneratorsTask.Reset();
-	GeneratorsReady.Reset();
-}
-
-bool SatisDash::FFrmBridge::SubmitNativeStorage(TArray<FContainerReading> Readings, double ReadAt)
-{
-	if (StorageTask.IsValid())
-	{
-		return false;
-	}
-	StorageTask = MakeShared<FStorageJob>(MoveTemp(Readings), ReadAt);
-	return true;
-}
-
-TOptional<FString> SatisDash::FFrmBridge::TakeStorage(double Now, double FactorySeconds)
-{
-	TOptional<FString> Out;
-	if (StorageReady.IsSet())
-	{
-		if (Now - StorageReady->At <= 1.5 * FactorySeconds)
-		{
-			Out = MoveTemp(StorageReady->Json); // once: a data part is sent per read, then the memory is free
-		}
-		StorageReady.Reset(); // a stale fragment is dropped, never sent under a fresh observedAt
-	}
-	return Out;
-}
-
-void SatisDash::FFrmBridge::DropStorage()
-{
-	StorageTask.Reset();
-	StorageReady.Reset();
-}
-
-TOptional<SatisDash::FWorldOutcome> SatisDash::FFrmBridge::TakeWorld(EWorldLayer Layer)
-{
-	FWorldSlot& Slot = World[int32(Layer)];
-	TOptional<FWorldOutcome> Out = MoveTemp(Slot.Outcome);
-	Slot.Outcome.Reset();
-	return Out;
 }
 
 void SatisDash::FFrmBridge::Harvest(double Now)
 {
-	if (Encode.IsValid() && Encode->bRan)
-	{
-		Encoded = MoveTemp(Encode->Body);
-		const FSnapshotSizeReport Report = Encode->Report;
-		Encode.Reset();
-		if ((Report.bDroppedStorage || Report.bDroppedGenerators || Report.bDroppedExtractors) && FailLog.ShouldLog(TEXT("snapshotOverCap"), Now))
-		{
-			// Sizes in bytes only (the body is player data).
-			UE_LOG(LogSatisDash, Warning, TEXT("The snapshot body was %lld bytes, over the %lld-byte cap: left out %s%s%s, now %lld bytes"),
-				Report.BytesBefore, SnapshotMaxBytes, Report.bDroppedStorage ? TEXT("storage ") : TEXT(""),
-				Report.bDroppedGenerators ? TEXT("generators ") : TEXT(""), Report.bDroppedExtractors ? TEXT("extractors") : TEXT(""), Report.BytesAfter);
-		}
-	}
 	if (Players.IsValid() && Players->bRan)
 	{
 		if (Players->Json.IsSet())
@@ -374,93 +188,37 @@ void SatisDash::FFrmBridge::Harvest(double Now)
 		}
 		else
 		{
-			NoteFailed(TEXT("players"), Now);
+			Assembler.NoteFailed(TEXT("players"), Now);
 		}
 		Players.Reset();
 	}
 	HarvestMapSide(MapTrains);
 	HarvestMapSide(MapStations);
-	if (NativeMapLive.IsValid() && NativeMapLive->bRan)
-	{
-		if (NativeMapLive->bOk)
-		{
-			MapLiveReady = FReady{ MoveTemp(NativeMapLive->Json), NativeMapLive->ReadAt };
-		}
-		else if (FailLog.ShouldLog(TEXT("mapLiveOverCap"), Now))
-		{
-			UE_LOG(LogSatisDash, Warning, TEXT("mapLive is over its %lld-byte cap; leaving it out of the snapshot"), MapLiveMaxBytes);
-		}
-		NativeMapLive.Reset();
-	}
-	if (ExtractorsTask.IsValid() && ExtractorsTask->bRan)
-	{
-		ExtractorsReady = FReady{ MoveTemp(ExtractorsTask->Fragment), ExtractorsTask->ReadAt };
-		ExtractorsTask.Reset();
-	}
-	if (GeneratorsTask.IsValid() && GeneratorsTask->bRan)
-	{
-		GeneratorsReady = FSharedReady{ MakeShared<FString>(MoveTemp(GeneratorsTask->Fragment)), GeneratorsTask->ReadAt }; // replaces the older fragment
-		GeneratorsTask.Reset();
-	}
-	if (StorageTask.IsValid() && StorageTask->bRan)
-	{
-		// Counts and bytes only; a container's id and name are player text.
-		UE_LOG(LogSatisDash, Display, TEXT("Buildables storage fragment built (worker): %lld bytes"), StorageTask->Bytes);
-		if ((StorageTask->Dropped > 0 || StorageTask->Over > 0 || StorageTask->ItemsCut > 0 || StorageTask->SlotsClamped > 0) && FailLog.ShouldLog(TEXT("storageCuts"), Now))
-		{
-			UE_LOG(LogSatisDash, Warning, TEXT("Storage fragment: %d containers dropped, %d past the list cap, %d items cut, %d slot counts clamped"),
-				StorageTask->Dropped, StorageTask->Over, StorageTask->ItemsCut, StorageTask->SlotsClamped);
-		}
-		StorageReady = FReady{ MoveTemp(StorageTask->Fragment), StorageTask->ReadAt }; // a newer fragment replaces an untaken one
-		StorageTask.Reset();
-	}
 	if (Factory.IsValid() && Factory->bRan)
 	{
 		Factory->bRan = false;
 		if (Factory->Last == FFactoryParse::EStep::Done)
 		{
-			FactoryReady = FReady{ Factory->bNative ? MoveTemp(Factory->NativeJson) : Factory->Parse.TakeJson(), Factory->ReadAt };
+			Assembler.SetFactoryPart(Factory->Parse.TakeJson(), Factory->ReadAt);
 			Factory.Reset();
 		}
 		else if (Factory->Last == FFactoryParse::EStep::Invalid)
 		{
-			NoteFailed(TEXT("factory"), Now);
+			Assembler.NoteFailed(TEXT("factory"), Now);
 			Factory.Reset();
-		}
-	}
-	for (FWorldSlot& Slot : World)
-	{
-		if (!Slot.Job.IsValid() || !Slot.Job->bRan)
-		{
-			continue;
-		}
-		Slot.Job->bRan = false;
-		if (Slot.Job->bFinished)
-		{
-			Slot.Outcome = Slot.Job->Work.TakeOutcome();
-			Slot.Job.Reset();
-			Slot.bRequested = false;
 		}
 	}
 }
 
 void SatisDash::FFrmBridge::LaunchNext()
 {
-	if (Encode.IsValid() && !Encode->bRan)
+	// The worker's order is one list across both roles: encode, players, mapLive's two bodies, the native mapLive/extractors/
+	// generators/storage builds, the factory (FRM body, then the native build), then the world layers.
+	if (Assembler.LaunchEncode())
 	{
-		Worker.Launch([Job = Encode]
-		{
-			FString Json = SnapshotToJson(Job->Snapshot, Job->Report);
-			Job->Snapshot.FactoryJson.Reset(); // the factory text is spliced into Json: don't hold both through the encode
-			Job->Snapshot.PlayersJson.Reset();
-			Job->Snapshot.MapLiveJson.Reset();
-			Job->Snapshot.GeneratorsJson.Reset();
-			Job->Snapshot.StorageJson.Reset();
-			Job->Body = EncodeBody(Json);
-			Job->bRan = true;
-		});
+		return;
 	}
-	else if (Players.IsValid() && !Players->bRan)
+	if (Players.IsValid() && !Players->bRan)
 	{
 		Worker.Launch([Job = Players]
 		{
@@ -491,74 +249,25 @@ void SatisDash::FFrmBridge::LaunchNext()
 			Job->bRan = true;
 		});
 	}
-	else if (NativeMapLive.IsValid() && !NativeMapLive->bRan)
+	else if (Assembler.LaunchNativeParts())
 	{
-		Worker.Launch([Job = NativeMapLive]
-		{
-			// The whole part in one task: sorted, capped and written by the record writers the FRM parse uses (a few hundred records).
-			Job->bOk = NativeMapLiveJson(Job->Readings.Trains, Job->Readings.Stations, Job->Json);
-			Job->Readings = FTrainsSnapshot();
-			Job->bRan = true;
-		});
-	}
-	else if (ExtractorsTask.IsValid() && !ExtractorsTask->bRan)
-	{
-		Worker.Launch([Job = ExtractorsTask]
-		{
-			// The whole fragment in one task: sorted, capped and written by the one record writer; the readings are freed after.
-			int32 Dropped = 0, Over = 0;
-			Job->Fragment = NativeExtractorsFragment(MoveTemp(Job->Readings), Dropped, Over);
-			Job->Readings = TArray<FExtractorReading>();
-			Job->bRan = true;
-		});
-	}
-	else if (GeneratorsTask.IsValid() && !GeneratorsTask->bRan)
-	{
-		Worker.Launch([Job = GeneratorsTask]
-		{
-			// The whole fragment in one task: sorted, capped and written by the one record writer; the readings are freed after.
-			int32 Dropped = 0, Over = 0;
-			Job->Fragment = NativeGeneratorsFragment(MoveTemp(Job->Readings), Dropped, Over);
-			Job->Readings = TArray<FGeneratorReading>();
-			Job->bRan = true;
-		});
-	}
-	else if (StorageTask.IsValid() && !StorageTask->bRan)
-	{
-		Worker.Launch([Job = StorageTask]
-		{
-			// The whole fragment in one task: sorted, capped and written by the one record writer; the readings are freed after.
-			Job->Fragment = NativeStorageFragment(MoveTemp(Job->Readings), Job->Dropped, Job->Over, Job->ItemsCut, Job->SlotsClamped);
-			Job->Bytes = Job->Fragment.IsEmpty() ? 0 : int64(FTCHARToUTF8_Convert::ConvertedLength(*Job->Fragment, Job->Fragment.Len()));
-			Job->Readings = TArray<FContainerReading>();
-			Job->bRan = true;
-		});
+		// launched: the first native build that was waiting
 	}
 	else if (Factory.IsValid() && !Factory->bRan)
 	{
 		Worker.Launch([Job = Factory]
 		{
-			if (Job->bNative)
-			{
-				// The whole part in one task: sorted, capped and written by the one record writer (one read is at most 20,000 records).
-				int32 Dropped = 0;
-				Job->NativeJson = NativeFactoryPart(MoveTemp(Job->Readings), Dropped);
-				Job->Last = FFactoryParse::EStep::Done;
-			}
-			else
-			{
-				Job->Last = Job->Parse.Step();
-			}
+			Job->Last = Job->Parse.Step();
 			Job->bRan = true;
 		});
 	}
-	else if (FWorldSlot* Slot = NextWorldJob())
+	else if (Assembler.LaunchFactory())
 	{
-		Worker.Launch([Job = Slot->Job]
-		{
-			Job->bFinished = Job->Work.Step();
-			Job->bRan = true;
-		});
+		// launched: the native factory build
+	}
+	else
+	{
+		Assembler.LaunchWorld();
 	}
 }
 
@@ -573,10 +282,11 @@ void SatisDash::FFrmBridge::Tick(double Now, int32 Port, const FString& Token)
 	if (bFactoryFailed)
 	{
 		bFactoryFailed = false;
-		NoteFailed(TEXT("factory"), Now);
+		Assembler.NoteFailed(TEXT("factory"), Now);
 	}
 	if (Worker.IsIdle())
 	{
+		Assembler.Harvest(Now);
 		Harvest(Now);
 		LaunchNext();
 	}
@@ -600,71 +310,15 @@ TOptional<FString> SatisDash::FFrmBridge::TakePlayers(double Now, double MaxAgeS
 	return TakeFresh(PlayersReady, Now, MaxAgeSeconds);
 }
 
-TOptional<FString> SatisDash::FFrmBridge::TakeFactory(double Now, double MaxAgeSeconds)
-{
-	// Hold the part while the fragment's worker job is outstanding, but only inside the fragment's own 1.5 x age gate. Accepted: a
-	// part that is ready before the game-thread pass finishes carries the previous cycle's fragment (one cadence of lag, within the gate).
-	if (ExtractorsTask.IsValid() && Now - ExtractorsTask->ReadAt <= 1.5 * MaxAgeSeconds)
-	{
-		return {};
-	}
-	TOptional<FString> Part = TakeFresh(FactoryReady, Now, MaxAgeSeconds);
-	if (Part.IsSet() && ExtractorsReady.IsSet())
-	{
-		// A held fragment is consumed once, by the first factory part that is taken after it; a stale one is dropped, not sent.
-		if (Now - ExtractorsReady->At <= 1.5 * MaxAgeSeconds)
-		{
-			if (Part->EndsWith(TEXT("}")))
-			{
-				Part->LeftChopInline(1);
-				Part->Append(TEXT(",\"extractors\":"));
-				Part->Append(ExtractorsReady->Json);
-				Part->AppendChar(TEXT('}'));
-			}
-			else if (FailLog.ShouldLog(TEXT("extractorsDropped"), Now))
-			{
-				UE_LOG(LogSatisDash, Warning, TEXT("The factory part does not end in a closing brace; leaving the extractors out of it"));
-			}
-		}
-		ExtractorsReady.Reset();
-	}
-	return Part;
-}
-
-void SatisDash::FFrmBridge::EncodeSnapshot(FSnapshot Snapshot)
-{
-	Encode = MakeShared<FEncodeJob>();
-	Encode->Snapshot = MoveTemp(Snapshot);
-}
-
-TOptional<SatisDash::FEncodedBody> SatisDash::FFrmBridge::TakeEncoded()
-{
-	TOptional<FEncodedBody> Out = MoveTemp(Encoded);
-	Encoded.Reset();
-	return Out;
-}
-
 void SatisDash::FFrmBridge::Stop()
 {
 	FrmLanes.Cancel();
 	Players.Reset();
 	Factory.Reset();
-	ExtractorsTask.Reset();
-	ExtractorsReady.Reset();
-	DropGenerators();
-	DropStorage();
-	Encode.Reset();
-	NativeMapLive.Reset();
 	PlayersReady.Reset();
-	FactoryReady.Reset();
 	MapTrains = FMapSide();
 	MapStations = FMapSide();
-	MapLiveReady.Reset();
-	for (FWorldSlot& Slot : World)
-	{
-		Slot = FWorldSlot();
-	}
-	Encoded.Reset();
 	bPlayersAbsent = false;
 	bFactoryFailed = false;
+	Assembler.Stop();
 }

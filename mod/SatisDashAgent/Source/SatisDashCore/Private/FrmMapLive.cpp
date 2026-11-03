@@ -4,34 +4,6 @@
 #include "SatisDash/JsonUtil.h"
 #include "SatisDash/Snapshot.h"
 
-void SatisDash::AppendTrainRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My, const FString& Status)
-{
-	Out += TEXT("{\"id\":");
-	SatisDash::Json::AppendString(Out, ClampString(Id));
-	Out += TEXT(",\"name\":");
-	SatisDash::Json::AppendString(Out, ClampString(Name));
-	Out += TEXT(",\"x\":");
-	Out.AppendInt(int32(Mx));
-	Out += TEXT(",\"y\":");
-	Out.AppendInt(int32(My));
-	Out += TEXT(",\"status\":");
-	SatisDash::Json::AppendString(Out, ClampString(Status));
-	Out.AppendChar(TEXT('}'));
-}
-
-void SatisDash::AppendStationRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My)
-{
-	Out += TEXT("{\"id\":");
-	SatisDash::Json::AppendString(Out, ClampString(Id));
-	Out += TEXT(",\"name\":");
-	SatisDash::Json::AppendString(Out, ClampString(Name));
-	Out += TEXT(",\"x\":");
-	Out.AppendInt(int32(Mx));
-	Out += TEXT(",\"y\":");
-	Out.AppendInt(int32(My));
-	Out.AppendChar(TEXT('}'));
-}
-
 SatisDash::FTrainsParse::FTrainsParse(TArray<uint8> InBody)
 	: FFrmArrayParse(MoveTemp(InBody), MapLiveMaxItems, FString(), FString())
 {
@@ -155,20 +127,4 @@ auto SatisDash::FStationsParse::ReadRecord(bool bRoom) -> ERecord
 		}
 	}
 	return ERecord::Invalid;
-}
-
-TOptional<FString> SatisDash::JoinMapLive(const FString& TrainsArray, int64 TrainsBytes, const FString& StationsArray, int64 StationsBytes)
-{
-	if (MapLiveWrapperBytes + TrainsBytes + StationsBytes > MapLiveMaxBytes)
-	{
-		return {};
-	}
-	FString Out;
-	Out.Reserve(TrainsArray.Len() + StationsArray.Len() + 24);
-	Out += TEXT("{\"trains\":");
-	Out += TrainsArray;
-	Out += TEXT(",\"stations\":");
-	Out += StationsArray;
-	Out.AppendChar(TEXT('}'));
-	return Out;
 }

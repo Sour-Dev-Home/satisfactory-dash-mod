@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "SatisDash/FrmFactory.h"
+#include "SatisDash/FactoryRecords.h"
 
 namespace SatisDash
 {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "SatisDash/FrmRails.h"
+#include "SatisDash/Records.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
 
 namespace SatisDash

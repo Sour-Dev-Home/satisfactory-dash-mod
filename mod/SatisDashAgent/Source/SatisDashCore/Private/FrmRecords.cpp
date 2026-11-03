@@ -2,14 +2,6 @@
 
 #include "SatisDash/JsonUtil.h"
 
-FString SatisDash::WorldBodyPrefix(const FString& ObservedAt)
-{
-	FString Prefix = TEXT("{\"observedAt\":");
-	SatisDash::Json::AppendString(Prefix, ObservedAt);
-	Prefix += TEXT(",\"data\":");
-	return Prefix;
-}
-
 SatisDash::FFrmArrayParse::FFrmArrayParse(TArray<uint8> InBody, int32 InMaxKept, FString InPrefix, FString InSuffix)
 	: Body{MoveTemp(InBody)}
 	, Reader{Body}
