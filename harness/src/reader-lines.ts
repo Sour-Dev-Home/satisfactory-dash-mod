@@ -101,8 +101,43 @@ export function stepCosts(lines: readonly string[]): StepCost[] {
   return out;
 }
 
-/** Reasons the step ceiling fails: a required reader with no line, or a logged longest step over 2 ms (2.00 passes). */
+/**
+ * Owner ruling 2026-11-03 (tick-cost-native 41706085144): a longest step over the ceiling still passes when the thread was mostly
+ * WAITING, not working — its thread cycles per ms are below WAITED_STEP_MAX_CYCLE_SHARE of the read's other steps — and its CPU estimate
+ * (wall time x that share) is within the ceiling. It needs the cycles tail (the mod's "stepDiagnostics"); without it the plain rule holds.
+ */
+export const WAITED_STEP_MAX_CYCLE_SHARE = 0.25;
+export interface WaitedStep { reader: string; longestStepMs: number; cycleShare: number; cpuEstimateMs: number; diagnostic: LongestStepDiagnostic }
+
+/** The over-ceiling steps the waiting rule lets pass, each matched to its own diagnostic line (same reader, same longest step). */
+export function waitedSteps(lines: readonly string[]): WaitedStep[] {
+  const diagnostics = longestStepDiagnostics(lines);
+  const out: WaitedStep[] = [];
+  for (const c of stepCosts(lines)) {
+    if (!(c.longestStepMs > MAX_NATIVE_STEP_MS)) continue;
+    const d = diagnostics.find((x) => `${x.reader} read` === c.reader && Math.abs(x.longestStepMs - c.longestStepMs) < 0.005);
+    if (!d || d.cyclesPerMsInStep === undefined || d.cyclesPerMsInOtherSteps === undefined || !(d.cyclesPerMsInOtherSteps > 0)) continue;
+    const cycleShare = d.cyclesPerMsInStep / d.cyclesPerMsInOtherSteps;
+    const cpuEstimateMs = c.longestStepMs * cycleShare;
+    if (cycleShare < WAITED_STEP_MAX_CYCLE_SHARE && cpuEstimateMs <= MAX_NATIVE_STEP_MS) out.push({ reader: c.reader, longestStepMs: c.longestStepMs, cycleShare, cpuEstimateMs, diagnostic: d });
+  }
+  return out;
+}
+
+/** One report line per step the waiting rule let pass (owner ruling 2026-11-03); the verdict always carries them. */
+export function describeWaitedSteps(lines: readonly string[]): string[] {
+  return waitedSteps(lines).map((w) => {
+    const d = w.diagnostic;
+    const element = d.longestElementMs === undefined ? "" : `, longest element ${d.longestElementMs} ms at ${d.longestElementIndex} (phase ${d.longestElementPhase})`;
+    const k = d.conveyorCalls;
+    const calls = k === undefined ? "" : `; conveyor calls max: get ${k.getMs} ms at ${k.getSlot}, name ${k.nameMs} ms at ${k.nameSlot}, text ${k.textMs} ms at ${k.textSlot}, speed ${k.speedMs} ms at ${k.speedSlot}, ends ${k.endsMs} ms at ${k.endsSlot}`;
+    return `${w.reader}: longest step ${w.longestStepMs} ms passed as a wait (owner ruling 2026-11-03): the thread ran at ${(w.cycleShare * 100).toFixed(1)}% of its other steps' cycles per ms (< ${WAITED_STEP_MAX_CYCLE_SHARE * 100}%), CPU estimate ${w.cpuEstimateMs.toFixed(2)} ms <= ${MAX_NATIVE_STEP_MS} ms${element}${calls}`;
+  });
+}
+
+/** Reasons the step ceiling fails: a required reader with no line, or a logged longest step over 2 ms (2.00 passes) that is not a wait. */
 export function stepProblems(lines: readonly string[], required: readonly string[]): string[] {
+  const waited = waitedSteps(lines);
   const costs = stepCosts(lines);
   const out: string[] = [];
   for (const reader of required) {
@@ -114,7 +149,7 @@ export function stepProblems(lines: readonly string[], required: readonly string
   }
   for (const c of costs) {
     if (!Number.isFinite(c.longestStepMs) || !Number.isFinite(c.totalMs)) out.push(`${c.reader}: step cost is not a finite number`);
-    else if (c.longestStepMs > MAX_NATIVE_STEP_MS) out.push(`${c.reader}: longest step ${c.longestStepMs} ms exceeds the ${MAX_NATIVE_STEP_MS} ms ceiling (owner, 2026-10-26)`);
+    else if (c.longestStepMs > MAX_NATIVE_STEP_MS && !waited.some((w) => w.reader === c.reader && w.longestStepMs === c.longestStepMs)) out.push(`${c.reader}: longest step ${c.longestStepMs} ms exceeds the ${MAX_NATIVE_STEP_MS} ms ceiling (owner, 2026-10-26)`);
   }
   return out;
 }
