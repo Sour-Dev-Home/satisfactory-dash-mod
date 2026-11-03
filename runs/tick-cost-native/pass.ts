@@ -6,7 +6,7 @@
 // since the owner's decision of 2026-10-26 the longest step of every sliced native read is judged against 2 ms.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import { TICK_WARMUP_MS } from "../../harness/src/ticks";
-import { MAX_NATIVE_STEP_MS, describeScanCost, factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, mapMarkersLogProblems, droneRoutesLogProblems, powerLinesLogProblems, extractorsLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLineProblems, longestStepDiagnostics, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
+import { MAX_NATIVE_STEP_MS, describeScanCost, describeWaitedSteps,factoryLogProblems, nodesLogProblems, trainsLogProblems, railsLogProblems, conveyorsLogProblems, mapMarkersLogProblems, droneRoutesLogProblems, powerLinesLogProblems, extractorsLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLineProblems, longestStepDiagnostics, playersLogProblems, scanCosts, stepCosts, stepProblems } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import * as Base from "../tick-cost/pass";
 
@@ -112,10 +112,10 @@ export function evaluate(e: CoreEvidence): Verdict {
   if (s2Shaped || s3Shaped || s4Shaped || s4bShaped) extra.push(...windowProblems(e.lines, required, from, to));
   if (extra.length === 0 && base.pass) {
     const steps = stepCosts(e.lines).map((c) => `${c.reader} longest step ${c.longestStepMs} ms`).join("; ");
-    return { pass: true, reasons: [...base.reasons, `native readers live in the window: ${withPlayers} snapshots with players, ${nodePosts.length} resourceNodes post(s)`, describeScanCost(scans), `step ceiling ${MAX_NATIVE_STEP_MS} ms held (sliced native reads only): ${steps}`] };
+    return { pass: true, reasons: [...base.reasons, `native readers live in the window: ${withPlayers} snapshots with players, ${nodePosts.length} resourceNodes post(s)`, describeScanCost(scans), `step ceiling ${MAX_NATIVE_STEP_MS} ms held (sliced native reads only): ${steps}`, ...describeWaitedSteps(e.lines)] };
   }
   // When the base verdict passes, its reasons describe what passed, so they are listed only on success.
-  return { pass: false, reasons: [...(base.pass ? [] : base.reasons), ...extra, ...(scans.length ? [describeScanCost(scans)] : []), ...diagnosticLines(e.lines)] };
+  return { pass: false, reasons: [...(base.pass ? [] : base.reasons), ...extra, ...(scans.length ? [describeScanCost(scans)] : []), ...describeWaitedSteps(e.lines), ...diagnosticLines(e.lines)] };
 }
 
 /**

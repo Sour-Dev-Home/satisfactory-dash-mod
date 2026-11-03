@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, longestStepDiagnostics, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, describeWaitedSteps, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, longestStepDiagnostics, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -31,6 +31,29 @@ describe("step costs", () => {
     const over = stepProblems([sample.replace("1.20 ms", "2.05 ms")], ["Logistics read"]);
     expect(over).toHaveLength(1);
     expect(over[0]).toMatch(/Logistics read/);
+  });
+  describe("a step over the ceiling that was a wait (owner ruling 2026-11-03, run 41706085144)", () => {
+    const cost = (ms: string) => `${P}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 13236 buildables, 320 tracks, 3343 belts in 12 steps, longest step ${ms} ms, total 19.10 ms`;
+    const diag = (ms: string, inStep: number, others: number) => `${P}Logistics read longest step: ${ms} ms over 98 elements, phase 1 to 2, longest element 9.03 ms at 98 (phase 2), thread cycles per ms ${inStep} in this step, ${others} in 11 other steps, conveyor calls max: get 0.00 ms at 3106, name 0.20 ms at 2640, text 0.02 ms at 3148, speed 9.02 ms at 0, ends 0.03 ms at 2652`;
+    it("passes the run's own lines (5.8% of normal cycles, CPU estimate 0.54 ms) and reports them", () => {
+      const lines = [cost("9.25"), diag("9.25", 231709, 4022303)];
+      expect(stepProblems(lines, ["Logistics read"])).toEqual([]);
+      const [w] = describeWaitedSteps(lines);
+      expect(w).toMatch(/^Logistics read: longest step 9\.25 ms passed as a wait \(owner ruling 2026-11-03\): the thread ran at 5\.8% /);
+      expect(w).toContain("CPU estimate 0.53 ms");
+      expect(w).toContain("speed 9.02 ms at 0");
+    });
+    it("fails a slow step that was working (cycles at or above 25% of normal)", () => {
+      expect(stepProblems([cost("9.25"), diag("9.25", 1005576, 4022303)], ["Logistics read"])).toHaveLength(1);
+    });
+    it("fails a wait whose CPU estimate passes the ceiling (40 ms at 10%)", () => {
+      expect(stepProblems([cost("40.00"), diag("40.00", 402230, 4022303)], ["Logistics read"])).toHaveLength(1);
+    });
+    it("fails without the cycles tail (stepDiagnostics off), and without a matching diagnostic", () => {
+      expect(stepProblems([cost("9.25")], ["Logistics read"])).toHaveLength(1);
+      expect(stepProblems([cost("9.25"), diag("9.30", 231709, 4022303)], ["Logistics read"])).toHaveLength(1);
+      expect(describeWaitedSteps([cost("9.25")])).toEqual([]);
+    });
   });
   it("parses the S4-A logistics line with powerLines and the wires counts, still ending in the step cost", () => {
     const s3 = `${P}Logistics read (game thread only): layers rails=1 conveyors=1, 900 buildables, 12 tracks, 340 belts, 6 lifts, 80 pipes, 14 open ends, 3 ownerless ends in 40 steps, longest step 1.20 ms, total 30.10 ms, expected tracks 12, dropped 0, over cap 0`;
