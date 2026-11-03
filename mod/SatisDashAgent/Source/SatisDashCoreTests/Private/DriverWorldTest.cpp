@@ -4,30 +4,39 @@
 using namespace SatisDash;
 using SatisDash::Test::FDriverFixture;
 
+// R7: these three tests were the FRM-read half of the world sender's driver wiring (rails read from FRM two minutes after Running).
+// They now drive the same wiring through the game's own rails read (the shared logistics pass, 528 s after Running with the fake
+// clock's jitter draw of 1.0): the posts go behind snapshots and encodes, a 401 halts, a revoked run leaves nothing behind.
+
 namespace
 {
 	const TCHAR* DriverWorldSnapshots = TEXT("/agent/v1/snapshots");
-	const TCHAR* DriverWorldBridgeKeys = TEXT(",\"railsSource\":\"bridge\",\"conveyorsSource\":\"bridge\",\"mapMarkersSource\":\"bridge\",\"droneRoutesSource\":\"bridge\",\"powerLinesSource\":\"bridge\",\"extractorsSource\":\"bridge\",\"generatorsSource\":\"bridge\",\"stationRatesSource\":\"bridge\",\"storageSource\":\"bridge\""); // rails, conveyors and the S4 layers default to native since the S3 and S4 switches
-	const TCHAR* DriverWorldRailsRead = TEXT("/getTrainRails");
 	const TCHAR* DriverWorldRailsPost = TEXT("/agent/v1/world/rails");
-	const TCHAR* DriverWorldRails = TEXT("[{\"ID\":\"R1\",\"SplineData\":[{\"x\":0,\"y\":0},{\"x\":300,\"y\":0}]}]");
 	const TCHAR* DriverWorldAccepted = TEXT("{\"accepted\":true,\"unchanged\":false}");
+	/** The native first read: 480 s x (1 + 10%) with the fake clock's jitter draw of 1.0. */
+	constexpr double DriverWorldFirstReadSeconds = 528.0;
 
-	const TCHAR* DriverWorldTrains = TEXT("[{\"ID\":\"T1\",\"Name\":\"A\",\"Status\":\"s\",\"location\":{\"x\":150,\"y\":-150,\"z\":0}}]");
-	const TCHAR* DriverWorldStations = TEXT("[{\"ID\":\"S1\",\"Name\":\"B\",\"location\":{\"x\":5049,\"y\":-5051,\"z\":0}}]");
+	/** The rails read alone is wanted: the game refuses the other readers that would post a layer (nodes, markers, drone routes) or add a part. */
+	void DriverWorldRailsOnly(FDriverFixture& F)
+	{
+		F.Game.bHasWorld = false;
+		F.Game.bBeginMarkersOk = false;
+		F.Game.bBeginDronesOk = false;
+		F.Game.bBeginBuildablesOk = false;
+		FRailReading Track;
+		Track.Id = TEXT("R1");
+		Track.Points = { { 0.0, 0.0 }, { 300.0, 0.0 } };
+		F.Game.LogisticsRails = { Track };
+		F.Game.LogisticsCounts.Buildables = 3;
+		F.Game.LogisticsCounts.Tracks = 1;
+	}
 
-	/** The routine traffic: snapshots accepted (unless the test wants one open), live and node FRM reads failing fast (bMapLive: trains and stations answered, so a snapshot carries mapLive). */
-	void DriverWorldRoutine(FDriverFixture& F, bool bSnapshots, bool bMapLive = false)
+	/** The routine traffic: snapshots accepted (unless the test wants one open). */
+	void DriverWorldRoutine(FDriverFixture& F, bool bSnapshots)
 	{
 		while (bSnapshots && F.Net.pending(DriverWorldSnapshots) > 0)
 		{
 			F.Net.answer(DriverWorldSnapshots, SatisDash::Test::SnapshotOk(false));
-		}
-		for (const TCHAR* Path : { TEXT("/getPlayer"), TEXT("/getFactory"), TEXT("/getTrains"), TEXT("/getTrainStation"), TEXT("/getResourceNode") })
-		{
-			const bool bTrains = bMapLive && FString(Path) == TEXT("/getTrains");
-			const bool bStations = bMapLive && FString(Path) == TEXT("/getTrainStation");
-			F.Net.answer(Path, bTrains ? SatisDash::Test::Reply(200, DriverWorldTrains) : bStations ? SatisDash::Test::Reply(200, DriverWorldStations) : SatisDash::Test::Reply(0, FString()));
 		}
 	}
 
@@ -55,21 +64,36 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverWorldTest, "SatisDash.Core.Driver.World"
 bool FDriverWorldTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
+	DriverWorldRailsOnly(F);
+	F.Game.LogisticsStepsToFinish = 1000000; // the pass stays open until the test lets it finish
+	FTrainReading Train;
+	Train.Id = TEXT("T1");
+	Train.Name = TEXT("A");
+	Train.State = ETrainState::SelfDriving;
+	Train.XCm = 15000;
+	Train.YCm = -15000;
+	F.Game.Trains = { Train };
+	FStationReading Station;
+	Station.Id = TEXT("S1");
+	Station.Name = TEXT("B");
+	Station.XCm = 504900;
+	Station.YCm = -505100;
+	F.Game.Stations = { Station };
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
-	TestEqual(TEXT("no FRM read before enrolling"), F.Net.sent(DriverWorldRailsRead), 0);
-	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverWorldBridgeKeys);
+	TestEqual(TEXT("no pass before enrolling"), F.Game.LogisticsBegins, 0);
+	F.enrol(Driver, SatisDash::Test::FakeSecret());
 	const double StartedAt = F.T;
-	TestTrue(TEXT("rails are read once the agent has run for about 2 minutes"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsRead) > 0; }, 200));
+	TestTrue(TEXT("rails are read once the agent has run for about 8 minutes"), DriverWorldRun(F, Driver, [&F] { return F.Game.LogisticsBegins > 0; }, 600));
 	const double Waited = F.T - StartedAt;
-	TestTrue(TEXT("between 120 s - 10% and 120 s + 10% (plus a tick or two)"), Waited >= 108.0 && Waited <= 140.0);
+	TestTrue(TEXT("between 528 s and 528 s plus a tick or two"), Waited >= DriverWorldFirstReadSeconds && Waited <= DriverWorldFirstReadSeconds + 30.0);
 
 	// Posts go behind snapshots (Driver.cpp's idle gate). Hold a snapshot open, then let the rails body become ready.
 	TestTrue(TEXT("a snapshot is in flight"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldSnapshots) > 0; }, 20, false));
-	F.Net.answer(DriverWorldRailsRead, SatisDash::Test::Reply(200, DriverWorldRails));
+	F.Game.LogisticsStepsToFinish = 3;
 	DriverWorldRun(F, Driver, []() { return false; }, 10, false);
 	TestEqual(TEXT("no world post while a snapshot is in flight"), F.Net.sent(DriverWorldRailsPost), 0);
-	// The send fails and backs off (Retry-After 20 s): nothing in flight, but snapshots are queued.
+	// The send fails and backs off (Retry-After 120 s): nothing in flight, but snapshots are queued.
 	FHttpReply Unwell = SatisDash::Test::Reply(503, FString());
 	Unwell.RetryAfter = TEXT("120");
 	F.Net.answer(DriverWorldSnapshots, Unwell);
@@ -82,24 +106,27 @@ bool FDriverWorldTest::RunTest(const FString& Parameters)
 	bool bEncoding = false;
 	for (double Spent = 0; Spent < 100 && !bEncoding; Spent += 0.5)
 	{
-		DriverWorldRoutine(F, false, true);
 		F.run(Driver, 0.5);
 		bEncoding = Driver.EncodePending();
 		if (!bEncoding)
 		{
-			F.Worker.release(); // a parse job: let it finish
+			F.Worker.release(); // a build job: let it finish
 		}
 	}
 	TestTrue(TEXT("a snapshot with mapLive is held in its encode"), bEncoding);
 	// The backoff ends and the queue drains; the encode is still held (no new snapshot is taken while it is).
-	TestTrue(TEXT("the queued snapshots are all sent"), DriverWorldRun(F, Driver, [&F, &Driver] { return Driver.Queued() == 0 && F.Net.pending(DriverWorldSnapshots) == 0; }, 150));
+	TestTrue(TEXT("the queued snapshots are all sent"), DriverWorldRun(F, Driver, [&F, &Driver] { return Driver.Queued() == 0 && F.Net.pending(DriverWorldSnapshots) == 0; }, 300));
 	DriverWorldRun(F, Driver, []() { return false; }, 15);
 	TestTrue(TEXT("still encoding"), Driver.EncodePending());
 	TestEqual(TEXT("no world post while a snapshot is being encoded, with nothing queued or in flight"), F.Net.sent(DriverWorldRailsPost), 0);
 	F.Worker.bHold = false;
 	F.Worker.release();
 	// Once the snapshot side is idle again, the ready body goes.
-	TestTrue(TEXT("the layer is posted"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsPost) > 0; }, 30));
+	TestTrue(TEXT("the layer is posted"), DriverWorldRun(F, Driver, [&F]
+	{
+		F.Net.answer(TEXT("/agent/v1/world/trainRoutes"), SatisDash::Test::Reply(200, DriverWorldAccepted)); // posts one at a time: the train routes may be first
+		return F.Net.pending(DriverWorldRailsPost) > 0;
+	}, 30));
 	TestTrue(TEXT("with the layer's data"), F.Net.lastBody(DriverWorldRailsPost).Contains(TEXT("\"data\":[{\"id\":\"R1\",\"points\":[[0,0],[3,0]]}]")));
 	SatisDash::Test::SameText(*this, TEXT("and the credential"), F.Net.lastAuth(DriverWorldRailsPost), TEXT("Bearer ") + SatisDash::Test::FakeSecret());
 	F.Net.answer(DriverWorldRailsPost, SatisDash::Test::Reply(200, DriverWorldAccepted));
@@ -114,17 +141,19 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverWorldHaltTest, "SatisDash.Core.Driver.Wo
 bool FDriverWorldHaltTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
+	DriverWorldRailsOnly(F);
+	F.Game.bTrainsWorld = false; // no train routes layer, so the rails are the first world post
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
-	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverWorldBridgeKeys);
-	TestTrue(TEXT("rails are read"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsRead) > 0; }, 200));
-	F.Net.answer(DriverWorldRailsRead, SatisDash::Test::Reply(200, DriverWorldRails));
+	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	TestTrue(TEXT("rails are read"), DriverWorldRun(F, Driver, [&F] { return F.Game.LogisticsBegins > 0; }, 600));
 	TestTrue(TEXT("and posted"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsPost) > 0; }, 30));
 	F.Net.answer(DriverWorldRailsPost, SatisDash::Test::Reply(401, FString()));
 	F.run(Driver, 1);
 	TestTrue(TEXT("a 401 on a world post halts the agent, as a snapshot 401 does"), Agent.GetState() != EAgentState::Running);
+	const int32 Begins = F.Game.LogisticsBegins;
 	DriverWorldRun(F, Driver, []() { return false; }, 700);
-	TestEqual(TEXT("no more FRM reads"), F.Net.sent(DriverWorldRailsRead), 1);
+	TestEqual(TEXT("no more passes"), F.Game.LogisticsBegins, Begins);
 	TestEqual(TEXT("no more world posts"), F.Net.sent(DriverWorldRailsPost), 1);
 	return true;
 }
@@ -134,31 +163,36 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverWorldStopsTest, "SatisDash.Core.Driver.W
 bool FDriverWorldStopsTest::RunTest(const FString& Parameters)
 {
 	FDriverFixture F;
+	DriverWorldRailsOnly(F);
+	F.Game.bTrainsWorld = false;
+	F.Game.LogisticsStepsToFinish = 1000000; // the pass is still open when the agent is revoked
 	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
 	const FAgent& Agent = Driver.GetAgent();
-	F.enrol(Driver, SatisDash::Test::FakeSecret(), DriverWorldBridgeKeys);
-	TestTrue(TEXT("rails are read"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldRailsRead) > 0; }, 200));
+	F.enrol(Driver, SatisDash::Test::FakeSecret());
+	TestTrue(TEXT("rails are read"), DriverWorldRun(F, Driver, [&F] { return F.Game.LogisticsStepCalls >= 1; }, 600));
 
-	// The agent is revoked (a snapshot 401) while the rails read is in flight.
+	// The agent is revoked (a snapshot 401) while the rails pass is open.
 	TestTrue(TEXT("a snapshot is open"), DriverWorldRun(F, Driver, [&F] { return F.Net.pending(DriverWorldSnapshots) > 0; }, 20, false));
+	const int32 Ends = F.Game.LogisticsEnds;
 	F.Net.answer(DriverWorldSnapshots, SatisDash::Test::Reply(401, FString()));
 	F.run(Driver, 1);
 	TestTrue(TEXT("halted"), Agent.GetState() != EAgentState::Running);
-	F.Net.answer(DriverWorldRailsRead, SatisDash::Test::Reply(200, DriverWorldRails)); // the old run's reply, late
+	TestTrue(TEXT("the open pass was ended"), F.Game.LogisticsEnds > Ends);
+	F.Game.LogisticsStepsToFinish = 3;
 	F.run(Driver, 30);
 	TestEqual(TEXT("nothing of the old run is posted"), F.Net.sent(DriverWorldRailsPost), 0);
 
 	// Re-enrol: the schedule starts again from the new Running edge.
-	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222-2222"), DriverWorldBridgeKeys);
+	F.writeConfig(TEXT("http://127.0.0.1:1"), TEXT("ZZZZ-2222-2222"));
 	F.run(Driver, 61);
 	F.Net.answer(TEXT("/agent/v1/enroll"), SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson()));
 	F.run(Driver, 1);
 	TestTrue(TEXT("running again"), Agent.GetState() == EAgentState::Running);
 	const double RestartedAt = F.T;
-	const int32 Reads = F.Net.sent(DriverWorldRailsRead);
-	TestFalse(TEXT("no read in the first 100 s of the new run"), DriverWorldRun(F, Driver, [&F, Reads] { return F.Net.sent(DriverWorldRailsRead) > Reads; }, 100));
-	TestTrue(TEXT("then rails are read again, about 2 minutes after the restart"), DriverWorldRun(F, Driver, [&F, Reads] { return F.Net.sent(DriverWorldRailsRead) > Reads; }, 60));
-	TestTrue(TEXT("not before 108 s"), F.T - RestartedAt >= 108.0);
+	const int32 Begins = F.Game.LogisticsBegins;
+	TestFalse(TEXT("no pass in the first 500 s of the new run"), DriverWorldRun(F, Driver, [&F, Begins] { return F.Game.LogisticsBegins > Begins; }, 500));
 	TestEqual(TEXT("and still nothing posted"), F.Net.sent(DriverWorldRailsPost), 0);
+	TestTrue(TEXT("then rails are read again, about 8 minutes after the restart"), DriverWorldRun(F, Driver, [&F, Begins] { return F.Game.LogisticsBegins > Begins; }, 60));
+	TestTrue(TEXT("not before 500 s"), F.T - RestartedAt >= 500.0);
 	return true;
 }

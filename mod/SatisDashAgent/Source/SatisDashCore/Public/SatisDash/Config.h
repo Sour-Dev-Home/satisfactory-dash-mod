@@ -7,89 +7,25 @@ namespace SatisDash
 	/** The spec's default backend ("Shape", Config). */
 	inline const TCHAR* DefaultBackendUrl = TEXT("https://api.satis-manager.com");
 
-	/** FRM's own default HTTP port (FicsitRemoteMonitoring.cpp:258) and the Node agent's (store.ts:29). */
-	inline constexpr int32 DefaultFrmPort = 8080;
-
-	/**
-	 * Where a reader gets its data (ADR-0058 Decision 4): FRM through the bridge, or the game itself. One source per reader.
-	 */
-	enum class ESource : uint8 { Bridge, Native };
-	/** What a host gets with no key set. The switch PR for a reader flips its constant here and changes nothing else. */
-	inline constexpr ESource DefaultPlayersSource = ESource::Native;
-	inline constexpr ESource DefaultResourceNodesSource = ESource::Native;
-	inline constexpr ESource DefaultFactorySource = ESource::Native;
-	inline constexpr ESource DefaultTrainsSource = ESource::Native;
-	inline constexpr ESource DefaultRailsSource = ESource::Native;
-	inline constexpr ESource DefaultConveyorsSource = ESource::Native;
-	inline constexpr ESource DefaultMapMarkersSource = ESource::Native;
-	inline constexpr ESource DefaultDroneRoutesSource = ESource::Native;
-	inline constexpr ESource DefaultPowerLinesSource = ESource::Native;
-	inline constexpr ESource DefaultExtractorsSource = ESource::Native;
-	inline constexpr ESource DefaultGeneratorsSource = ESource::Native;
-	inline constexpr ESource DefaultStationRatesSource = ESource::Native;
-	inline constexpr ESource DefaultStorageSource = ESource::Native;
-
 	struct FAgentConfig
 	{
 		/** Checked by IsAllowedBackendUrl, with no trailing slash. */
 		FString BackendUrl;
 		/** Empty, or a valid code in upper case. */
 		FString EnrollmentCode;
-		/** FRM's port on 127.0.0.1 (FRM bridge spec "Configuration"); unset = DefaultFrmPort, and not written back. */
-		TOptional<int32> FrmPort;
-		/** Sent only as X-FRM-Authorization; empty = none. The host's own FRM secret: never logged. */
-		FString FrmToken;
-		/**
-		 * Hidden stopgap overrides, documented in docs/native-readers.md and deleted with the bridge (ADR-0058, R7): the
-		 * keys "playersSource" and "resourceNodesSource", each exactly "bridge" or "native". Unset = the default above,
-		 * and not written back.
-		 */
-		TOptional<ESource> PlayersSource;
-		TOptional<ESource> ResourceNodesSource;
-		/** The same override for the factory and trains parts: the keys "factorySource" and "trainsSource". */
-		TOptional<ESource> FactorySource;
-		TOptional<ESource> TrainsSource;
-		/** The same override for the rails part: the key "railsSource". */
-		TOptional<ESource> RailsSource;
-		/** The same override for the conveyors part: the key "conveyorsSource". The bridge never sent conveyors, so bridge means the layer is not sent. */
-		TOptional<ESource> ConveyorsSource;
-		/** The same override for the map markers, drone routes and power lines layers: the keys "mapMarkersSource", "droneRoutesSource" and "powerLinesSource". Bridge means the layer is not sent. */
-		TOptional<ESource> MapMarkersSource;
-		TOptional<ESource> DroneRoutesSource;
-		TOptional<ESource> PowerLinesSource;
-		/** The same override for the S4-B readers: the keys "extractorsSource", "generatorsSource", "stationRatesSource" and "storageSource". */
-		TOptional<ESource> ExtractorsSource;
-		TOptional<ESource> GeneratorsSource;
-		TOptional<ESource> StationRatesSource;
-		TOptional<ESource> StorageSource;
 		/**
 		 * The key "stepDiagnostics" (owner 2026-11-01): test runs only, off unless the file says true. When on, the step budgets read
 		 * the thread's CPU cycles and the conveyor read times its calls, for the longest-step lines. When off, none of that work is
 		 * done. Written back only when true.
 		 */
 		bool bStepDiagnostics = false;
-
-		int32 GetFrmPort() const { return FrmPort.Get(DefaultFrmPort); }
-		ESource GetPlayersSource() const { return PlayersSource.Get(DefaultPlayersSource); }
-		ESource GetResourceNodesSource() const { return ResourceNodesSource.Get(DefaultResourceNodesSource); }
-		ESource GetFactorySource() const { return FactorySource.Get(DefaultFactorySource); }
-		ESource GetTrainsSource() const { return TrainsSource.Get(DefaultTrainsSource); }
-		ESource GetRailsSource() const { return RailsSource.Get(DefaultRailsSource); }
-		ESource GetConveyorsSource() const { return ConveyorsSource.Get(DefaultConveyorsSource); }
-		ESource GetMapMarkersSource() const { return MapMarkersSource.Get(DefaultMapMarkersSource); }
-		ESource GetDroneRoutesSource() const { return DroneRoutesSource.Get(DefaultDroneRoutesSource); }
-		ESource GetPowerLinesSource() const { return PowerLinesSource.Get(DefaultPowerLinesSource); }
-		ESource GetExtractorsSource() const { return ExtractorsSource.Get(DefaultExtractorsSource); }
-		ESource GetGeneratorsSource() const { return GeneratorsSource.Get(DefaultGeneratorsSource); }
-		ESource GetStationRatesSource() const { return StationRatesSource.Get(DefaultStationRatesSource); }
-		ESource GetStorageSource() const { return StorageSource.Get(DefaultStorageSource); }
 	};
 
 	enum class EConfigStatus : uint8
 	{
 		/** There was no file; one was written with the default URL and no code. Config holds those defaults. */
 		Missing,
-		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode", "frmPort", "frmToken", "playersSource", "resourceNodesSource", "factorySource", "trainsSource", "railsSource", "conveyorsSource", "mapMarkersSource", "droneRoutesSource", "powerLinesSource", "extractorsSource", "generatorsSource", "stationRatesSource", "storageSource" or "stepDiagnostics". */
+		/** The file can't be used. BadField names the first problem: "json", "backendUrl", "enrollmentCode" or "stepDiagnostics". */
 		Broken,
 		Valid,
 	};
@@ -99,7 +35,14 @@ namespace SatisDash
 		EConfigStatus Status = EConfigStatus::Broken;
 		FAgentConfig Config;
 		FString BadField;
+		/**
+		 * R7 (owner decision D2): keys of the removed FRM role found in the file, in a fixed order ("frmPort", "frmToken", then the
+		 * thirteen "*Source" keys). They are ignored, never a reason to refuse the file, and not written back. Names only, never a value.
+		 */
+		TArray<FString> IgnoredKeys;
 	};
+	/** The one Display line a config load writes when IgnoredKeys is not empty (counts and names only; empty text when there are none). */
+	SATISDASHCORE_API FString IgnoredKeysLine(const FConfigResult& Result);
 
 	/** S1: https:// with a host, or http:// only to 127.0.0.1 or localhost (the harness). No user info, query or fragment. */
 	SATISDASHCORE_API bool IsAllowedBackendUrl(const FString& Url);
@@ -112,10 +55,6 @@ namespace SatisDash
 	SATISDASHCORE_API FString NormalizeBackendUrl(const FString& Url);
 	/** The contract's code: three groups of four base32 characters joined by dashes, ^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$ (EnrollmentCodeSchema). */
 	SATISDASHCORE_API bool IsEnrollmentCode(const FString& Code);
-	/** A whole number from 1 to 65535. */
-	SATISDASHCORE_API bool IsFrmPort(double Value);
-	/** No control character (below 0x20, or 0x7F), so it can't end a header line or start another; at most 512 characters. */
-	SATISDASHCORE_API bool IsHeaderSafe(const FString& Value);
 	/** Trims both values, upper-cases the code and drops trailing slashes from the URL, then checks them. */
 	SATISDASHCORE_API FConfigResult ParseConfig(const FString& Text);
 	SATISDASHCORE_API FString ConfigToJson(const FAgentConfig& Config);

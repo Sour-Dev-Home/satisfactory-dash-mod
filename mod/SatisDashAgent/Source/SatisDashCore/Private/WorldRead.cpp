@@ -40,14 +40,6 @@ SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, FNativeWorldBuilder InBui
 {
 }
 
-SatisDash::FWorldRead::FWorldRead(EWorldLayer InLayer, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes)
-	: Layer{InLayer}
-	, ObservedAt{MoveTemp(InObservedAt)}
-	, LastData{InLastData}
-	, MaxBodyBytes{InMaxBodyBytes}
-{
-}
-
 bool SatisDash::FWorldRead::Step()
 {
 	switch (Stage)

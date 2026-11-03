@@ -45,7 +45,7 @@ namespace SatisDash
 
 	/**
 	 * R4 (ADR-0058): the resourceNodes world body {"observedAt":...,"data":[...]} from the game's own nodes, each record in
-	 * the form FResourceNodesParse writes from FRM (one shared record writer). Positions go to whole metres as the map does
+	 * the resource-node layer's form (one shared record writer). Positions go to whole metres as the map does
 	 * (Math.round of cm / 100), nodes outside +/-1,000,000 m are dropped, and the nodes are sorted by (x, y, resource,
 	 * purity, type, exploited, className) before the 5,000-item cap, so the same world always gives the same bytes whatever order the
 	 * scan found it in. Sorts and builds text, so it runs on the worker, never the game thread.

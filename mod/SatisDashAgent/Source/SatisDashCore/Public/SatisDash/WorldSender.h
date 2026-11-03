@@ -3,8 +3,6 @@
 #include "CoreMinimal.h"
 #include "SatisDash/Config.h"
 #include "SatisDash/Credential.h"
-#include "SatisDash/FrmBridge.h"
-#include "SatisDash/FrmWorld.h"
 #include "SatisDash/Ports.h"
 #include "SatisDash/RateLimit.h"
 #include "SatisDash/Responses.h"
@@ -36,7 +34,7 @@ namespace SatisDash
 		const FCredential* Credential;
 		/** No snapshot is queued or in flight: world posts go only then (spec "World-layer sends ... behind snapshots"). */
 		bool bSnapshotsIdle;
-		/** The native readers, when a layer's source is native. */
+		/** The game's readers; null: no layer can be read. */
 		IGameReader* NativeReaders = nullptr;
 		/** A game is running (the last status pass said so): a native scan starts only then, as the native players are read. */
 		bool bGameRunning = true;
@@ -53,8 +51,8 @@ namespace SatisDash
 	/**
 	 * The Node agent's WorldReader (agent/src/worldReader.ts) on the game thread's tick: each layer is read on its own slow,
 	 * jittered schedule, posted to POST /agent/v1/world/:layer only when its mapped data changed since the last ACCEPTED send,
-	 * retried with backoff when the backend is unwell, and given up on until the next cycle when it refuses. The FRM read,
-	 * hashing, parsing and gzip are FFrmBridge's and FSnapshotAssembler's (on the worker); this class never touches a body's bytes.
+	 * retried with backoff when the backend is unwell, and given up on until the next cycle when it refuses. The body build,
+	 * hashing and gzip are FSnapshotAssembler's (on the worker); this class never touches a body's bytes.
 	 *
 	 * Memory (it lives for the server's uptime): per layer two hashes (32 bytes each) and at most one encoded body (at most
 	 * 2,000,000 bytes before gzip) held from Ready until accepted, refused or stopped.
@@ -62,7 +60,7 @@ namespace SatisDash
 	class SATISDASHCORE_API FWorldSender
 	{
 	public:
-		FWorldSender(ITransport& InTransport, FFrmBridge& InBridge, FSnapshotAssembler& InAssembler, TFunction<double()> InRandom01);
+		FWorldSender(ITransport& InTransport, FSnapshotAssembler& InAssembler, TFunction<double()> InRandom01);
 		FWorldSender(const FWorldSender&) = delete;
 		FWorldSender& operator=(const FWorldSender&) = delete;
 
@@ -115,7 +113,6 @@ namespace SatisDash
 		bool ShouldLog(EWorldLayer Layer, const TCHAR* Event, double Now);
 
 		ITransport& Transport;
-		FFrmBridge& Bridge;
 		FSnapshotAssembler& Assembler;
 		TFunction<double()> random01Source;
 		FLayer Layers[WorldLayerCount];

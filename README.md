@@ -20,16 +20,17 @@ server until the switchover (sub-project 5), and nothing here is installed on an
 `SatisDashAgent` runs inside a dedicated server and replaces the Node edge agent for status, power and auto-pause. It
 is an outbound HTTPS client only: it opens no port, serves nothing and has no UI. It enrols once with a code from the
 dashboard, pushes a snapshot every 5 s, and long-polls for commands (only `set_auto_pause` in v1). Beyond status and
-power, a snapshot carries players and the factory (from FRM) and `mapLive` (trains and stations, from FRM's `getTrains`
-and `getTrainStation`) when FRM answers. The mod also posts the `rails` and `resourceNodes` map layers to the backend
-(read from FRM's `getTrainRails` and `getResourceNode`, first about 2 and 8 minutes after start, then every 10 and 30
-minutes), sending a layer only when it changes.
+power, a snapshot carries players, the factory and `mapLive` (trains and stations), all read from the game itself (the
+native readers, see `docs/native-readers.md`). The mod also posts the map layers to the backend (read from the game, first
+about 8 minutes after start, then every 10 or 30 minutes), sending a layer only when it changes. The mod does not talk to
+FicsitRemoteMonitoring (FRM) at all; the harness still uses FRM as the parity oracle until R7 step 4.
 
 - **Config:** `FactoryGame/Configs/SatisDashAgent.cfg`, written with defaults on first start:
   `{"backendUrl": "https://api.satis-manager.com", "enrollmentCode": ""}`. Put the dashboard's code in
   `enrollmentCode`; the mod blanks it once enrolled. Without a valid config the mod stays idle.
-  Optional: `frmPort` (FRM's HTTP port on this server, default 8080) and `frmToken` (only if this server's FRM
-  requires one; sent only to FRM on 127.0.0.1). The mod logs "FRM requires a token" when FRM refuses it.
+  An old file may still hold `frmPort`, `frmToken` or the `*Source` reader keys: they were removed in R7, are ignored
+  (never a reason to refuse the file) and are dropped when the mod rewrites the file; the mod logs one line naming them
+  (never their values) each time it loads the file.
 - **Credential:** `FactoryGame/Saved/SatisDash/credential.json`, the per-server secret. Revoke it from the dashboard.
 - **Logs:** `LogSatisDash`, Display and Warning only; never the secret or the code.
 - **Evidence:** every harness run's verdict, the security review and its decisions are listed in Plan 2B's final PR;

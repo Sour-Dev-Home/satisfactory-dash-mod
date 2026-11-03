@@ -17,7 +17,7 @@ namespace SatisDash
 	 * carries the factory or mapLive part.
 	 *
 	 * Threading: the worker runs one job at a time. The assembler's jobs, in the order it offers them (LaunchEncode, then
-	 * LaunchNativeParts, LaunchFactory and LaunchWorld; FFrmBridge offers its own between them until it goes): a snapshot to
+	 * LaunchNativeParts, LaunchFactory and LaunchWorld): a snapshot to
 	 * encode, the mapLive, extractors, generators and storage builds, the factory build, then a world layer (build, hash, finish).
 	 * A job is shared with its task (TSharedPtr), so dropping it here never frees what the task still reads. What a task wrote
 	 * is read only once IWorker::IsIdle().
@@ -110,9 +110,8 @@ namespace SatisDash
 		void Stop();
 
 		/**
-		 * The worker's turn when no other role shares the worker: while IWorker::IsIdle(), Harvest what the last task wrote, then
-		 * offer the worker its next job (the Launch* calls below, in that order, stopping at the first that launched). Until the
-		 * FRM role goes, FFrmBridge::Tick does this for both roles, calling the pieces in between its own jobs.
+		 * The worker's turn: while IWorker::IsIdle(), Harvest what the last task wrote, then offer the worker its next job (the
+		 * Launch* calls below, in that order, stopping at the first that launched). The driver calls this once a tick.
 		 */
 		void Tick(double Now);
 
@@ -206,7 +205,7 @@ namespace SatisDash
 			explicit FWorldJob(TUniquePtr<FWorldRead> InRead) : Owned{MoveTemp(InRead)} {}
 			/**
 			 * Named Owned, not Work or Read: check-api's receiver heuristic does not trust a name that is declared with another type
-			 * anywhere in the code, and the tests call Step on a FWorldRead named Work; FFrmQueue declares a Read.
+			 * anywhere in the code, and the tests call Step on a FWorldRead named Work.
 			 */
 			TUniquePtr<FWorldRead> Owned;
 			bool bFinished = false;

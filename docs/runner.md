@@ -87,6 +87,12 @@ target (about 20 minutes); later ones are incremental. `installed` is what you a
 
 ## S3's world and FRM (owner's go-ahead, 2026-10-20)
 
+R7 step 3 (2026-11): **the mod no longer reads FRM.** It has no FRM client, queue or parser and sends nothing to FRM's port.
+This section and the `native-parity` runs below describe the harness side, which still installs FRM on the test server and
+reads it over HTTP as the parity oracle until R7 step 4 retires those legs. A run's mod config may still carry the removed
+`frmPort`, `frmToken` and `*Source` keys; the mod ignores them and logs one `Config: ignored removed keys ...` line per
+config load (names only).
+
 S3 compares the mod's power readings with Ficsit Remote Monitoring (FRM) on a copy of the owner's save. Facts from
 satisfactory-dash's G0 addendum 2 (#462): `docs-vault/raw-sources/dedicated-server-api-saves-2026-10-20.md`,
 `dedicated-server-save-files-2026-10-20.md` and `frm-config-port-1.5.4-2026-10-20.md`.
@@ -242,7 +248,7 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
 - `tick-cost-native` also writes `"stepDiagnostics": true` into the mod's config (the mod's thread-cycle and conveyor call-timing
   diagnostics are off otherwise; the judge treats their lines as report-only). `native-parity` does not.
 - `native-parity` needs the backend host, the staged world and `frmBaseUrl`. It writes `playersSource` and `resourceNodesSource`
-  as `native` into the mod's config (`modConfig`, recorded in `mod-config.json`), loads the world with auto-pause off, starts
+  as `native` into the mod's config (since R7 step 3 the mod ignores both keys and logs one line saying so; step 4 stops writing them) (`modConfig`, recorded in `mod-config.json`), loads the world with auto-pause off, starts
   reading the test server's FRM as a black box (`getPower` back to back, `getPlayer` every 2 s with names hashed before they
   are stored, `getResourceNode` every minute and right after each mod post), then enrols the mod through the recorder. After a
   one-minute settle it judges 30 minutes: the mod's one resource-node post (about 8 minutes after enrolment, then every 30)

@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 #include "SatisDash/Agent.h"
 #include "SatisDash/Commands.h"
-#include "SatisDash/FrmBridge.h"
 #include "SatisDash/Ports.h"
 #include "SatisDash/Pusher.h"
 #include "SatisDash/RateLimit.h"
@@ -38,7 +37,7 @@ namespace SatisDash
 	 * wedges enrolment or pushing).
 	 *
 	 * Memory (it lives for the server's whole uptime): the snapshot queue holds at most MaxQueuedSnapshots (120) bodies
-	 * and MaxQueuedBytes (2 MiB) of them, the part log at most four keys (status, auto-pause, power, players); FRM reads and parsing as FrmBridge.h bounds them (mapLive's pair included); the world sender as WorldSender.h bounds it; at most one
+	 * and MaxQueuedBytes (2 MiB) of them, the part log at most four keys (status, auto-pause, power, players); the assembler's jobs and parts as SnapshotAssembler.h bounds them; the world sender as WorldSender.h bounds it; at most one
 	 * enrolment and one push in flight. Commands: the ledger at most 1000 IDs, at most 20 commands waiting, one poll or
 	 * one result in flight, never both. A tick with nothing due allocates nothing.
 	 */
@@ -62,7 +61,7 @@ namespace SatisDash
 		void TickSample(double Now);
 		void TickPush(double Now);
 		void NoteFailedPart(const TCHAR* Part, double Now);
-		/** R2a: steps an open native factory read once, every tick, and hands a finished one to the bridge. */
+		/** R2a: steps an open native factory read once, every tick, and hands a finished one to the assembler. */
 		void TickFactoryRead(double Now);
 		/** S4-B: the same for the separate Buildables pass (extractors now; generators and storage later). */
 		void TickBuildablesRead(double Now);
@@ -83,10 +82,8 @@ namespace SatisDash
 		FAgent Agent;
 		/** Bounded: at most MaxQueuedSnapshots (120) snapshots and MaxQueuedBytes (2 MiB), the oldest dropped first (Pusher.h). */
 		FPusher Pusher;
-		/** Bounded: see SnapshotAssembler.h. Declared before the bridge and the sender, which hold a reference to it. */
+		/** Bounded: see SnapshotAssembler.h. Declared before the sender, which holds a reference to it. */
 		FSnapshotAssembler Assembler;
-		/** Bounded: see FrmBridge.h. */
-		FFrmBridge Bridge;
 		/** Bounded: see WorldSender.h. */
 		FWorldSender WorldLayers;
 		/** Bounded: one key per snapshot part (status, auto-pause, power, players), each logged at most once per 600 s. */
@@ -106,8 +103,6 @@ namespace SatisDash
 		FStepBudget BuildablesBudget;
 		/** A native Buildables pass is open: StepBuildablesRead is called every tick until it returns. */
 		bool bBuildablesReadOpen = false;
-		/** The readers the open pass was begun for. */
-		FBuildablesFlags BuildablesAsked;
 		/** Bounded: keys "busy", "held", "heldGenerators" and "heldStorage", each at most once per 60 s. */
 		FRateLimitedLog BuildablesLog{ 60.0 };
 		/** A native trains read for mapLive is open: StepTrainsRead is called every tick until it returns. */

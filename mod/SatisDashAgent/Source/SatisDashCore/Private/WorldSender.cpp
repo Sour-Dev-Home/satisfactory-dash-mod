@@ -17,27 +17,10 @@ namespace
 	constexpr int32 WorldSenderDifferClassesLogged = 5;
 	constexpr int32 WorldSenderCensusMaxLines = 16;
 
-	/**
-	 * A layer comes from the game itself when its source says so and a reader is there: resource nodes by resourceNodesSource (R4),
-	 * train routes by trainsSource (R3), rails by railsSource (R5, the shared logistics pass).
-	 */
-	bool WorldSenderIsNative(SatisDash::EWorldLayer Layer, const SatisDash::FWorldContext& Context)
+	/** Every layer comes from the game itself (R7: the FRM source is gone); a layer can be read only while a reader is there. */
+	bool WorldSenderHasReaders(const SatisDash::FWorldContext& Context)
 	{
-		if (Context.NativeReaders == nullptr || Context.Config == nullptr)
-		{
-			return false;
-		}
-		switch (Layer)
-		{
-		case SatisDash::EWorldLayer::ResourceNodes: return Context.Config->GetResourceNodesSource() == SatisDash::ESource::Native;
-		case SatisDash::EWorldLayer::TrainRoutes: return Context.Config->GetTrainsSource() == SatisDash::ESource::Native;
-		case SatisDash::EWorldLayer::Rails: return Context.Config->GetRailsSource() == SatisDash::ESource::Native;
-		case SatisDash::EWorldLayer::Conveyors: return Context.Config->GetConveyorsSource() == SatisDash::ESource::Native;
-		case SatisDash::EWorldLayer::MapMarkers: return Context.Config->GetMapMarkersSource() == SatisDash::ESource::Native;
-		case SatisDash::EWorldLayer::DroneRoutes: return Context.Config->GetDroneRoutesSource() == SatisDash::ESource::Native;
-		case SatisDash::EWorldLayer::PowerLines: return Context.Config->GetPowerLinesSource() == SatisDash::ESource::Native;
-		default: return false;
-		}
+		return Context.NativeReaders != nullptr;
 	}
 
 	/** The layers read by the shared logistics pass (rails, conveyors and power lines). */
@@ -149,9 +132,8 @@ double SatisDash::JitteredSeconds(double BaseSeconds, double Random01)
 	return BaseSeconds * (1.0 - WorldJitterFraction + R * 2.0 * WorldJitterFraction);
 }
 
-SatisDash::FWorldSender::FWorldSender(ITransport& InTransport, FFrmBridge& InBridge, FSnapshotAssembler& InAssembler, TFunction<double()> InRandom01)
+SatisDash::FWorldSender::FWorldSender(ITransport& InTransport, FSnapshotAssembler& InAssembler, TFunction<double()> InRandom01)
 	: Transport{InTransport}
-	, Bridge{InBridge}
 	, Assembler{InAssembler}
 	, random01Source{MoveTemp(InRandom01)}
 {
@@ -245,11 +227,10 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 	case EPhase::Waiting:
 		if (Context.Now >= L.NextAt)
 		{
-			if (FrmWorldEndpoint(Layer) == nullptr && !WorldSenderIsNative(Layer, Context))
+			if (!WorldSenderHasReaders(Context))
 			{
-				return; // a native-only layer whose source is the bridge is never scheduled: there is no FRM read to fall back to
+				return; // no reader to read the game with: nothing is scheduled
 			}
-			if (WorldSenderIsNative(Layer, Context))
 			{
 				if (WorldLayer(Layer).NativeFirstSeconds > 0.0 && !L.bFirstNativeDone)
 				{
@@ -275,9 +256,9 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					{
 						return; // a pass is under way (ours, or the reader's): look again next tick, not a failed scan
 					}
-					const bool bRails = WorldSenderIsNative(EWorldLayer::Rails, Context) && Layers[int32(EWorldLayer::Rails)].Phase == EPhase::Waiting;
-					const bool bConveyors = WorldSenderIsNative(EWorldLayer::Conveyors, Context) && Layers[int32(EWorldLayer::Conveyors)].Phase == EPhase::Waiting;
-					const bool bPowerLines = WorldSenderIsNative(EWorldLayer::PowerLines, Context) && Layers[int32(EWorldLayer::PowerLines)].Phase == EPhase::Waiting;
+					const bool bRails = Layers[int32(EWorldLayer::Rails)].Phase == EPhase::Waiting;
+					const bool bConveyors = Layers[int32(EWorldLayer::Conveyors)].Phase == EPhase::Waiting;
+					const bool bPowerLines = Layers[int32(EWorldLayer::PowerLines)].Phase == EPhase::Waiting;
 					if (Context.LogisticsBudget != nullptr && Context.NativeReaders->BeginLogisticsRead(bRails, bConveyors, bPowerLines, Context.Config != nullptr && Context.Config->bStepDiagnostics))
 					{
 						Context.LogisticsBudget->Reset();
@@ -301,7 +282,7 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					}
 					else
 					{
-						L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet; FRM is not asked
+						L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet
 					}
 					return;
 				}
@@ -312,7 +293,7 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 					case ESmallBegin::Busy: return; // a read is open: look again next tick, not a failed read
 					case ESmallBegin::Begun: L.Phase = EPhase::Scanning; return;
 					default:
-						// No world, manager or subsystem yet; FRM is not asked. One rate-limited line, so a reader that never starts is diagnosable.
+						// No world, manager or subsystem yet. One rate-limited line, so a reader that never starts is diagnosable.
 						if (ShouldLog(Layer, TEXT("begin"), Context.Now))
 						{
 							UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's reader could not start; will try again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
@@ -334,12 +315,8 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 				}
 				else
 				{
-					L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet (or the reader is busy); FRM is not asked
+					L.NextAt = Context.Now + NodeScanRetrySeconds; // no world yet (or the reader is busy)
 				}
-			}
-			else if (Bridge.RequestWorld(Layer, Context.Utc.ToIso8601(), L.RawHash, L.DataHash))
-			{
-				L.Phase = EPhase::Reading;
 			}
 		}
 		return;
@@ -349,17 +326,9 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 		{
 			return; // the shared pass is stepped once a tick, at the top of Tick
 		}
-		if (!WorldSenderIsNative(Layer, Context))
+		if (!WorldSenderHasReaders(Context))
 		{
-			if (Layer == EWorldLayer::TrainRoutes && Context.NativeReaders != nullptr)
-			{
-				Context.NativeReaders->EndTrainsRead(); // frees what the reader buffered
-			}
-			if (WorldSenderIsSmall(Layer))
-			{
-				EndSmallLayer(Layer, Context);
-			}
-			ScheduleNext(Layer, Context.Now); // the source changed under a scan: drop it
+			ScheduleNext(Layer, Context.Now); // the reader is gone under a scan: drop it
 			return;
 		}
 		if (WorldSenderIsSmall(Layer))
@@ -438,7 +407,7 @@ void SatisDash::FWorldSender::StepTrainRoutesScan(const FWorldContext& Context)
 	if (Context.NativeReaders->TrainsReadAbandoned())
 	{
 		// No railroad subsystem, or a world swapped mid-read: this is not an empty railway. Nothing is posted (the backend keeps its
-		// good copy), FRM is never asked, and the read is tried again soon. Counts only in the log.
+		// good copy), and the read is tried again soon. Counts only in the log.
 		if (!L.bScanLogged && ShouldLog(Layer, TEXT("scan"), Context.Now))
 		{
 			UE_LOG(LogSatisDash, Warning, TEXT("World layer %s: the game's train routes read was abandoned; nothing sent, will read again in %.0f s"), WorldLayer(Layer).Name, NodeScanRetrySeconds);
@@ -572,8 +541,8 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	constexpr EWorldLayer PowerLinesLayer = EWorldLayer::PowerLines;
 	FLayer& PowerLines = Layers[int32(PowerLinesLayer)];
 	IGameReader* Reader = Context.NativeReaders;
-	// An included layer whose source changed under the pass drops out of it.
-	if (bPassRails && !WorldSenderIsNative(RailsLayer, Context))
+	// An included layer whose reader is gone under the pass drops out of it.
+	if (bPassRails && !WorldSenderHasReaders(Context))
 	{
 		bPassRails = false;
 		if (Rails.Phase == EPhase::Scanning)
@@ -581,7 +550,7 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 			ScheduleNext(RailsLayer, Context.Now);
 		}
 	}
-	if (bPassConveyors && !WorldSenderIsNative(ConveyorsLayer, Context))
+	if (bPassConveyors && !WorldSenderHasReaders(Context))
 	{
 		bPassConveyors = false;
 		if (Conveyors.Phase == EPhase::Scanning)
@@ -589,7 +558,7 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 			ScheduleNext(ConveyorsLayer, Context.Now);
 		}
 	}
-	if (bPassPowerLines && !WorldSenderIsNative(PowerLinesLayer, Context))
+	if (bPassPowerLines && !WorldSenderHasReaders(Context))
 	{
 		bPassPowerLines = false;
 		if (PowerLines.Phase == EPhase::Scanning)
@@ -632,7 +601,7 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	if (Reader->LogisticsReadAbandoned())
 	{
 		// No subsystem, a world swapped mid-read, or no buildables at all: this is not an empty world. Nothing is posted (the backend
-		// keeps its good copy), FRM is never asked, and the read is tried again soon. Counts only in the log.
+		// keeps its good copy), and the read is tried again soon. Counts only in the log.
 		for (const EWorldLayer Each : { RailsLayer, ConveyorsLayer, PowerLinesLayer })
 		{
 			if (!(Each == RailsLayer ? bWasRails : Each == ConveyorsLayer ? bWasConveyors : bWasPowerLines))
@@ -730,7 +699,7 @@ void SatisDash::FWorldSender::Settle(EWorldLayer Layer, FWorldOutcome Outcome, c
 	using EKind = FWorldOutcome::EKind;
 	FLayer& L = Layers[int32(Layer)];
 	const TCHAR* Name = WorldLayer(Layer).Name;
-	// Each warning is written once per streak (the flags, as FFrmQueue's bTokenLogged), with the rate limit as a backstop.
+	// Each warning is written once per streak (the flags), with the rate limit as a backstop.
 	// A streak ends when the layer next settles without the condition. Only a parsed body says anything about drops, so a
 	// failed read or a SameRaw (nothing parsed) leaves the dropped flag alone.
 	const bool bParsed = Outcome.Kind == EKind::SameData || Outcome.Kind == EKind::Ready;
@@ -761,7 +730,7 @@ void SatisDash::FWorldSender::Settle(EWorldLayer Layer, FWorldOutcome Outcome, c
 	case EKind::Invalid:
 		if (!L.bReadLogged && ShouldLog(Layer, TEXT("read"), Context.Now))
 		{
-			UE_LOG(LogSatisDash, Warning, TEXT("Couldn't read world layer %s from FRM; skipping this cycle"), Name);
+			UE_LOG(LogSatisDash, Warning, TEXT("Couldn't read world layer %s; skipping this cycle"), Name);
 		}
 		L.bReadLogged = true;
 		ScheduleNext(Layer, Context.Now);

@@ -113,7 +113,7 @@ TOptional<SatisDash::FAutoPauseReading> SatisDash::FGameReader::ReadAutoPause()
 	{
 		return {};
 	}
-	// The options also hold FRM's token: only FG.DSAutoPause is read, and nothing of them is logged (S7).
+	// The options may hold other mods' secrets: only FG.DSAutoPause is read, and nothing of them is logged (S7).
 	TMap<FString, FString> Options;
 	TMap<FString, FString> Pending;
 	NewObject<UFGServerStateController>(Manager)->Handler_GetServerOptions(Options, Pending);
