@@ -8,10 +8,6 @@ namespace SatisDash
 	/** {"observedAt":"<ObservedAt>","data": : what a world body (worldReader.ts: { observedAt, data }) is written after. */
 	SATISDASHCORE_API FString WorldBodyPrefix(const FString& ObservedAt);
 
-	/**
-	 * Game units (centimetres) to the whole metres the map contract uses (map/coordinates.ts, map.ts WholeMetreSchema).
-	 */
-
 	/** JavaScript's Math.round: a half goes toward +infinity (-1.5 is -1, 2.5 is 3, -0.5 is 0). Not FMath::RoundToDouble, which is floor(x + 0.5) and gets 0.49999999999999994 wrong. */
 	SATISDASHCORE_API double JsRound(double Value);
 	/** toWholeMetres: Math.round(gameUnits / 100), the division a true division (see Records.cpp). */

@@ -2,7 +2,7 @@
 
 namespace
 {
-	constexpr SatisDash::FWorldLayerSpec WorldLayers[] = {
+	constexpr SatisDash::FWorldLayerSpec WorldLayerTable[] = {
 		{ TEXT("rails"), 120.0, 600.0, 480.0 },
 		{ TEXT("resourceNodes"), 480.0, 1800.0, 0.0 },
 		// R3: native-only (never requested from FRM): first read 8 minutes after Running, then every 10 minutes (ADR 0055). The first-read
@@ -20,7 +20,7 @@ namespace
 
 const SatisDash::FWorldLayerSpec& SatisDash::WorldLayer(EWorldLayer Layer)
 {
-	return WorldLayers[int32(Layer)];
+	return WorldLayerTable[int32(Layer)];
 }
 
 // R4's constructor is a thin wrapper: the readings ride in the builder and are freed with it after the first Step.

@@ -245,7 +245,7 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 	case EPhase::Waiting:
 		if (Context.Now >= L.NextAt)
 		{
-			if (FrmWorldEndpoint(Layer) == nullptr &&!WorldSenderIsNative(Layer, Context))
+			if (FrmWorldEndpoint(Layer) == nullptr && !WorldSenderIsNative(Layer, Context))
 			{
 				return; // a native-only layer whose source is the bridge is never scheduled: there is no FRM read to fall back to
 			}
