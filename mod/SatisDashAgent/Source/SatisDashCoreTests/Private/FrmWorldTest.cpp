@@ -19,7 +19,7 @@ namespace
 	// No default arguments: check-api's function-definition scan does not accept a default value with parentheses.
 	FFrmWorldRun RunWorldOf(const FString& Body, TOptional<FBlake3Hash> LastRaw, TOptional<FBlake3Hash> LastData, int64 MaxBytes)
 	{
-		FWorldRead Work{ EWorldLayer::Rails, SatisDash::Test::Utf8(Body), FString(FrmWorldAt), LastRaw, LastData, MaxBytes };
+		FFrmWorldRead Work{ EWorldLayer::Rails, SatisDash::Test::Utf8(Body), FString(FrmWorldAt), LastRaw, LastData, MaxBytes };
 		FFrmWorldRun Run;
 		bool bDone = false;
 		while (!bDone)
@@ -184,7 +184,7 @@ bool FFrmWorldLayerTableTest::RunTest(const FString&)
 	{
 		const FWorldLayerSpec& Spec = WorldLayer(E.Layer);
 		TestEqual(*FString::Printf(TEXT("%s name"), E.Name), FString(Spec.Name), FString(E.Name));
-		TestEqual(*FString::Printf(TEXT("%s has an endpoint"), E.Name), Spec.Endpoint != nullptr, E.bHasEndpoint);
+		TestEqual(*FString::Printf(TEXT("%s has an endpoint"), E.Name), FrmWorldEndpoint(E.Layer) != nullptr, E.bHasEndpoint);
 		TestEqual(*FString::Printf(TEXT("%s first"), E.Name), Spec.FirstSeconds, E.First);
 		TestEqual(*FString::Printf(TEXT("%s interval"), E.Name), Spec.IntervalSeconds, E.Interval);
 		TestEqual(*FString::Printf(TEXT("%s native first"), E.Name), Spec.NativeFirstSeconds, E.NativeFirst);

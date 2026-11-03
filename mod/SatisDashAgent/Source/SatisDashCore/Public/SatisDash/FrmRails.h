@@ -5,9 +5,7 @@
 
 namespace SatisDash
 {
-	/** map.ts MAP_WORLD_MAX_ITEMS and MAP_WORLD_MAX_POLYLINE_POINTS. */
-	inline constexpr int32 MaxRailSegments = 5000;
-	inline constexpr int32 MaxRailPoints = 1000;
+	/** MaxRailSegments and MaxRailPoints (map.ts MAP_WORLD_MAX_ITEMS and MAP_WORLD_MAX_POLYLINE_POINTS) are in Records.h. */
 
 	/**
 	 * getTrainRails' body to the rails world body {"observedAt":...,"data":[{"id","points":[[x,y],...]}]}, as the Node agent

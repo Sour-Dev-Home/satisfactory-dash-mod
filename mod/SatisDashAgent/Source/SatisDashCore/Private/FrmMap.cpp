@@ -8,30 +8,6 @@ namespace
 	}
 }
 
-double SatisDash::JsRound(double Value)
-{
-	if (!FMath::IsFinite(Value))
-	{
-		return Value;
-	}
-	// value - floor(value) is exact, so the half test is exact too.
-	const double Floor = FMath::FloorToDouble(Value);
-	return Value - Floor >= 0.5 ? Floor + 1.0 : Floor;
-}
-
-double SatisDash::ToWholeMetres(double GameUnits)
-{
-	// UE builds with /fp:fast, which turns a division by the constant 100.0 into a multiplication by 0.01 and lands one ulp
-	// away for some values (see FrmFactoryMetres in FrmFactory.cpp). The volatile divisor keeps the true division.
-	volatile double Hundred = 100.0;
-	return JsRound(GameUnits / Hundred);
-}
-
-bool SatisDash::InWholeMetreBounds(double WholeMetres)
-{
-	return FMath::IsFinite(WholeMetres) && FMath::Abs(WholeMetres) <= 1000000.0;
-}
-
 bool SatisDash::ReadFrmLocation(FTokenReader& Reader, EJsonNotation Started, double& OutX, double& OutY)
 {
 	if (Started != EJsonNotation::ObjectStart)

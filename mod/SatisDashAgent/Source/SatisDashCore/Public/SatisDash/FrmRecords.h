@@ -2,14 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "SatisDash/JsonTokens.h"
+#include "SatisDash/Records.h"
 
 namespace SatisDash
 {
 	/** FRM bridge spec "Threading": about 2,000 records per worker slice. */
 	inline constexpr int32 FrmSliceRecords = 2000;
-
-	/** {"observedAt":"<ObservedAt>","data": : what a world body (worldReader.ts: { observedAt, data }) is written after. */
-	SATISDASHCORE_API FString WorldBodyPrefix(const FString& ObservedAt);
 
 	/**
 	 * An FRM body that is an array of objects, read a slice of records at a time (FRM bridge spec "Memory": no JSON tree) and

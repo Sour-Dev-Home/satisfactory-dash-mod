@@ -11,8 +11,9 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, Game{InGame}
 	, Agent{MoveTemp(ConfigPath), MoveTemp(CredentialPath), Clock.Random01}
 	, Pusher{Clock.Random01}
-	, Bridge{InTransport, InWorker}
-	, WorldLayers{InTransport, Bridge, Clock.Random01}
+	, Assembler{InWorker}
+	, Bridge{InTransport, InWorker, Assembler}
+	, WorldLayers{InTransport, Bridge, Assembler, Clock.Random01}
 	// Every budget is begun and ended on the game thread (the driver ticks there), so its thread cycle counts are comparable (StepBudget.h).
 	// The cycle source tests the config's "stepDiagnostics" on each call, so a re-read config takes effect and off means no clock call.
 	, FactoryBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
@@ -117,25 +118,25 @@ void SatisDash::FDriver::Tick()
 	const FAgentConfig& Config = Agent.GetConfig();
 	if (Config.GetExtractorsSource() != ESource::Native)
 	{
-		Bridge.DropExtractors(); // the source flipped to bridge: no held fragment or pending job is spliced after it
+		Assembler.DropExtractors(); // the source flipped to bridge: no held fragment or pending job is spliced after it
 	}
 	if (Config.GetGeneratorsSource() != ESource::Native)
 	{
-		Bridge.DropGenerators(); // the same for the generators fragment held for the power part
+		Assembler.DropGenerators(); // the same for the generators fragment held for the power part
 	}
 	if (Config.GetStorageSource() != ESource::Native)
 	{
-		Bridge.DropStorage(); // and for a storage fragment not yet sent
+		Assembler.DropStorage(); // and for a storage fragment not yet sent
 	}
 	Bridge.Tick(Now, Config.GetFrmPort(), Config.FrmToken);
-	if (TOptional<FEncodedBody> Encoded = Bridge.TakeEncoded())
+	if (TOptional<FEncodedBody> Encoded = Assembler.TakeEncoded())
 	{
 		Pusher.Enqueue(MoveTemp(Encoded.GetValue()));
 	}
 	// World layers (spec "Timing"): posted one at a time, and only while no snapshot is queued, in flight or being encoded.
 	if (const FCredential* Credential = Agent.GetCredential())
 	{
-		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Bridge.EncodePending(), &Game, bGameRunning, &RoutesBudget, &LogisticsBudget, &MarkersBudget, &DronesBudget });
+		WorldLayers.Tick({ Now, Clock.UtcNow(), &Config, Credential, !bSendInFlight && Pusher.Num() == 0 && !Assembler.EncodePending(), &Game, bGameRunning, &RoutesBudget, &LogisticsBudget, &MarkersBudget, &DronesBudget });
 	}
 	if (WorldLayers.TakeAuthRejected())
 	{
@@ -186,7 +187,7 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 		NoteFailedPart(TEXT("factory"), Now);
 		return;
 	}
-	if (!Bridge.SubmitNativeFactory(MoveTemp(Found.GetValue()), Now) && FactoryLog.ShouldLog(TEXT("held"), Now))
+	if (!Assembler.SubmitNativeFactory(MoveTemp(Found.GetValue()), Now) && FactoryLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Factory read finished while the last one is still being built: it is dropped"));
 	}
@@ -248,15 +249,15 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d containers past the list cap were dropped"), Found->Counts.ContainersOverCap);
 	}
-	if (BuildablesAsked.bExtractors && !Bridge.SubmitNativeExtractors(MoveTemp(Found->Extractors), Now) && BuildablesLog.ShouldLog(TEXT("held"), Now))
+	if (BuildablesAsked.bExtractors && !Assembler.SubmitNativeExtractors(MoveTemp(Found->Extractors), Now) && BuildablesLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last extractors fragment is still being built: it is dropped"));
 	}
-	if (BuildablesAsked.bGenerators && !Bridge.SubmitNativeGenerators(MoveTemp(Found->Generators), Now) && BuildablesLog.ShouldLog(TEXT("heldGenerators"), Now))
+	if (BuildablesAsked.bGenerators && !Assembler.SubmitNativeGenerators(MoveTemp(Found->Generators), Now) && BuildablesLog.ShouldLog(TEXT("heldGenerators"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last generators fragment is still being built: it is dropped"));
 	}
-	if (BuildablesAsked.bStorage && !Bridge.SubmitNativeStorage(MoveTemp(Found->Containers), Now) && BuildablesLog.ShouldLog(TEXT("heldStorage"), Now))
+	if (BuildablesAsked.bStorage && !Assembler.SubmitNativeStorage(MoveTemp(Found->Containers), Now) && BuildablesLog.ShouldLog(TEXT("heldStorage"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last storage fragment is still being built: it is dropped"));
 	}
@@ -317,7 +318,7 @@ void SatisDash::FDriver::TickTrainsRead(double Now)
 		UE_LOG(LogSatisDash, Display, TEXT("Station rates (reflection read): %d platforms read, %d fluid platforms skipped, %d lookups failed"),
 			Found->RatesRead, Found->RatesFluidSkipped, Found->RatesLookupFailed);
 	}
-	if (!Bridge.SubmitNativeMapLive(MoveTemp(Found.GetValue()), Now) && TrainsLog.ShouldLog(TEXT("held"), Now))
+	if (!Assembler.SubmitNativeMapLive(MoveTemp(Found.GetValue()), Now) && TrainsLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Trains read finished while the last one is still being built: it is dropped"));
 	}
@@ -330,7 +331,7 @@ void SatisDash::FDriver::TickSample(double Now)
 		return;
 	}
 	// A factory snapshot is still being encoded: this pass waits, so snapshots stay in order (Pusher.h).
-	if (Bridge.EncodePending())
+	if (Assembler.EncodePending())
 	{
 		return;
 	}
@@ -373,7 +374,7 @@ void SatisDash::FDriver::TickSample(double Now)
 			else if (Config.GetGeneratorsSource() == ESource::Native)
 			{
 				// Owner 2026-10-27 (a), contract #807: a finished read rides the NEXT power part only; later power parts omit the key.
-				Snapshot.GeneratorsJson = Bridge.TakeGenerators(Now, Cadence.FactorySeconds);
+				Snapshot.GeneratorsJson = Assembler.TakeGenerators(Now, Cadence.FactorySeconds);
 			}
 		}
 		// FRM bridge spec: players every pass, the factory on its cadence; both arrive in a later pass's snapshot.
@@ -475,18 +476,18 @@ void SatisDash::FDriver::TickSample(double Now)
 		{
 			Snapshot.PlayersJson = Bridge.TakePlayers(Now, 2.0 * Cadence.StatusSeconds);
 		}
-		Snapshot.FactoryJson = Bridge.TakeFactory(Now, Cadence.FactorySeconds);
-		Snapshot.MapLiveJson = Bridge.TakeMapLive(Now, Cadence.FactorySeconds);
+		Snapshot.FactoryJson = Assembler.TakeFactory(Now, Cadence.FactorySeconds);
+		Snapshot.MapLiveJson = Assembler.TakeMapLive(Now, Cadence.FactorySeconds);
 		if (Config.GetStorageSource() == ESource::Native)
 		{
 			// Ruling B3: a data part, attached to the first snapshot after the fragment is built and then cleared. Only with a status:
 			// an unreachable snapshot keeps it for the next one (the dash refuses a data part with reachable false).
-			Snapshot.StorageJson = Bridge.TakeStorage(Now, Cadence.FactorySeconds);
+			Snapshot.StorageJson = Assembler.TakeStorage(Now, Cadence.FactorySeconds);
 		}
 	}
 	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsValid() || Snapshot.StorageJson.IsSet())
 	{
-		Bridge.EncodeSnapshot(MoveTemp(Snapshot)); // up to megabytes of JSON, or up to 256 KB of mapLive: serialised and gzipped on the worker
+		Assembler.EncodeSnapshot(MoveTemp(Snapshot)); // up to megabytes of JSON, or up to 256 KB of mapLive: serialised and gzipped on the worker
 	}
 	else
 	{

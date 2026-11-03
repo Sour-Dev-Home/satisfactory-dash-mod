@@ -149,9 +149,10 @@ double SatisDash::JitteredSeconds(double BaseSeconds, double Random01)
 	return BaseSeconds * (1.0 - WorldJitterFraction + R * 2.0 * WorldJitterFraction);
 }
 
-SatisDash::FWorldSender::FWorldSender(ITransport& InTransport, FFrmBridge& InBridge, TFunction<double()> InRandom01)
+SatisDash::FWorldSender::FWorldSender(ITransport& InTransport, FFrmBridge& InBridge, FSnapshotAssembler& InAssembler, TFunction<double()> InRandom01)
 	: Transport{InTransport}
 	, Bridge{InBridge}
+	, Assembler{InAssembler}
 	, random01Source{MoveTemp(InRandom01)}
 {
 }
@@ -244,7 +245,7 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 	case EPhase::Waiting:
 		if (Context.Now >= L.NextAt)
 		{
-			if (WorldLayer(Layer).Endpoint == nullptr && !WorldSenderIsNative(Layer, Context))
+			if (FrmWorldEndpoint(Layer) == nullptr && !WorldSenderIsNative(Layer, Context))
 			{
 				return; // a native-only layer whose source is the bridge is never scheduled: there is no FRM read to fall back to
 			}
@@ -391,7 +392,7 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 			return;
 		}
 		L.bScanLogged = false;
-		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(), MoveTemp(Found.GetValue()), L.DataHash))
+		if (Assembler.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(), MoveTemp(Found.GetValue()), L.DataHash))
 		{
 			L.Phase = EPhase::Reading;
 		}
@@ -402,7 +403,7 @@ void SatisDash::FWorldSender::TickLayer(EWorldLayer Layer, const FWorldContext& 
 		return;
 	}
 	case EPhase::Reading:
-		if (TOptional<FWorldOutcome> Outcome = Bridge.TakeWorld(Layer))
+		if (TOptional<FWorldOutcome> Outcome = Assembler.TakeWorld(Layer))
 		{
 			Settle(Layer, MoveTemp(Outcome.GetValue()), Context);
 		}
@@ -453,7 +454,7 @@ void SatisDash::FWorldSender::StepTrainRoutesScan(const FWorldContext& Context)
 	UE_LOG(LogSatisDash, Display, TEXT("Train routes read (game thread only): %d stations, %d trains in %d steps, longest step %.2f ms, total %.2f ms"),
 		Found->Stations.Num(), Found->Trains.Num(), Context.TrainsBudget->Steps(), Context.TrainsBudget->LongestMs(), Context.TrainsBudget->TotalMs());
 	LogLongestStep(TEXT("Train routes"), *Context.TrainsBudget);
-	if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
+	if (Assembler.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
 		FNativeWorldBuilder([Snapshot = MoveTemp(Found.GetValue())](const FString& Observed) { return BuildNativeTrainRoutes(Observed, Snapshot.Stations, Snapshot.Trains); }), L.DataHash))
 	{
 		L.Phase = EPhase::Reading;
@@ -501,7 +502,7 @@ void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorld
 		UE_LOG(LogSatisDash, Display, TEXT("Map markers read (game thread only): %d markers, %d dropped in %d steps, longest step %.2f ms, total %.2f ms"),
 			Found->Counts.Read, Found->Counts.Dropped, Context.MarkersBudget->Steps(), Context.MarkersBudget->LongestMs(), Context.MarkersBudget->TotalMs());
 		LogLongestStep(TEXT("Map markers"), *Context.MarkersBudget);
-		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
+		if (Assembler.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
 			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Markers)](const FString& Observed) { return BuildNativeMapMarkers(Observed, Snapshot); }), L.DataHash))
 		{
 			L.Phase = EPhase::Reading;
@@ -544,7 +545,7 @@ void SatisDash::FWorldSender::StepSmallLayerScan(EWorldLayer Layer, const FWorld
 		UE_LOG(LogSatisDash, Display, TEXT("Drone routes read (game thread only): %d ports, %d dropped in %d steps, longest step %.2f ms, total %.2f ms"),
 			Found->Counts.Read, Found->Counts.Dropped, Context.DronesBudget->Steps(), Context.DronesBudget->LongestMs(), Context.DronesBudget->TotalMs());
 		LogLongestStep(TEXT("Drone routes"), *Context.DronesBudget);
-		if (Bridge.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
+		if (Assembler.SubmitNativeWorld(Layer, Context.Utc.ToIso8601(),
 			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Ports)](const FString& Observed) { return BuildNativeDroneRoutes(Observed, Snapshot); }), L.DataHash))
 		{
 			L.Phase = EPhase::Reading;
@@ -688,7 +689,7 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	}
 	if (bWasRails)
 	{
-		if (Bridge.SubmitNativeWorld(RailsLayer, Context.Utc.ToIso8601(),
+		if (Assembler.SubmitNativeWorld(RailsLayer, Context.Utc.ToIso8601(),
 			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Rails)](const FString& Observed) { return BuildNativeRails(Observed, Snapshot); }), Rails.DataHash))
 		{
 			Rails.Phase = EPhase::Reading;
@@ -700,7 +701,7 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	}
 	if (bWasConveyors)
 	{
-		if (Bridge.SubmitNativeWorld(ConveyorsLayer, Context.Utc.ToIso8601(),
+		if (Assembler.SubmitNativeWorld(ConveyorsLayer, Context.Utc.ToIso8601(),
 			FNativeWorldBuilder([Snapshot = MoveTemp(Found->Conveyors)](const FString& Observed) { return BuildNativeConveyors(Observed, Snapshot); }), Conveyors.DataHash))
 		{
 			Conveyors.Phase = EPhase::Reading;
@@ -712,7 +713,7 @@ void SatisDash::FWorldSender::StepLogisticsPass(const FWorldContext& Context)
 	}
 	if (bWasPowerLines)
 	{
-		if (Bridge.SubmitNativeWorld(PowerLinesLayer, Context.Utc.ToIso8601(),
+		if (Assembler.SubmitNativeWorld(PowerLinesLayer, Context.Utc.ToIso8601(),
 			FNativeWorldBuilder([Snapshot = MoveTemp(Found->PowerLines)](const FString& Observed) { return BuildNativePowerLines(Observed, Snapshot); }), PowerLines.DataHash))
 		{
 			PowerLines.Phase = EPhase::Reading;

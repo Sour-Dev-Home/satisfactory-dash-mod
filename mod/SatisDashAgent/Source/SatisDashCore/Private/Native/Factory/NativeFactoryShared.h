@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "SatisDash/FrmFactory.h"
+#include "SatisDash/FactoryRecords.h"
 
 /**
  * The building rules the native factory part and the native extractors list share (ADR-0058), so a machine and an extractor
@@ -32,10 +32,10 @@ namespace SatisDash::NativeShared
 			return false;
 		}
 		Model.bHasLocation = true;
-		Model.XM = FrmFactoryMetres(XCm);
-		Model.YM = FrmFactoryMetres(YCm);
-		Model.ZM = FrmFactoryMetres(ZCm);
-		Model.YawDeg = FrmFactoryYaw(YawDeg);
+		Model.XM = FactoryMetres(XCm);
+		Model.YM = FactoryMetres(YCm);
+		Model.ZM = FactoryMetres(ZCm);
+		Model.YawDeg = FactoryYaw(YawDeg);
 		return true;
 	}
 
@@ -47,7 +47,7 @@ namespace SatisDash::NativeShared
 			return TOptional<double>();
 		}
 		const double Scaled = FMath::RoundToDouble(Percent * 100.0);
-		const double Hundredths = Finite(Scaled) ? FrmFactoryMetres(Scaled) : 0.0;
+		const double Hundredths = Finite(Scaled) ? FactoryMetres(Scaled) : 0.0;
 		if (Finite(Hundredths) && Hundredths > 0)
 		{
 			return Hundredths;

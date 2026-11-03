@@ -1,9 +1,8 @@
 #include "SatisDash/Native/Conveyors/NativeConveyors.h"
 
 #include "Policies/CondensedJsonPrintPolicy.h"
-#include "SatisDash/FrmFactory.h"
-#include "SatisDash/FrmMap.h"
-#include "SatisDash/FrmRecords.h"
+#include "SatisDash/FactoryRecords.h"
+#include "SatisDash/Records.h"
 #include "SatisDash/Snapshot.h"
 #include "Serialization/JsonWriter.h"
 

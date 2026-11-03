@@ -20,7 +20,8 @@ namespace
 	{
 		SatisDash::Test::FFakeTransport Net;
 		SatisDash::Test::FFakeWorker Worker;
-		FFrmBridge Bridge{ Net, Worker };
+		FSnapshotAssembler Assembler{ Worker };
+		FFrmBridge Bridge{ Net, Worker, Assembler };
 		double T = 100;
 		void tick(int32 Times = 1)
 		{
@@ -116,7 +117,7 @@ bool FFrmBridgeFactoryTest::RunTest(const FString& Parameters)
 		F.Worker.release();
 		F.tick();
 	}
-	TestTrue(TEXT("the factory part is ready"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT("\"B_1\"")));
+	TestTrue(TEXT("the factory part is ready"), F.Assembler.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT("\"B_1\"")));
 	F.serve(TEXT("/getTrains"), SatisDash::Test::Reply(0, FString()));
 	F.serve(TEXT("/getTrainStation"), SatisDash::Test::Reply(0, FString()));
 	F.tick(2);
@@ -135,213 +136,15 @@ bool FFrmBridgeNativeFactoryTest::RunTest(const FString& Parameters)
 	One.Name = TEXT("n");
 	One.ClassName = TEXT("c");
 	Readings.Add(One);
-	TestTrue(TEXT("a native read is taken"), F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>(Readings), F.T));
-	TestFalse(TEXT("a second is refused while one is held"), F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>(Readings), F.T));
-	TestFalse(TEXT("nothing ready before the worker ran"), F.Bridge.TakeFactory(F.T, 30).IsSet());
+	TestTrue(TEXT("a native read is taken"), F.Assembler.SubmitNativeFactory(TArray<FFactoryReading>(Readings), F.T));
+	TestFalse(TEXT("a second is refused while one is held"), F.Assembler.SubmitNativeFactory(TArray<FFactoryReading>(Readings), F.T));
+	TestFalse(TEXT("nothing ready before the worker ran"), F.Assembler.TakeFactory(F.T, 30).IsSet());
 	F.tick(3);
 	TestEqual(TEXT("the worker built it, FRM was not asked"), F.Net.Open.Num(), 0);
-	const TOptional<FString> Part = F.Bridge.TakeFactory(F.T, 30);
+	const TOptional<FString> Part = F.Assembler.TakeFactory(F.T, 30);
 	TestTrue(TEXT("TakeFactory returns the part"), Part.IsSet() && Part->StartsWith(TEXT("{\"buildings\":[{\"id\":\"B_9\"")));
-	TestFalse(TEXT("taken once"), F.Bridge.TakeFactory(F.T, 30).IsSet());
-	TestTrue(TEXT("once harvested a new one is taken"), F.Bridge.SubmitNativeFactory(MoveTemp(Readings), F.T));
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrmBridgeExtractorsTest, "SatisDash.Core.FrmBridge.Extractors", SatisDash::Test::Flags)
-
-bool FFrmBridgeExtractorsTest::RunTest(const FString& Parameters)
-{
-	FFactoryReading Machine;
-	Machine.Id = TEXT("B_9");
-	Machine.Name = TEXT("n");
-	Machine.ClassName = TEXT("c");
-	FExtractorReading Miner;
-	Miner.Id = TEXT("Build_MinerMk1_C_1");
-	Miner.Name = TEXT("Miner");
-	Miner.ClassName = TEXT("Build_MinerMk1_C");
-
-	// The part with no fragment at all: the bytes the flag-off path produces.
-	FString Plain;
-	{
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
-		F.tick(3);
-		Plain = F.Bridge.TakeFactory(F.T, 30).Get(FString());
-	}
-	TestTrue(TEXT("the plain part ends with the closing brace"), Plain.EndsWith(TEXT("}")));
-
-	// A fresh fragment is spliced before the closing brace; every other byte is unchanged and the whole parses.
-	{
-		FFrmBridgeFixture F;
-		TestTrue(TEXT("a fragment is taken"), F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T));
-		TestFalse(TEXT("a second is refused while one is held"), F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T));
-		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
-		F.tick(4);
-		const FString Part = F.Bridge.TakeFactory(F.T, 30).Get(FString());
-		TestTrue(TEXT("the extractors are spliced in"), Part.Contains(TEXT(",\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
-		const int32 Spliced = Part.Find(TEXT(",\"extractors\":["));
-		TestTrue(TEXT("the plain part's bytes come first, unchanged"), Spliced > 0 && Part.Left(Spliced) == Plain.LeftChop(1));
-		TestTrue(TEXT("and the closing brace is last"), Part.EndsWith(TEXT("]}")));
-		TSharedPtr<FJsonObject> Parsed;
-		TestTrue(TEXT("the part parses as JSON"), FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Part), Parsed) && Parsed.IsValid());
-		TestTrue(TEXT("with both keys"), Parsed.IsValid() && Parsed->HasTypedField<EJson::Array>(TEXT("buildings")) && Parsed->HasTypedField<EJson::Array>(TEXT("extractors")));
-		F.tick(2);
-		TestFalse(TEXT("a fragment is consumed once"), F.Bridge.TakeFactory(F.T, 30).IsSet());
-	}
-
-	// A stale fragment (older than 1.5 x the factory age limit) is not spliced.
-	{
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T - 100);
-		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
-		F.tick(4);
-		SatisDash::Test::SameText(*this, TEXT("a stale fragment leaves the part as it was"), F.Bridge.TakeFactory(F.T, 30).Get(FString()), Plain);
-	}
-
-	// The fragment's worker job is still outstanding: the ready part is kept, not returned; when the job finishes the part carries it.
-	{
-		FFrmBridgeFixture F;
-		F.Worker.bHold = true;
-		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
-		F.tick();
-		F.Worker.release();
-		F.tick();
-		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
-		F.tick();
-		TestFalse(TEXT("the part waits while the fragment job is on the worker"), F.Bridge.TakeFactory(F.T, 30).IsSet());
-		F.Worker.release();
-		F.tick();
-		TestTrue(TEXT("the part is returned with the fragment once the job finished"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT(",\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
-	}
-
-	// Past the fragment's own age gate (1.5 x 30 s) with the job still held, the part is returned without it.
-	{
-		FFrmBridgeFixture F;
-		F.Worker.bHold = true;
-		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T + 40);
-		F.tick();
-		F.Worker.release();
-		F.tick();
-		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
-		F.tick();
-		SatisDash::Test::SameText(*this, TEXT("past the deadline the part goes out without the fragment"), F.Bridge.TakeFactory(F.T + 50, 30).Get(FString()), Plain);
-	}
-
-	// The source flips to bridge: neither a held fragment nor a pending job is spliced after DropExtractors.
-	{
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
-		F.tick(2);
-		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
-		F.Bridge.DropExtractors();
-		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
-		F.tick(4);
-		SatisDash::Test::SameText(*this, TEXT("a dropped fragment and job leave the part as it was"), F.Bridge.TakeFactory(F.T, 30).Get(FString()), Plain);
-	}
-
-	// An empty list is a real, empty fragment.
-	{
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>(), F.T);
-		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
-		F.tick(4);
-		TestTrue(TEXT("an empty list is spliced as []"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).EndsWith(TEXT(",\"extractors\":[]}")));
-	}
-
-	// S4-B generators (the power part's fragment, same fixture): once per read (owner 2026-10-27), handed to the next power part only.
-	FGeneratorReading Coal;
-	Coal.Id = TEXT("Gen_Coal_1");
-	Coal.Name = TEXT("Coal");
-	Coal.ClassName = TEXT("Build_GeneratorCoal_C");
-	FGeneratorReading Fuel;
-	Fuel.Id = TEXT("Gen_Fuel_2");
-	Fuel.Name = TEXT("Fuel");
-	Fuel.ClassName = TEXT("Build_GeneratorFuel_C");
-	{
-		FFrmBridgeFixture F;
-		TestFalse(TEXT("nothing held yet"), F.Bridge.TakeGenerators(F.T, 30).IsValid());
-		const double At = F.T;
-		TestTrue(TEXT("a fragment job is taken"), F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, At));
-		TestFalse(TEXT("a second is refused while one is outstanding"), F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, At));
-		F.tick(3);
-		const TSharedPtr<const FString> First = F.Bridge.TakeGenerators(F.T, 30);
-		TestTrue(TEXT("the built fragment is handed out"), First.IsValid() && First->StartsWith(TEXT("[{\"id\":\"Gen_Coal_1\"")) && First->EndsWith(TEXT("]")));
-		TestFalse(TEXT("once: the next power part gets nothing"), F.Bridge.TakeGenerators(F.T + 5, 30).IsValid());
-		TestFalse(TEXT("and nothing later either, until the next read"), F.Bridge.TakeGenerators(F.T + 25, 30).IsValid());
-		TestTrue(TEXT("a new job is taken once the old fragment is gone"), F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T));
-		F.tick(3);
-		const TSharedPtr<const FString> Second = F.Bridge.TakeGenerators(F.T, 30);
-		TestTrue(TEXT("the next read goes out again, once"), Second.IsValid() && Second->Contains(TEXT("Gen_Fuel_2")) && !F.Bridge.TakeGenerators(F.T, 30).IsValid());
-	}
-	{
-		// A fragment older than 1.5 x the factory cadence is dropped, never sent under a fresh observedAt.
-		FFrmBridgeFixture F;
-		const double At = F.T;
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, At);
-		F.tick(3);
-		TestFalse(TEXT("older than 1.5 x the factory cadence it is not sent"), F.Bridge.TakeGenerators(At + 45.5, 30).IsValid());
-		TestFalse(TEXT("and it is forgotten, not brought back"), F.Bridge.TakeGenerators(At, 30).IsValid());
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, At);
-		F.tick(3);
-		TestTrue(TEXT("exactly 1.5 x the factory cadence old it is still sent"), F.Bridge.TakeGenerators(At + 45, 30).IsValid());
-	}
-	{
-		// A newer fragment is built while an older one is untaken: the older is taken once, then the newer.
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
-		F.tick(3);
-		F.Worker.bHold = true;
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T);
-		F.tick();
-		TestTrue(TEXT("the older fragment is sent while the newer is built"), F.Bridge.TakeGenerators(F.T, 30)->Contains(TEXT("Gen_Coal_1")));
-		TestFalse(TEXT("and only once"), F.Bridge.TakeGenerators(F.T, 30).IsValid());
-		F.Worker.release();
-		F.tick(2);
-		const FString Newer = *F.Bridge.TakeGenerators(F.T, 30);
-		TestTrue(TEXT("then the newer one"), Newer.Contains(TEXT("Gen_Fuel_2")) && !Newer.Contains(TEXT("Gen_Coal_1")));
-	}
-	{
-		// Untaken, a newer read replaces the older fragment.
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
-		F.tick(3);
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T);
-		F.tick(3);
-		const FString Newest = *F.Bridge.TakeGenerators(F.T, 30);
-		TestTrue(TEXT("only the newest read is sent"), Newest.Contains(TEXT("Gen_Fuel_2")) && !Newest.Contains(TEXT("Gen_Coal_1")));
-	}
-	{
-		// The source flips to bridge: neither a held fragment nor a pending job survives DropGenerators. Stop drops them too.
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
-		F.tick(3);
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T);
-		F.Bridge.DropGenerators();
-		F.tick(3);
-		TestFalse(TEXT("a dropped fragment and job are gone"), F.Bridge.TakeGenerators(F.T, 30).IsValid());
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
-		F.tick(3);
-		F.Bridge.Stop();
-		TestFalse(TEXT("Stop forgets the held fragment"), F.Bridge.TakeGenerators(F.T, 30).IsValid());
-	}
-	{
-		// Both fragments and the factory part are in flight together: the part comes out with the extractors, the generators are held.
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeFactory(TArray<FFactoryReading>{ Machine }, F.T);
-		F.Bridge.SubmitNativeExtractors(TArray<FExtractorReading>{ Miner }, F.T);
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
-		F.tick(6);
-		TestTrue(TEXT("the factory part carries the extractors"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).Contains(TEXT(",\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
-		TestTrue(TEXT("and the generators fragment is held for the power part"), F.Bridge.TakeGenerators(F.T, 30)->StartsWith(TEXT("[{\"id\":\"Gen_Coal_1\"")));
-	}
-	{
-		// An empty list is a real, empty fragment.
-		FFrmBridgeFixture F;
-		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>(), F.T);
-		F.tick(3);
-		SatisDash::Test::SameText(*this, TEXT("an empty list is []"), *F.Bridge.TakeGenerators(F.T, 30), TEXT("[]"));
-		TestFalse(TEXT("and the [] is sent once, not again"), F.Bridge.TakeGenerators(F.T, 30).IsValid());
-	}
+	TestFalse(TEXT("taken once"), F.Assembler.TakeFactory(F.T, 30).IsSet());
+	TestTrue(TEXT("once harvested a new one is taken"), F.Assembler.SubmitNativeFactory(MoveTemp(Readings), F.T));
 	return true;
 }
 
@@ -363,18 +166,18 @@ bool FFrmBridgeMapLiveTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("then getTrains is asked"), F.serve(TEXT("/getTrains"), SatisDash::Test::Reply(200, FrmBridgeOneTrain)));
 	TestTrue(TEXT("and getTrainStation, after it: one request at a time"), F.serve(TEXT("/getTrainStation"), SatisDash::Test::Reply(200, FrmBridgeOneStation)));
 	F.tick(4);
-	SatisDash::Test::SameText(*this, TEXT("the part is the Node agent's mapLive"), F.Bridge.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
-	TestFalse(TEXT("taken once"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	SatisDash::Test::SameText(*this, TEXT("the part is the Node agent's mapLive"), F.Assembler.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
+	TestFalse(TEXT("taken once"), F.Assembler.TakeMapLive(F.T, 30).IsSet());
 
 	// Either read failing, or invalid, leaves the whole part out (the Node agent reads both and one failure fails both).
 	F.cycle(SatisDash::Test::Reply(200, FrmBridgeOneTrain), SatisDash::Test::Reply(500, FString()));
-	TestFalse(TEXT("stations failed: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	TestFalse(TEXT("stations failed: no part"), F.Assembler.TakeMapLive(F.T, 30).IsSet());
 	F.cycle(SatisDash::Test::Reply(200, TEXT("[{\"ID\":\"\"}]")), SatisDash::Test::Reply(200, FrmBridgeOneStation));
-	TestFalse(TEXT("trains invalid: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	TestFalse(TEXT("trains invalid: no part"), F.Assembler.TakeMapLive(F.T, 30).IsSet());
 	F.cycle(SatisDash::Test::Reply(0, FString()), SatisDash::Test::Reply(0, FString()));
-	TestFalse(TEXT("FRM down: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	TestFalse(TEXT("FRM down: no part"), F.Assembler.TakeMapLive(F.T, 30).IsSet());
 	F.cycle(SatisDash::Test::Reply(200, FrmBridgeOneTrain), SatisDash::Test::Reply(200, FrmBridgeOneStation));
-	SatisDash::Test::SameText(*this, TEXT("and it recovers when FRM returns"), F.Bridge.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
+	SatisDash::Test::SameText(*this, TEXT("and it recovers when FRM returns"), F.Assembler.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
 
 	// A getTrains read left in flight by a stopped run still holds its endpoint when the run restarts: Enqueue refuses the new
 	// one, that side is Failed (not Waiting forever), the pair settles without a part, and the next cadence tick starts afresh.
@@ -394,13 +197,13 @@ bool FFrmBridgeMapLiveTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("the restarted run did not ask getTrains a second time"), F.Net.pending(TEXT("/getTrains")), 0);
 	F.serve(TEXT("/getTrainStation"), SatisDash::Test::Reply(200, FrmBridgeOneStation));
 	F.tick(4);
-	TestFalse(TEXT("the refused side failed the pair: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	TestFalse(TEXT("the refused side failed the pair: no part"), F.Assembler.TakeMapLive(F.T, 30).IsSet());
 	F.cycle(SatisDash::Test::Reply(200, FrmBridgeOneTrain), SatisDash::Test::Reply(200, FrmBridgeOneStation));
-	SatisDash::Test::SameText(*this, TEXT("and the next cadence tick starts a fresh pair"), F.Bridge.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
+	SatisDash::Test::SameText(*this, TEXT("and the next cadence tick starts a fresh pair"), F.Assembler.TakeMapLive(F.T, 30).Get(FString()), FrmBridgeMapLive);
 
 	// An old part is dropped: a part ages from its FRM read.
 	F.cycle(SatisDash::Test::Reply(200, FrmBridgeOneTrain), SatisDash::Test::Reply(200, FrmBridgeOneStation));
-	TestFalse(TEXT("older than the factory cadence: dropped"), F.Bridge.TakeMapLive(F.T + 31, 30).IsSet());
+	TestFalse(TEXT("older than the factory cadence: dropped"), F.Assembler.TakeMapLive(F.T + 31, 30).IsSet());
 	return true;
 }
 
@@ -431,7 +234,7 @@ bool FFrmBridgeMapLiveCapTest::RunTest(const FString& Parameters)
 	for (int32 Round = 0; Round < 2; ++Round)
 	{
 		F.cycle(SatisDash::Test::Reply(200, FrmBridgeBig(true, 500)), SatisDash::Test::Reply(200, FrmBridgeBig(false, 500)));
-		TestFalse(TEXT("over 256,000 bytes: no part"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+		TestFalse(TEXT("over 256,000 bytes: no part"), F.Assembler.TakeMapLive(F.T, 30).IsSet());
 	}
 	int32 CapLines = 0;
 	for (const FString& Line : Log.Take())
@@ -441,7 +244,7 @@ bool FFrmBridgeMapLiveCapTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("one warning, not one a cycle"), CapLines, 1);
 	// Just under: a smaller pair goes through.
 	F.cycle(SatisDash::Test::Reply(200, FrmBridgeBig(true, 100)), SatisDash::Test::Reply(200, FrmBridgeBig(false, 100)));
-	TestTrue(TEXT("100 of each is under the cap"), F.Bridge.TakeMapLive(F.T, 30).IsSet());
+	TestTrue(TEXT("100 of each is under the cap"), F.Assembler.TakeMapLive(F.T, 30).IsSet());
 	return SatisDash::Test::NoErrorLines(*this, Log);
 }
 
@@ -480,12 +283,12 @@ bool FFrmBridgeStopTest::RunTest(const FString& Parameters)
 	Snapshot.ObservedAt = FDateTime(2026, 10, 23, 12, 0, 0);
 	Snapshot.FactoryJson = TEXT("{\"buildings\":[]}");
 	Snapshot.PlayersJson = PlayersToJson(PlayersUnavailable());
-	F.Bridge.EncodeSnapshot(Snapshot);
-	TestTrue(TEXT("encoding is pending"), F.Bridge.EncodePending());
+	F.Assembler.EncodeSnapshot(Snapshot);
+	TestTrue(TEXT("encoding is pending"), F.Assembler.EncodePending());
 	F.tick(2);
-	const TOptional<FEncodedBody> Body = F.Bridge.TakeEncoded();
+	const TOptional<FEncodedBody> Body = F.Assembler.TakeEncoded();
 	TestTrue(TEXT("encoded on the worker"), Body.IsSet() && Body->Bytes.Num() > 0);
-	TestFalse(TEXT("no longer pending"), F.Bridge.EncodePending());
+	TestFalse(TEXT("no longer pending"), F.Assembler.EncodePending());
 	const FString Json = SnapshotToJson(Snapshot);
 	TestTrue(TEXT("the parts are spliced into the snapshot"), Json.Contains(TEXT(",\"players\":{\"available\":false,\"players\":[]}")) && Json.Contains(TEXT(",\"factory\":{\"buildings\":[]}}")));
 	TestTrue(TEXT("and it is one valid object"), SatisDash::Json::ParseObject(Json).IsValid());
@@ -506,7 +309,7 @@ namespace
 		FSnapshot Snapshot;
 		Snapshot.AgentVersion = TEXT("mod/0.1.0");
 		Snapshot.ObservedAt = FDateTime(2026, 10, 23, 12, 0, 0);
-		F.Bridge.EncodeSnapshot(Snapshot);
+		F.Assembler.EncodeSnapshot(Snapshot);
 		F.tick(2);
 	}
 }
@@ -519,15 +322,15 @@ bool FFrmBridgeStopReadyTest::RunTest(const FString& Parameters)
 		FFrmBridgeFixture Control;
 		FrmBridgeMakeParts(Control);
 		TestTrue(TEXT("control: players ready"), Control.Bridge.TakePlayers(Control.T, 1e9).IsSet());
-		TestTrue(TEXT("control: factory ready"), Control.Bridge.TakeFactory(Control.T, 1e9).IsSet());
-		TestTrue(TEXT("control: encoded ready"), Control.Bridge.TakeEncoded().IsSet());
+		TestTrue(TEXT("control: factory ready"), Control.Assembler.TakeFactory(Control.T, 1e9).IsSet());
+		TestTrue(TEXT("control: encoded ready"), Control.Assembler.TakeEncoded().IsSet());
 	}
 	FFrmBridgeFixture F;
 	FrmBridgeMakeParts(F);
 	F.Bridge.Stop();
 	TestFalse(TEXT("a ready players part is gone after Stop"), F.Bridge.TakePlayers(F.T, 1e9).IsSet());
-	TestFalse(TEXT("a ready factory part is gone after Stop"), F.Bridge.TakeFactory(F.T, 1e9).IsSet());
-	TestFalse(TEXT("an encoded body is gone after Stop"), F.Bridge.TakeEncoded().IsSet());
+	TestFalse(TEXT("a ready factory part is gone after Stop"), F.Assembler.TakeFactory(F.T, 1e9).IsSet());
+	TestFalse(TEXT("an encoded body is gone after Stop"), F.Assembler.TakeEncoded().IsSet());
 	return true;
 }
 
@@ -568,7 +371,7 @@ bool FFrmBridgeStopRunningTest::RunTest(const FString& Parameters)
 		F.Bridge.Stop();
 		F.Worker.release();
 		F.tick(3);
-		TestFalse(TEXT("a factory job running at Stop is never harvested"), F.Bridge.TakeFactory(F.T, 1e9).IsSet());
+		TestFalse(TEXT("a factory job running at Stop is never harvested"), F.Assembler.TakeFactory(F.T, 1e9).IsSet());
 		TestEqual(TEXT("and no further slice is launched"), F.Worker.Launched, 2);
 	}
 	{
@@ -578,14 +381,14 @@ bool FFrmBridgeStopRunningTest::RunTest(const FString& Parameters)
 		FSnapshot Snapshot;
 		Snapshot.AgentVersion = TEXT("mod/0.1.0");
 		Snapshot.ObservedAt = FDateTime(2026, 10, 23, 12, 0, 0);
-		F.Bridge.EncodeSnapshot(Snapshot);
+		F.Assembler.EncodeSnapshot(Snapshot);
 		F.tick();
 		TestEqual(TEXT("the encode is held"), F.Worker.Launched, 1);
 		F.Bridge.Stop();
 		F.Worker.release();
 		F.tick(3);
-		TestFalse(TEXT("an encode running at Stop is never harvested"), F.Bridge.TakeEncoded().IsSet());
-		TestFalse(TEXT("and it is no longer pending"), F.Bridge.EncodePending());
+		TestFalse(TEXT("an encode running at Stop is never harvested"), F.Assembler.TakeEncoded().IsSet());
+		TestFalse(TEXT("and it is no longer pending"), F.Assembler.EncodePending());
 	}
 	return true;
 }
@@ -616,17 +419,17 @@ bool FFrmBridgeWorldTest::RunTest(const FString& Parameters)
 	F.Net.answer(TEXT("/getPlayer"), SatisDash::Test::Reply(200, FrmBridgeOnePlayer));
 	F.tick(2);
 	TestEqual(TEXT("the second large read waits for the first parse"), F.Net.pending(TEXT("/getResourceNode")), 0);
-	TestFalse(TEXT("and nothing is ready yet"), F.Bridge.TakeWorld(EWorldLayer::Rails).IsSet());
+	TestFalse(TEXT("and nothing is ready yet"), F.Assembler.TakeWorld(EWorldLayer::Rails).IsSet());
 
 	F.Worker.bHold = false;
 	F.Worker.release();
 	F.tick(8);
-	TOptional<FWorldOutcome> Rails = F.Bridge.TakeWorld(EWorldLayer::Rails);
+	TOptional<FWorldOutcome> Rails = F.Assembler.TakeWorld(EWorldLayer::Rails);
 	TestTrue(TEXT("the rails outcome is Ready"), Rails.IsSet() && Rails->Kind == EKind::Ready && Rails->Items == 1);
-	TestFalse(TEXT("taken once"), F.Bridge.TakeWorld(EWorldLayer::Rails).IsSet());
+	TestFalse(TEXT("taken once"), F.Assembler.TakeWorld(EWorldLayer::Rails).IsSet());
 	TestTrue(TEXT("then the nodes read starts"), F.serve(TEXT("/getResourceNode"), SatisDash::Test::Reply(200, FrmBridgeNodesBody)));
 	F.tick(8);
-	const TOptional<FWorldOutcome> Nodes = F.Bridge.TakeWorld(EWorldLayer::ResourceNodes);
+	const TOptional<FWorldOutcome> Nodes = F.Assembler.TakeWorld(EWorldLayer::ResourceNodes);
 	TestTrue(TEXT("the nodes outcome is Ready"), Nodes.IsSet() && Nodes->Kind == EKind::Ready && Nodes->Items == 1);
 
 	// The same raw body again, with the hash the first outcome gave: one worker task, no parse.
@@ -634,7 +437,7 @@ bool FFrmBridgeWorldTest::RunTest(const FString& Parameters)
 	F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, Rails->RawHash, Rails->DataHash);
 	F.serve(TEXT("/getTrainRails"), SatisDash::Test::Reply(200, FrmBridgeRailsBody));
 	F.tick(6);
-	const TOptional<FWorldOutcome> Again = F.Bridge.TakeWorld(EWorldLayer::Rails);
+	const TOptional<FWorldOutcome> Again = F.Assembler.TakeWorld(EWorldLayer::Rails);
 	TestTrue(TEXT("SameRaw"), Again.IsSet() && Again->Kind == EKind::SameRaw);
 	TestEqual(TEXT("with a single task on the worker"), F.Worker.Launched, Launched + 1);
 
@@ -642,7 +445,7 @@ bool FFrmBridgeWorldTest::RunTest(const FString& Parameters)
 	F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>());
 	F.serve(TEXT("/getTrainRails"), SatisDash::Test::Reply(503, FString()));
 	F.tick(2);
-	const TOptional<FWorldOutcome> Failed = F.Bridge.TakeWorld(EWorldLayer::Rails);
+	const TOptional<FWorldOutcome> Failed = F.Assembler.TakeWorld(EWorldLayer::Rails);
 	TestTrue(TEXT("ReadFailed"), Failed.IsSet() && Failed->Kind == EKind::ReadFailed);
 	return true;
 }
@@ -662,7 +465,7 @@ bool FFrmBridgeWorldStopTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("not asked while the stopped run's read is still in flight"), F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>()));
 	F.Net.answer(TEXT("/getTrainRails"), SatisDash::Test::Reply(200, FrmBridgeRailsBody));
 	F.tick(6);
-	TestFalse(TEXT("a reply after Stop is never used"), F.Bridge.TakeWorld(EWorldLayer::Rails).IsSet());
+	TestFalse(TEXT("a reply after Stop is never used"), F.Assembler.TakeWorld(EWorldLayer::Rails).IsSet());
 	TestEqual(TEXT("and the queued read was dropped"), F.Net.sent(TEXT("/getResourceNode")), 0);
 	TestEqual(TEXT("nothing was read again"), F.Net.sent(TEXT("/getTrainRails")), 1);
 	TestTrue(TEXT("after Stop a layer can be asked for again"), F.Bridge.RequestWorld(EWorldLayer::Rails, FrmBridgeWorldAt, TOptional<FBlake3Hash>(), TOptional<FBlake3Hash>()));

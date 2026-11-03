@@ -5,21 +5,7 @@
 
 namespace SatisDash
 {
-	/** map.ts MAP_WORLD_MAX_ITEMS, and the bound on purity and nodeType. */
-	inline constexpr int32 MaxResourceNodes = 5000;
-	inline constexpr int32 MaxNodeFieldChars = 40;
-
-	/** nodeType.ts mapNodeType: "Node", "Fracking Satellite" and "Geyser" map explicitly; anything else is camel-cased on JavaScript's \s. */
-	SATISDASHCORE_API FString MapNodeType(const FString& Raw);
-
-	/**
-	 * Appends one resourceNodes record {"type","purity","nodeType","x","y","exploited"[,"className"]} with the contract's
-	 * bounds: type cut to 200, purity lowercased and cut to MaxNodeFieldChars, nodeType (already mapped) cut to
-	 * MaxNodeFieldChars, x and y whole metres, className (FRM's ClassName or the game's descriptor class name) cut to 200 and
-	 * written after exploited only when it is not empty. Shared by FResourceNodesParse (from FRM) and BuildNativeResourceNodes
-	 * (from the game).
-	 */
-	SATISDASHCORE_API void AppendResourceNodeRecord(FString& Out, const FString& Type, const FString& Purity, const FString& NodeType, double Mx, double My, bool bExploited, const FString& ClassName);
+	/** MaxResourceNodes, MaxNodeFieldChars, MapNodeType and AppendResourceNodeRecord (the record writer the native reader shares) are in Records.h. */
 
 	/**
 	 * getResourceNode's body to the resourceNodes world body {"observedAt":...,"data":[{"type","purity","nodeType","x","y",

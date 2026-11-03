@@ -61,7 +61,7 @@
 #include "Resources/FGResourceNode.h"
 #include "Resources/FGResourceDescriptor.h"
 #include "Resources/FGResourceNodeBase.h"
-#include "SatisDash/FrmResourceNodes.h"
+#include "SatisDash/Records.h"
 #include "SatisDash/GameValues.h"
 #include "SatisDash/Log.h"
 #include "SatisDash/Native/Extractors/NativeExtractors.h"

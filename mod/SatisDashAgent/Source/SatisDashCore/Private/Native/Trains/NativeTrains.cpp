@@ -1,7 +1,6 @@
 #include "SatisDash/Native/Trains/NativeTrains.h"
 
-#include "SatisDash/FrmMap.h"
-#include "SatisDash/FrmMapLive.h"
+#include "SatisDash/Records.h"
 
 namespace
 {

@@ -5,20 +5,7 @@
 
 namespace SatisDash
 {
-	/** sampler.ts MAP_LIVE_AGENT_MAX_ITEMS and MAP_LIVE_AGENT_MAX_BYTES (tighter than the schema's MAP_LIVE_MAX_*, 2,000). */
-	inline constexpr int32 MapLiveMaxItems = 500;
-	inline constexpr int64 MapLiveMaxBytes = 256000;
-	/** The bytes of {"trains":  ,"stations":  } around the two arrays: 10 + 12 + 1. */
-	inline constexpr int64 MapLiveWrapperBytes = 23;
-
-	/**
-	 * One mapLive train record {"id","name","x","y","status"}, as FTrainsParse writes it from FRM and the native reader writes it
-	 * from the game (one shared writer). Id, Name and Status are cut at 200 characters (ClampString); Mx and My are whole
-	 * metres, already in bounds.
-	 */
-	SATISDASHCORE_API void AppendTrainRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My, const FString& Status);
-	/** One mapLive station record {"id","name","x","y"}, shared the same way. */
-	SATISDASHCORE_API void AppendStationRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My);
+	/** The mapLive constants, the record writers and JoinMapLive are shared with the native reader: see Records.h. */
 
 	/**
 	 * getTrains' body to the trains array [{id,name,x,y,status}], as the Node agent makes it (rawSchemas.ts RawFrmTrainSchema,
@@ -43,11 +30,4 @@ namespace SatisDash
 	protected:
 		virtual ERecord ReadRecord(bool bRoom) override;
 	};
-
-	/**
-	 * {"trains":<TrainsArray>,"stations":<StationsArray>}, or unset when the whole object would pass MapLiveMaxBytes UTF-8
-	 * bytes (sampler.ts leaves the whole part out then, "never cut short by bytes"). The byte counts are the arrays' own
-	 * (FFrmArrayParse::Utf8Bytes), measured on the worker.
-	 */
-	SATISDASHCORE_API TOptional<FString> JoinMapLive(const FString& TrainsArray, int64 TrainsBytes, const FString& StationsArray, int64 StationsBytes);
 }

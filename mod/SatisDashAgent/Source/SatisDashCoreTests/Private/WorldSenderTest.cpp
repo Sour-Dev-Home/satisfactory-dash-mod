@@ -29,13 +29,14 @@ namespace
 	{
 		SatisDash::Test::FFakeTransport Net;
 		SatisDash::Test::FFakeWorker Worker;
-		FFrmBridge Bridge{ Net, Worker };
+		FSnapshotAssembler Assembler{ Worker };
+		FFrmBridge Bridge{ Net, Worker, Assembler };
 		/** The jitter draw: 1.0 is the top of the range; a test sets 0 for the bottom (x0.9) before Start. */
 		double Random01 = 1.0;
 		/** Draws served first, in order (Start draws rails, nodes, train routes, conveyors); then Random01 again. */
 		TArray<double> Draws;
 		int32 DrawsTaken = 0;
-		FWorldSender Sender{ Net, Bridge, [this] { return DrawsTaken < Draws.Num() ? Draws[DrawsTaken++] : Random01; } };
+		FWorldSender Sender{ Net, Bridge, Assembler, [this] { return DrawsTaken < Draws.Num() ? Draws[DrawsTaken++] : Random01; } };
 		FAgentConfig Config;
 		FCredential Credential;
 		double T = 1000;
@@ -1315,7 +1316,7 @@ bool FWorldSenderLogisticsBothTest::RunTest(const FString& Parameters)
 	worldLogisticsReadings(G.Game);
 	worldConveyorsReadings(G.Game);
 	G.Sender.Start(G.T);
-	TestTrue(TEXT("the bridge's conveyors slot is taken"), G.Bridge.SubmitNativeWorld(EWorldLayer::Conveyors, TEXT("2026-10-24T12:00:00.000Z"),
+	TestTrue(TEXT("the bridge's conveyors slot is taken"), G.Assembler.SubmitNativeWorld(EWorldLayer::Conveyors, TEXT("2026-10-24T12:00:00.000Z"),
 		FNativeWorldBuilder([](const FString& Observed) { return BuildNativeConveyors(Observed, {}); }), TOptional<FBlake3Hash>()));
 	TestTrue(TEXT("the pass begins"), G.until([&G] { return G.Game.LogisticsBegins > 0; }, 440));
 	const double Begun = G.T;
@@ -1679,7 +1680,7 @@ bool FWorldSenderLogisticsPowerLinesTest::RunTest(const FString& Parameters)
 	worldAllThreeNative(R);
 	worldAllThreeReadings(R.Game);
 	R.Sender.Start(R.T);
-	TestTrue(TEXT("the bridge's powerLines slot is taken"), R.Bridge.SubmitNativeWorld(EWorldLayer::PowerLines, TEXT("2026-10-24T12:00:00.000Z"),
+	TestTrue(TEXT("the bridge's powerLines slot is taken"), R.Assembler.SubmitNativeWorld(EWorldLayer::PowerLines, TEXT("2026-10-24T12:00:00.000Z"),
 		FNativeWorldBuilder([](const FString& Observed) { return BuildNativePowerLines(Observed, {}); }), TOptional<FBlake3Hash>()));
 	TestTrue(TEXT("the pass begins"), R.until([&R] { return R.Game.LogisticsBegins > 0; }, 440));
 	TestTrue(TEXT("rails is posted"), R.until([&R] { return R.Net.pending(WorldRailsPost) > 0; }, 20));

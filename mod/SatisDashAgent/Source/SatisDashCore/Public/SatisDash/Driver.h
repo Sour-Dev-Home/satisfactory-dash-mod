@@ -7,6 +7,7 @@
 #include "SatisDash/Ports.h"
 #include "SatisDash/Pusher.h"
 #include "SatisDash/RateLimit.h"
+#include "SatisDash/SnapshotAssembler.h"
 #include "SatisDash/StepBudget.h"
 #include "SatisDash/WorldSender.h"
 
@@ -55,7 +56,7 @@ namespace SatisDash
 		const FAgent& GetAgent() const { return Agent; }
 		int32 Queued() const { return Pusher.Num(); }
 		/** True while a snapshot is being serialised and gzipped on the worker (a seam for the driver tests). */
-		bool EncodePending() const { return Bridge.EncodePending(); }
+		bool EncodePending() const { return Assembler.EncodePending(); }
 
 	private:
 		void TickSample(double Now);
@@ -82,6 +83,8 @@ namespace SatisDash
 		FAgent Agent;
 		/** Bounded: at most MaxQueuedSnapshots (120) snapshots and MaxQueuedBytes (2 MiB), the oldest dropped first (Pusher.h). */
 		FPusher Pusher;
+		/** Bounded: see SnapshotAssembler.h. Declared before the bridge and the sender, which hold a reference to it. */
+		FSnapshotAssembler Assembler;
 		/** Bounded: see FrmBridge.h. */
 		FFrmBridge Bridge;
 		/** Bounded: see WorldSender.h. */
