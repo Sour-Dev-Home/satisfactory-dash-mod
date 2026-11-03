@@ -709,9 +709,11 @@ bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 {
 	SatisDash::Test::FLogCapture Log;
 	FDriverFixture F;
+	// Short id and name (R7 step 3 review): this snapshot now also carries the generators and storage fragments, and a body over
+	// 1 KB is gzipped, which the text assertions below cannot read.
 	FExtractorReading Miner;
-	Miner.Id = TEXT("Build_MinerMk1_C_1");
-	Miner.Name = TEXT("Miner");
+	Miner.Id = TEXT("M1");
+	Miner.Name = TEXT("M");
 	Miner.ClassName = TEXT("Build_MinerMk1_C");
 	F.Game.Extractors.Add(Miner);
 	F.Game.BuildablesCounts.Elements = 4;
@@ -733,7 +735,7 @@ bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 	F.run(Driver, 1.0);
 	TestEqual(TEXT("a finished pass is not stepped again"), F.Game.BuildablesStepCalls, 3);
 	const TArray<FString> Bodies = DriverNativeRun(F, Driver, 10);
-	TestTrue(TEXT("the factory part carries the extractors fragment"), DriverNativeAny(Bodies, TEXT("\"extractors\":[{\"id\":\"Build_MinerMk1_C_1\"")));
+	TestTrue(TEXT("the factory part carries the extractors fragment"), DriverNativeAny(Bodies, TEXT("\"extractors\":[{\"id\":\"M1\"")));
 	TestEqual(TEXT("still one begin inside the cadence"), F.Game.BuildablesBegins, 1);
 	TestTrue(TEXT("the next cadence tick begins another"), F.runUntil(Driver, [&F] { return F.Game.BuildablesBegins >= 2; }, 60));
 
@@ -741,7 +743,7 @@ bool FDriverNativeBuildablesTest::RunTest(const FString& Parameters)
 	for (const FString& Line : Log.Take())
 	{
 		ReadLines += Line.Contains(TEXT("Buildables read (game thread only): 4 elements, 1 extractors, 0 generators, 0 containers in 3 steps, longest step ")) ? 1 : 0;
-		TestFalse(TEXT("the log line names no id or name"), Line.Contains(TEXT("Build_MinerMk1_C_1")) && Line.Contains(TEXT("Buildables read")));
+		TestFalse(TEXT("the log line names no id or name"), Line.Contains(TEXT("\"M1\"")) && Line.Contains(TEXT("Buildables read")));
 	}
 	TestTrue(TEXT("a finished pass logs counts and times"), ReadLines >= 1);
 
