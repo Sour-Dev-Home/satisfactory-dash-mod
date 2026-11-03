@@ -325,7 +325,7 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
 
   **The S4-B runs, in order (owner dispatches each once; nothing else is run).**
   1. `mod-test` on each PR branch (floors 211, 217, 220, 226).
-  2. Owner step: rebuild the backend images from the last vendored contract pin (`48ed815`) or later.
+  2. Owner step: rebuild the backend images from the last vendored contract pin (`d8b3641`) or later.
   3. `native-parity` on `Test3` (30-minute window; needs the backend host, `frmBaseUrl` and `sprint3World`). The first run
      records the station raw values next to FRM's (R4). A failed factor check stops the work and is reported with the evidence
      bundle.

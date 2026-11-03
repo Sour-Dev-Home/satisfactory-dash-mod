@@ -295,15 +295,16 @@ bool SatisDash::FFrmBridge::SubmitNativeGenerators(TArray<FGeneratorReading> Rea
 
 TSharedPtr<const FString> SatisDash::FFrmBridge::TakeGenerators(double Now, double FactorySeconds)
 {
-	if (GeneratorsReady.IsSet() && Now - GeneratorsReady->At > GeneratorsStaleFactor * FactorySeconds)
+	TSharedPtr<const FString> Out;
+	if (GeneratorsReady.IsSet())
 	{
-		GeneratorsReady.Reset(); // older than the rule allows: not read, and not kept
+		if (Now - GeneratorsReady->At <= 1.5 * FactorySeconds)
+		{
+			Out = GeneratorsReady->Json; // once: the contract's read time is the snapshot's observedAt, so a read goes out in one power part
+		}
+		GeneratorsReady.Reset(); // a stale fragment is dropped, never sent under a fresh observedAt
 	}
-	if (!GeneratorsReady.IsSet())
-	{
-		return nullptr;
-	}
-	return GeneratorsReady->Json; // a shared reference: the held fragment stays for the next power part, uncopied
+	return Out;
 }
 
 void SatisDash::FFrmBridge::DropGenerators()

@@ -248,7 +248,7 @@ bool FFrmBridgeExtractorsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("an empty list is spliced as []"), F.Bridge.TakeFactory(F.T, 30).Get(FString()).EndsWith(TEXT(",\"extractors\":[]}")));
 	}
 
-	// S4-B ruling B3, generators (the power part's fragment, same fixture): held and handed out again and again until stale.
+	// S4-B generators (the power part's fragment, same fixture): once per read (owner 2026-10-27), handed to the next power part only.
 	FGeneratorReading Coal;
 	Coal.Id = TEXT("Gen_Coal_1");
 	Coal.Name = TEXT("Coal");
@@ -266,25 +266,49 @@ bool FFrmBridgeExtractorsTest::RunTest(const FString& Parameters)
 		F.tick(3);
 		const TSharedPtr<const FString> First = F.Bridge.TakeGenerators(F.T, 30);
 		TestTrue(TEXT("the built fragment is handed out"), First.IsValid() && First->StartsWith(TEXT("[{\"id\":\"Gen_Coal_1\"")) && First->EndsWith(TEXT("]")));
-		TestTrue(TEXT("and again, not consumed, and it is the same held fragment (shared, not copied)"), First.IsValid() && F.Bridge.TakeGenerators(F.T + 5, 30).Get() == First.Get());
-		TestTrue(TEXT("exactly 3 x the factory cadence old it is still sent"), F.Bridge.TakeGenerators(At + 90, 30).IsValid());
-		TestFalse(TEXT("older than 3 x the factory cadence it is not read"), F.Bridge.TakeGenerators(At + 90.5, 30).IsValid());
-		TestFalse(TEXT("and it is forgotten, not brought back"), F.Bridge.TakeGenerators(At, 30).IsValid());
+		TestFalse(TEXT("once: the next power part gets nothing"), F.Bridge.TakeGenerators(F.T + 5, 30).IsValid());
+		TestFalse(TEXT("and nothing later either, until the next read"), F.Bridge.TakeGenerators(F.T + 25, 30).IsValid());
 		TestTrue(TEXT("a new job is taken once the old fragment is gone"), F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T));
+		F.tick(3);
+		const TSharedPtr<const FString> Second = F.Bridge.TakeGenerators(F.T, 30);
+		TestTrue(TEXT("the next read goes out again, once"), Second.IsValid() && Second->Contains(TEXT("Gen_Fuel_2")) && !F.Bridge.TakeGenerators(F.T, 30).IsValid());
 	}
 	{
-		// A newer fragment replaces the older; the older one stays on the power parts while the newer is on the worker.
+		// A fragment older than 1.5 x the factory cadence is dropped, never sent under a fresh observedAt.
+		FFrmBridgeFixture F;
+		const double At = F.T;
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, At);
+		F.tick(3);
+		TestFalse(TEXT("older than 1.5 x the factory cadence it is not sent"), F.Bridge.TakeGenerators(At + 45.5, 30).IsValid());
+		TestFalse(TEXT("and it is forgotten, not brought back"), F.Bridge.TakeGenerators(At, 30).IsValid());
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, At);
+		F.tick(3);
+		TestTrue(TEXT("exactly 1.5 x the factory cadence old it is still sent"), F.Bridge.TakeGenerators(At + 45, 30).IsValid());
+	}
+	{
+		// A newer fragment is built while an older one is untaken: the older is taken once, then the newer.
 		FFrmBridgeFixture F;
 		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
 		F.tick(3);
 		F.Worker.bHold = true;
 		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T);
 		F.tick();
-		TestTrue(TEXT("the older fragment is still sent while the newer is built"), F.Bridge.TakeGenerators(F.T, 30)->Contains(TEXT("Gen_Coal_1")));
+		TestTrue(TEXT("the older fragment is sent while the newer is built"), F.Bridge.TakeGenerators(F.T, 30)->Contains(TEXT("Gen_Coal_1")));
+		TestFalse(TEXT("and only once"), F.Bridge.TakeGenerators(F.T, 30).IsValid());
 		F.Worker.release();
 		F.tick(2);
 		const FString Newer = *F.Bridge.TakeGenerators(F.T, 30);
-		TestTrue(TEXT("then the newer replaces it"), Newer.Contains(TEXT("Gen_Fuel_2")) && !Newer.Contains(TEXT("Gen_Coal_1")));
+		TestTrue(TEXT("then the newer one"), Newer.Contains(TEXT("Gen_Fuel_2")) && !Newer.Contains(TEXT("Gen_Coal_1")));
+	}
+	{
+		// Untaken, a newer read replaces the older fragment.
+		FFrmBridgeFixture F;
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Coal }, F.T);
+		F.tick(3);
+		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>{ Fuel }, F.T);
+		F.tick(3);
+		const FString Newest = *F.Bridge.TakeGenerators(F.T, 30);
+		TestTrue(TEXT("only the newest read is sent"), Newest.Contains(TEXT("Gen_Fuel_2")) && !Newest.Contains(TEXT("Gen_Coal_1")));
 	}
 	{
 		// The source flips to bridge: neither a held fragment nor a pending job survives DropGenerators. Stop drops them too.
@@ -316,6 +340,7 @@ bool FFrmBridgeExtractorsTest::RunTest(const FString& Parameters)
 		F.Bridge.SubmitNativeGenerators(TArray<FGeneratorReading>(), F.T);
 		F.tick(3);
 		SatisDash::Test::SameText(*this, TEXT("an empty list is []"), *F.Bridge.TakeGenerators(F.T, 30), TEXT("[]"));
+		TestFalse(TEXT("and the [] is sent once, not again"), F.Bridge.TakeGenerators(F.T, 30).IsValid());
 	}
 	return true;
 }

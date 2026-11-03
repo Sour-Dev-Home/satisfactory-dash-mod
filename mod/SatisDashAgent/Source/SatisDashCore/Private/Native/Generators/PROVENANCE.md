@@ -14,6 +14,7 @@ Headers: Source/FactoryGame/Public/FGInventoryComponent.h:326 (GetStackFromIndex
 Survey: mod-native-readers-s4b-headers-2026-10-27.md
 Captures: frm-getGenerators-2026-10-27-test3-trimmed.json (FRM HTTP output only; shape and scale reference, the test fixtures are synthetic)
 Facts: the vendored contract (PowerSchema.generators, PowerGeneratorSchema in harness/contract/src/power.ts; AGENT_INPUT_MAX_GENERATORS in agent.ts) is the rule for the key order, the cap, the required fuel and the optional supplement; the building bounds are the factory part's (NativeFactoryShared.h); no field name is taken from FRM source
+Facts: attach rule — a finished generators read goes out once, on the next power part (`power.generators`; `[]` when none were found); later power parts omit the key. Contract: dash #807 (`d8b3641`), owner 2026-10-27.
 Author: Task 7 implementer subagent (Sprint S4-B, 2026-10-27)
 Date: 2026-10-27
 
