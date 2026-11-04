@@ -50,7 +50,7 @@ describe("measureWindow: the window parameter", () => {
   it("measures the window it is given", async () => {
     let asked = 0;
     await measureWindow(fakeDeps((o) => void (asked = o.durationMs), { t: START }), 1, undefined, { windowMs: SOAK_WINDOW_MS });
-    expect(asked).toBe(24 * 60 * MIN);
+    expect(asked).toBe(16 * 60 * MIN);
   });
   it("still rejects when the server exits (the stopped callback), with a window of any length", async () => {
     const clock = { t: START };
@@ -78,8 +78,8 @@ describe("soak-native: spec and drive", () => {
     expect(soakNative.baseline).toBe(true);
     expect(soakNative.measureBaseline).toBe(tickCostNative.measureBaseline);
     expect(soakNative.evaluate).toBe(Soak.evaluate);
-    expect(soakNative.requirements).toEqual([...Native.requirements, "soak-24h"]);
-    expect(SOAK_WINDOW_MS).toBe(24 * 60 * MIN);
+    expect(soakNative.requirements).toEqual([...Native.requirements, "soak-16h"]);
+    expect(SOAK_WINDOW_MS).toBe(16 * 60 * MIN); // owner 2026-11-03: "16hr soak instead"
   });
 
   async function drive(spec: typeof soakNative) {
@@ -105,7 +105,7 @@ describe("soak-native: spec and drive", () => {
     await spec.drive(ctx);
     return { windows, captures };
   }
-  it("measures 24 hours with the mod, and tick-cost-native still 10 minutes", async () => {
+  it("measures 16 hours with the mod, and tick-cost-native still 10 minutes", async () => {
     expect((await drive(soakNative)).windows).toEqual([SOAK_WINDOW_MS]);
     expect((await drive(tickCostNative)).windows).toEqual([TICK_COST_WINDOW_MS]);
   });
@@ -206,15 +206,17 @@ function evidence(over: { lines?: string[]; posts?: unknown[]; errorLines?: stri
 }
 
 describe("soak-native judge", () => {
-  it("a clean day passes, with the proposed conditions labelled and every figure reported", () => {
+  it("a clean day passes, with the soak conditions labelled and every figure reported", () => {
     const base = Native.evaluate(evidence());
     expect(base.pass, base.reasons.join("\n")).toBe(true); // the fixture is a tick-cost-native pass
     const v = Soak.evaluate(evidence());
     expect(v.pass, v.reasons.join("\n")).toBe(true);
     const text = v.reasons.join("\n");
-    expect(text).toMatch(/proposed, owner to confirm/);
-    expect(text).toMatch(/Resource node scan 48 \(/); // 8 min, then every 30 min to the end: 48 reads
-    expect(text).toMatch(/status snapshots 17\d{3} /);
+    expect(text).toMatch(/soak \(owner 2026-11-03\)/);
+    expect(text).toMatch(/memory at the end of the day: over the last 5 minutes/);
+    expect(text).toMatch(/Resource node scan 32 \(/); // 8 min, then every 30 min to the end of 16 h: 32 reads
+    expect(text).toMatch(/status snapshots 115\d{2} /); // one every 5 s for 16 h
+
     expect(text).toMatch(/resourceNodes 1/);
     expect(text).toMatch(/memory over the day.*slope/);
     expect(text).toMatch(/0 Error line\(s\)/);
@@ -227,14 +229,29 @@ describe("soak-native judge", () => {
     expect(v.reasons.join("\n")).toMatch(/over the last 5 minutes the with-mod working set grew/);
   });
 
-  it("P1: a status silence of exactly 3 x 5 s passes, 20 s fails (cut(g) drops the posts in a g-long span, leaving a g+5 s gap)", () => {
+  it("P1: a status silence of exactly 60 s passes, 65 s fails (owner 2026-11-03; cut(g) drops the posts in a g-long span, leaving a g+5 s gap)", () => {
     const full = evidence().captures["recorder.json"] as Array<{ at: string; path?: string }>;
     const cut = (gapMs: number) => full.filter((p) => p.path !== "/agent/v1/snapshots" || Date.parse(p.at) < START + 60 * MIN || Date.parse(p.at) >= START + 60 * MIN + gapMs);
-    expect(Soak.evaluate(evidence({ posts: cut(10_000) })).pass).toBe(true); // 5 s post missing -> 10 s gap...
-    expect(Soak.evaluate(evidence({ posts: cut(0) })).pass).toBe(true);
-    const v = Soak.evaluate(evidence({ posts: cut(15_000) }));
+    expect(Soak.evaluate(evidence({ posts: cut(15_000) })).pass).toBe(true); // a 20 s gap (an autosave) passes now
+    expect(Soak.evaluate(evidence({ posts: cut(55_000) })).pass).toBe(true); // exactly 60 s
+    const v = Soak.evaluate(evidence({ posts: cut(60_000) }));
     expect(v.pass).toBe(false);
-    expect(v.reasons.join("\n")).toMatch(/status snapshots went silent for 20\.0 s, more than 3 x its 5 s cadence/);
+    expect(v.reasons.join("\n")).toMatch(/status snapshots went silent for 65 s, more than its limit of 60 s \(cadence 5 s\)/);
+  });
+
+  it("memory: the size rule is judged at the baseline's mark, and the leak again at the end of the day (owner 2026-11-03)", () => {
+    const pt = (t: number, mb: number) => ({ at: iso(t), workingSetBytes: mb * MB });
+    const baseline = [pt(START, 500), pt(START + 5 * MIN, 500), pt(START + 10 * MIN, 500)];
+    // The with-mod set is 50 MB above at 10 minutes, then the server grows 300 MB over the day, flat at the end: the size rule must not see the day's growth.
+    const withMod = [pt(START, 540), pt(START + 5 * MIN, 545), pt(START + 10 * MIN, 550), pt(TO - 10 * MIN, 850), pt(TO - 5 * MIN, 850), pt(TO, 850)];
+    const mark = Soak.memoryAtBaselineMark({ memoryBaseline: baseline, memoryWithMod: withMod })!;
+    expect(mark.map((p) => p.workingSetBytes! / MB)).toEqual([540, 545, 550]);
+    expect(Soak.endOfDayLeak({ memoryBaseline: baseline, memoryWithMod: withMod }).problem).toBeNull();
+    // Growth of 30 MB in the last 5 minutes of the day fails the end-of-day leak (limit 25 MB, baseline flat).
+    const leaking = [...withMod.slice(0, 5), pt(TO, 880)];
+    expect(Soak.endOfDayLeak({ memoryBaseline: baseline, memoryWithMod: leaking }).problem).toMatch(/30\.0 MB more \(limit 25\): more than the limit/);
+    // Too few samples cannot pass silently.
+    expect(Soak.endOfDayLeak({ memoryBaseline: baseline, memoryWithMod: [pt(TO, 850)] }).problem).toMatch(/could not be judged/);
   });
 });
 
@@ -245,13 +262,13 @@ describe("soak-native judge: the proposed conditions", () => {
     const s = Soak.silences(lines, ["Resource node scan"], snaps(FROM + 2000, FROM + 7000, FROM + 22_000), FROM, FROM + 105 * MIN);
     expect(s[0]).toMatchObject({ name: "Resource node scan", count: 3, longestGapMs: 60 * MIN, limitMs: 90 * MIN });
     // status: window start -> 2 s, 2 -> 7 s, 7 -> 22 s (15 s), then 22 s -> the end of the window (the long tail)
-    expect(s[1]).toMatchObject({ name: "status snapshots", count: 3, limitMs: 15_000 });
+    expect(s[1]).toMatchObject({ name: "status snapshots", count: 3, limitMs: 60_000 });
     expect(s[1]!.longestGapMs).toBe(105 * MIN - 22_000);
   });
   it("P1 fails a gap just over 3 x cadence and passes exactly 3 x", () => {
     const at = (gap: number) => Soak.silenceProblems(Soak.silences([scanLine(FROM + MIN), scanLine(FROM + MIN + gap)], ["Resource node scan"], snaps(FROM, FROM + 5000), FROM, FROM + MIN + gap).filter((s) => s.name === "Resource node scan"));
     expect(at(90 * MIN)).toEqual([]);
-    expect(at(90 * MIN + 1000).join()).toMatch(/Resource node scan went silent for .*more than 3 x its 1800 s cadence/);
+    expect(at(90 * MIN + 1000).join()).toMatch(/Resource node scan went silent for .*more than its limit of 5400 s \(cadence 1800 s\)/);
   });
   it("P1 fails a reader that never read in the window, and a window with no snapshot at all", () => {
     const problems = Soak.silenceProblems(Soak.silences([], ["Factory read"], [], FROM, FROM + 10 * MIN));
@@ -269,7 +286,7 @@ describe("soak-native judge: the proposed conditions", () => {
     for (let t = START + 8 * MIN; t <= TO; t += 30 * MIN) if (t < START + 5 * 3600_000 || t > START + 7 * 3600_000) lines.push(scanLine(t));
     const v = Soak.evaluate(evidence({ lines }));
     expect(v.pass).toBe(false);
-    expect(v.reasons.join("\n")).toMatch(/soak \(proposed, owner to confirm\): Resource node scan went silent for \d+ s, more than 3 x its 1800 s cadence/);
+    expect(v.reasons.join("\n")).toMatch(/soak \(owner 2026-11-03\): Resource node scan went silent for \d+ s, more than its limit of 5400 s \(cadence 1800 s\)/);
   });
   it("P1 fails the verdict when the snapshots stop for the last stretch of the day", () => {
     const posts = (evidence().captures["recorder.json"] as Array<{ at: string; path?: string }>).filter((p) => p.path !== "/agent/v1/snapshots" || Date.parse(p.at) < TO - 10 * MIN);
@@ -299,7 +316,7 @@ describe("soak-native judge: the proposed conditions", () => {
   });
   it("compacts a day of step lines into one entry per reader, and caps the diagnostics", () => {
     const text = Soak.evaluate(evidence()).reasons.join("\n");
-    expect(text).toMatch(/step ceiling 2 ms held \(sliced native reads only, every logged read judged\): Resource node scan worst step 1\.75 ms over 48 read\(s\)/);
+    expect(text).toMatch(/step ceiling 2 ms held \(sliced native reads only, every logged read judged\): Resource node scan worst step 1\.75 ms over 32 read\(s\)/);
     expect(text.match(/longest step 1\.75 ms; Resource node/)).toBeNull();
     const many = Array.from({ length: 25 }, (_, i) => `diagnostic (report-only): x ${i}`);
     const out = Soak.compact(["a", ...many], []);
@@ -321,9 +338,9 @@ describe("core-run.yml: the soak's timeout and option", () => {
   it("offers soak-native", () => {
     expect(wf.on.workflow_dispatch.inputs.run.options).toContain("soak-native");
   });
-  it("allows 26 hours for the soak only and keeps 90 minutes for every other run", () => {
-    expect(wf.jobs.run["timeout-minutes"]).toBe("${{ inputs.run == 'soak-native' && 1560 || 90 }}");
-    expect(1560).toBeGreaterThanOrEqual((SOAK_WINDOW_MS + TICK_WARMUP_MS) / MIN + 90); // the window and warmup, plus the 90 minutes every other run gets for build, boots and baseline
-    expect(1560).toBeLessThan(5 * 24 * 60); // the self-hosted job limit is 5 days
+  it("allows 18 hours for the soak only and keeps 90 minutes for every other run", () => {
+    expect(wf.jobs.run["timeout-minutes"]).toBe("${{ inputs.run == 'soak-native' && 1080 || 90 }}");
+    expect(1080).toBeGreaterThanOrEqual((SOAK_WINDOW_MS + TICK_WARMUP_MS) / MIN + 90); // the window and warmup, plus the 90 minutes every other run gets for build, boots and baseline
+    expect(1080).toBeLessThan(5 * 24 * 60); // the self-hosted job limit is 5 days
   });
 });

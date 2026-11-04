@@ -27,8 +27,8 @@ jobs:
   run:
     runs-on: [self-hosted, windows, ue]
     environment: ue-runner
-    # 90 minutes for every run; the 24 h soak-native needs its window plus the boots (26 h; a self-hosted job may run 5 days).
-    timeout-minutes: ${{ inputs.run == 'soak-native' && 1560 || 90 }}
+    # 90 minutes for every run; the 16 h soak-native needs its window plus the boots (18 h; a self-hosted job may run 5 days).
+    timeout-minutes: ${{ inputs.run == 'soak-native' && 1080 || 90 }}
     defaults:
       run:
         shell: pwsh

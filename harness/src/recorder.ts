@@ -134,8 +134,8 @@ export interface RecorderOptions {
    */
   keepSnapshotParts?: readonly SnapshotPart[];
   /**
-   * Off by default (every other run keeps every snapshot). The 24 h soak run turns it on: a snapshot every 5 s for a day is
-   * ~17,000 bodies of hundreds of KB, which would sit in memory on the owner's PC. Each recorded snapshot body is cut down to
+   * Off by default (every other run keeps every snapshot). The 16 h soak run turns it on: a snapshot every 5 s for 16 hours is
+   * ~11,500 bodies of hundreds of KB, which would sit in memory on the owner's PC. Each recorded snapshot body is cut down to
    * `{ players: { available } }` (the only field a judge reads from older ones) when the next one arrives; the newest stays whole.
    */
   thinOlderSnapshots?: boolean;

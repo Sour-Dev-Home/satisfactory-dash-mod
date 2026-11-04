@@ -26,7 +26,7 @@ export interface Measured {
 
 /** What a measurement may change; tick-cost and tick-cost-native pass none, so they measure TICK_COST_WINDOW_MS as always. */
 export interface WindowOptions {
-  /** The measured window after the warmup (default TICK_COST_WINDOW_MS). The soak run sets 24 h. */
+  /** The measured window after the warmup (default TICK_COST_WINDOW_MS). The soak run sets 16 h. */
   windowMs?: number;
   /** Checked after every sample (30 s) with the clock in ms: a string ends the measurement and rejects with it (the backend host died, say). */
   stall?: (nowMs: number) => string | null;
@@ -205,7 +205,7 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?
   {
     const base = ctx.baseline as Measured | undefined;
     const host = await ctx.deps.backendHost!();
-    // A 24 h run at one snapshot every 5 s would keep ~17,000 snapshot bodies in memory: the soak keeps the newest in full.
+    // A 16 h run at one snapshot every 5 s would keep ~11,500 snapshot bodies in memory: the soak keeps the newest in full.
     const recorder = await startRecorder(host.relayUrl, soak ? { thinOlderSnapshots: true } : undefined);
     const capture: Pass.TickCost = {
       baseline: base?.ticks ?? null,

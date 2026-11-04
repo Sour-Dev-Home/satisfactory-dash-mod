@@ -1,13 +1,13 @@
-// The 24-hour all-readers soak (ADR-0058 line 153: a precondition of the R7 removal release; owner 2026-11-03). It is judged by every
+// The 16-hour all-readers soak (ADR-0058 line 153 asks 24 h before the R7 removal release; the owner set 16 h on 2026-11-03). It is judged by every
 // condition of the tick-cost-native run, imported and unchanged (runs/tick-cost-native/pass.ts, which imports runs/tick-cost/pass.ts:
 // C4, S12, same save, the memory size and leak rules, native readers live, the 2 ms step ceiling with the waited-step rule, the
-// Readers line), applied to the 24-hour window. The leak rule is the existing one, on the last 5 minutes of the day.
+// Readers line), applied to the 16-hour window. Memory (owner 2026-11-03): the size rule and its leak rule at the baseline's mark
+// (memoryAtBaselineMark), and the same leak formula and limit again at the end of the day (endOfDayLeak).
 //
-// PROPOSED soak conditions: the four below are NEW, written by the builder and not yet approved. Each failure and each report line
-// says "(proposed, owner to confirm)": the run is not judged final until the owner has confirmed them. None loosens an existing one.
-//   P1. Every reader keeps posting: no required reader and no status snapshot goes silent for more than 3x its own cadence at any
-//       point in the window (SILENCE_FACTOR; the cadences are READ_CADENCE_S and STATUS_CADENCE_S below).
-//   P2. Memory over the day: the whole-window slope and growth are reported; nothing new fails (the existing last-5-minutes rule does).
+// Soak conditions (owner confirmed 2026-11-03; none loosens an existing one):
+//   P1. Every reader keeps posting: no required sliced reader goes silent for more than 3x its own cadence (SILENCE_FACTOR,
+//       READ_CADENCE_S), and status snapshots for more than STATUS_SILENCE_LIMIT_S (60 s).
+//   P2. Memory over the day: the whole-window slope and growth are reported; the end-of-day leak uses the existing formula.
 //   P3. No Error line from the mod inside the window.
 //   P4. The verdict always reports the per-reader counts and longest gaps, the waited steps and the memory figures.
 import type { CoreEvidence } from "../../harness/src/core-run";
@@ -15,14 +15,17 @@ import { TICK_WARMUP_MS } from "../../harness/src/ticks";
 import { MAX_NATIVE_STEP_MS, stepCosts } from "../../harness/src/reader-lines";
 import type { Verdict } from "../../harness/src/verdict";
 import * as Native from "../tick-cost-native/pass";
+import * as Base from "../tick-cost/pass";
 import type { MemoryPoint } from "../tick-cost/pass";
 
-export const requirements = [...Native.requirements, "soak-24h"];
+export const requirements = [...Native.requirements, "soak-16h"];
 
-/** PROPOSED (owner to confirm): a reader is silent when its gap is over this many of its own cadences. */
+/** Owner 2026-11-03: a sliced reader is silent when its gap is over this many of its own cadences. */
 export const SILENCE_FACTOR = 3;
 /** The status snapshot cadence, FCadence::StatusSeconds (Responses.h:37; the outage run's STATUS_CADENCE_MS is the same 5 s). */
 export const STATUS_CADENCE_S = 5;
+/** Owner 2026-11-03: status snapshots are silent after 60 s (not 3 x 5 s: a world autosave can pause the game thread past 15 s). */
+export const STATUS_SILENCE_LIMIT_S = 60;
 /**
  * Seconds between one read of a sliced reader and the next, from the mod: the factory-cadence readers run every FactorySeconds
  * (30, Responses.h:39; Buildables and the station walk ride that tick), the world layers at WorldLayerTable's IntervalSeconds
@@ -84,11 +87,11 @@ export function silences(lines: readonly string[], required: readonly string[], 
     .filter((r) => r.agent === "mod" && r.status === 200 && r.path === "/agent/v1/snapshots")
     .map((r) => Date.parse(r.at))
     .filter((t) => t >= from && t <= to);
-  out.push({ name: "status snapshots", cadenceS: STATUS_CADENCE_S, count: snaps.length, longestGapMs: snaps.length ? gapsOf(snaps, from, to) : to - from, limitMs: SILENCE_FACTOR * STATUS_CADENCE_S * 1000 });
+  out.push({ name: "status snapshots", cadenceS: STATUS_CADENCE_S, count: snaps.length, longestGapMs: snaps.length ? gapsOf(snaps, from, to) : to - from, limitMs: STATUS_SILENCE_LIMIT_S * 1000 });
   return out;
 }
 
-const PROPOSED = "soak (proposed, owner to confirm)";
+const PROPOSED = "soak (owner 2026-11-03)";
 const fmtS = (ms: number) => `${(ms / 1000).toFixed(ms < 60_000 ? 1 : 0)} s`;
 
 /** P1's failures: a reader with no read in the window, or a gap over the limit. */
@@ -96,7 +99,7 @@ export function silenceProblems(all: readonly Silence[]): string[] {
   const out: string[] = [];
   for (const s of all) {
     if (s.count === 0) out.push(`${PROPOSED}: ${s.name} has no entry in the window, so it was silent for all of it`);
-    else if (s.longestGapMs > s.limitMs) out.push(`${PROPOSED}: ${s.name} went silent for ${fmtS(s.longestGapMs)}, more than ${SILENCE_FACTOR} x its ${s.cadenceS} s cadence (${fmtS(s.limitMs)})`);
+    else if (s.longestGapMs > s.limitMs) out.push(`${PROPOSED}: ${s.name} went silent for ${fmtS(s.longestGapMs)}, more than its limit of ${fmtS(s.limitMs)} (cadence ${s.cadenceS} s)`);
   }
   return out;
 }
@@ -124,7 +127,7 @@ const isWarning = (l: string) => /LogSatisDash: Warning:/.test(l);
 export const MAX_DIAGNOSTIC_LINES = 20;
 
 /**
- * Presentation only, no condition changes: over 24 hours the tick-cost-native verdict would list one "longest step" per logged read
+ * Presentation only, no condition changes: over 16 hours the tick-cost-native verdict would list one "longest step" per logged read
  * (thousands). The step-ceiling line becomes one entry per reader (its worst step and its read count; the ceiling itself was judged
  * on every line by Native.evaluate), and the report-only diagnostic lines are capped.
  */
@@ -148,8 +151,43 @@ export function compact(reasons: readonly string[], lines: readonly string[]): s
   return out;
 }
 
+/**
+ * Owner 2026-11-03: the memory SIZE rule compares like with like, as in tick-cost — the with-mod working set over the same span from
+ * its first sample as the baseline window lasted (about 10 minutes), not the end of the day against the baseline's 10 minutes (the
+ * server's own growth over a day would count against the mod). The base evaluation (size and its last-5-minutes leak rule) sees that
+ * span; the end of the day gets the same leak formula and limit below (endOfDayLeak).
+ */
+export function memoryAtBaselineMark(c: { memoryBaseline?: MemoryPoint[]; memoryWithMod?: MemoryPoint[] }): MemoryPoint[] | undefined {
+  const b = c.memoryBaseline ?? [];
+  const w = c.memoryWithMod;
+  if (!w || w.length === 0 || b.length < 2) return w;
+  const span = Date.parse(b[b.length - 1]!.at) - Date.parse(b[0]!.at);
+  const start = Date.parse(w[0]!.at);
+  if (!Number.isFinite(span) || !Number.isFinite(start)) return w;
+  return w.filter((p) => Date.parse(p.at) <= start + span);
+}
+
+/** The existing leak formula (runs/tick-cost/pass.ts: the last MEMORY_TREND_MS, the baseline's growth floored at 0, limit MEMORY_GROWTH_LIMIT_MB) at the end of the day. */
+export function endOfDayLeak(c: { memoryBaseline?: MemoryPoint[]; memoryWithMod?: MemoryPoint[] }): { problem: string | null; text: string } {
+  const trend = (points: MemoryPoint[] | undefined) => {
+    const all = (points ?? []).filter((p) => typeof p.workingSetBytes === "number" && Number.isFinite(p.workingSetBytes) && Number.isFinite(Date.parse(p.at)));
+    if (all.length < 2) return null;
+    const end = Date.parse(all[all.length - 1]!.at);
+    const span = all.filter((p) => Date.parse(p.at) >= end - Base.MEMORY_TREND_MS);
+    return span.length < 2 ? null : all[all.length - 1]!.workingSetBytes! - span[0]!.workingSetBytes!;
+  };
+  const growW = trend(c.memoryWithMod);
+  const growB = trend(c.memoryBaseline);
+  if (growW === null || growB === null) return { problem: "memory: the end-of-day leak could not be judged (too few readable samples in the last 5 minutes)", text: "" };
+  const MB = 1024 * 1024;
+  const extra = growW - Math.max(growB, 0);
+  const text = `memory at the end of the day: over the last ${Base.MEMORY_TREND_MS / 60_000} minutes the with-mod working set grew ${(growW / MB).toFixed(1)} MB vs the baseline's ${(growB / MB).toFixed(1)} MB (counted from 0 when negative), ${(extra / MB).toFixed(1)} MB more (limit ${Base.MEMORY_GROWTH_LIMIT_MB})`;
+  return { problem: extra > Base.MEMORY_GROWTH_LIMIT_MB * MB ? `${text}: more than the limit` : null, text };
+}
+
 export function evaluate(e: CoreEvidence): Verdict {
-  const base = Native.evaluate(e);
+  const tc = e.captures["tick-cost.json"] as { memoryBaseline?: MemoryPoint[]; memoryWithMod?: MemoryPoint[] } | undefined;
+  const base = Native.evaluate(tc ? { ...e, captures: { ...e.captures, "tick-cost.json": { ...tc, memoryWithMod: memoryAtBaselineMark(tc) } } } : e);
   const parts = e.captures["snapshot-parts.json"] as { measured?: { from: string; to: string } | null } | undefined;
   const from = parts?.measured ? Date.parse(parts.measured.from) + TICK_WARMUP_MS : NaN;
   const to = parts?.measured ? Date.parse(parts.measured.to) : NaN;
@@ -182,8 +220,12 @@ export function evaluate(e: CoreEvidence): Verdict {
     report.push(`${PROPOSED}: mod log in the window: ${errors.length} Error line(s) (${e.errorLines.length} in the whole boot),${warnings} Warning line(s) (report only)`);
   }
   // P2
-  const capture = e.captures["tick-cost.json"] as { memoryWithMod?: MemoryPoint[] } | undefined;
-  report.push(memoryDay(capture?.memoryWithMod));
+  report.push(memoryDay(tc?.memoryWithMod));
+  if (tc) {
+    const leak = endOfDayLeak(tc);
+    if (leak.problem) problems.push(leak.problem);
+    if (leak.text) report.push(leak.text);
+  }
 
   const baseReasons = compact(base.reasons, e.lines);
   if (base.pass && problems.length === 0) return { pass: true, reasons: [...baseReasons, ...report] };
