@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "SatisDash/JsonTokens.h"
 
 namespace SatisDash
 {
@@ -23,7 +22,7 @@ namespace SatisDash
 
 	/**
 	 * One mapLive train record {"id","name","x","y","status"}, written by the one shared writer (the native reader from the
-	 * game, and FTrainsParse from FRM). Id, Name and Status are cut at 200 characters (ClampString); Mx and My are whole
+	 * game). Id, Name and Status are cut at 200 characters (ClampString); Mx and My are whole
 	 * metres, already in bounds.
 	 */
 	SATISDASHCORE_API void AppendTrainRecord(FString& Out, const FString& Id, const FString& Name, double Mx, double My, const FString& Status);
@@ -51,9 +50,8 @@ namespace SatisDash
 	/**
 	 * Appends one resourceNodes record {"type","purity","nodeType","x","y","exploited"[,"className"]} with the contract's
 	 * bounds: type cut to 200, purity lowercased and cut to MaxNodeFieldChars, nodeType (already mapped) cut to
-	 * MaxNodeFieldChars, x and y whole metres, className (FRM's ClassName or the game's descriptor class name) cut to 200 and
-	 * written after exploited only when it is not empty. Shared by FResourceNodesParse (from FRM) and BuildNativeResourceNodes
-	 * (from the game).
+	 * MaxNodeFieldChars, x and y whole metres, className (the game's descriptor class name) cut to 200 and
+	 * written after exploited only when it is not empty. Used by BuildNativeResourceNodes (from the game).
 	 */
 	SATISDASHCORE_API void AppendResourceNodeRecord(FString& Out, const FString& Type, const FString& Purity, const FString& NodeType, double Mx, double My, bool bExploited, const FString& ClassName);
 }

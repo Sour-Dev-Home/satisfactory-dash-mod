@@ -1,7 +1,7 @@
-# Native readers: status and the source switch
+# Native readers: status (the source switch was removed in R7)
 
-ADR-0058 (satisfactory-dash) replaces FicsitRemoteMonitoring (FRM) reader by reader. Rules for writing a reader are in
-`docs/clean-room.md`.
+ADR-0058 (satisfactory-dash) replaced FicsitRemoteMonitoring (FRM) reader by reader. Since R7 step 3 the mod has no FRM
+role at all and every reader is native. Rules for writing a reader are in `docs/clean-room.md`.
 
 | Reader | Sprint | Source today | Notes |
 | --- | --- | --- | --- |
@@ -23,30 +23,26 @@ ADR-0058 (satisfactory-dash) replaces FicsitRemoteMonitoring (FRM) reader by rea
 | Station rates | S4-B | `native` (default; `stationRatesSource`) | passed `native-parity` (run 41340686528, every reader) and `tick-cost-native` (run 41357114391); the switch exists and the mod logs `stationRates=` on its `Readers:` line; `bridge` means the rates are not sent and stays available as the off switch. The reader is built (PR #72): the station's rate is read by Unreal reflection (owner-approved, 2026-10-27), calling the game's private `GetCurrentItemTransferRate` by name (native-only, no input, one numeric return, valid and reachable object, local callspace), with the smoothed load and unload properties as the fallback; a failure leaves the rate absent and logs a rate-limited Warning (class name only). Fluid platforms are skipped. The unit factor `NativeStationRateToPerMinute` is 1.0 and NEEDS VERIFICATION: the first parity run judges it (median ratio band [0.8, 1.25]), and the reflection call itself in a shipped server build |
 | Storage | S4-B | `native` (default; `storageSource`) | passed `native-parity` (run 41340686528, every reader) and `tick-cost-native` (run 41357114391); the switch exists and the mod logs `storage=` on its `Readers:` line; `bridge` means the layer is not sent and stays available as the off switch. The Buildables pass takes the storage flag and the driver holds the finished fragment (ruling B3): it is written as the top-level `storage` part of the first snapshot after it is built, then cleared (once per read), and only on a snapshot with a status (never with `reachable: false`), and dropped if older than 1.5 x `FactorySeconds`. If the assembled body passes `SnapshotMaxBytes` (5 MiB, the dash backend's `SNAPSHOT_MAX_BYTES`, checked on the uncompressed JSON), `storage` is left out first, then `power.generators`, then `factory.extractors`, with a rate-limited Warning giving sizes in bytes (never a partial part). The game-side read is the Buildables pass (containers branch). NEEDS VERIFICATION in the parity run: whether the Industrial Fluid Buffer is `AFGBuildablePipeReservoir` and whether an empty buffer's descriptor is null |
 
-## The hidden source override (a stopgap, not a setting)
+## The source override: removed in R7 (stale keys are ignored with one warning)
 
-Until the bridge is removed (ADR-0058, R7) a host can force a reader's source in the mod's config file
-(`SatisDashAgent.cfg`, the same JSON as `backendUrl`):
+R7 step 3 (2026-11) deleted the FRM role from the mod: there is no bridge, no FRM client and no source switch, so every
+reader is the game's own. The rows above describe each reader's history; where they say `bridge`, `frmPort` or a `*Source`
+key, read it as history. The `Readers:` line on each Running entry keeps its format (the same 13 fields) so the harness's
+checks of it still hold, but every value is constant `native` since R7; step 4 retires the FRM legs that read it.
 
-    "playersSource": "native"
-    "resourceNodesSource": "bridge"
-    "factorySource": "bridge"
-    "trainsSource": "bridge"
-    "railsSource": "bridge"
-    "conveyorsSource": "bridge"
-    "mapMarkersSource": "bridge"
-    "droneRoutesSource": "bridge"
-    "powerLinesSource": "bridge"
-    "extractorsSource": "bridge"
-    "generatorsSource": "bridge"
-    "stationRatesSource": "bridge"
-    "storageSource": "bridge"
+An existing install's `SatisDashAgent.cfg` may still hold any of these keys, with any value (`bridge` included):
 
-The value is exactly `bridge` or `native` (anything else makes the config Broken, as a bad `frmPort` does). With no key a
-reader uses its default (`DefaultPlayersSource`, `DefaultResourceNodesSource`, `DefaultFactorySource`, `DefaultTrainsSource`, `DefaultRailsSource`, `DefaultConveyorsSource` in `Config.h`; all six are `native`: the factory and trains ones since the S2 switch, the rails and conveyors ones since the S3 switch). The S4-A keys (`mapMarkersSource`, `droneRoutesSource`, `powerLinesSource`; `DefaultMapMarkersSource`, `DefaultDroneRoutesSource`, `DefaultPowerLinesSource`) are `native` too, since the S4 switch; `bridge` for these three layers means the layer is not sent. The S4-B keys (`extractorsSource`, `generatorsSource`, `stationRatesSource`, `storageSource`; `DefaultExtractorsSource`, `DefaultGeneratorsSource`, `DefaultStationRatesSource`, `DefaultStorageSource`) are `native` too, since the S4-B switch; `bridge` for these layers means the layer is not sent. For the other keys `bridge` needs FRM installed.
+    frmPort, frmToken, playersSource, resourceNodesSource, factorySource, trainsSource, railsSource, conveyorsSource,
+    mapMarkersSource, droneRoutesSource, powerLinesSource, extractorsSource, generatorsSource, stationRatesSource, storageSource
+
+A removed key never makes the config Broken (a bad `*Source` value used to). The config loads, the key is ignored, and the
+mod writes ONE Display line per config load, naming the ignored keys (names only, never a value: `frmToken` is a secret):
+
+    Config: ignored removed keys frmPort, frmToken, factorySource (FRM was removed in R7)
+
+When the mod rewrites the file (it blanks `enrollmentCode` after enrolling) the removed keys are dropped. A config without them
+logs nothing.
 `"stepDiagnostics"` is a separate, test-run-only switch: a JSON boolean, default `false`, anything else makes the config Broken. Off, a normal install does no diagnostic work: no thread-cycle reads and no per-call conveyor clock reads. On (`tick-cost-native` writes `true`), each step reads the thread's CPU cycles twice and the conveyor phase times its calls, and the Logistics longest-step line gains the tails. It stays after the bridge is removed.
-The source keys are deleted with the bridge in the removal release; do not build on them. There is no key for power: it has no
-bridge path.
 
 ## Where each reader stands (the S3 and S4 switches)
 

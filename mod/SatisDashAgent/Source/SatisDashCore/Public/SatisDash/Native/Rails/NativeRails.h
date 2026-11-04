@@ -41,7 +41,7 @@ namespace SatisDash
 
 	/**
 	 * R5 (ADR-0058): the rails world body {"observedAt":...,"data":[{"id","points":[[x,y],...]}]} from the game's own tracks,
-	 * in the layout FRailsParse writes from FRM. Points go to whole metres (Math.round semantics); a point outside +/-1,000,000 m
+	 * in the rails layer's layout. Points go to whole metres (Math.round semantics); a point outside +/-1,000,000 m
 	 * is skipped, not the track; consecutive equal whole-metre points collapse. A track with fewer than 2 points left, more than
 	 * MaxRailPoints, or an empty id is left out and counted in Dropped. Tracks are sorted by (id, points) so the same readings
 	 * in any order give the same bytes; a repeated id keeps the first; at most MaxRailSegments are kept (Over counts the rest).

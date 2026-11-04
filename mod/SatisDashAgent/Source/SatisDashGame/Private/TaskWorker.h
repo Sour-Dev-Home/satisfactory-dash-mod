@@ -7,7 +7,7 @@
 namespace SatisDash
 {
 	/**
-	 * IWorker over UE::Tasks (FRM bridge spec "Threading"): one task at a time, at background-low priority, so parsing
+	 * IWorker over UE::Tasks (bridge spec "Threading"): one task at a time, at background-low priority, so parsing
 	 * never competes with the game's own work. Waits for its task when destroyed, so nothing it runs outlives the module.
 	 *
 	 * Memory ordering: IsIdle() is FTask::IsCompleted(), which reads FSubsequents::bIsClosed, a std::atomic<bool> loaded with the
@@ -25,7 +25,7 @@ namespace SatisDash
 		virtual void Launch(FWorkFn Work) override
 		{
 			Wait(); // a no-op unless a caller broke the contract (Launch only while IsIdle()): never orphan a running task
-			Current = UE::Tasks::Launch(TEXT("SatisDashFrm"), MoveTemp(Work), UE::Tasks::ETaskPriority::BackgroundLow);
+			Current = UE::Tasks::Launch(TEXT("SatisDashWork"), MoveTemp(Work), UE::Tasks::ETaskPriority::BackgroundLow);
 		}
 		virtual bool IsIdle() const override { return Current.IsCompleted(); }
 		void Wait()

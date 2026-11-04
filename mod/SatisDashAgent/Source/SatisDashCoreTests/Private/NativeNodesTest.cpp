@@ -2,7 +2,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "SatisDash/Native/ResourceNodes/NativeResourceNodes.h"
-#include "SatisDash/FrmResourceNodes.h"
+#include "SatisDash/Records.h"
 #include "TestUtil.h"
 
 using namespace SatisDash;

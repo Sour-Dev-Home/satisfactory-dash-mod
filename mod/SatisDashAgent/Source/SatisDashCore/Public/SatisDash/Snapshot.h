@@ -70,11 +70,11 @@ namespace SatisDash
 		 * Shared and immutable: the bridge holds one fragment for many power parts, so a snapshot only takes a reference. Null: none.
 		 */
 		TSharedPtr<const FString> GeneratorsJson;
-		/** The players part (AgentPlayersSchema) as JSON, made by FFrmBridge; spliced in as is. */
+		/** The players part (AgentPlayersSchema) as JSON, made from the game's player lists; spliced in as is. */
 		TOptional<FString> PlayersJson;
-		/** The factory part (AgentFactorySchema) as JSON, made off the game thread by FFactoryParse. */
+		/** The factory part (AgentFactorySchema) as JSON, made off the game thread by FSnapshotAssembler. */
 		TOptional<FString> FactoryJson;
-		/** The mapLive part ({"trains":[...],"stations":[...]}, FRM bridge 3B) as JSON, joined by FFrmBridge; spliced in as is. */
+		/** The mapLive part ({"trains":[...],"stations":[...]}, bridge 3B) as JSON, joined by FSnapshotAssembler; spliced in as is. */
 		TOptional<FString> MapLiveJson;
 		/** S4-B: the storage part ({"containers":[...]}, built off the game thread) written as the top-level "storage"; not written without Status. */
 		TOptional<FString> StorageJson;

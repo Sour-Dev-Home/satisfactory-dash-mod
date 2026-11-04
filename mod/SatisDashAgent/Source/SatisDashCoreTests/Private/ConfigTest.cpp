@@ -1,3 +1,4 @@
+#include "SatisDash/Agent.h"
 #include "SatisDash/Config.h"
 #include "SatisDash/JsonUtil.h"
 #include "TestUtil.h"
@@ -143,165 +144,123 @@ bool FConfigFileTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigFrmTest, "SatisDash.Core.Config.Frm", SatisDash::Test::Flags)
-
-bool FConfigFrmTest::RunTest(const FString& Parameters)
+namespace
 {
-	const FConfigResult Plain = ParseConfig(TEXT("{\"backendUrl\":\"https://api.example.com\"}"));
-	TestTrue(TEXT("valid without the FRM fields"), Plain.Status == EConfigStatus::Valid);
-	TestEqual(TEXT("FRM's default port"), Plain.Config.GetFrmPort(), 8080);
-	TestTrue(TEXT("no token"), Plain.Config.FrmToken.IsEmpty());
+	/** The keys of the removed FRM role (R7), in the order the warning names them. */
+	const TCHAR* const RemovedKeyNames[] = {
+		TEXT("frmPort"), TEXT("frmToken"), TEXT("playersSource"), TEXT("resourceNodesSource"), TEXT("factorySource"), TEXT("trainsSource"),
+		TEXT("railsSource"), TEXT("conveyorsSource"), TEXT("mapMarkersSource"), TEXT("droneRoutesSource"), TEXT("powerLinesSource"),
+		TEXT("extractorsSource"), TEXT("generatorsSource"), TEXT("stationRatesSource"), TEXT("storageSource"),
+	};
+	const TCHAR* const ConfigStart = TEXT("{\"backendUrl\":\"https://api.example.com\"");
 
-	const FConfigResult Set = ParseConfig(TEXT("{\"backendUrl\":\"https://api.example.com\",\"frmPort\":18081,\"frmToken\":\"  tok-123  \"}"));
-	TestTrue(TEXT("valid with both"), Set.Status == EConfigStatus::Valid);
-	TestEqual(TEXT("the port"), Set.Config.GetFrmPort(), 18081);
-	SatisDash::Test::SameText(*this, TEXT("the token, trimmed"), Set.Config.FrmToken, TEXT("tok-123"));
-
-	for (const TCHAR* Bad : { TEXT("0"), TEXT("65536"), TEXT("80.5"), TEXT("\"8080\""), TEXT("true"), TEXT("null"), TEXT("-1") })
+	int32 CountLinesWith(const TArray<FString>& Lines, const TCHAR* Part)
 	{
-		const FConfigResult R = ParseConfig(FString::Printf(TEXT("{\"backendUrl\":\"https://api.example.com\",\"frmPort\":%s}"), Bad));
-		TestTrue(FString::Printf(TEXT("frmPort %s is broken"), Bad), R.Status == EConfigStatus::Broken);
-		SatisDash::Test::SameText(*this, TEXT("and names frmPort"), R.BadField, TEXT("frmPort"));
+		int32 N = 0;
+		for (const FString& Line : Lines)
+		{
+			N += Line.Contains(Part) ? 1 : 0;
+		}
+		return N;
 	}
-	for (const TCHAR* Bad : { TEXT("\"a\\nb\""), TEXT("\"a\\rb\""), TEXT("\"a\\u0007b\""), TEXT("42") })
-	{
-		const FConfigResult R = ParseConfig(FString::Printf(TEXT("{\"backendUrl\":\"https://api.example.com\",\"frmToken\":%s}"), Bad));
-		SatisDash::Test::SameText(*this, TEXT("a bad token names frmToken"), R.BadField, TEXT("frmToken"));
-	}
-	TestTrue(TEXT("a trailing newline is trimmed, not refused"),
-		ParseConfig(TEXT("{\"backendUrl\":\"https://api.example.com\",\"frmToken\":\"tok\\n\"}")).Status == EConfigStatus::Valid);
+}
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigRemovedKeysTest, "SatisDash.Core.Config.RemovedKeys", SatisDash::Test::Flags)
+
+bool FConfigRemovedKeysTest::RunTest(const FString& Parameters)
+{
+	// R7 (owner decision D2): a key of the removed FRM role never marks the config Broken, whatever its value; it is named, not read.
+	const FConfigResult Plain = ParseConfig(FString(ConfigStart) + TEXT("}"));
+	TestTrue(TEXT("no removed key: valid"), Plain.Status == EConfigStatus::Valid);
+	TestEqual(TEXT("no removed key: nothing ignored"), Plain.IgnoredKeys.Num(), 0);
+	TestTrue(TEXT("no removed key: no line"), IgnoredKeysLine(Plain).IsEmpty());
+
+	// Each key alone, with a value that was valid, one that was refused before, and null.
+	for (const TCHAR* Key : RemovedKeyNames)
+	{
+		for (const TCHAR* Value : { TEXT("\"bridge\""), TEXT("\"native\""), TEXT("\"Bad value\""), TEXT("0"), TEXT("65536"), TEXT("true"), TEXT("null"), TEXT("{}") })
+		{
+			const FConfigResult R = ParseConfig(FString(ConfigStart) + TEXT(",\"") + Key + TEXT("\":") + Value + TEXT("}"));
+			TestTrue(*FString::Printf(TEXT("%s %s: valid"), Key, Value), R.Status == EConfigStatus::Valid);
+			TestEqual(*FString::Printf(TEXT("%s %s: one key ignored"), Key, Value), R.IgnoredKeys.Num(), 1);
+			if (R.IgnoredKeys.Num() == 1)
+			{
+				SatisDash::Test::SameText(*this, TEXT("and it is named"), R.IgnoredKeys[0], Key);
+			}
+			const FString Line = IgnoredKeysLine(R);
+			TestTrue(*FString::Printf(TEXT("%s %s: the line names the key"), Key, Value), Line.Contains(Key));
+			TestFalse(*FString::Printf(TEXT("%s %s: the line has no value"), Key, Value), Line.Contains(TEXT("Bad value")) || Line.Contains(TEXT("65536")));
+		}
+	}
+
+	// All together: one result, every name once, in the fixed order, and the token's text nowhere.
+	FString All = ConfigStart;
+	for (const TCHAR* Key : RemovedKeyNames)
+	{
+		All += FString(TEXT(",\"")) + Key + TEXT("\":") + (FCString::Strcmp(Key, TEXT("frmToken")) == 0 ? TEXT("\"tok-123-secret\"") : TEXT("\"bridge\""));
+	}
+	All += TEXT("}");
+	const FConfigResult Everything = ParseConfig(All);
+	TestTrue(TEXT("all keys: valid"), Everything.Status == EConfigStatus::Valid);
+	TestEqual(TEXT("all keys: fifteen ignored"), Everything.IgnoredKeys.Num(), 15);
+	const FString Line = IgnoredKeysLine(Everything);
+	SatisDash::Test::SameText(*this, TEXT("the one line"), Line,
+		TEXT("Config: ignored removed keys frmPort, frmToken, playersSource, resourceNodesSource, factorySource, trainsSource, railsSource, conveyorsSource, mapMarkersSource, droneRoutesSource, powerLinesSource, extractorsSource, generatorsSource, stationRatesSource, storageSource (FRM was removed in R7)"));
+	TestFalse(TEXT("no token in the line"), Line.Contains(TEXT("tok-123")));
+
+	// Write-back drops them (the code is blanked after enrolment; the file is then rewritten).
 	SatisDash::Test::FTempDir Dir;
 	const FString Path = Dir.File(TEXT("SatisDashAgent.cfg"));
-	FAgentConfig Config = Set.Config;
-	Config.EnrollmentCode = TEXT("AB3D-7XQ2-K5MN");
-	TestTrue(TEXT("blanking writes"), BlankConfigCode(Path, Config));
-	const FConfigResult Back = LoadConfigFile(Path);
-	TestEqual(TEXT("blanking keeps the port"), Back.Config.GetFrmPort(), 18081);
-	SatisDash::Test::SameText(*this, TEXT("and the token"), Back.Config.FrmToken, TEXT("tok-123"));
-	TestTrue(TEXT("and blanks the code"), Back.Config.EnrollmentCode.IsEmpty());
-	TestFalse(TEXT("a default port isn't written"), ConfigToJson(Plain.Config).Contains(TEXT("frmPort")));
+	TestFalse(TEXT("a config never writes a removed key"), ConfigToJson(Everything.Config).Contains(TEXT("frm")) || ConfigToJson(Everything.Config).Contains(TEXT("Source")));
+	SatisDash::Test::WriteText(Path, All);
+	TestTrue(TEXT("blanking writes"), BlankConfigCode(Path, LoadConfigFile(Path).Config));
+	const FString Rewritten = SatisDash::Test::ReadText(Path);
+	TestFalse(TEXT("the rewritten file holds no removed key"), Rewritten.Contains(TEXT("frm")) || Rewritten.Contains(TEXT("Source")) || Rewritten.Contains(TEXT("tok-123")));
+	TestEqual(TEXT("and loads without a warning"), LoadConfigFile(Path).IgnoredKeys.Num(), 0);
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigSourcesTest, "SatisDash.Core.Config.Sources", SatisDash::Test::Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigRemovedKeysLogTest, "SatisDash.Core.Config.RemovedKeysLog", SatisDash::Test::Flags)
 
-bool FConfigSourcesTest::RunTest(const FString& Parameters)
+bool FConfigRemovedKeysLogTest::RunTest(const FString& Parameters)
+{
+	// One Display line per load that finds a removed key, names only; none for a file without them.
+	const SatisDash::Test::FTempDir Dir;
+	const FString ConfigPath = Dir.Path / TEXT("SatisDashAgent.cfg");
+	SatisDash::Test::WriteText(ConfigPath, TEXT("{\"backendUrl\":\"https://example.com\",\"frmPort\":18081,\"frmToken\":\"tok-123-secret\",\"factorySource\":\"bridge\"}"));
+	{
+		SatisDash::Test::FLogCapture Capture;
+		FAgent Agent{ConfigPath, Dir.Path / TEXT("credential.json"), [] { return 1.0; }};
+		Agent.Boot();
+		Agent.CheckConfig(); // the file is unchanged: not loaded again, so no second line
+		const TArray<FString> Lines = Capture.Take();
+		TestEqual(TEXT("one ignored-keys line"), CountLinesWith(Lines, TEXT("ignored removed keys")), 1);
+		TestEqual(TEXT("it names the keys"), CountLinesWith(Lines, TEXT("frmPort, frmToken, factorySource (FRM was removed in R7)")), 1);
+		TestTrue(TEXT("the config is not broken"), Agent.GetState() != EAgentState::ConfigBroken);
+		for (const FString& Line : Lines)
+		{
+			TestFalse(TEXT("no token"), Line.Contains(TEXT("tok-123")));
+			TestFalse(TEXT("no port"), Line.Contains(TEXT("18081")));
+		}
+		SatisDash::Test::NoErrorLines(*this, Capture);
+	}
+	SatisDash::Test::WriteText(ConfigPath, TEXT("{\"backendUrl\":\"https://example.com\"}"));
+	{
+		SatisDash::Test::FLogCapture Capture;
+		FAgent Agent{ConfigPath, Dir.Path / TEXT("credential.json"), [] { return 1.0; }};
+		Agent.Boot();
+		TestEqual(TEXT("a config without them logs nothing"), CountLinesWith(Capture.Take(), TEXT("ignored removed keys")), 0);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FConfigStepDiagnosticsTest, "SatisDash.Core.Config.StepDiagnostics", SatisDash::Test::Flags)
+
+bool FConfigStepDiagnosticsTest::RunTest(const FString& Parameters)
 {
 	const FString Base = TEXT("{\"backendUrl\":\"https://api.satis-manager.com\"");
 	const FConfigResult None = ParseConfig(Base + TEXT("}"));
 	TestTrue(TEXT("no key: valid"), None.Status == EConfigStatus::Valid);
-	TestTrue(TEXT("no key: players default"), None.Config.GetPlayersSource() == DefaultPlayersSource);
-	TestTrue(TEXT("no key: resource nodes default"), None.Config.GetResourceNodesSource() == DefaultResourceNodesSource);
-	TestFalse(TEXT("no key: nothing set"), None.Config.PlayersSource.IsSet() || None.Config.ResourceNodesSource.IsSet());
-
-	const FConfigResult Native = ParseConfig(Base + TEXT(",\"playersSource\":\"native\",\"resourceNodesSource\":\"bridge\"}"));
-	TestTrue(TEXT("both keys: valid"), Native.Status == EConfigStatus::Valid);
-	TestTrue(TEXT("players native"), Native.Config.GetPlayersSource() == ESource::Native);
-	TestTrue(TEXT("resource nodes bridge"), Native.Config.GetResourceNodesSource() == ESource::Bridge);
-
-	for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"native \""), TEXT("\"\""), TEXT("1"), TEXT("true"), TEXT("null") })
-	{
-		const FConfigResult R = ParseConfig(Base + TEXT(",\"playersSource\":") + Bad + TEXT("}"));
-		TestTrue(*FString::Printf(TEXT("%s is refused"), Bad), R.Status == EConfigStatus::Broken);
-		TestEqual(*FString::Printf(TEXT("%s names the key"), Bad), R.BadField, FString(TEXT("playersSource")));
-	}
-	TestEqual(TEXT("the other key is named too"), ParseConfig(Base + TEXT(",\"resourceNodesSource\":\"x\"}")).BadField, FString(TEXT("resourceNodesSource")));
-
-	// The factory and trains keys: default native (the S2 switch), the same strict parse, and they name themselves.
-	TestTrue(TEXT("no key: factory default is native"), None.Config.GetFactorySource() == ESource::Native && DefaultFactorySource == ESource::Native);
-	TestTrue(TEXT("no key: trains default is native"), None.Config.GetTrainsSource() == ESource::Native && DefaultTrainsSource == ESource::Native);
-	TestFalse(TEXT("no key: factory and trains unset"), None.Config.FactorySource.IsSet() || None.Config.TrainsSource.IsSet());
-	const FConfigResult Parts = ParseConfig(Base + TEXT(",\"factorySource\":\"bridge\",\"trainsSource\":\"bridge\"}"));
-	TestTrue(TEXT("part keys: valid"), Parts.Status == EConfigStatus::Valid);
-	TestTrue(TEXT("the factory key still selects the bridge"), Parts.Config.GetFactorySource() == ESource::Bridge);
-	TestTrue(TEXT("the trains key still selects the bridge"), Parts.Config.GetTrainsSource() == ESource::Bridge);
-	for (const TCHAR* Key : { TEXT("factorySource"), TEXT("trainsSource") })
-	{
-		for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
-		{
-			const FConfigResult R = ParseConfig(Base + TEXT(",\"") + Key + TEXT("\":") + Bad + TEXT("}"));
-			TestTrue(*FString::Printf(TEXT("%s %s is refused"), Key, Bad), R.Status == EConfigStatus::Broken);
-			TestEqual(*FString::Printf(TEXT("%s %s names the key"), Key, Bad), R.BadField, FString(Key));
-		}
-	}
-	const FString PartsJson = ConfigToJson(Parts.Config);
-	TestTrue(TEXT("round trip keeps the part keys"), PartsJson.Contains(TEXT("\"factorySource\": \"bridge\"")) && PartsJson.Contains(TEXT("\"trainsSource\": \"bridge\"")));
-
-	// The rails key: default native (the S3 switch), the same strict parse, names itself, round-trips only when set.
-	TestTrue(TEXT("no key: rails default is native"), None.Config.GetRailsSource() == ESource::Native && DefaultRailsSource == ESource::Native);
-	TestFalse(TEXT("no key: rails unset"), None.Config.RailsSource.IsSet());
-	const FConfigResult RailsBridge = ParseConfig(Base + TEXT(",\"railsSource\":\"bridge\"}"));
-	TestTrue(TEXT("rails key: valid"), RailsBridge.Status == EConfigStatus::Valid);
-	TestTrue(TEXT("the rails key still selects the bridge"), RailsBridge.Config.GetRailsSource() == ESource::Bridge);
-	TestTrue(TEXT("round trip keeps the rails key"), ConfigToJson(RailsBridge.Config).Contains(TEXT("\"railsSource\": \"bridge\"")));
-	for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
-	{
-		const FConfigResult R = ParseConfig(Base + TEXT(",\"railsSource\":") + Bad + TEXT("}"));
-		TestTrue(*FString::Printf(TEXT("railsSource %s is refused"), Bad), R.Status == EConfigStatus::Broken);
-		TestEqual(*FString::Printf(TEXT("railsSource %s names the key"), Bad), R.BadField, FString(TEXT("railsSource")));
-	}
-
-	// The conveyors key: the same shape (default native, the S3 switch; bridge means the layer is not sent).
-	TestTrue(TEXT("no key: conveyors default is native"), None.Config.GetConveyorsSource() == ESource::Native && DefaultConveyorsSource == ESource::Native);
-	TestFalse(TEXT("no key: conveyors unset"), None.Config.ConveyorsSource.IsSet());
-	const FConfigResult ConveyorsBridge = ParseConfig(Base + TEXT(",\"conveyorsSource\":\"bridge\"}"));
-	TestTrue(TEXT("conveyors key: valid"), ConveyorsBridge.Status == EConfigStatus::Valid);
-	TestTrue(TEXT("the conveyors key still selects the bridge"), ConveyorsBridge.Config.GetConveyorsSource() == ESource::Bridge);
-	TestTrue(TEXT("and leaves rails on its default"), ConveyorsBridge.Config.GetRailsSource() == ESource::Native);
-	TestTrue(TEXT("round trip keeps the conveyors key"), ConfigToJson(ConveyorsBridge.Config).Contains(TEXT("\"conveyorsSource\": \"bridge\"")));
-	for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
-	{
-		const FConfigResult R = ParseConfig(Base + TEXT(",\"conveyorsSource\":") + Bad + TEXT("}"));
-		TestTrue(*FString::Printf(TEXT("conveyorsSource %s is refused"), Bad), R.Status == EConfigStatus::Broken);
-		TestEqual(*FString::Printf(TEXT("conveyorsSource %s names the key"), Bad), R.BadField, FString(TEXT("conveyorsSource")));
-	}
-
-	// The S4-A keys: default native (the S4 switch; bridge means the layer is not sent), the same strict parse, each names itself, round-trips only when set.
-	const struct { const TCHAR* Key; ESource Default; ESource (FAgentConfig::*Getter)() const; TOptional<ESource> FAgentConfig::*Field; } S4Keys[] = {
-		{ TEXT("mapMarkersSource"), DefaultMapMarkersSource, &FAgentConfig::GetMapMarkersSource, &FAgentConfig::MapMarkersSource },
-		{ TEXT("droneRoutesSource"), DefaultDroneRoutesSource, &FAgentConfig::GetDroneRoutesSource, &FAgentConfig::DroneRoutesSource },
-		{ TEXT("powerLinesSource"), DefaultPowerLinesSource, &FAgentConfig::GetPowerLinesSource, &FAgentConfig::PowerLinesSource },
-	};
-	for (const auto& K : S4Keys)
-	{
-		TestTrue(*FString::Printf(TEXT("no key: %s default is native"), K.Key), (None.Config.*K.Getter)() == ESource::Native && K.Default == ESource::Native);
-		TestFalse(*FString::Printf(TEXT("no key: %s unset"), K.Key), (None.Config.*K.Field).IsSet());
-		const FConfigResult Brg = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":\"bridge\"}"));
-		TestTrue(*FString::Printf(TEXT("%s bridge: valid"), K.Key), Brg.Status == EConfigStatus::Valid);
-		TestTrue(*FString::Printf(TEXT("%s bridge still selects the bridge"), K.Key), (Brg.Config.*K.Getter)() == ESource::Bridge);
-		TestTrue(*FString::Printf(TEXT("round trip keeps %s"), K.Key), ConfigToJson(Brg.Config).Contains(FString::Printf(TEXT("\"%s\": \"bridge\""), K.Key)));
-		for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
-		{
-			const FConfigResult R = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":") + Bad + TEXT("}"));
-			TestTrue(*FString::Printf(TEXT("%s %s is refused"), K.Key, Bad), R.Status == EConfigStatus::Broken);
-			TestEqual(*FString::Printf(TEXT("%s %s names the key"), K.Key, Bad), R.BadField, FString(K.Key));
-		}
-	}
-
-	// The S4-B keys: default native (the S4-B switch; bridge means the layer is not sent), unset is not written back, "bridge" parses, selects the bridge and is written back, the same strict parse.
-	const struct { const TCHAR* Key; ESource Default; ESource (FAgentConfig::*Getter)() const; TOptional<ESource> FAgentConfig::*Field; } S4BKeys[] = {
-		{ TEXT("extractorsSource"), DefaultExtractorsSource, &FAgentConfig::GetExtractorsSource, &FAgentConfig::ExtractorsSource },
-		{ TEXT("generatorsSource"), DefaultGeneratorsSource, &FAgentConfig::GetGeneratorsSource, &FAgentConfig::GeneratorsSource },
-		{ TEXT("stationRatesSource"), DefaultStationRatesSource, &FAgentConfig::GetStationRatesSource, &FAgentConfig::StationRatesSource },
-		{ TEXT("storageSource"), DefaultStorageSource, &FAgentConfig::GetStorageSource, &FAgentConfig::StorageSource },
-	};
-	for (const auto& K : S4BKeys)
-	{
-		TestTrue(*FString::Printf(TEXT("no key: %s default is native"), K.Key), (None.Config.*K.Getter)() == ESource::Native && K.Default == ESource::Native);
-		TestFalse(*FString::Printf(TEXT("no key: %s unset"), K.Key), (None.Config.*K.Field).IsSet());
-		TestFalse(*FString::Printf(TEXT("no key: %s not written back"), K.Key), ConfigToJson(None.Config).Contains(K.Key));
-		const FConfigResult Brg = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":\"bridge\"}"));
-		TestTrue(*FString::Printf(TEXT("%s bridge: valid"), K.Key), Brg.Status == EConfigStatus::Valid);
-		TestTrue(*FString::Printf(TEXT("%s bridge still selects the bridge"), K.Key), (Brg.Config.*K.Getter)() == ESource::Bridge);
-		TestTrue(*FString::Printf(TEXT("round trip keeps %s"), K.Key), ConfigToJson(Brg.Config).Contains(FString::Printf(TEXT("\"%s\": \"bridge\""), K.Key)));
-		for (const TCHAR* Bad : { TEXT("\"Native\""), TEXT("\"\""), TEXT("1"), TEXT("null") })
-		{
-			const FConfigResult R = ParseConfig(Base + TEXT(",\"") + K.Key + TEXT("\":") + Bad + TEXT("}"));
-			TestTrue(*FString::Printf(TEXT("%s %s is refused"), K.Key, Bad), R.Status == EConfigStatus::Broken);
-			TestEqual(*FString::Printf(TEXT("%s %s names the key"), K.Key, Bad), R.BadField, FString(K.Key));
-		}
-	}
 
 	// "stepDiagnostics" (owner 2026-11-01): a boolean, absent = false, written back only when true, a non-boolean names the key.
 	TestFalse(TEXT("no key: stepDiagnostics is off"), None.Config.bStepDiagnostics);
@@ -319,10 +278,5 @@ bool FConfigSourcesTest::RunTest(const FString& Parameters)
 		TestTrue(*FString::Printf(TEXT("stepDiagnostics %s is refused"), Bad), R.Status == EConfigStatus::Broken);
 		TestEqual(*FString::Printf(TEXT("stepDiagnostics %s names the key"), Bad), R.BadField, FString(TEXT("stepDiagnostics")));
 	}
-
-	// Written back only when set, and kept when the code is blanked after enrolment.
-	const FString Json = ConfigToJson(Native.Config);
-	TestTrue(TEXT("round trip keeps the keys"), Json.Contains(TEXT("\"playersSource\": \"native\"")) && Json.Contains(TEXT("\"resourceNodesSource\": \"bridge\"")));
-	TestFalse(TEXT("unset keys are not written"), ConfigToJson(None.Config).Contains(TEXT("Source")));
 	return true;
 }

@@ -71,6 +71,12 @@ bool SatisDash::FAgent::ReadConfigFile(bool bOnlyIfChanged, FConfigResult& Out)
 	if (bRead)
 	{
 		Out = ParseConfig(Text);
+		// R7 (owner decision D2): one line per load of a file that still holds keys of the removed FRM role. Names only, never a value.
+		const FString Ignored = IgnoredKeysLine(Out);
+		if (!Ignored.IsEmpty())
+		{
+			UE_LOG(LogSatisDash, Display, TEXT("%s"), *Ignored);
+		}
 	}
 	else
 	{

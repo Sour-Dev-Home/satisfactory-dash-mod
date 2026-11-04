@@ -12,8 +12,7 @@ SatisDash::FDriver::FDriver(FString ConfigPath, FString CredentialPath, ITranspo
 	, Agent{MoveTemp(ConfigPath), MoveTemp(CredentialPath), Clock.Random01}
 	, Pusher{Clock.Random01}
 	, Assembler{InWorker}
-	, Bridge{InTransport, InWorker, Assembler}
-	, WorldLayers{InTransport, Bridge, Assembler, Clock.Random01}
+	, WorldLayers{InTransport, Assembler, Clock.Random01}
 	// Every budget is begun and ended on the game thread (the driver ticks there), so its thread cycle counts are comparable (StepBudget.h).
 	// The cycle source tests the config's "stepDiagnostics" on each call, so a re-read config takes effect and off means no clock call.
 	, FactoryBudget{[this] { return Clock.Now(); }, NativeStepBudgetSeconds, [this] { return StepCycles(); }}
@@ -63,7 +62,7 @@ void SatisDash::FDriver::Tick()
 		++Generation;
 		bClearPending = true;
 		StopCommands();
-		Bridge.Stop();
+		Assembler.Stop();
 		WorldLayers.Stop();
 		bFactoryReadOpen = false; // an open game read is dropped: its readings are never submitted
 		Game.EndFactoryRead();
@@ -87,22 +86,9 @@ void SatisDash::FDriver::Tick()
 		WorldLayers.Start(Now);
 		bGameRunning = false;
 		LastGameReadAt.Reset();
-		// Which source each native-capable reader uses, so the evidence can tell a native reader from the bridge. Names only.
-		const FAgentConfig& Sources = Agent.GetConfig();
-		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=%s resourceNodes=%s factory=%s trains=%s rails=%s conveyors=%s mapMarkers=%s droneRoutes=%s powerLines=%s extractors=%s generators=%s stationRates=%s storage=%s"),
-			Sources.GetPlayersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetResourceNodesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetFactorySource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetTrainsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetRailsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetConveyorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetMapMarkersSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetDroneRoutesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetPowerLinesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetExtractorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetGeneratorsSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetStationRatesSource() == ESource::Native ? TEXT("native") : TEXT("bridge"),
-			Sources.GetStorageSource() == ESource::Native ? TEXT("native") : TEXT("bridge"));
+		// R7: every reader is the game's own; the values are constant since the FRM role was removed. The line keeps its format
+		// (the same 13 fields) so the harness's checks of it still hold until the FRM legs retire (step 4). Names only.
+		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=native generators=native stationRates=native storage=native"));
 	}
 	bRunning = bNowRunning;
 	if (bClearPending && !bSendInFlight)
@@ -116,19 +102,7 @@ void SatisDash::FDriver::Tick()
 		return;
 	}
 	const FAgentConfig& Config = Agent.GetConfig();
-	if (Config.GetExtractorsSource() != ESource::Native)
-	{
-		Assembler.DropExtractors(); // the source flipped to bridge: no held fragment or pending job is spliced after it
-	}
-	if (Config.GetGeneratorsSource() != ESource::Native)
-	{
-		Assembler.DropGenerators(); // the same for the generators fragment held for the power part
-	}
-	if (Config.GetStorageSource() != ESource::Native)
-	{
-		Assembler.DropStorage(); // and for a storage fragment not yet sent
-	}
-	Bridge.Tick(Now, Config.GetFrmPort(), Config.FrmToken);
+	Assembler.Tick(Now);
 	if (TOptional<FEncodedBody> Encoded = Assembler.TakeEncoded())
 	{
 		Pusher.Enqueue(MoveTemp(Encoded.GetValue()));
@@ -166,13 +140,6 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 	{
 		return;
 	}
-	const FAgentConfig& Config = Agent.GetConfig();
-	if (Config.GetFactorySource() != ESource::Native)
-	{
-		bFactoryReadOpen = false; // the source changed under a read: drop it
-		Game.EndFactoryRead();
-		return;
-	}
 	// The game thread's whole part: one budgeted slice of the buildables. Sorting and the JSON text are built on the worker.
 	TOptional<TArray<FFactoryReading>> Found = Game.StepFactoryRead(FactoryBudget);
 	if (!Found.IsSet())
@@ -182,8 +149,8 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 	bFactoryReadOpen = false;
 	if (Game.FactoryReadAbandoned())
 	{
-		// No subsystem or a world swapped mid-read: the part is left out of the snapshot (one warning per 600 s) and FRM is never
-		// asked. A finished read with no machines is not this: it is an empty factory and is sent as {"buildings":[]}.
+		// No subsystem or a world swapped mid-read: the part is left out of the snapshot (one warning per 600 s).
+		// A finished read with no machines is not this: it is an empty factory and is sent as {"buildings":[]}.
 		NoteFailedPart(TEXT("factory"), Now);
 		return;
 	}
@@ -195,13 +162,13 @@ void SatisDash::FDriver::TickFactoryRead(double Now)
 
 namespace
 {
-	/** Which Buildables readers the config asks for: each whose source is native. */
-	SatisDash::FBuildablesFlags BuildablesFlagsFor(const SatisDash::FAgentConfig& Config)
+	/** Every Buildables reader the pass serves: the extractors, generators and storage readers are all the game's own (R7). */
+	SatisDash::FBuildablesFlags AllBuildablesFlags()
 	{
 		SatisDash::FBuildablesFlags Asked;
-		Asked.bExtractors = Config.GetExtractorsSource() == SatisDash::ESource::Native;
-		Asked.bGenerators = Config.GetGeneratorsSource() == SatisDash::ESource::Native;
-		Asked.bStorage = Config.GetStorageSource() == SatisDash::ESource::Native;
+		Asked.bExtractors = true;
+		Asked.bGenerators = true;
+		Asked.bStorage = true;
 		return Asked;
 	}
 }
@@ -210,13 +177,6 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 {
 	if (!bBuildablesReadOpen)
 	{
-		return;
-	}
-	const FBuildablesFlags Wanted = BuildablesFlagsFor(Agent.GetConfig());
-	if (!Wanted.bExtractors && !Wanted.bGenerators && !Wanted.bStorage)
-	{
-		bBuildablesReadOpen = false; // every source changed under the pass: drop it
-		Game.EndBuildablesRead();
 		return;
 	}
 	// The game thread's whole part: one budgeted slice of the buildables. The fragment text is built on the worker.
@@ -249,15 +209,15 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 	{
 		UE_LOG(LogSatisDash, Warning, TEXT("Buildables read: %d containers past the list cap were dropped"), Found->Counts.ContainersOverCap);
 	}
-	if (BuildablesAsked.bExtractors && !Assembler.SubmitNativeExtractors(MoveTemp(Found->Extractors), Now) && BuildablesLog.ShouldLog(TEXT("held"), Now))
+	if (!Assembler.SubmitNativeExtractors(MoveTemp(Found->Extractors), Now) && BuildablesLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last extractors fragment is still being built: it is dropped"));
 	}
-	if (BuildablesAsked.bGenerators && !Assembler.SubmitNativeGenerators(MoveTemp(Found->Generators), Now) && BuildablesLog.ShouldLog(TEXT("heldGenerators"), Now))
+	if (!Assembler.SubmitNativeGenerators(MoveTemp(Found->Generators), Now) && BuildablesLog.ShouldLog(TEXT("heldGenerators"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last generators fragment is still being built: it is dropped"));
 	}
-	if (BuildablesAsked.bStorage && !Assembler.SubmitNativeStorage(MoveTemp(Found->Containers), Now) && BuildablesLog.ShouldLog(TEXT("heldStorage"), Now))
+	if (!Assembler.SubmitNativeStorage(MoveTemp(Found->Containers), Now) && BuildablesLog.ShouldLog(TEXT("heldStorage"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Buildables read finished while the last storage fragment is still being built: it is dropped"));
 	}
@@ -265,18 +225,13 @@ void SatisDash::FDriver::TickBuildablesRead(double Now)
 
 void SatisDash::FDriver::TickTrainsRead(double Now)
 {
-	const FAgentConfig& Config = Agent.GetConfig();
 	if (bTrainsBeginPending)
 	{
-		if (Config.GetTrainsSource() != ESource::Native)
-		{
-			bTrainsBeginPending = false;
-		}
-		else if (!Game.IsTrainsReadOpen())
+		if (!Game.IsTrainsReadOpen())
 		{
 			bTrainsBeginPending = false;
 			TrainsBudget.Reset();
-			bTrainsReadOpen = Game.BeginTrainsRead(Config.GetStationRatesSource() == ESource::Native);
+			bTrainsReadOpen = Game.BeginTrainsRead(true);
 			if (!bTrainsReadOpen)
 			{
 				NoteFailedPart(TEXT("mapLive"), Now); // not busy any more, so a real failure: no world or subsystem
@@ -288,12 +243,6 @@ void SatisDash::FDriver::TickTrainsRead(double Now)
 	{
 		return;
 	}
-	if (Config.GetTrainsSource() != ESource::Native)
-	{
-		bTrainsReadOpen = false; // the source changed under a read: drop it
-		Game.EndTrainsRead();
-		return;
-	}
 	// The game thread's whole part: one budgeted slice of the trains and stations. Sorting and the JSON text are built on the worker.
 	TOptional<FTrainsSnapshot> Found = Game.StepTrainsRead(TrainsBudget);
 	if (!Found.IsSet())
@@ -303,8 +252,8 @@ void SatisDash::FDriver::TickTrainsRead(double Now)
 	bTrainsReadOpen = false;
 	if (Game.TrainsReadAbandoned())
 	{
-		// No railroad subsystem or a world swapped mid-read: the part is left out of the snapshot (one warning per 600 s) and FRM is
-		// never asked. A finished read with no trains and no stations is not this: it is an empty railway, {"trains":[],"stations":[]}.
+		// No railroad subsystem or a world swapped mid-read: the part is left out of the snapshot (one warning per 600 s).
+		// A finished read with no trains and no stations is not this: it is an empty railway, {"trains":[],"stations":[]}.
 		NoteFailedPart(TEXT("mapLive"), Now);
 		return;
 	}
@@ -312,12 +261,9 @@ void SatisDash::FDriver::TickTrainsRead(double Now)
 	UE_LOG(LogSatisDash, Display, TEXT("Trains read (game thread only): %d trains, %d stations in %d steps, longest step %.2f ms, total %.2f ms"),
 		Found->Trains.Num(), Found->Stations.Num(), TrainsBudget.Steps(), TrainsBudget.LongestMs(), TrainsBudget.TotalMs());
 	LogLongestStep(TEXT("Trains"), TrainsBudget);
-	if (Config.GetStationRatesSource() == ESource::Native)
-	{
-		// Counts only: no class, station or id.
-		UE_LOG(LogSatisDash, Display, TEXT("Station rates (reflection read): %d platforms read, %d fluid platforms skipped, %d lookups failed"),
-			Found->RatesRead, Found->RatesFluidSkipped, Found->RatesLookupFailed);
-	}
+	// Counts only: no class, station or id.
+	UE_LOG(LogSatisDash, Display, TEXT("Station rates (reflection read): %d platforms read, %d fluid platforms skipped, %d lookups failed"),
+		Found->RatesRead, Found->RatesFluidSkipped, Found->RatesLookupFailed);
 	if (!Assembler.SubmitNativeMapLive(MoveTemp(Found.GetValue()), Now) && TrainsLog.ShouldLog(TEXT("held"), Now))
 	{
 		UE_LOG(LogSatisDash, Display, TEXT("Trains read finished while the last one is still being built: it is dropped"));
@@ -336,7 +282,6 @@ void SatisDash::FDriver::TickSample(double Now)
 		return;
 	}
 	const FCadence& Cadence = Agent.GetCadence();
-	const FAgentConfig& Config = Agent.GetConfig();
 	NextStatusAt = Now + Cadence.StatusSeconds - DueSlackSeconds;
 	FSnapshot Snapshot;
 	Snapshot.AgentVersion = AgentVersion();
@@ -371,19 +316,19 @@ void SatisDash::FDriver::TickSample(double Now)
 			{
 				NoteFailedPart(TEXT("power"), Now);
 			}
-			else if (Config.GetGeneratorsSource() == ESource::Native)
+			else
 			{
 				// Owner 2026-10-27 (a), contract #807: a finished read rides the NEXT power part only; later power parts omit the key.
 				Snapshot.GeneratorsJson = Assembler.TakeGenerators(Now, Cadence.FactorySeconds);
 			}
 		}
-		// FRM bridge spec: players every pass, the factory on its cadence; both arrive in a later pass's snapshot.
+		// Players every pass, the factory on its cadence; the factory arrives in a later pass's snapshot.
 		const bool bFactoryDue = !LastFactoryAt.IsSet() || Now - LastFactoryAt.GetValue() >= Cadence.FactorySeconds - DueSlackSeconds;
 		if (bFactoryDue)
 		{
 			LastFactoryAt = Now;
 		}
-		if (bFactoryDue && Snapshot.Status->bIsGameRunning && Config.GetFactorySource() == ESource::Native)
+		if (bFactoryDue && Snapshot.Status->bIsGameRunning)
 		{
 			if (bFactoryReadOpen)
 			{
@@ -399,12 +344,11 @@ void SatisDash::FDriver::TickSample(double Now)
 				bFactoryReadOpen = Game.BeginFactoryRead();
 				if (!bFactoryReadOpen)
 				{
-					NoteFailedPart(TEXT("factory"), Now); // no world or subsystem yet: the part is left out and FRM is not asked
+					NoteFailedPart(TEXT("factory"), Now); // no world or subsystem yet: the part is left out
 				}
 			}
 		}
-		const FBuildablesFlags BuildablesWanted = BuildablesFlagsFor(Config);
-		if (bFactoryDue && Snapshot.Status->bIsGameRunning && (BuildablesWanted.bExtractors || BuildablesWanted.bGenerators || BuildablesWanted.bStorage))
+		if (bFactoryDue && Snapshot.Status->bIsGameRunning)
 		{
 			if (bBuildablesReadOpen)
 			{
@@ -417,15 +361,14 @@ void SatisDash::FDriver::TickSample(double Now)
 			else
 			{
 				BuildablesBudget.Reset();
-				BuildablesAsked = BuildablesWanted;
-				bBuildablesReadOpen = Game.BeginBuildablesRead(BuildablesWanted);
+				bBuildablesReadOpen = Game.BeginBuildablesRead(AllBuildablesFlags());
 				if (!bBuildablesReadOpen)
 				{
 					NoteFailedPart(TEXT("buildables"), Now); // no world or subsystem yet: nothing is spliced into the factory part
 				}
 			}
 		}
-		if (bFactoryDue && Snapshot.Status->bIsGameRunning && Config.GetTrainsSource() == ESource::Native)
+		if (bFactoryDue && Snapshot.Status->bIsGameRunning)
 		{
 			if (bTrainsBeginPending || (!bTrainsReadOpen && Game.IsTrainsReadOpen()))
 			{
@@ -447,43 +390,31 @@ void SatisDash::FDriver::TickSample(double Now)
 			else
 			{
 				TrainsBudget.Reset();
-				bTrainsReadOpen = Game.BeginTrainsRead(Config.GetStationRatesSource() == ESource::Native);
+				bTrainsReadOpen = Game.BeginTrainsRead(true);
 				if (!bTrainsReadOpen)
 				{
-					NoteFailedPart(TEXT("mapLive"), Now); // no world or subsystem yet (a busy cursor is handled above, not here): the part is left out and FRM is not asked
+					NoteFailedPart(TEXT("mapLive"), Now); // no world or subsystem yet (a busy cursor is handled above, not here): the part is left out
 				}
 			}
 		}
-		const bool bNativePlayers = Config.GetPlayersSource() == ESource::Native;
-		Bridge.RequestPass(bFactoryDue, !bNativePlayers, Config.GetFactorySource() == ESource::Bridge, Config.GetTrainsSource() == ESource::Bridge);
-		if (bNativePlayers)
+		// R1 (ADR-0058): the game's own lists, small enough to serialise here. Read only while a game is running, as
+		// power is; an unreadable list leaves the part out.
+		if (Snapshot.Status->bIsGameRunning)
 		{
-			// R1 (ADR-0058): the game's own lists, small enough to serialise here. Read only while a game is running, as
-			// power is; an unreadable list leaves the part out.
-			if (Snapshot.Status->bIsGameRunning)
+			if (const TOptional<TArray<FPlayerReading>> Readings = Game.ReadPlayers())
 			{
-				if (const TOptional<TArray<FPlayerReading>> Readings = Game.ReadPlayers())
-				{
-					Snapshot.PlayersJson = PlayersToJson(NativePlayersPart(Readings.GetValue()));
-				}
-				else
-				{
-					NoteFailedPart(TEXT("players"), Now);
-				}
+				Snapshot.PlayersJson = PlayersToJson(NativePlayersPart(Readings.GetValue()));
 			}
-		}
-		else
-		{
-			Snapshot.PlayersJson = Bridge.TakePlayers(Now, 2.0 * Cadence.StatusSeconds);
+			else
+			{
+				NoteFailedPart(TEXT("players"), Now);
+			}
 		}
 		Snapshot.FactoryJson = Assembler.TakeFactory(Now, Cadence.FactorySeconds);
 		Snapshot.MapLiveJson = Assembler.TakeMapLive(Now, Cadence.FactorySeconds);
-		if (Config.GetStorageSource() == ESource::Native)
-		{
-			// Ruling B3: a data part, attached to the first snapshot after the fragment is built and then cleared. Only with a status:
-			// an unreachable snapshot keeps it for the next one (the dash refuses a data part with reachable false).
-			Snapshot.StorageJson = Assembler.TakeStorage(Now, Cadence.FactorySeconds);
-		}
+		// Ruling B3: a data part, attached to the first snapshot after the fragment is built and then cleared. Only with a status:
+		// an unreachable snapshot keeps it for the next one (the dash refuses a data part with reachable false).
+		Snapshot.StorageJson = Assembler.TakeStorage(Now, Cadence.FactorySeconds);
 	}
 	if (Snapshot.FactoryJson.IsSet() || Snapshot.MapLiveJson.IsSet() || Snapshot.GeneratorsJson.IsValid() || Snapshot.StorageJson.IsSet())
 	{

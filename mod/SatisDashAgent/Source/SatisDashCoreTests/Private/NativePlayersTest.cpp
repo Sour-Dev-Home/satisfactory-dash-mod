@@ -35,7 +35,7 @@ bool FNativePlayersMapTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("the connected player survives the cap"), Capped.Players[0].Name, FString(TEXT("player-now")));
 	TestEqual(TEXT("the rest keep the game's order"), Capped.Players[1].Name, FString(TEXT("player-old-0")));
 
-	// Names are cut to 200 characters, as ParsePlayers does.
+	// Names are cut to 200 characters, as the part's writer does.
 	TArray<FPlayerReading> Long;
 	Long.Add({ FString::ChrN(250, TEXT('n')), true });
 	TestEqual(TEXT("a long name is cut to 200"), NativePlayersPart(Long).Players[0].Name.Len(), 200);

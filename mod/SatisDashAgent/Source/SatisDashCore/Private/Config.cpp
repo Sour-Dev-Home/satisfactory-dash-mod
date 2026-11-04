@@ -12,36 +12,30 @@ namespace
 		return (C >= TEXT('A') && C <= TEXT('Z')) || (C >= TEXT('2') && C <= TEXT('7'));
 	}
 
-	/** Reads an optional "bridge" / "native" key. False when the key is there and is anything else. */
-	bool ConfigReadSource(const TSharedPtr<FJsonObject>& Object, const TCHAR* Key, TOptional<SatisDash::ESource>& Out)
-	{
-		if (!Object->HasField(Key))
-		{
-			return true;
-		}
-		const TSharedPtr<FJsonValue> Value = SatisDash::Json::Field(Object, Key, EJson::String);
-		if (!Value.IsValid())
-		{
-			return false;
-		}
-		const FString Text = Value->AsString();
-		if (Text.Equals(TEXT("bridge"), ESearchCase::CaseSensitive))
-		{
-			Out = SatisDash::ESource::Bridge;
-			return true;
-		}
-		if (Text.Equals(TEXT("native"), ESearchCase::CaseSensitive))
-		{
-			Out = SatisDash::ESource::Native;
-			return true;
-		}
-		return false;
-	}
+	/**
+	 * R7: the keys the removed FRM role read, in the order the warning names them. Present in an old file with any value (a bad
+	 * one included): never read, never a reason to refuse the file, and not written back.
+	 */
+	const TCHAR* const RemovedKeys[] = {
+		TEXT("frmPort"), TEXT("frmToken"),
+		TEXT("playersSource"), TEXT("resourceNodesSource"), TEXT("factorySource"), TEXT("trainsSource"), TEXT("railsSource"),
+		TEXT("conveyorsSource"), TEXT("mapMarkersSource"), TEXT("droneRoutesSource"), TEXT("powerLinesSource"),
+		TEXT("extractorsSource"), TEXT("generatorsSource"), TEXT("stationRatesSource"), TEXT("storageSource"),
+	};
+}
 
-	const TCHAR* ConfigSourceName(SatisDash::ESource Source)
+FString SatisDash::IgnoredKeysLine(const FConfigResult& Result)
+{
+	if (Result.IgnoredKeys.Num() == 0)
 	{
-		return Source == SatisDash::ESource::Native ? TEXT("native") : TEXT("bridge");
+		return FString();
 	}
+	FString Names;
+	for (const FString& Key : Result.IgnoredKeys)
+	{
+		Names += Names.IsEmpty() ? Key : TEXT(", ") + Key;
+	}
+	return FString::Printf(TEXT("Config: ignored removed keys %s (FRM was removed in R7)"), *Names);
 }
 
 bool SatisDash::IsAllowedBackendUrl(const FString& Url)
@@ -151,27 +145,6 @@ bool SatisDash::IsEnrollmentCode(const FString& Code)
 	return true;
 }
 
-bool SatisDash::IsFrmPort(double Value)
-{
-	return FMath::IsFinite(Value) && Value >= 1.0 && Value <= 65535.0 && double(int32(Value)) == Value;
-}
-
-bool SatisDash::IsHeaderSafe(const FString& Value)
-{
-	if (Value.Len() > 512)
-	{
-		return false;
-	}
-	for (const TCHAR C : Value)
-	{
-		if (C < TEXT(' ') || C == 127)
-		{
-			return false;
-		}
-	}
-	return true;
-}
-
 SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 {
 	FConfigResult Result;
@@ -199,105 +172,14 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 			return Result;
 		}
 	}
-	TOptional<int32> FrmPort;
-	if (Object->HasField(TEXT("frmPort")))
+	// R7: a removed key is only noted by name. Its value is never read, so no value can be refused or logged.
+	TArray<FString> IgnoredKeys;
+	for (const TCHAR* const Key : RemovedKeys)
 	{
-		const TSharedPtr<FJsonValue> PortValue = SatisDash::Json::Field(Object, TEXT("frmPort"), EJson::Number);
-		if (!PortValue.IsValid() || !IsFrmPort(PortValue->AsNumber()))
+		if (Object->HasField(Key))
 		{
-			Result.BadField = TEXT("frmPort");
-			return Result;
+			IgnoredKeys.Add(Key);
 		}
-		FrmPort = int32(PortValue->AsNumber());
-	}
-	FString FrmToken;
-	if (Object->HasField(TEXT("frmToken")))
-	{
-		const TSharedPtr<FJsonValue> TokenValue = SatisDash::Json::Field(Object, TEXT("frmToken"), EJson::String);
-		FrmToken = TokenValue.IsValid() ? TokenValue->AsString().TrimStartAndEnd() : FString();
-		if (!TokenValue.IsValid() || !IsHeaderSafe(FrmToken))
-		{
-			Result.BadField = TEXT("frmToken");
-			return Result;
-		}
-	}
-	TOptional<ESource> PlayersSource;
-	if (!ConfigReadSource(Object, TEXT("playersSource"), PlayersSource))
-	{
-		Result.BadField = TEXT("playersSource");
-		return Result;
-	}
-	TOptional<ESource> ResourceNodesSource;
-	if (!ConfigReadSource(Object, TEXT("resourceNodesSource"), ResourceNodesSource))
-	{
-		Result.BadField = TEXT("resourceNodesSource");
-		return Result;
-	}
-	TOptional<ESource> FactorySource;
-	if (!ConfigReadSource(Object, TEXT("factorySource"), FactorySource))
-	{
-		Result.BadField = TEXT("factorySource");
-		return Result;
-	}
-	TOptional<ESource> TrainsSource;
-	if (!ConfigReadSource(Object, TEXT("trainsSource"), TrainsSource))
-	{
-		Result.BadField = TEXT("trainsSource");
-		return Result;
-	}
-	TOptional<ESource> RailsSource;
-	if (!ConfigReadSource(Object, TEXT("railsSource"), RailsSource))
-	{
-		Result.BadField = TEXT("railsSource");
-		return Result;
-	}
-	TOptional<ESource> ConveyorsSource;
-	if (!ConfigReadSource(Object, TEXT("conveyorsSource"), ConveyorsSource))
-	{
-		Result.BadField = TEXT("conveyorsSource");
-		return Result;
-	}
-	TOptional<ESource> MapMarkersSource;
-	if (!ConfigReadSource(Object, TEXT("mapMarkersSource"), MapMarkersSource))
-	{
-		Result.BadField = TEXT("mapMarkersSource");
-		return Result;
-	}
-	TOptional<ESource> DroneRoutesSource;
-	if (!ConfigReadSource(Object, TEXT("droneRoutesSource"), DroneRoutesSource))
-	{
-		Result.BadField = TEXT("droneRoutesSource");
-		return Result;
-	}
-	TOptional<ESource> PowerLinesSource;
-	if (!ConfigReadSource(Object, TEXT("powerLinesSource"), PowerLinesSource))
-	{
-		Result.BadField = TEXT("powerLinesSource");
-		return Result;
-	}
-	TOptional<ESource> ExtractorsSource;
-	if (!ConfigReadSource(Object, TEXT("extractorsSource"), ExtractorsSource))
-	{
-		Result.BadField = TEXT("extractorsSource");
-		return Result;
-	}
-	TOptional<ESource> GeneratorsSource;
-	if (!ConfigReadSource(Object, TEXT("generatorsSource"), GeneratorsSource))
-	{
-		Result.BadField = TEXT("generatorsSource");
-		return Result;
-	}
-	TOptional<ESource> StationRatesSource;
-	if (!ConfigReadSource(Object, TEXT("stationRatesSource"), StationRatesSource))
-	{
-		Result.BadField = TEXT("stationRatesSource");
-		return Result;
-	}
-	TOptional<ESource> StorageSource;
-	if (!ConfigReadSource(Object, TEXT("storageSource"), StorageSource))
-	{
-		Result.BadField = TEXT("storageSource");
-		return Result;
 	}
 	bool bStepDiagnostics = false;
 	if (Object->HasField(TEXT("stepDiagnostics")))
@@ -313,22 +195,8 @@ SatisDash::FConfigResult SatisDash::ParseConfig(const FString& Text)
 	Result.Status = EConfigStatus::Valid;
 	Result.Config.BackendUrl = Url;
 	Result.Config.EnrollmentCode = Code;
-	Result.Config.FrmPort = FrmPort;
-	Result.Config.FrmToken = FrmToken;
-	Result.Config.PlayersSource = PlayersSource;
-	Result.Config.ResourceNodesSource = ResourceNodesSource;
-	Result.Config.FactorySource = FactorySource;
-	Result.Config.TrainsSource = TrainsSource;
-	Result.Config.RailsSource = RailsSource;
-	Result.Config.ConveyorsSource = ConveyorsSource;
-	Result.Config.MapMarkersSource = MapMarkersSource;
-	Result.Config.DroneRoutesSource = DroneRoutesSource;
-	Result.Config.PowerLinesSource = PowerLinesSource;
-	Result.Config.ExtractorsSource = ExtractorsSource;
-	Result.Config.GeneratorsSource = GeneratorsSource;
-	Result.Config.StationRatesSource = StationRatesSource;
-	Result.Config.StorageSource = StorageSource;
 	Result.Config.bStepDiagnostics = bStepDiagnostics;
+	Result.IgnoredKeys = MoveTemp(IgnoredKeys);
 	return Result;
 }
 
@@ -337,66 +205,6 @@ FString SatisDash::ConfigToJson(const FAgentConfig& Config)
 	const TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
 	Object->SetStringField(TEXT("backendUrl"), Config.BackendUrl);
 	Object->SetStringField(TEXT("enrollmentCode"), Config.EnrollmentCode);
-	if (Config.FrmPort.IsSet())
-	{
-		Object->SetNumberField(TEXT("frmPort"), Config.FrmPort.GetValue());
-	}
-	if (!Config.FrmToken.IsEmpty())
-	{
-		Object->SetStringField(TEXT("frmToken"), Config.FrmToken);
-	}
-	if (Config.PlayersSource.IsSet())
-	{
-		Object->SetStringField(TEXT("playersSource"), ConfigSourceName(Config.PlayersSource.GetValue()));
-	}
-	if (Config.ResourceNodesSource.IsSet())
-	{
-		Object->SetStringField(TEXT("resourceNodesSource"), ConfigSourceName(Config.ResourceNodesSource.GetValue()));
-	}
-	if (Config.FactorySource.IsSet())
-	{
-		Object->SetStringField(TEXT("factorySource"), ConfigSourceName(Config.FactorySource.GetValue()));
-	}
-	if (Config.TrainsSource.IsSet())
-	{
-		Object->SetStringField(TEXT("trainsSource"), ConfigSourceName(Config.TrainsSource.GetValue()));
-	}
-	if (Config.RailsSource.IsSet())
-	{
-		Object->SetStringField(TEXT("railsSource"), ConfigSourceName(Config.RailsSource.GetValue()));
-	}
-	if (Config.ConveyorsSource.IsSet())
-	{
-		Object->SetStringField(TEXT("conveyorsSource"), ConfigSourceName(Config.ConveyorsSource.GetValue()));
-	}
-	if (Config.MapMarkersSource.IsSet())
-	{
-		Object->SetStringField(TEXT("mapMarkersSource"), ConfigSourceName(Config.MapMarkersSource.GetValue()));
-	}
-	if (Config.DroneRoutesSource.IsSet())
-	{
-		Object->SetStringField(TEXT("droneRoutesSource"), ConfigSourceName(Config.DroneRoutesSource.GetValue()));
-	}
-	if (Config.PowerLinesSource.IsSet())
-	{
-		Object->SetStringField(TEXT("powerLinesSource"), ConfigSourceName(Config.PowerLinesSource.GetValue()));
-	}
-	if (Config.ExtractorsSource.IsSet())
-	{
-		Object->SetStringField(TEXT("extractorsSource"), ConfigSourceName(Config.ExtractorsSource.GetValue()));
-	}
-	if (Config.GeneratorsSource.IsSet())
-	{
-		Object->SetStringField(TEXT("generatorsSource"), ConfigSourceName(Config.GeneratorsSource.GetValue()));
-	}
-	if (Config.StationRatesSource.IsSet())
-	{
-		Object->SetStringField(TEXT("stationRatesSource"), ConfigSourceName(Config.StationRatesSource.GetValue()));
-	}
-	if (Config.StorageSource.IsSet())
-	{
-		Object->SetStringField(TEXT("storageSource"), ConfigSourceName(Config.StorageSource.GetValue()));
-	}
 	if (Config.bStepDiagnostics)
 	{
 		Object->SetBoolField(TEXT("stepDiagnostics"), true);

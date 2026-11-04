@@ -35,9 +35,8 @@ namespace SatisDash
 	struct FWorldOutcome
 	{
 		/**
-		 * ReadFailed: FRM unreachable, timed out, an HTTP error, or the body over its cap. Invalid: the body is not what the
-		 * Node agent's schema accepts. SameRaw: the raw body equals the last settled one (not parsed). SameData: parsed, the
-		 * mapped data equals the last accepted. OverCap: the body is past WorldLayerMaxBytes. Ready: Body is to be posted.
+		 * ReadFailed: the read could not be made. Invalid: the body is not what the Node agent's schema accepts. SameRaw: the
+		 * raw body equals the last settled one (not used by a native read). SameData: the mapped data equals the last accepted. OverCap: the body is past WorldLayerMaxBytes. Ready: Body is to be posted.
 		 */
 		enum class EKind : uint8 { ReadFailed, Invalid, SameRaw, SameData, OverCap, Ready };
 		EKind Kind = EKind::ReadFailed;
@@ -54,11 +53,10 @@ namespace SatisDash
 	};
 
 	/**
-	 * One world body being built, hashed and encoded on the worker, a slice per Step (see Plan 3B Task 7). Touched by one
-	 * thread at a time. Not copyable: the hasher of a subclass is not.
+	 * One world body being built, hashed and encoded on the worker. Touched by one thread at a time.
 	 *
 	 * The two native constructors are the whole class: Step builds the body, settles it (data hash, the byte cap, gzip) and
-	 * is done in one slice. A subclass with a body source of its own (FFrmWorldRead) overrides Step and settles with Settle.
+	 * is done in one slice.
 	 */
 	class SATISDASHCORE_API FWorldRead
 	{
@@ -75,17 +73,15 @@ namespace SatisDash
 		 * apply WorldLayerMaxBytes.
 		 */
 		FWorldRead(EWorldLayer InLayer, FNativeWorldBuilder InBuilder, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes = WorldLayerMaxBytes);
-		virtual ~FWorldRead() = default;
 		FWorldRead(const FWorldRead&) = delete;
 		FWorldRead& operator=(const FWorldRead&) = delete;
 
 		/** One slice of work; true when the outcome is ready. */
-		virtual bool Step();
+		bool Step();
 		FWorldOutcome TakeOutcome() { return MoveTemp(Outcome); }
 
-	protected:
-		/** For a subclass that has a body source of its own: it overrides Step and calls Settle. */
-		FWorldRead(EWorldLayer InLayer, FString InObservedAt, TOptional<FBlake3Hash> InLastData, int64 InMaxBodyBytes);
+	private:
+		enum class EStage : uint8 { Native, Done };
 
 		/** Everything after the body text exists: hash the data, apply the cap, encode. Json is the whole body text. */
 		void Settle(const FString& Json, int32 DataFrom, int32 DataEnd, int32 Items, int32 Dropped, int32 Over, int64 Bytes);
@@ -93,10 +89,6 @@ namespace SatisDash
 		EWorldLayer Layer;
 		FString ObservedAt;
 		FWorldOutcome Outcome;
-
-	private:
-		enum class EStage : uint8 { Native, Done };
-
 		FNativeWorldBuilder Builder;
 		TOptional<FBlake3Hash> LastData;
 		int64 MaxBodyBytes;

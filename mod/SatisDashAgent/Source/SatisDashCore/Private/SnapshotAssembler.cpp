@@ -12,7 +12,7 @@ void SatisDash::FSnapshotAssembler::NoteFailed(const TCHAR* Part, double Now)
 {
 	if (FailLog.ShouldLog(Part, Now))
 	{
-		UE_LOG(LogSatisDash, Warning, TEXT("Couldn't read %s from FRM; leaving it out of the snapshot"), Part);
+		UE_LOG(LogSatisDash, Warning, TEXT("Couldn't read %s; leaving it out of the snapshot"), Part);
 	}
 }
 
