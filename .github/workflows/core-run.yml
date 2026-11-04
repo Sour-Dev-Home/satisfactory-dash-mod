@@ -4,7 +4,7 @@ name: core-run
 # public repository, so this workflow must never trigger from a pull request or a push: it is dispatched by hand
 # only. harness/test/workflows.test.ts fails CI if a trigger is added, an action is unpinned or a job leaves the
 # ue-runner environment. The options are the runs the harness drives so far; a run that needs the backend host (enrol,
-# revoke, command, outage, tick-cost, parity, native-parity, tick-cost-native, s3-census) refuses unless the owner has started it in their own session
+# revoke, command, outage, tick-cost, parity, native-parity, tick-cost-native, s3-census, soak-native) refuses unless the owner has started it in their own session
 # first (docs/runner.md, "The backend host"). parity also needs parity.agentCjs in the runner config; native-parity needs
 # frmBaseUrl (FRM is its oracle); s4-capture needs frmBaseUrl too but no backend host (it captures FRM's output).
 on:
@@ -14,7 +14,7 @@ on:
         description: Core run
         required: true
         type: choice
-        options: [http-probe, enrol, revoke, command, outage, tick-cost, parity, manual, native-parity, tick-cost-native, s3-census, s4-capture]
+        options: [http-probe, enrol, revoke, command, outage, tick-cost, parity, manual, native-parity, tick-cost-native, s3-census, s4-capture, soak-native]
 
 permissions:
   contents: read
@@ -27,7 +27,8 @@ jobs:
   run:
     runs-on: [self-hosted, windows, ue]
     environment: ue-runner
-    timeout-minutes: 90
+    # 90 minutes for every run; the 24 h soak-native needs its window plus the boots (26 h; a self-hosted job may run 5 days).
+    timeout-minutes: ${{ inputs.run == 'soak-native' && 1560 || 90 }}
     defaults:
       run:
         shell: pwsh

@@ -133,6 +133,12 @@ export interface RecorderOptions {
    * fails the run: the cap is deliberately not raised (a 340-machine factory part is a few hundred KB, see the recorder test).
    */
   keepSnapshotParts?: readonly SnapshotPart[];
+  /**
+   * Off by default (every other run keeps every snapshot). The 24 h soak run turns it on: a snapshot every 5 s for a day is
+   * ~17,000 bodies of hundreds of KB, which would sit in memory on the owner's PC. Each recorded snapshot body is cut down to
+   * `{ players: { available } }` (the only field a judge reads from older ones) when the next one arrives; the newest stays whole.
+   */
+  thinOlderSnapshots?: boolean;
 }
 
 /** The entries as recorder.json carries them: never the snapshot, the kept world data or the kept parts (all in memory only). */
@@ -147,6 +153,8 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
   const keepWorld = new Set(opts.keepWorldData ?? []);
   const keepParts = [...(opts.keepSnapshotParts ?? [])];
   const entries: RecordedCall[] = [];
+  const thin = opts.thinOlderSnapshots === true;
+  let lastBody: RecordedCall | undefined;
 
   const handle = (req: IncomingMessage, res: ServerResponse) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
@@ -207,6 +215,15 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
             if (keepWorld.has(layer)) entry.worldData = data;
           }
         }
+      }
+      if (thin && entry.snapshot !== undefined) {
+        // Soak run: only the newest snapshot keeps its body; the one before it shrinks to what the judge reads (players.available).
+        if (lastBody) {
+          const available = (lastBody.snapshot as { players?: { available?: unknown } } | null | undefined)?.players?.available;
+          lastBody.snapshot = available === undefined ? {} : { players: { available } };
+          delete lastBody.parts;
+        }
+        lastBody = entry;
       }
       entries.push(entry);
     };

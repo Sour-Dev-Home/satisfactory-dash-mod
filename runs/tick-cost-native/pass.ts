@@ -36,7 +36,7 @@ export function requiredStepReaders(sources: S2Sources | undefined): string[] {
 
 /** A UE log line's UTC time, `[YYYY.MM.DD-HH.MM.SS:mmm]` (the harness's own tests also write the time with colons), or NaN. */
 const LOG_TIME = /^\[(\d{4})\.(\d{2})\.(\d{2})-(\d{2})[.:](\d{2})[.:](\d{2})[:.](\d{3})\]/;
-function logTimeMs(line: string): number {
+export function logTimeMs(line: string): number {
   const m = LOG_TIME.exec(line);
   return m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!, +m[7]!) : NaN;
 }
