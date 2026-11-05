@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import type { Manual } from "../../runs/manual/pass";
 import type { CoreContext } from "../src/core-run";
-import { manual, manualMinutes, STATE_TIMEOUT_MS, trimBelts, trimPipes } from "../src/core-runs/manual";
+import { manual, manualMinutes, STATE_TIMEOUT_MS } from "../src/core-runs/manual";
 
 describe("manualMinutes", () => {
   it("defaults to 45", () => {
@@ -14,21 +14,6 @@ describe("manualMinutes", () => {
     expect(() => manualMinutes("abc")).toThrow(/MANUAL_MINUTES/);
     expect(() => manualMinutes("1.5")).toThrow(/MANUAL_MINUTES/);
     expect(() => manualMinutes("80")).toThrow(/MANUAL_MINUTES/);
-  });
-});
-
-describe("trimming FRM's lists", () => {
-  it("keeps only ID, ClassName, ConnectedTo0, ConnectedTo1 and ItemsPerMinute for a belt, no location", () => {
-    const out = trimBelts([{ ID: "b1", ClassName: "Build_ConveyorBeltMk1_C", ConnectedTo0: "x", ConnectedTo1: "y", ItemsPerMinute: 60, location: { x: 1 }, SplineData: [1], Length: 9 }]);
-    expect(out).toEqual([{ ID: "b1", ClassName: "Build_ConveyorBeltMk1_C", ConnectedTo0: "x", ConnectedTo1: "y", ItemsPerMinute: 60 }]);
-  });
-  it("keeps only ID, ClassName, ConnectedTo0, ConnectedTo1 and Speed for a pipe", () => {
-    const out = trimPipes([{ ID: "p1", ClassName: "Build_Pipeline_C", ConnectedTo0: "x", ConnectedTo1: "y", Speed: 2.5, location: { x: 1 }, Fluid: "Water" }]);
-    expect(out).toEqual([{ ID: "p1", ClassName: "Build_Pipeline_C", ConnectedTo0: "x", ConnectedTo1: "y", Speed: 2.5 }]);
-  });
-  it("drops entries that are not objects and keeps absent fields absent", () => {
-    expect(trimBelts([null, 3, { ID: "b" }])).toEqual([{ ID: "b" }]);
-    expect(trimBelts("nope")).toEqual([]);
   });
 });
 
@@ -45,7 +30,7 @@ describe("manual.drive", () => {
     log.mockRestore();
   });
 
-  function context(over: { gameState?: () => Promise<{ running: boolean; session: string } | null>; exited?: Promise<unknown>; frmBaseUrl?: string } = {}) {
+  function context(over: { gameState?: () => Promise<{ running: boolean; session: string } | null>; exited?: Promise<unknown> } = {}) {
     let t = Date.parse("2026-10-21T10:00:00.000Z");
     const calls: string[] = [];
     const ctx = {
@@ -53,7 +38,7 @@ describe("manual.drive", () => {
       proc: { exited: over.exited ?? new Promise(() => {}) },
       rememberAutoPause: (v: boolean) => void calls.push(`remember ${v}`),
       deps: {
-        config: { frmBaseUrl: over.frmBaseUrl },
+        config: {},
         now: () => new Date(t),
         sleep: async (ms: number) => void (t += ms),
         loadWorld: async () => void calls.push("load"),
@@ -74,7 +59,6 @@ describe("manual.drive", () => {
     expect(c.windowMs).toBe(120_000);
     expect(c.samples).toHaveLength(4);
     expect(c.samples.every((s) => s.answered)).toBe(true);
-    expect(JSON.stringify(c.frm)).toMatch(/frmBaseUrl is not set/);
     expect(log.mock.calls.map((x) => x[0])).toEqual(["manual session: 2 min left", "manual session: 1 min left"]);
   });
 
@@ -102,23 +86,12 @@ describe("manual.drive", () => {
     const h = context({ exited, gameState: async () => (++n === 2 && exit(), { running: true, session: "s" }) });
     await expect(h.drive()).rejects.toThrow(/server exited during the manual session/);
     expect(h.capture().samples).toHaveLength(2);
-    expect(h.capture().frm.end).toEqual({ error: "not read" });
   });
 
-  it("records FRM's trimmed belts and pipes at the start and the end, and a failed read as its error", async () => {
-    const fetchMock = vi.fn(async (url: URL) =>
-      url.pathname === "/getBelts"
-        ? new Response(JSON.stringify([{ ID: "b1", ItemsPerMinute: 60, location: { x: 1 } }]))
-        : new Response(JSON.stringify([{ ID: "p1", Speed: 2.5, Fluid: "Water" }])));
+  it("makes no outbound request of its own", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
-    const h = context({ frmBaseUrl: "http://127.0.0.1:18081" });
-    await h.drive();
-    const read = { belts: [{ ID: "b1", ItemsPerMinute: 60 }], pipes: [{ ID: "p1", Speed: 2.5 }] };
-    expect(h.capture().frm).toEqual({ start: read, end: read });
-
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 503 })));
-    const bad = context({ frmBaseUrl: "http://127.0.0.1:18081" });
-    await bad.drive();
-    expect(bad.capture().frm.start).toEqual({ error: expect.stringMatching(/returned 503/) });
+    await context().drive();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

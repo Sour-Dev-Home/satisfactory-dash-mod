@@ -1,6 +1,6 @@
 // The tick-cost run with sprint S1's native readers on (ADR-0058 Decision 3 item 3). The limits are the existing tick-cost
 // run's, imported and unchanged (runs/tick-cost/pass.ts: C4, S12, same save, memory). Added, because "the reader was on" is
-// part of the claim: the mod's config had playersSource and resourceNodesSource native; a snapshot in the measured window
+// part of the claim: the mod's log says every reader is native (all are, unconditionally, since R7); a snapshot in the measured window
 // carried an available players part; and a resourceNodes world post was accepted inside the measured window after the warmup
 // (so the actor scan ran while the ticks were measured). The scan's own cost is the mod's log line in result.json's modLines;
 // since the owner's decision of 2026-10-26 the longest step of every sliced native read is judged against 2 ms.
@@ -15,23 +15,17 @@ export const requirements = [...Base.requirements, "R0-R1-R4-tick-cost"];
 interface Parts { measured?: { from: string; to: string } | null; snapshots?: Array<{ at: string; playersAvailable?: boolean }> }
 interface Recorded { at: string; status: number; agent: string; world?: { layer: string; items: number; bytes: number } }
 
-interface S2Sources { playersSource?: string; resourceNodesSource?: string; factorySource?: string; trainsSource?: string; railsSource?: string; conveyorsSource?: string; mapMarkersSource?: string; droneRoutesSource?: string; powerLinesSource?: string; extractorsSource?: string; generatorsSource?: string; stationRatesSource?: string; storageSource?: string }
-
 /**
- * The sliced readers that must have logged a step line: the node scan always, the S2 readers when the config made them native,
- * and the shared logistics pass ("Logistics read", one line for all layers) when rails, conveyors or powerLines is native (S3, Task 14;
- * powerLines rides that line in S4), plus the map-markers and drone-routes reads when those keys are native (S4-A, Task 16).
+ * The sliced readers that must have logged a step line. Every reader is native and unconditional since the bridge was removed
+ * (R7), so all of them are required, explicitly: the node scan, the factory read, trains and train routes, the shared logistics
+ * pass ("Logistics read", one line for rails, conveyors and power lines), map markers, drone routes and the Buildables pass
+ * (extractors, generators and storage; the station walk rides "Trains read").
  */
-export function requiredStepReaders(sources: S2Sources | undefined): string[] {
-  const out = ["Resource node scan"];
-  if (sources?.factorySource === "native") out.push("Factory read");
-  if (sources?.trainsSource === "native") out.push("Trains read", "Train routes read");
-  if (sources?.railsSource === "native" || sources?.conveyorsSource === "native" || sources?.powerLinesSource === "native") out.push("Logistics read");
-  if (sources?.mapMarkersSource === "native") out.push("Map markers read");
-  if (sources?.droneRoutesSource === "native") out.push("Drone routes read");
-  // S4-B (Task 20): extractors, generators and storage share the one Buildables pass; the station walk rides "Trains read".
-  if (sources?.extractorsSource === "native" || sources?.generatorsSource === "native" || sources?.storageSource === "native") out.push("Buildables read");
-  return out;
+export const REQUIRED_STEP_READERS: readonly string[] = [
+  "Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read", "Buildables read",
+];
+export function requiredStepReaders(): string[] {
+  return [...REQUIRED_STEP_READERS];
 }
 
 /** A UE log line's UTC time, `[YYYY.MM.DD-HH.MM.SS:mmm]` (the harness's own tests also write the time with colons), or NaN. */
@@ -52,43 +46,13 @@ function windowProblems(lines: readonly string[], required: readonly string[], f
 export function evaluate(e: CoreEvidence): Verdict {
   const base = Base.evaluate(e);
   const extra: string[] = [];
-  const sources = e.captures["mod-config.json"] as S2Sources | undefined;
-  // S2 (Task 11): when the config carries the S2 keys (the run writes NATIVE_SOURCES_S2), both must be native, and the mod's own
-  // log must say so too. S1-shaped evidence has neither key and is judged as before.
-  const s2Shaped = sources?.factorySource !== undefined || sources?.trainsSource !== undefined;
-  if (s2Shaped) {
-    if (sources?.factorySource !== "native") extra.push(`the run did not write factorySource as native into the mod's config (it says ${String(sources?.factorySource)})`);
-    if (sources?.trainsSource !== "native") extra.push(`the run did not write trainsSource as native into the mod's config (it says ${String(sources?.trainsSource)})`);
-    extra.push(...factoryLogProblems(e.lines), ...trainsLogProblems(e.lines));
-  }
-  // S3 (Task 14): when the config carries a logistics key (the run writes NATIVE_SOURCES_S3), both must be native and the mod's
-  // own log must say so. S1- and S2-shaped evidence has neither key and is judged as before. (A rails-only config still needs
-  // the "Logistics read" line, see requiredStepReaders, but it is not a pass of this S3 run.)
-  const s3Shaped = sources?.railsSource !== undefined || sources?.conveyorsSource !== undefined;
-  if (s3Shaped) {
-    if (sources?.railsSource !== "native") extra.push(`the run did not write railsSource as native into the mod's config (it says ${String(sources?.railsSource)})`);
-    if (sources?.conveyorsSource !== "native") extra.push(`the run did not write conveyorsSource as native into the mod's config (it says ${String(sources?.conveyorsSource)})`);
-    extra.push(...railsLogProblems(e.lines), ...conveyorsLogProblems(e.lines));
-  }
-  // S4-A (Task 16): when the config carries an S4 key (the run writes NATIVE_SOURCES_S4), all three must be native and the mod's own
-  // log must say so; the powerLines layer rides the shared Logistics read line, which must have served it. Earlier shapes have none
-  // of these keys and are judged as before.
-  const s4Shaped = sources?.mapMarkersSource !== undefined || sources?.droneRoutesSource !== undefined || sources?.powerLinesSource !== undefined;
-  if (s4Shaped) {
-    if (sources?.mapMarkersSource !== "native") extra.push(`the run did not write mapMarkersSource as native into the mod's config (it says ${String(sources?.mapMarkersSource)})`);
-    if (sources?.droneRoutesSource !== "native") extra.push(`the run did not write droneRoutesSource as native into the mod's config (it says ${String(sources?.droneRoutesSource)})`);
-    if (sources?.powerLinesSource !== "native") extra.push(`the run did not write powerLinesSource as native into the mod's config (it says ${String(sources?.powerLinesSource)})`);
-    extra.push(...mapMarkersLogProblems(e.lines), ...droneRoutesLogProblems(e.lines), ...powerLinesLogProblems(e.lines), ...logisticsLineProblems(e.lines, "powerLines"));
-  }
-  // S4-B (Task 20): an S4-B-shaped config (any of its four keys) must have all four native. Earlier shapes have none of them.
-  const s4bShaped = sources?.extractorsSource !== undefined || sources?.generatorsSource !== undefined || sources?.stationRatesSource !== undefined || sources?.storageSource !== undefined;
-  if (s4bShaped) {
-    for (const k of ["extractorsSource", "generatorsSource", "stationRatesSource", "storageSource"] as const) {
-      if (sources?.[k] !== "native") extra.push(`the run did not write ${k} as native into the mod's config (it says ${String(sources?.[k])})`);
-    }
-    extra.push(...extractorsLogProblems(e.lines), ...generatorsLogProblems(e.lines), ...stationRatesLogProblems(e.lines), ...stationRatesLineProblems(e.lines), ...storageLogProblems(e.lines));
-  }
-  if (sources?.playersSource !== "native" || sources?.resourceNodesSource !== "native") extra.push("the run did not write playersSource and resourceNodesSource as native into the mod's config");
+  // Every reader is native and unconditional (R7): the mod's own log must say so for all of them, and the powerLines layer rides
+  // the shared Logistics read line, which must have served it. The run no longer writes per-reader sources into the mod's config.
+  extra.push(
+    ...factoryLogProblems(e.lines), ...trainsLogProblems(e.lines), ...railsLogProblems(e.lines), ...conveyorsLogProblems(e.lines),
+    ...mapMarkersLogProblems(e.lines), ...droneRoutesLogProblems(e.lines), ...powerLinesLogProblems(e.lines), ...logisticsLineProblems(e.lines, "powerLines"),
+    ...extractorsLogProblems(e.lines), ...generatorsLogProblems(e.lines), ...stationRatesLogProblems(e.lines), ...stationRatesLineProblems(e.lines), ...storageLogProblems(e.lines),
+  );
   const parts = e.captures["snapshot-parts.json"] as Parts | undefined;
   const from = parts?.measured ? Date.parse(parts.measured.from) + TICK_WARMUP_MS : NaN;
   const to = parts?.measured ? Date.parse(parts.measured.to) : NaN;
@@ -107,9 +71,9 @@ export function evaluate(e: CoreEvidence): Verdict {
   // The 2 ms step ceiling (owner, 2026-10-26): a new condition, not a change to the limits above. It covers the sliced native
   // reads only (node scan, factory, trains, train routes); one-shot reads (status, auto-pause, players, power's circuit-id probe)
   // are S0/S1 code outside this rule.
-  const required = requiredStepReaders(sources);
+  const required = requiredStepReaders();
   extra.push(...stepProblems(e.lines, required));
-  if (s2Shaped || s3Shaped || s4Shaped || s4bShaped) extra.push(...windowProblems(e.lines, required, from, to));
+  extra.push(...windowProblems(e.lines, required, from, to));
   if (extra.length === 0 && base.pass) {
     const steps = stepCosts(e.lines).map((c) => `${c.reader} longest step ${c.longestStepMs} ms`).join("; ");
     return { pass: true, reasons: [...base.reasons, `native readers live in the window: ${withPlayers} snapshots with players, ${nodePosts.length} resourceNodes post(s)`, describeScanCost(scans), `step ceiling ${MAX_NATIVE_STEP_MS} ms held (sliced native reads only): ${steps}`, ...describeWaitedSteps(e.lines)] };

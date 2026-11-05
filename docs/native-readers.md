@@ -28,7 +28,10 @@ role at all and every reader is native. Rules for writing a reader are in `docs/
 R7 step 3 (2026-11) deleted the FRM role from the mod: there is no bridge, no FRM client and no source switch, so every
 reader is the game's own. The rows above describe each reader's history; where they say `bridge`, `frmPort` or a `*Source`
 key, read it as history. The `Readers:` line on each Running entry keeps its format (the same 13 fields) so the harness's
-checks of it still hold, but every value is constant `native` since R7; step 4 retires the FRM legs that read it.
+checks of it still hold, but every value is constant `native` since R7. R7 step 4 retired the harness's FRM legs (the
+`native-parity` runs and their oracles; the record is in the dash repo's `docs-vault/raw-sources/mod-native-readers/`), so the
+`native-parity` and `tick-cost-native` mentions in the rows above are history: the harness no longer has `native-parity`, and
+`tick-cost-native` and `soak-native` judge every reader's log lines without writing any source key.
 
 An existing install's `SatisDashAgent.cfg` may still hold any of these keys, with any value (`bridge` included):
 

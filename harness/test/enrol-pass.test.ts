@@ -1,18 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type Enrol, evaluate, FRM_BRACKET_GAP_MS, type Round } from "../../runs/enrol/pass";
+import { type Circuit, type Enrol, evaluate, powerProblems, type Round } from "../../runs/enrol/pass";
 import type { CoreEvidence } from "../src/core-run";
-import { parseGetPowerFull } from "../src/frm";
 
 const SESSION = "0123456789ab";
 const ENROLLED = "[t][1]LogSatisDash: Display: Enrolled; reporting to the backend";
 
-const circuit = { circuitGroupId: 1, productionMW: 1200, consumptionMW: 800, capacityMW: 1500, maxConsumptionMW: 1400, fuseTriggered: false, batteryCapacityMWh: 100, batteryPercent: 50, batteryDifferentialMW: -12.5 };
-const frmRow = { CircuitGroupID: 1, PowerProduction: 1200, PowerConsumed: 800, PowerCapacity: 1500, PowerMaxConsumed: 1400, BatteryCapacity: 100, BatteryPercent: 50, BatteryDifferential: -12.5, FuseTriggered: false };
+const circuit: Circuit = { circuitGroupId: 1, productionMW: 1200, consumptionMW: 800, capacityMW: 1500, maxConsumptionMW: 1400, fuseTriggered: false, batteryCapacityMWh: 100, batteryPercent: 50, batteryDifferentialMW: -12.5 };
 
-type Frm = Round["frmBefore"];
-/** frm sets both reads; frmBefore / frmAfter override one of them. */
-function round(i: number, world: boolean, over: { snapshot?: Record<string, unknown>; status?: Record<string, unknown>; api?: Record<string, unknown>; frm?: Frm; frmBefore?: Frm; frmAfter?: Frm } = {}): Round {
-  const frm = world ? (over.frm !== undefined ? over.frm : parseGetPowerFull([frmRow])) : null;
+function round(i: number, world: boolean, over: { snapshot?: Record<string, unknown>; status?: Record<string, unknown>; api?: Record<string, unknown> } = {}): Round {
   const status = { isGameRunning: world, gamePaused: false, connectedPlayers: 0, playerLimit: 4, totalGameDurationSeconds: world ? 5000 + i * 5 : 0, tickRate: 30, tickHealth: "healthy", sessionName: world ? SESSION : "da39a3ee5e6b", ...over.status };
   return {
     at: `2026-10-20T16:00:${String(i).padStart(2, "0")}.000Z`,
@@ -24,11 +19,6 @@ function round(i: number, world: boolean, over: { snapshot?: Record<string, unkn
     },
     api: { running: world, paused: false, players: 0, limit: 4, duration: world ? 5000 + i * 5 : 0, tickRate: 30, health: "healthy", session: world ? SESSION : "da39a3ee5e6b", ...over.api } as Round["api"],
     autoPause: false,
-    frmBefore: over.frmBefore !== undefined ? over.frmBefore : frm,
-    frmAfter: over.frmAfter !== undefined ? over.frmAfter : frm,
-    // The sample is at OBSERVED; the reads 0.3 s either side of it.
-    frmBeforeEndedAt: world ? "2026-10-20T15:59:59.700Z" : null,
-    frmAfterStartedAt: world ? "2026-10-20T16:00:00.300Z" : null,
   };
 }
 
@@ -50,28 +40,31 @@ const withRound = (r: Round) => {
   d.rounds[d.rounds.length - 1] = r;
   return d;
 };
+const withCircuit = (over: Partial<Circuit>) => round(30, true, { snapshot: { power: { circuits: [{ ...circuit, ...over }] } } });
 
 describe("enrol pass conditions", () => {
   it("passes a clean capture", () => {
     expect(evaluate(evidence(enrol()))).toEqual({
       pass: true,
-      reasons: ["enrolled; 4 rounds with no game and 12 with the world match the game's APIs; autoPause compared in 16 of 16 rounds; power compared for 1 circuit group(s)"],
+      reasons: ["enrolled; 4 rounds with no game and 12 with the world match the game's APIs; autoPause compared in 16 of 16 rounds; power checked for internal consistency for 1 circuit group(s) (the FRM equality is retired, owner 2026-11-05)"],
     });
   });
 
-  it("says so in the pass reason when no circuit group was compared", () => {
+  it("says so in the pass reason when no circuit group was present", () => {
     const d = enrol();
-    for (const r of d.rounds) {
-      if (r.world) {
-        r.frmBefore = [];
-        r.frmAfter = [];
-        r.snapshot.power = { circuits: [] };
-      }
-    }
-    expect(evaluate(evidence(d))).toEqual({
-      pass: true,
-      reasons: ["enrolled; 4 rounds with no game and 12 with the world match the game's APIs; autoPause compared in 16 of 16 rounds; power compared for 0 circuit group(s)"],
-    });
+    for (const r of d.rounds) if (r.world) r.snapshot.power = { circuits: [] };
+    expect(evaluate(evidence(d)).reasons[0]).toContain("internal consistency for 0 circuit group(s)");
+    expect(evaluate(evidence(d)).pass).toBe(true);
+  });
+
+  it("ignores the FRM fields an older capture's rounds still carry", () => {
+    const d = enrol();
+    const old = d.rounds[5] as unknown as Record<string, unknown>;
+    old.frmBefore = [{ groupId: 9, production: 1 }];
+    old.frmAfter = null;
+    old.frmBeforeEndedAt = "not a time";
+    (d as unknown as Record<string, unknown>).frmPolling = { intervalMs: 250, reads: 1, failed: 1 };
+    expect(evaluate(evidence(d)).pass).toBe(true);
   });
 
   it("fails when autoPause was compared in fewer than 10 rounds (final review of Plan 2B)", () => {
@@ -113,18 +106,9 @@ describe("enrol pass conditions", () => {
     expect(evaluate(evidence(d)).reasons).toContain(`${d.rounds[0]!.at}: power sent with no game running`);
   });
 
-  it("fails a group set that differs from FRM's", () => {
-    const r = round(30, true, { frm: parseGetPowerFull([frmRow, { ...frmRow, CircuitGroupID: 2 }]) });
-    const v = evaluate(evidence(withRound(r)));
-    expect(v.pass).toBe(false);
-    expect(v.reasons).toContain(`${r.at}: circuit groups 1 vs FRM 1,2`);
-  });
-
-  it("fails a battery percent off by 2%", () => {
-    const r = round(30, true, { frm: parseGetPowerFull([{ ...frmRow, BatteryPercent: 51 }]) });
-    const v = evaluate(evidence(withRound(r)));
-    expect(v.pass).toBe(false);
-    expect(v.reasons).toContain(`${r.at}: group 1 batteryPercent 50 vs FRM 51`);
+  it("fails a world round with no power part", () => {
+    const r = round(30, true, { snapshot: { power: undefined } });
+    expect(evaluate(evidence(withRound(r))).reasons).toContain(`${r.at}: no power to compare`);
   });
 
   it("fails an extra top-level snapshot field (S13)", () => {
@@ -150,88 +134,56 @@ describe("enrol pass conditions", () => {
     expect(v.reasons).toContain("only 1 rounds with the world, need 10");
   });
 
-  it("compares a joined group (two FRM circuits, one group id) as one row", () => {
-    const r = round(30, true, { frm: parseGetPowerFull([{ ...frmRow, AssociatedCircuits: [0] }, { ...frmRow, AssociatedCircuits: [3] }]) });
-    expect(evaluate(evidence(withRound(r))).pass).toBe(true);
-  });
-
-  describe("power bracketed by FRM before and after the sample (owner, 2026-10-20; run 39517898558)", () => {
-    const at = (consumed: number) => parseGetPowerFull([{ ...frmRow, CircuitGroupID: 0, PowerConsumed: consumed }]);
-    const modRound = (consumption: number, frmBefore: Frm, frmAfter: Frm) =>
-      round(30, true, { snapshot: { power: { circuits: [{ ...circuit, circuitGroupId: 0, consumptionMW: consumption }] } }, frmBefore, frmAfter });
-
-    it("passes run 39517898558's failing round when the reads bracket it (before 1233.2, after 1218.2, mod 1233.1)", () => {
-      const r = modRound(1233.1043701171875, at(1233.2), at(1218.204345703125));
-      expect(evaluate(evidence(withRound(r))).pass).toBe(true);
+  // Owner ruling 2026-11-05 (R7, D5): the FRM equality is retired; each accepted power circuit is checked for internal consistency.
+  describe("power circuits are internally consistent (owner ruling 2026-11-05, replacing the FRM equality)", () => {
+    it("passes the default circuit, a circuit with no battery, and one at the limits", () => {
+      expect(powerProblems("t", [circuit])).toEqual([]);
+      expect(powerProblems("t", [{ ...circuit, batteryCapacityMWh: 0, batteryPercent: 0 }])).toEqual([]);
+      expect(powerProblems("t", [{ ...circuit, productionMW: 0, consumptionMW: 1400, capacityMW: 0, batteryPercent: 100 }])).toEqual([]);
     });
 
-    it("passes a value within 1% outside the bracket, either side", () => {
-      // tol = 0.01 * max(|1218.2|, |1233.2|, 1) = 12.332
-      expect(evaluate(evidence(withRound(modRound(1245.5, at(1233.2), at(1218.2))))).pass).toBe(true);
-      expect(evaluate(evidence(withRound(modRound(1205.9, at(1218.2), at(1233.2))))).pass).toBe(true);
-    });
-
-    it("fails a value more than 1% outside the bracket, with the exact reason", () => {
-      const r = modRound(1245.6, at(1233.2), at(1218.2));
+    it.each([
+      ["productionMW"], ["consumptionMW"], ["capacityMW"], ["maxConsumptionMW"],
+    ] as const)("fails a negative %s, naming the circuit", (field) => {
+      const r = withCircuit({ circuitGroupId: 7, [field]: -1 });
       const v = evaluate(evidence(withRound(r)));
       expect(v.pass).toBe(false);
-      expect(v.reasons).toEqual([`${r.at}: group 0 consumption 1245.6 vs FRM 1218.2..1233.2`]);
+      expect(v.reasons).toContain(`${r.at}: circuit 7 ${field} is negative (-1)`);
     });
 
-    it("fails a round missing the read before or after the sample", () => {
-      const before = modRound(800, null, at(800));
-      expect(evaluate(evidence(withRound(before))).reasons).toEqual([`${before.at}: no FRM read before the mod's sample`]);
-      const after = modRound(800, at(800), null);
-      expect(evaluate(evidence(withRound(after))).reasons).toEqual([`${after.at}: no FRM read after the mod's sample`]);
+    it("passes zero in each of the four fields", () => {
+      expect(powerProblems("t", [{ ...circuit, productionMW: 0, consumptionMW: 0, capacityMW: 0, maxConsumptionMW: 0 }])).toEqual([]);
     });
 
-    it("says in the pass reason that FRM was polled during the world rounds, how often and how many reads", () => {
-      const v = evaluate(evidence(enrol({ frmPolling: { intervalMs: 250, reads: 412, failed: 1 } })));
-      expect(v.pass).toBe(true);
-      expect(v.reasons[0]).toMatch(/; FRM was polled every 250 ms during the world rounds \(412 reads, 1 failed\)$/);
+    it("fails consumption above maxConsumption, and passes it equal", () => {
+      const r = withCircuit({ circuitGroupId: 3, consumptionMW: 1400.5, maxConsumptionMW: 1400 });
+      expect(evaluate(evidence(withRound(r))).reasons).toEqual([`${r.at}: circuit 3 consumptionMW 1400.5 is above maxConsumptionMW 1400`]);
+      expect(powerProblems("t", [{ ...circuit, consumptionMW: 1400, maxConsumptionMW: 1400 }])).toEqual([]);
     });
 
-    it("the gap constant is 1 s (controller ruling on the owner's decision)", () => {
-      expect(FRM_BRACKET_GAP_MS).toBe(1000);
+    it("skips the consumption check when either figure is absent", () => {
+      const noMax = { ...circuit, maxConsumptionMW: undefined } as unknown as Circuit;
+      expect(powerProblems("t", [noMax])).toEqual([]);
+      const noConsumption = { ...circuit, consumptionMW: undefined } as unknown as Circuit;
+      expect(powerProblems("t", [noConsumption])).toEqual([]);
     });
 
-    it("passes reads 0.4 s either side of the sample", () => {
-      const r = { ...round(30, true), frmBeforeEndedAt: "2026-10-20T15:59:59.600Z", frmAfterStartedAt: "2026-10-20T16:00:00.400Z" };
-      expect(evaluate(evidence(withRound(r))).pass).toBe(true);
+    it("fails a battery percent below 0 or above 100, and passes it absent", () => {
+      const low = withCircuit({ circuitGroupId: 2, batteryPercent: -0.5 });
+      expect(evaluate(evidence(withRound(low))).reasons).toEqual([`${low.at}: circuit 2 batteryPercent -0.5 is outside 0-100`]);
+      const high = withCircuit({ circuitGroupId: 2, batteryPercent: 100.1 });
+      expect(evaluate(evidence(withRound(high))).reasons).toEqual([`${high.at}: circuit 2 batteryPercent 100.1 is outside 0-100`]);
+      const absent = { ...circuit, batteryPercent: undefined } as unknown as Circuit;
+      expect(powerProblems("t", [absent])).toEqual([]);
     });
 
-    it("fails a read 1.2 s away, either side, with the exact reason", () => {
-      const b = { ...round(30, true), frmBeforeEndedAt: "2026-10-20T15:59:58.800Z" };
-      expect(evaluate(evidence(withRound(b))).reasons).toEqual([`${b.at}: the FRM read before the mod's sample ended 1200 ms before it, more than 1000 ms`]);
-      const a = { ...round(30, true), frmAfterStartedAt: "2026-10-20T16:00:01.200Z" };
-      expect(evaluate(evidence(withRound(a))).reasons).toEqual([`${a.at}: the FRM read after the mod's sample started 1200 ms after it, more than 1000 ms`]);
+    it("names every failing circuit and every failing field", () => {
+      const out = powerProblems("t", [{ ...circuit, circuitGroupId: 1, productionMW: -2 }, { ...circuit, circuitGroupId: 2, capacityMW: -3, batteryPercent: 101 }]);
+      expect(out).toEqual(["t: circuit 1 productionMW is negative (-2)", "t: circuit 2 capacityMW is negative (-3)", "t: circuit 2 batteryPercent 101 is outside 0-100"]);
     });
 
-    it("fails reversed reads: a 'before' that ended after the sample, an 'after' that started before it", () => {
-      const b = { ...round(30, true), frmBeforeEndedAt: "2026-10-20T16:00:00.100Z" };
-      expect(evaluate(evidence(withRound(b))).reasons).toEqual([`${b.at}: the FRM read before the mod's sample ended 100 ms after it`]);
-      const a = { ...round(30, true), frmAfterStartedAt: "2026-10-20T15:59:59.900Z" };
-      expect(evaluate(evidence(withRound(a))).reasons).toEqual([`${a.at}: the FRM read after the mod's sample started 100 ms before it`]);
-    });
-
-    it("fails a missing read time, or a snapshot with no observedAt", () => {
-      const b = { ...round(30, true), frmBeforeEndedAt: null };
-      expect(evaluate(evidence(withRound(b))).reasons).toEqual([`${b.at}: no time for the FRM read before the mod's sample`]);
-      const a = { ...round(30, true), frmAfterStartedAt: "not a time" };
-      expect(evaluate(evidence(withRound(a))).reasons).toEqual([`${a.at}: no time for the FRM read after the mod's sample`]);
-      const o = round(30, true, { snapshot: { observedAt: undefined } });
-      expect(evaluate(evidence(withRound(o))).reasons).toEqual([`${o.at}: the snapshot has no observedAt to bracket`]);
-    });
-
-    it("takes group ids and the fuse from either read, and fails when neither matches", () => {
-      const two = parseGetPowerFull([frmRow, { ...frmRow, CircuitGroupID: 2 }]);
-      expect(evaluate(evidence(withRound(round(30, true, { frmBefore: parseGetPowerFull([frmRow]), frmAfter: two })))).pass).toBe(true);
-      const tripped = parseGetPowerFull([{ ...frmRow, FuseTriggered: true }]);
-      expect(evaluate(evidence(withRound(round(30, true, { frmBefore: tripped, frmAfter: parseGetPowerFull([frmRow]) })))).pass).toBe(true);
-      const r = round(30, true, { frmBefore: two, frmAfter: parseGetPowerFull([{ ...frmRow, CircuitGroupID: 3 }]) });
-      expect(evaluate(evidence(withRound(r))).reasons).toEqual([`${r.at}: circuit groups 1 vs FRM 1,2 before, 3 after`]);
-      const f = round(30, true, { frm: tripped });
-      expect(evaluate(evidence(withRound(f))).reasons).toEqual([`${f.at}: group 1 fuse false vs FRM true`]);
+    it("no longer compares the figures with any outside reading: a mod figure of any size passes", () => {
+      expect(evaluate(evidence(withRound(withCircuit({ productionMW: 99999, consumptionMW: 1, capacityMW: 5 })))).pass).toBe(true);
     });
   });
 
@@ -257,44 +209,6 @@ describe("enrol pass conditions", () => {
 
     it("judges a round recorded before the change (no autoPausePending) as having nothing pending", () => {
       expect(evaluate(evidence(withRound(pendingRound({ autoPause: false }, undefined)))).pass).toBe(true);
-    });
-  });
-
-  // Enrol run 40038539365: two biomass burners powering a 4 MW Constructor. FRM's PowerProduction is base production
-  // only (0); the mod sends the game's total (4). See the header of runs/enrol/pass.ts.
-  describe("production against FRM's base production (owner ruling, 2026-10-23)", () => {
-    const burners = (mod: { productionMW: number; batteryCapacityMWh?: number }, frm: { PowerProduction: number; BatteryCapacity?: number }) => {
-      const battery = mod.batteryCapacityMWh ?? 0;
-      const c = { ...circuit, productionMW: mod.productionMW, consumptionMW: 4, capacityMW: 60, maxConsumptionMW: 4, batteryCapacityMWh: battery, batteryPercent: 0, batteryDifferentialMW: 0 };
-      const row = { ...frmRow, PowerProduction: frm.PowerProduction, PowerConsumed: 4, PowerCapacity: 60, PowerMaxConsumed: 4, BatteryCapacity: frm.BatteryCapacity ?? 0, BatteryPercent: 0, BatteryDifferential: 0 };
-      const rounds = [...Array.from({ length: 4 }, (_, i) => round(i, false)),
-        ...Array.from({ length: 12 }, (_, i) => round(10 + i, true, { snapshot: { power: { circuits: [c] } }, frm: parseGetPowerFull([row]) }))];
-      return enrol({}, rounds);
-    };
-
-    it("passes the burners: no batteries, so production is judged against max(FRM production, consumption), and the reason says so", () => {
-      const v = evaluate(evidence(burners({ productionMW: 4 }, { PowerProduction: 0 })));
-      expect(v.pass).toBe(true);
-      expect(v.reasons[0]).toContain("power compared for 1 circuit group(s) (production against max(FRM production, consumption) for 1: no batteries)");
-    });
-
-    it("still fails a production above the derived total, by the same 1% bracket", () => {
-      const d = burners({ productionMW: 4.1 }, { PowerProduction: 0 });
-      const r = d.rounds[d.rounds.length - 1]!;
-      expect(evaluate(evidence(d)).reasons).toContain(`${r.at}: group 1 production 4.1 vs FRM 4`);
-    });
-
-    it("keeps the raw FRM figure for a group with batteries, so the same mismatch fails there", () => {
-      const d = burners({ productionMW: 4, batteryCapacityMWh: 100 }, { PowerProduction: 0, BatteryCapacity: 100 });
-      const r = d.rounds[d.rounds.length - 1]!;
-      expect(evaluate(evidence(d)).reasons).toContain(`${r.at}: group 1 production 4 vs FRM 0`);
-    });
-
-    it("is FRM's own figure where base covers the load, as on the owner's factory group", () => {
-      expect(evaluate(evidence(burners({ productionMW: 3633.3 }, { PowerProduction: 3633.3 }))).pass).toBe(true);
-      const d = burners({ productionMW: 4 }, { PowerProduction: 3633.3 });
-      const r = d.rounds[d.rounds.length - 1]!;
-      expect(evaluate(evidence(d)).reasons).toContain(`${r.at}: group 1 production 4 vs FRM 3633.3`);
     });
   });
 });

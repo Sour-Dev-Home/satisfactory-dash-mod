@@ -3,24 +3,17 @@
 // - QueryServerState is sampled every SAMPLE_INTERVAL_MS through the window. Every sample must have an answer saying
 //   the game is running (within 10 s), and the window must have at least its expected number of samples
 //   (floor(window / interval)); a missing or unanswered sample fails with a reason.
-// - FRM's getBelts and getPipes are read at the start and at the end of the window (trimmed, evidence for G-B1/G-B2).
-//   A failed FRM read is recorded in the reasons but does not fail the verdict; when both failed, the first reason
-//   says the run has no FRM evidence.
+// - R7 step 4 retired the run's evidence-only reads of an external monitor's belt and pipe lists (never judged); the
+//   verdict is unchanged. Earlier captures carry an extra field that is ignored.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { Verdict } from "../../harness/src/verdict";
 
 export const requirements = ["manual"];
 export const SAMPLE_INTERVAL_MS = 30_000;
 
-export interface TrimmedBelt { ID?: unknown; ClassName?: unknown; ConnectedTo0?: unknown; ConnectedTo1?: unknown; ItemsPerMinute?: unknown }
-export interface TrimmedPipe { ID?: unknown; ClassName?: unknown; ConnectedTo0?: unknown; ConnectedTo1?: unknown; Speed?: unknown }
-/** One FRM read: the trimmed lists, or why the read failed. */
-export type FrmRead = { belts: TrimmedBelt[]; pipes: TrimmedPipe[] } | { error: string };
-
 export interface Manual {
   windowMs: number;
   samples: Array<{ at: string; answered: boolean }>;
-  frm: { start: FrmRead; end: FrmRead };
 }
 
 export const expectedSamples = (windowMs: number) => Math.floor(windowMs / SAMPLE_INTERVAL_MS);
@@ -40,10 +33,6 @@ export function evaluate(e: CoreEvidence): Verdict {
     pass = false;
     reasons.push(`${unanswered} of ${c.samples.length} samples got no answer from QueryServerState saying the game is running`);
   }
-  for (const [when, read] of [["start", c.frm.start], ["end", c.frm.end]] as const) {
-    if ("error" in read) reasons.push(`the FRM read at the ${when} failed (${read.error}); recorded, not judged`);
-  }
   if (pass) reasons.unshift(`the server answered QueryServerState in all ${c.samples.length} samples over ${c.windowMs / 60_000} min; availability only, G-B1/G-B2 are the owner's checks in the game`);
-  if ("error" in c.frm.start && "error" in c.frm.end) reasons.unshift("NO FRM EVIDENCE: both FRM reads failed, so this run holds nothing for G-B1/G-B2");
   return { pass, reasons };
 }

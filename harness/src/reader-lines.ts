@@ -1,5 +1,5 @@
-// What the mod's own log says about its native readers (ADR-0058 Decision 3): with a reader on the bridge the mod's output equals
-// FRM's, so a parity or tick-cost run cannot tell native from bridge by values alone. The lines are written by the mod
+// What the mod's own log says about its native readers (ADR-0058 Decision 3): the values alone cannot show a reader ran natively
+// and on the game thread, so the runs judge the mod's own log lines. The lines are written by the mod
 // (Driver.cpp when it enters Running; GameReader.cpp when a node scan ends) and carry counts, enum names and times only.
 // Three families: the Readers: line, the S1 node-scan cost line, and the S2 step-cost lines of every sliced native read.
 import type { Verdict } from "./verdict";
@@ -217,7 +217,7 @@ const STATION_RATES_HEAD = /Station rates \(reflection read\):/;
 
 /**
  * Why the mod's `Station rates (reflection read)` counts do not show the reflection read working (empty: they do). OQ2: a rate lookup that
- * fails everywhere must fail the verdict even when no FRM station transfers. Needs at least one such line, `lookups failed` = 0 on every
+ * fails everywhere must fail the verdict even when no station transfers. Needs at least one such line, `lookups failed` = 0 on every
  * line, and `platforms read` > 0 on at least one line. A line that names the read but does not parse is malformed and fails.
  */
 export function stationRatesLineProblems(lines: readonly string[]): string[] {

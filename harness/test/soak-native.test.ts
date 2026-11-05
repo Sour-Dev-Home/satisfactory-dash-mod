@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { CORE_RUN_IDS, NATIVE_SOURCES, NATIVE_SOURCES_S4B } from "../src/core-run";
+import { CORE_RUN_IDS } from "../src/core-run";
 import type { CoreContext, CoreDeps, CoreEvidence } from "../src/core-run";
 import { CORE_RUNS } from "../src/core-runs";
 import { SOAK_STALL_MS, SOAK_WINDOW_MS, snapshotWatchdog, soakNative } from "../src/core-runs/soak-native";
@@ -72,7 +72,7 @@ describe("soak-native: spec and drive", () => {
     expect(CORE_RUNS["soak-native"]).toBe(soakNative);
   });
   it("has tick-cost-native's mod config, world, baseline and order; only the judge and the window differ", () => {
-    expect(soakNative.modConfig).toEqual({ ...NATIVE_SOURCES_S4B, stepDiagnostics: true });
+    expect(soakNative.modConfig).toEqual({ stepDiagnostics: true });
     expect(soakNative.modConfig).toEqual(tickCostNative.modConfig);
     expect(soakNative.worldKey).toBe("sprint3");
     expect(soakNative.baseline).toBe(true);
@@ -186,19 +186,37 @@ function capture(over: Partial<TickCost> = {}): TickCost {
   };
 }
 
-/** Step lines every 30 min (the node scan's cadence) and a status snapshot every 5 s, across the whole window. */
+const READERS_FULL = `${stamp(START + 9000)}${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=native generators=native stationRates=native storage=native`;
+/**
+ * A full day of the mod's log: the Readers line, then each required reader's step line at its own cadence (the node scan every
+ * 30 min from minute 8, grouped first), plus the station rates line. `keepScan` can drop node scans to model a quiet reader.
+ */
+function dayLines(keepScan: (t: number) => boolean = () => true): string[] {
+  const out = [READERS_FULL];
+  for (let t = START + 8 * MIN; t <= TO; t += 30 * MIN) if (keepScan(t)) out.push(scanLine(t));
+  const every = (periodS: number, make: (t: number) => string) => { for (let t = START + 8 * MIN; t <= TO; t += periodS * 1000) out.push(make(t)); };
+  const step = (name: string, t: number) => `${stamp(t)}${PREFIX}${name} (game thread only): 900 items in 30 steps, longest step 0.50 ms, total 9.00 ms`;
+  every(30, (t) => step("Factory read", t));
+  every(30, (t) => step("Trains read", t));
+  every(30, (t) => `${stamp(t)}${PREFIX}Buildables read (game thread only): 4 elements, 1 extractors, 0 generators, 0 containers in 3 steps, longest step 0.50 ms, total 1.00 ms`);
+  every(600, (t) => step("Train routes read", t));
+  every(600, (t) => `${stamp(t)}${PREFIX}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, wires 843, expected wires 843, longest step 0.50 ms, total 12.00 ms`);
+  every(600, (t) => `${stamp(t)}${PREFIX}Map markers read (game thread only): 120 markers, 0 dropped in 3 steps, longest step 0.50 ms, total 1.00 ms`);
+  every(600, (t) => `${stamp(t)}${PREFIX}Drone routes read (game thread only): 8 ports, 0 dropped in 2 steps, longest step 0.50 ms, total 1.00 ms`);
+  out.push(`${stamp(FROM + MIN)}${PREFIX}Station rates (reflection read): 6 platforms read, 0 fluid platforms skipped, 0 lookups failed`);
+  return out;
+}
+
+/** Step lines for every required reader at its cadence and a status snapshot every 5 s, across the whole window. */
 function evidence(over: { lines?: string[]; posts?: unknown[]; errorLines?: string[]; cap?: TickCost; parts?: unknown } = {}): CoreEvidence {
-  const scans: string[] = [];
-  for (let t = START + 8 * MIN; t <= TO; t += 30 * MIN) scans.push(scanLine(t));
   const posts: unknown[] = [];
   for (let t = FROM; t <= TO; t += 5000) posts.push({ at: iso(t), status: 200, agent: "mod", path: "/agent/v1/snapshots" });
   posts.push({ at: iso(FROM + 20 * MIN), status: 200, agent: "mod", path: "/agent/v1/world/resourceNodes", world: { layer: "resourceNodes", items: 600, bytes: 60000 } });
   return {
-    lines: over.lines ?? [`${stamp(START + 9000)}${PREFIX}Readers: players=native resourceNodes=native`, ...scans],
+    lines: over.lines ?? dayLines(),
     errorLines: over.errorLines ?? [], leaks: { code: false, secret: false, bearer: false },
     captures: {
       "tick-cost.json": over.cap ?? capture(),
-      "mod-config.json": NATIVE_SOURCES,
       "snapshot-parts.json": over.parts ?? { measured: { from: iso(START), to: iso(TO) }, snapshots: [{ at: iso(FROM + MIN), playersAvailable: true }] },
       "recorder.json": over.posts ?? posts,
     },
@@ -282,8 +300,7 @@ describe("soak-native judge: the proposed conditions", () => {
     expect(Soak.READ_CADENCE_S["Resource node scan"]).toBe(1800);
   });
   it("P1 fails the whole verdict when the node scan goes quiet for 2 hours mid-day", () => {
-    const lines = [`${stamp(START + 9000)}${PREFIX}Readers: players=native resourceNodes=native`];
-    for (let t = START + 8 * MIN; t <= TO; t += 30 * MIN) if (t < START + 5 * 3600_000 || t > START + 7 * 3600_000) lines.push(scanLine(t));
+    const lines = dayLines((t) => t < START + 5 * 3600_000 || t > START + 7 * 3600_000);
     const v = Soak.evaluate(evidence({ lines }));
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/soak \(owner 2026-11-03\): Resource node scan went silent for \d+ s, more than its limit of 5400 s \(cadence 1800 s\)/);

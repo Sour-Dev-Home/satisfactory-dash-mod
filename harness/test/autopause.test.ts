@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { collectAutoPauseSteps, parseS7Line } from "../src/autopause";
+import { collectAutoPauseSteps, parseS7Line, readAutoPause, readAutoPauseOptions } from "../src/autopause";
+
+describe("readAutoPause", () => {
+  it("reads only FG.DSAutoPause from GetServerOptions, which carries other options too", async () => {
+    const options = (v: string) => ({ call: async () => ({ status: 200, body: { data: { serverOptions: { "FG.DSAutoPause": v, "other.Secret": "secret" }, pendingServerOptions: {} } } }) });
+    expect(await readAutoPause(options("True"))).toBe(true);
+    expect(await readAutoPause(options("False"))).toBe(false);
+    await expect(readAutoPause({ call: async () => ({ status: 403, body: null }) })).rejects.toThrow(/GetServerOptions returned 403/);
+    await expect(readAutoPause({ call: async () => ({ status: 200, body: { data: {} } }) })).rejects.toThrow(/no FG.DSAutoPause/);
+  });
+  it("reads the pending value too: none, True, False, or unreadable as none", async () => {
+    const options = (pending: Record<string, unknown> | undefined) => ({ call: async () => ({ status: 200, body: { data: { serverOptions: { "FG.DSAutoPause": "False" }, pendingServerOptions: pending } } }) });
+    expect(await readAutoPauseOptions(options({}))).toEqual({ applied: false, pending: null });
+    expect(await readAutoPauseOptions(options({ "FG.DSAutoPause": "True" }))).toEqual({ applied: false, pending: true });
+    expect(await readAutoPauseOptions(options({ "FG.DSAutoPause": "False" }))).toEqual({ applied: false, pending: false });
+    expect(await readAutoPauseOptions(options({ "FG.DSAutoPause": "yes" }))).toEqual({ applied: false, pending: null });
+    expect(await readAutoPauseOptions(options(undefined))).toEqual({ applied: false, pending: null });
+  });
+});
 
 describe("parseS7Line", () => {
   it("reads a read step with its pending flag", () => {

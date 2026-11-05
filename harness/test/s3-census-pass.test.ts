@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CORE_RUN_IDS, NATIVE_SOURCES_S3, type CoreContext, type CoreDeps, type CoreEvidence } from "../src/core-run";
+import { CORE_RUN_IDS, type CoreContext, type CoreDeps, type CoreEvidence } from "../src/core-run";
 import { CORE_RUNS } from "../src/core-runs";
 import { CENSUS_WAIT_MS, s3Census } from "../src/core-runs/s3-census";
 import { censusLines, logisticsRead } from "../src/reader-lines";
@@ -81,10 +81,11 @@ describe("s3-census judge", () => {
 });
 
 describe("s3-census spec and drive", () => {
-  it("is registered, needs no FRM, and loads sprint3 with every reader native", () => {
+  it("is registered and loads sprint3 with the backend, writing no extra mod config", () => {
     expect(CORE_RUN_IDS).toContain("s3-census");
     expect(CORE_RUNS["s3-census"]).toBe(s3Census);
-    expect(s3Census).toMatchObject({ world: true, worldKey: "sprint3", backend: true, modConfig: NATIVE_SOURCES_S3 });
+    expect(s3Census).toMatchObject({ world: true, worldKey: "sprint3", backend: true });
+    expect(s3Census.modConfig).toBeUndefined();
     expect(s3Census.baseline).toBeUndefined();
     expect(CENSUS_WAIT_MS).toBe(14 * 60_000);
   });

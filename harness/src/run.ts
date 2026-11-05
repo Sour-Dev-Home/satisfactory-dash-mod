@@ -11,12 +11,11 @@ import * as S4 from "../../spikes/S4/pass";
 import * as S5 from "../../spikes/S5/pass";
 import * as S6 from "../../spikes/S6/pass";
 import * as S7 from "../../spikes/S7/pass";
-import { collectAutoPauseSteps } from "./autopause";
+import { collectAutoPauseSteps, readAutoPause, setAutoPause } from "./autopause";
 import { type Backend, randomCode, realExec, startBackend } from "./backend";
 import { checkApi, scanSources, type Use } from "./check-api";
 import { logPathOf, pluginDirFor, type RunnerConfig } from "./config";
 import { type Echo, startEcho } from "./echo";
-import { collectPowerPairs, parseGetPower, readAutoPause, setAutoPause } from "./frm";
 import { type Result, writeEvidence } from "./evidence";
 import { lineReader, modLines, readLogSince, resetLog, versionLines, waitForLine } from "./log-watch";
 import { randomCredential, removeModConfig, sha1Prefix, writeModConfig } from "./mod-config";
@@ -59,7 +58,7 @@ export interface SpikeSpec {
   world?: boolean;
   /** S3: auto-pause off once the world is loaded, so the factory runs. */
   pauseOff?: boolean;
-  /** S3: each batch of the mod's power lines is paired with FRM's getPower. */
+  /** S3: each batch of the mod's power lines is paired with a reference reading. The runner no longer wires one (R7 step 4), so S3 cannot run again. */
   power?: boolean;
   /** S6: status lines are paired with QueryServerState and HealthCheck, before the world loads and after. */
   status?: boolean;
@@ -160,7 +159,7 @@ export async function runSpike(spike: SpikeId, deps: RunDeps): Promise<{ result:
     const list = [...api.badRows, ...api.missing.map((u) => `${u.path}:${u.line} ${u.name}`)];
     throw new RefusalError(`check-api failed: ${list.join(", ")}`);
   }
-  if (spec.power && (!deps.collectPower || !deps.loadWorld || !deps.config.s3World)) throw new RefusalError("S3 needs frmBaseUrl and s3World in the runner config");
+  if (spec.power && (!deps.collectPower || !deps.loadWorld || !deps.config.s3World)) throw new RefusalError("S3 needs a power collector and s3World; its reference read was retired in R7 step 4 (owner ruling 2026-11-05), so the spike cannot be run again");
   if (spec.world) {
     if (!deps.loadWorld || !deps.readAutoPause || !deps.setAutoPause || !deps.savesConflict || !deps.config.s3World) {
       throw new RefusalError(`${spike} needs s3World in the runner config`);
@@ -466,20 +465,6 @@ export function realDeps(config: RunnerConfig, toolchain: Toolchain, outDir: str
       collectAutoPause: (from: number) => {
         const reader = lineReader(logPath, from, "satis-mod s7 ");
         return collectAutoPauseSteps({ readNew: reader.readNew, api: () => readAutoPause(api), sleep, now: Date.now, durationMs: 180_000, intervalMs: 500 });
-      },
-    } : {}),
-    ...(config.frmBaseUrl ? {
-      collectPower: (offset: number) => {
-        const reader = lineReader(logPath, offset, "satis-mod s3 circuit=");
-        return collectPowerPairs({
-          // Only the lines added since the last poll: one batch is one round of the mod's readings.
-          readNew: reader.readNew,
-          frm: async () => parseGetPower(await (await fetch(new URL("/getPower", config.frmBaseUrl), { signal: AbortSignal.timeout(2000) })).json()),
-          sleep,
-          now: Date.now,
-          durationMs: 150_000, // the mod's 12 readings: 60 s, then every 10 s, plus margin
-          intervalMs: 500,
-        });
       },
     } : {}),
     now: () => new Date(),

@@ -1,6 +1,6 @@
 // The one-off S3 census (ADR-0058 Sprint S3, Task 10): the staged Test3 world is booted with the logistics layers native, and the
 // mod's first Logistics pass is read for what only the running game says: the belt/lift GetSpeed() unit, tier display names, pipe
-// flow limits and the drone-port ends. It judges no FRM data. Pass = a `Logistics read` line with `layers rails=1 conveyors=1`
+// flow limits and the drone-port ends. Pass = a `Logistics read` line with `layers rails=1 conveyors=1`
 // and at least one census line; every value is printed in the reasons and none is judged, except that the belt/lift speeds are
 // shown next to the expected 60/120/270/480 items a minute (speed / 2) so the owner reads the unit at a glance.
 import type { CoreEvidence } from "../../harness/src/core-run";

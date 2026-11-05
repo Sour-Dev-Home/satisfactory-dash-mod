@@ -191,7 +191,6 @@ export function evaluate(e: CoreEvidence): Verdict {
   const parts = e.captures["snapshot-parts.json"] as { measured?: { from: string; to: string } | null } | undefined;
   const from = parts?.measured ? Date.parse(parts.measured.from) + TICK_WARMUP_MS : NaN;
   const to = parts?.measured ? Date.parse(parts.measured.to) : NaN;
-  const sources = e.captures["mod-config.json"] as Parameters<typeof Native.requiredStepReaders>[0];
   const problems: string[] = [];
   const report: string[] = [];
 
@@ -200,7 +199,7 @@ export function evaluate(e: CoreEvidence): Verdict {
   } else {
     const recorded = (e.captures["recorder.json"] as Recorded[] | undefined) ?? [];
     // P1
-    const all = silences(e.lines, Native.requiredStepReaders(sources), recorded, from, to);
+    const all = silences(e.lines, Native.requiredStepReaders(), recorded, from, to);
     problems.push(...silenceProblems(all));
     report.push(
       `${PROPOSED}: readers (reads in the window, longest gap, limit ${SILENCE_FACTOR} x cadence): ` +

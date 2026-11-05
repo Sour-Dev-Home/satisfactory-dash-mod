@@ -50,12 +50,9 @@ describe("RunnerConfigSchema", () => {
     expect(() => RunnerConfigSchema.parse({ ...valid, s2World: "" })).toThrow();
   });
 
-  it("takes the parity run's agent.cjs path, and refuses an empty one or extra keys", () => {
-    expect(RunnerConfigSchema.parse(valid).parity).toBeUndefined();
-    const cfg = RunnerConfigSchema.parse({ ...valid, parity: { agentCjs: "D:/satis-runner-config/node-agent/agent.cjs" } });
-    expect(cfg.parity).toEqual({ agentCjs: "D:/satis-runner-config/node-agent/agent.cjs" });
-    expect(() => RunnerConfigSchema.parse({ ...valid, parity: { agentCjs: "" } })).toThrow();
-    expect(() => RunnerConfigSchema.parse({ ...valid, parity: { agentCjs: "a.cjs", apiToken: "t" } })).toThrow();
+  it("no longer takes the retired frmBaseUrl or parity keys (R7 step 4): the strict schema names them", () => {
+    expect(() => RunnerConfigSchema.parse({ ...valid, frmBaseUrl: "http://127.0.0.1:18081" })).toThrow();
+    expect(() => RunnerConfigSchema.parse({ ...valid, parity: { agentCjs: "a.cjs" } })).toThrow();
   });
 
   it("refuses a plugin dir without {spike}", () => {

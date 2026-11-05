@@ -1,5 +1,5 @@
 import * as Pass from "../../../runs/s3-census/pass";
-import { NATIVE_SOURCES_S3, satisDashLines, type CoreContext, type CoreRunSpec } from "../core-run";
+import { satisDashLines, type CoreContext, type CoreRunSpec } from "../core-run";
 import { censusLines, logisticsRead } from "../reader-lines";
 import { startRecorder } from "../recorder";
 import { enrolPhase } from "./enrol";
@@ -12,8 +12,8 @@ const PORTS_HEAD = "Conveyor drone ports:";
 const TIER_HEAD = "Conveyor tier census:";
 
 /**
- * The one-off census (Task 10; the owner approves each dispatch): Test3 loaded with every native reader on, the mod enrolled, then
- * a bounded wait for the first Logistics read line. Read-only; it needs no FRM and judges none. census.json holds the parsed
+ * The one-off census (Task 10; the owner approves each dispatch): Test3 loaded, the mod enrolled (every reader is native), then
+ * a bounded wait for the first Logistics read line. Read-only. census.json holds the parsed
  * census lines and the Logistics read line's counts.
  */
 export const s3Census: CoreRunSpec = {
@@ -21,7 +21,6 @@ export const s3Census: CoreRunSpec = {
   backend: true,
   world: true,
   worldKey: "sprint3",
-  modConfig: NATIVE_SOURCES_S3,
   evaluate: Pass.evaluate,
   drive: async (ctx: CoreContext) => {
     const host = await ctx.deps.backendHost!();

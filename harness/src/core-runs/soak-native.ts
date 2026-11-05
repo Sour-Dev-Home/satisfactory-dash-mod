@@ -1,5 +1,5 @@
 import * as Pass from "../../../runs/soak-native/pass";
-import { NATIVE_SOURCES_S4B, type CoreRunSpec } from "../core-run";
+import { type CoreRunSpec } from "../core-run";
 import type { Recorder } from "../recorder";
 import { accepted } from "./enrol";
 import { driveTickCost, tickCost } from "./tick-cost";
@@ -41,7 +41,7 @@ export const soakNative: CoreRunSpec = {
   ...tickCost,
   requirements: Pass.requirements,
   worldKey: "sprint3",
-  modConfig: { ...NATIVE_SOURCES_S4B, stepDiagnostics: true },
+  modConfig: { stepDiagnostics: true },
   evaluate: Pass.evaluate,
   drive: (ctx) => driveTickCost(ctx, "world-first", "sprint3", { windowMs: SOAK_WINDOW_MS, stall: (recorder) => snapshotWatchdog(recorder) }),
 };

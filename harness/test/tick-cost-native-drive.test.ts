@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CORE_RUN_IDS, NATIVE_SOURCES_S4B } from "../src/core-run";
+import { CORE_RUN_IDS } from "../src/core-run";
 import type { CoreContext, CoreDeps } from "../src/core-run";
 import { CORE_RUNS } from "../src/core-runs";
 import { tickCost } from "../src/core-runs/tick-cost";
@@ -17,7 +17,7 @@ async function drive(spec: typeof tickCost, extraDeps: Partial<CoreDeps> = {}, b
   const deps = {
     now: () => new Date(t),
     sleep: yieldTurn,
-    config: { frmBaseUrl: "http://127.0.0.1:18081" },
+    config: {},
     backendHost: async () => ({ relayUrl: "http://127.0.0.1:9", seedCode: async () => void steps.push("seedCode") }),
     loadWorld: async (key?: string) => void (steps.push("loadWorld"), keys.push(key)),
     waitHealthy: async () => void steps.push("waitHealthy"),
@@ -43,10 +43,10 @@ async function drive(spec: typeof tickCost, extraDeps: Partial<CoreDeps> = {}, b
 }
 
 describe("tick-cost-native: spec and drive", () => {
-  it("is registered, in the run ids, and writes native sources into the mod's config", () => {
+  it("is registered, in the run ids, and writes only the diagnostics switch into the mod's config (no per-reader sources)", () => {
     expect(CORE_RUN_IDS).toContain("tick-cost-native");
     expect(CORE_RUNS["tick-cost-native"]).toBe(tickCostNative);
-    expect(tickCostNative.modConfig).toEqual({ ...NATIVE_SOURCES_S4B, stepDiagnostics: true });
+    expect(tickCostNative.modConfig).toEqual({ stepDiagnostics: true });
     expect(tickCostNative.baseline).toBe(true);
     expect(tickCost.modConfig).toBeUndefined();
   });
@@ -115,8 +115,8 @@ describe("tick-cost-native: spec and drive", () => {
     expect((captures["tick-cost.json"] as { outboundForwardWithMod?: unknown }).outboundForwardWithMod).toBeUndefined();
   });
 
-  it("records FRM's endpoint from the runner config for S12 (owner, 2026-10-26)", async () => {
+  it("records no second loopback endpoint for S12 (the 2026-10-26 allowance ended with R7 step 4)", async () => {
     const { captures } = await drive(tickCostNative);
-    expect((captures["tick-cost.json"] as { frm: string | null }).frm).toBe("127.0.0.1:18081");
+    expect(captures["tick-cost.json"]).not.toHaveProperty("frm");
   });
 });
