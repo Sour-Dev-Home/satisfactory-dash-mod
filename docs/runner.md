@@ -96,8 +96,8 @@ run's mod config no longer carries `frmPort`, `frmToken` or the `*Source` keys; 
 which logs one `Config: ignored removed keys ...` line per config load (names only). The test server may still carry its own FRM
 install; the harness neither uses nor needs it, and removing the folder is the owner's choice.
 
-The S3 spike compared the mod's power readings with FRM's on a copy of the owner's save. Its judge and history stay, but the
-runner no longer wires the FRM reference, so the S3 spike cannot be run again. The staged save is still used by S6, S7 and the
+Spike S3 was retired 2026-11-05 with R7 (owner decision): its power reference was FRM, and the native power reader's parity is on
+record in `native-parity` run 41340686528. Its runner wiring, judge and tests are deleted (they stay in git history). The staged save is still used by S6, S7 and the
 core runs. Facts from satisfactory-dash's G0 addendum 2 (#462): `docs-vault/raw-sources/dedicated-server-api-saves-2026-10-20.md`
 and `dedicated-server-save-files-2026-10-20.md`.
 
@@ -107,7 +107,7 @@ and `dedicated-server-save-files-2026-10-20.md`.
 - **Only as `satis-runner`.** The server writes the uploaded save, and its autosaves named after the save's session,
   into the running account's `%LocalAppData%\FactoryGame\Saved\SaveGames\server` (save-files capture E4). The
   owner's real server keeps its saves in the owner's folder, so a run as the owner would add autosaves to its
-  rotation. The harness refuses S3 when that folder holds another server's `ServerSettings.<port>.sav`.
+  rotation. The harness refuses S6 and S7 when that folder holds another server's `ServerSettings.<port>.sav`.
 
 S6 and S7 load the same staged save and follow the same rule: they run only as `satis-runner`, and the harness
 refuses them when another server's settings share the saves folder. They need only `s3World`. S6 reads
@@ -115,9 +115,9 @@ refuses them when another server's settings share the saves folder. They need on
 auto-pause back as they found it.
 
 That restore runs in the harness's own cleanup, so a run that is killed (a cancelled workflow, a runner crash) after
-S7's mod changed the setting leaves it changed, and so does S3's after it turned auto-pause off. After a killed world
+S7's mod changed the setting leaves it changed. After a killed world
 run, start the test server once, read `FG.DSAutoPause` with `GetServerOptions`, and set it back to what the test server
-had before (`ApplyServerOptions`, or the in-game server manager) before S2 or S3 measures anything.
+had before (`ApplyServerOptions`, or the in-game server manager) before S2 measures anything.
 
 S6 also boots the server once first to clear its auto-load save (`SetAutoLoadSessionName` with an empty name), so the
 measured boot starts with no game, and sets it back at the end. A killed S6 run can leave it empty: the server then

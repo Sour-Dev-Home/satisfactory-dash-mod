@@ -4,6 +4,9 @@ Status: draft for the owner's review (2026-10-20). It extends `docs/specs/2026-1
 2026-10-19) and changes none of its rules: the claims gate, `api-sources.md` and `check-api`, harness-written
 evidence only, a failed spike stops the work.
 
+> **Note (2026-11-05):** spike S3 was retired with R7 (owner decision). Its power reference was FRM; the native power
+> reader's parity is on record in `native-parity` run 41340686528. This spec is kept as history.
+
 ## What this is for
 
 ADR-0039 allows a G3 build decision only after G0–G2 are complete. S0–S2 proved C1–C4 (satisfactory-dash #460,
