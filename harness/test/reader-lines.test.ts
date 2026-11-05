@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, describeWaitedSteps, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, longestStepDiagnostics, mapMarkersLogProblems, powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
+import { MAX_NATIVE_STEP_MS, STEP_LINE_NAMES, conveyorsLogProblems, describeWaitedSteps, droneRoutesLogProblems, extractorsLogProblems, factoryLogProblems, generatorsLogProblems, stationRatesLogProblems, stationRatesLineProblems, storageLogProblems, logisticsLayers, logisticsLineProblems, logisticsRead, longestStepDiagnostics, referenceCyclesPerMs, waitedSteps, mapMarkersLogProblems,powerLinesLogProblems, railsLogProblems, readerSources, scanCosts, stepCosts, stepProblems, trainsLogProblems } from "../src/reader-lines";
 
 const P = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
 const line = (name: string, longest: string) => `${P}${name} (game thread only): 1000 items in 40 steps, longest step ${longest} ms, total 12.50 ms`;
@@ -48,6 +48,33 @@ describe("step costs", () => {
     });
     it("fails a wait whose CPU estimate passes the ceiling (40 ms at 10%)", () => {
       expect(stepProblems([cost("40.00"), diag("40.00", 402230, 4022303)], ["Logistics read"])).toHaveLength(1);
+    });
+    describe("judged against the run's median cycles per ms (owner 2026-11-05, soak run 41878531754)", () => {
+      const normal = [diag("2.50", 4160000, 4160000), diag("2.60", 4160000, 4160000), diag("2.70", 4160000, 4160000), diag("2.80", 4160000, 4160000)];
+      const soak = [
+        cost("10.10"), diag("10.10", 416000, 742000),
+        cost("10.20"), diag("10.20", 520000, 903000),
+        cost("10.30"), diag("10.30", 541000, 2400000),
+      ];
+      it("passes the three soak waits whose own reads were depressed (742k, 903k, 2.40M vs ~4.16M)", () => {
+        const lines = [...normal, ...soak];
+        expect(stepProblems(lines, [])).toEqual([]);
+        expect(waitedSteps(lines)).toHaveLength(3);
+        expect(describeWaitedSteps(lines)[0]).toContain("of the run's median 4,160,000 cycles per ms over 7 reads");
+      });
+      it("still fails a step at 25% or more of the run median", () => {
+        const lines = [...normal, cost("10.10"), diag("10.10", 1040000, 742000)];
+        expect(stepProblems(lines, [])).toHaveLength(1);
+      });
+      it("with one diagnostic line the median is its own value", () => {
+        expect(referenceCyclesPerMs(longestStepDiagnostics([diag("9.25", 231709, 4022303)]))).toEqual({ median: 4022303, reads: 1 });
+        expect(stepProblems([cost("9.25"), diag("9.25", 231709, 4022303)], [])).toEqual([]);
+        expect(stepProblems([cost("9.25"), diag("9.25", 1005576, 4022303)], [])).toHaveLength(1);
+      });
+      it("has no reference without a cycles tail, so the plain ceiling holds", () => {
+        expect(referenceCyclesPerMs([])).toBeUndefined();
+        expect(stepProblems([cost("9.25")], [])).toHaveLength(1);
+      });
     });
     it("fails without the cycles tail (stepDiagnostics off), and without a matching diagnostic", () => {
       expect(stepProblems([cost("9.25")], ["Logistics read"])).toHaveLength(1);

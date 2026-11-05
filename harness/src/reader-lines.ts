@@ -103,23 +103,36 @@ export function stepCosts(lines: readonly string[]): StepCost[] {
 
 /**
  * Owner ruling 2026-11-03 (tick-cost-native 41706085144): a longest step over the ceiling still passes when the thread was mostly
- * WAITING, not working — its thread cycles per ms are below WAITED_STEP_MAX_CYCLE_SHARE of the read's other steps — and its CPU estimate
+ * WAITING, not working — its thread cycles per ms are below WAITED_STEP_MAX_CYCLE_SHARE of the run's median (see referenceCyclesPerMs) — and its CPU estimate
  * (wall time x that share) is within the ceiling. It needs the cycles tail (the mod's "stepDiagnostics"); without it the plain rule holds.
  */
 export const WAITED_STEP_MAX_CYCLE_SHARE = 0.25;
-export interface WaitedStep { reader: string; longestStepMs: number; cycleShare: number; cpuEstimateMs: number; diagnostic: LongestStepDiagnostic }
+export interface WaitedStep { reader: string; longestStepMs: number; cycleShare: number; cpuEstimateMs: number; diagnostic: LongestStepDiagnostic; referenceCyclesPerMs: number; referenceReads: number }
+
+/**
+ * Owner 2026-11-05 (soak run 41878531754): the reference is the run-wide median of `cyclesPerMsInOtherSteps` over every diagnostic line
+ * that has the cycles tail, not the slow read's own other steps (a read slowed as a whole depresses its own reference). Undefined when
+ * no line has the tail. The median of one line is its own value.
+ */
+export function referenceCyclesPerMs(diagnostics: readonly LongestStepDiagnostic[]): { median: number; reads: number } | undefined {
+  const values = diagnostics.map((d) => d.cyclesPerMsInOtherSteps).filter((v): v is number => v !== undefined && Number.isFinite(v)).sort((a, b) => a - b);
+  if (values.length === 0) return undefined;
+  const mid = values.length >> 1;
+  return { median: values.length % 2 === 1 ? values[mid]! : (values[mid - 1]! + values[mid]!) / 2, reads: values.length };
+}
 
 /** The over-ceiling steps the waiting rule lets pass, each matched to its own diagnostic line (same reader, same longest step). */
 export function waitedSteps(lines: readonly string[]): WaitedStep[] {
   const diagnostics = longestStepDiagnostics(lines);
+  const reference = referenceCyclesPerMs(diagnostics);
   const out: WaitedStep[] = [];
   for (const c of stepCosts(lines)) {
     if (!(c.longestStepMs > MAX_NATIVE_STEP_MS)) continue;
     const d = diagnostics.find((x) => `${x.reader} read` === c.reader && Math.abs(x.longestStepMs - c.longestStepMs) < 0.005);
-    if (!d || d.cyclesPerMsInStep === undefined || d.cyclesPerMsInOtherSteps === undefined || !(d.cyclesPerMsInOtherSteps > 0)) continue;
-    const cycleShare = d.cyclesPerMsInStep / d.cyclesPerMsInOtherSteps;
+    if (!d || d.cyclesPerMsInStep === undefined || reference === undefined || !(reference.median > 0)) continue;
+    const cycleShare = d.cyclesPerMsInStep / reference.median;
     const cpuEstimateMs = c.longestStepMs * cycleShare;
-    if (cycleShare < WAITED_STEP_MAX_CYCLE_SHARE && cpuEstimateMs <= MAX_NATIVE_STEP_MS) out.push({ reader: c.reader, longestStepMs: c.longestStepMs, cycleShare, cpuEstimateMs, diagnostic: d });
+    if (cycleShare < WAITED_STEP_MAX_CYCLE_SHARE && cpuEstimateMs <= MAX_NATIVE_STEP_MS) out.push({ reader: c.reader, longestStepMs: c.longestStepMs, cycleShare, cpuEstimateMs, diagnostic: d, referenceCyclesPerMs: reference.median, referenceReads: reference.reads });
   }
   return out;
 }
@@ -131,7 +144,7 @@ export function describeWaitedSteps(lines: readonly string[]): string[] {
     const element = d.longestElementMs === undefined ? "" : `, longest element ${d.longestElementMs} ms at ${d.longestElementIndex} (phase ${d.longestElementPhase})`;
     const k = d.conveyorCalls;
     const calls = k === undefined ? "" : `; conveyor calls max: get ${k.getMs} ms at ${k.getSlot}, name ${k.nameMs} ms at ${k.nameSlot}, text ${k.textMs} ms at ${k.textSlot}, speed ${k.speedMs} ms at ${k.speedSlot}, ends ${k.endsMs} ms at ${k.endsSlot}`;
-    return `${w.reader}: longest step ${w.longestStepMs} ms passed as a wait (owner ruling 2026-11-03): the thread ran at ${(w.cycleShare * 100).toFixed(1)}% of its other steps' cycles per ms (< ${WAITED_STEP_MAX_CYCLE_SHARE * 100}%), CPU estimate ${w.cpuEstimateMs.toFixed(2)} ms <= ${MAX_NATIVE_STEP_MS} ms${element}${calls}`;
+    return `${w.reader}: longest step ${w.longestStepMs} ms passed as a wait (owner ruling 2026-11-03): the thread ran at ${(w.cycleShare * 100).toFixed(1)}% of the run's median ${Math.round(w.referenceCyclesPerMs).toLocaleString("en-US")} cycles per ms over ${w.referenceReads} reads (< ${WAITED_STEP_MAX_CYCLE_SHARE * 100}%), CPU estimate ${w.cpuEstimateMs.toFixed(2)} ms <= ${MAX_NATIVE_STEP_MS} ms${element}${calls}`;
   });
 }
 

@@ -361,7 +361,11 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   whose line is missing. When a longest step passes 2.0 ms the mod also logs one diagnostic line, `<Name> read longest step: <x.xx> ms
   over <n> elements, phase <a> to <b>` (the judge does not read it; the phase is 0 Collect, 1 ReadRails, 2 ReadConveyors,
   3 ReadPowerLines for `Logistics`, the level index for `Resource node`, 0 for the others). One element at about 9 ms
-  means a stall outside the mod's code, not a slow element of ours. With the S2 keys in the config the judge also needs `factorySource` and `trainsSource` to be
+  means a stall outside the mod's code, not a slow element of ours. A step over 2.0 ms still passes as a wait (owner rulings
+  2026-11-03 and 2026-11-05) when the diagnostic line has the cycles tail (`stepDiagnostics`), its thread ran at under 25% of
+  the **run-wide median** of the "other steps" cycles per ms over every diagnostic line in the log, and its CPU estimate (wall
+  time x that share) is within 2 ms; the verdict reports each such step with the median used. A single diagnostic line is its
+  own median; without the cycles tail the plain ceiling holds. With the S2 keys in the config the judge also needs `factorySource` and `trainsSource` to be
   `native` (in the config and in the mod's `Readers:` line) and a `Factory read`, `Trains read` and `Train routes read` line
   whose time falls inside the measured window. S1-shaped evidence (no S2 keys) is judged as before. The routes layer follows the
   resource-node layer's first-read rule (first scan 8 minutes, +/-10%, after Running, then every 10 minutes), so its first post
