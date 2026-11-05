@@ -28,18 +28,6 @@ export const RunnerConfigSchema = z.strictObject({
     .min(1, "buildCommand is empty: fill it from the captured Alpakit page (G2-prep)"),
   builtPluginDir: z.string().includes("{spike}"),
   installed: z.strictObject({ engine: z.string().min(1), sml: z.string().min(1) }),
-  /** S3: Ficsit Remote Monitoring's web server on the test server (satisfactory-dash ADR-0039 G0 addendum 2). */
-  frmBaseUrl: z
-    .string()
-    .refine((v) => {
-      try {
-        const u = new URL(v);
-        return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
-      } catch {
-        return false;
-      }
-    }, "frmBaseUrl must be http on loopback")
-    .optional(),
   /** S3: the staged copy of the owner's save, uploaded and loaded each run (docs/runner.md, "S3's world"). */
   s3World: z.string().min(1).optional(),
   /** The S2 native runs' save (native-parity, tick-cost-native); see docs/runner.md "The S2 world (Test2)". */
@@ -52,11 +40,6 @@ export const RunnerConfigSchema = z.strictObject({
   backendHost: z.strictObject({ file: z.string().min(1), port: z.number().int().min(1024).max(65535) }).optional(),
   /** The core mod's unit tests (scripts/test-mod.ps1): the SML project folder and the engine root. */
   modTest: z.strictObject({ project: z.string().min(1), engine: z.string().min(1) }).optional(),
-  /**
-   * The parity run: a satisfactory-dash `agent/dist/agent.cjs` built from the contract pin, copied where satis-runner can
-   * read it (docs/runner.md, "The parity run's Node agent").
-   */
-  parity: z.strictObject({ agentCjs: z.string().min(1) }).optional(),
 });
 export type RunnerConfig = z.infer<typeof RunnerConfigSchema>;
 

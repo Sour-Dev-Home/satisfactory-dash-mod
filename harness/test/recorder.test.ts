@@ -232,7 +232,7 @@ describe("recorder (ruling 11)", () => {
     const e = rec.entries[0]!;
     expect(e.snapshot).toBeUndefined();
     expect(e.oversized).toBeUndefined();
-    const round = { at: e.at, world: true, snapshot: e.snapshot as Record<string, unknown>, api: null, autoPause: null, frmBefore: null, frmAfter: null, frmBeforeEndedAt: null, frmAfterStartedAt: null };
+    const round = { at: e.at, world: true, snapshot: e.snapshot as Record<string, unknown>, api: null, autoPause: null };
     expect(compareRound(round)).toEqual([`${e.at}: the snapshot body was not recorded`]);
   });
 

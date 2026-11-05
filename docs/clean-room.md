@@ -4,6 +4,9 @@ The mod reads the game itself instead of calling FicsitRemoteMonitoring (FRM). F
 writes a native reader reads FRM's code (ADR-0058 in the satisfactory-dash repository, Decision 6, with the owner's
 answer 4 of 2026-10-25: there is no similarity-check job; these rules and the provenance file are the control).
 
+Since R7 step 4 (2026-11) FRM is no longer a live oracle: the harness has no FRM client and no run reads FRM's output. The
+captures a reader's provenance may cite are the earlier ones kept in the dash repo's `docs-vault/raw-sources/mod-native-readers/`.
+
 ## The rules (verbatim from ADR-0058, Decision 6)
 
 1. **Never open FRM's repository files.** Not on GitHub, not in a clone, not through code search, not in a cache, not

@@ -9,7 +9,6 @@ const samples = (n: number, answered = true) =>
 const capture = (over: Partial<Manual> = {}): Manual => ({
   windowMs: WINDOW,
   samples: samples(10),
-  frm: { start: { belts: [], pipes: [] }, end: { belts: [], pipes: [] } },
   ...over,
 });
 const ev = (c: Manual | undefined): CoreEvidence => ({
@@ -53,15 +52,10 @@ describe("manual pass", () => {
     expect(evaluate(ev(capture({ samples: [] }))).pass).toBe(false);
   });
 
-  it("says first that there is no FRM evidence when both reads failed (review of 93a6886)", () => {
-    const v = evaluate(ev(capture({ frm: { start: { error: "boom" }, end: { error: "boom" } } })));
+  it("ignores the extra field an earlier capture carries (the retired belt and pipe reads)", () => {
+    const old = { ...capture(), frm: { start: { error: "boom" }, end: { error: "boom" } } } as Manual;
+    const v = evaluate(ev(old));
     expect(v.pass).toBe(true);
-    expect(v.reasons[0]).toMatch(/^NO FRM EVIDENCE/);
-  });
-
-  it("does not fail on a failed FRM read, but records it in the reasons", () => {
-    const v = evaluate(ev(capture({ frm: { start: { error: "boom" }, end: { belts: [], pipes: [] } } })));
-    expect(v.pass).toBe(true);
-    expect(v.reasons.join(" ")).toMatch(/FRM read at the start failed/);
+    expect(v.reasons).toHaveLength(1);
   });
 });

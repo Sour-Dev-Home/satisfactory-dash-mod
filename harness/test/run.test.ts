@@ -255,9 +255,9 @@ describe("runSpike", () => {
     expect(calls.some((c) => c.startsWith("build"))).toBe(false);
   });
 
-  it("S3: refuses before building without FRM's URL or the world (final review, minor 7)", async () => {
+  it("S3: refuses before building without a power collector or the world (the runner wires none since R7 step 4)", async () => {
     const { deps, calls } = fakeDeps({ savesConflict: () => [] });
-    await expect(runSpike("S3", deps)).rejects.toThrow(/S3 needs frmBaseUrl and s3World/);
+    await expect(runSpike("S3", deps)).rejects.toThrow(/S3 needs a power collector and s3World/);
     expect(calls.some((c) => c.startsWith("build"))).toBe(false);
   });
 

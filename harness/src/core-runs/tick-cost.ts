@@ -35,8 +35,7 @@ export interface WindowOptions {
 /**
  * Ticks for TICK_WARMUP_MS + the window (TICK_COST_WINDOW_MS unless opts.windowMs), and every TICK_COST_SAMPLE_MS (on a fixed schedule from the start)
  * the outbound endpoints and the working set of the process tree under pid: the server's launcher, never the harness.
- * One more sample is taken when the window ends, so the last memory point is the end of the window. No FRM poller.
- * When `exited` settles (the server died), the samplers stop and the measurement rejects, so nothing keeps measuring
+ * One more sample is taken when the window ends, so the last memory point is the end of the window. * When `exited` settles (the server died), the samplers stop and the measurement rejects, so nothing keeps measuring
  * into the next boot (review M1).
  */
 export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promise<unknown>, opts: WindowOptions = {}): Promise<Measured> {
@@ -216,8 +215,6 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?
       memoryBaseline: base?.memory ?? [],
       memoryWithMod: [],
       recorder: new URL(recorder.url).host,
-      // The mod's FRM bridge reads FRM here (owner, 2026-10-26: S12 allows it).
-      frm: ctx.deps.config.frmBaseUrl ? new URL(ctx.deps.config.frmBaseUrl).host : null,
       circuitGroups: null,
       sessionBaseline: base?.session ?? null,
       sessionWithMod: null,

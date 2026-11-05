@@ -192,27 +192,15 @@ describe("tick-cost pass", () => {
       expect(reasons({ outboundBaseline: [], outboundWithMod: [] })).toContain("S12: the sampler never saw the mod's connection to the recorder (127.0.0.1:13105)");
       expect(reasons({ ...run39538061390, outboundWithMod: ["172.67.74.152:443"] })).toContain(`S12: the sampler never saw the mod's connection to the recorder (${RUN_RECORDER})`);
     });
-    describe("FRM's endpoint (owner, 2026-10-26)", () => {
-      const FRM = "127.0.0.1:18081";
-      it("allows exactly FRM's loopback endpoint and names it in the pass reason (runs 40247280125, 40256047941)", () => {
-        const v = evaluate(ev(capture({ frm: FRM, outboundWithMod: ["203.0.113.7:443", RECORDER, FRM], outboundNamesWithMod: { "127.0.0.1": ["kubernetes.docker.internal"] } })));
-        expect(v.pass).toBe(true);
-        expect(v.reasons[0]).toContain("all the recorder's, and FRM's 127.0.0.1:18081 (owner, 2026-10-26)");
+    describe("no second loopback port (the 2026-10-26 allowance ended with R7 step 4, owner 2026-11-05)", () => {
+      const OTHER = "127.0.0.1:18081";
+      it("fails on any loopback port but the recorder's, even when an old capture still carries an `frm` field", () => {
+        const failure = "S12: the mod's boot contacted 127.0.0.1:18081, which the baseline didn't, isn't the recorder (127.0.0.1:13105), and has no DNS name";
+        expect(reasons({ outboundWithMod: ["203.0.113.7:443", RECORDER, OTHER] })).toContain(failure);
+        expect(reasons({ frm: OTHER, outboundWithMod: ["203.0.113.7:443", RECORDER, OTHER] } as never)).toContain(failure);
       });
-      it("doesn't require FRM to appear", () => {
-        expect(evaluate(ev(capture({ frm: FRM }))).pass).toBe(true);
-      });
-      it("fails on another loopback port, or when the capture has no FRM endpoint", () => {
-        expect(reasons({ frm: FRM, outboundWithMod: ["203.0.113.7:443", RECORDER, "127.0.0.1:18082"] }))
-          .toContain("S12: the mod's boot contacted 127.0.0.1:18082, which the baseline didn't, isn't the recorder (127.0.0.1:13105), and has no DNS name");
-        expect(reasons({ frm: null, outboundWithMod: ["203.0.113.7:443", RECORDER, FRM] }))
-          .toContain("S12: the mod's boot contacted 127.0.0.1:18081, which the baseline didn't, isn't the recorder (127.0.0.1:13105), and has no DNS name");
-        expect(reasons({ outboundWithMod: ["203.0.113.7:443", RECORDER, FRM] }))
-          .toContain("S12: the mod's boot contacted 127.0.0.1:18081, which the baseline didn't, isn't the recorder (127.0.0.1:13105), and has no DNS name");
-      });
-      it("fails when FRM's endpoint isn't 127.0.0.1:<port>", () => {
-        expect(reasons({ frm: "10.0.0.5:18081", outboundWithMod: ["203.0.113.7:443", RECORDER, "10.0.0.5:18081"] }))
-          .toContain("S12: FRM's endpoint is not 127.0.0.1:<port> (10.0.0.5:18081)");
+      it("still passes when the mod contacts only the recorder", () => {
+        expect(evaluate(ev(capture())).pass).toBe(true);
       });
     });
     it("fails when the recorder is not a loopback host:port", () => {

@@ -23,7 +23,8 @@ dashboard, pushes a snapshot every 5 s, and long-polls for commands (only `set_a
 power, a snapshot carries players, the factory and `mapLive` (trains and stations), all read from the game itself (the
 native readers, see `docs/native-readers.md`). The mod also posts the map layers to the backend (read from the game, first
 about 8 minutes after start, then every 10 or 30 minutes), sending a layer only when it changes. The mod does not talk to
-FicsitRemoteMonitoring (FRM) at all; the harness still uses FRM as the parity oracle until R7 step 4.
+FicsitRemoteMonitoring (FRM) at all, and since R7 step 4 neither does the harness: the FRM-based parity runs are retired, and
+the record of them is in the dash repo's `docs-vault/raw-sources/mod-native-readers/`.
 
 - **Config:** `FactoryGame/Configs/SatisDashAgent.cfg`, written with defaults on first start:
   `{"backendUrl": "https://api.satis-manager.com", "enrollmentCode": ""}`. Put the dashboard's code in

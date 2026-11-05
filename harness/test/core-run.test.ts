@@ -115,27 +115,23 @@ describe("runCore", () => {
     expect(existsSync(`${cred}.tmp`)).toBe(false);
   });
 
-  it("writes frmPort into the mod config from the runner config's frmBaseUrl, and none when it is unset", async () => {
-    const written: (Record<string, unknown> | null)[] = [];
-    for (const frmBaseUrl of ["http://127.0.0.1:18081", undefined]) {
-      const { deps, serverDir } = fakeDeps();
-      if (frmBaseUrl) deps.config.frmBaseUrl = frmBaseUrl;
-      else delete (deps.config as { frmBaseUrl?: string }).frmBaseUrl;
-      await runCore("http-probe", spec({
-        drive: async (ctx) => {
-          ctx.writeConfig({ backendUrl: "http://127.0.0.1:1", enrollmentCode: "" });
-          written.push(JSON.parse(readFileSync(modConfigPath(serverDir, MOD), "utf8")));
-        },
-      }), deps);
-    }
-    expect(written[0]).toMatchObject({ backendUrl: "http://127.0.0.1:1", frmPort: 18081 });
-    expect(written[1]).not.toHaveProperty("frmPort");
+  it("writes only the backend keys into the mod config: no frmPort, frmToken or per-reader source", async () => {
+    const { deps, serverDir } = fakeDeps();
+    let written: Record<string, unknown> = {};
+    await runCore("http-probe", spec({
+      drive: async (ctx) => {
+        ctx.writeConfig({ backendUrl: "http://127.0.0.1:1", enrollmentCode: "" });
+        written = JSON.parse(readFileSync(modConfigPath(serverDir, MOD), "utf8"));
+      },
+    }), deps);
+    expect(written).toMatchObject({ backendUrl: "http://127.0.0.1:1" });
+    expect(Object.keys(written).filter((k) => /^frm|Source$/.test(k))).toEqual([]);
   });
 
   it("adds the spec's modConfig to every config it writes and records it in mod-config.json; none without one", async () => {
     const written: Record<string, unknown>[] = [];
     const dirs: string[] = [];
-    for (const modConfig of [{ playersSource: "native" as const, stepDiagnostics: true }, undefined]) {
+    for (const modConfig of [{ stepDiagnostics: true }, undefined]) {
       const { deps, serverDir } = fakeDeps();
       const { dir } = await runCore("http-probe", spec({
         modConfig,
@@ -145,11 +141,11 @@ describe("runCore", () => {
         },
       }), deps);
       dirs.push(dir);
-      if (modConfig) expect(JSON.parse(readFileSync(join(dir, "mod-config.json"), "utf8"))).toEqual({ playersSource: "native", stepDiagnostics: true });
+      if (modConfig) expect(JSON.parse(readFileSync(join(dir, "mod-config.json"), "utf8"))).toEqual({ stepDiagnostics: true });
       else expect(existsSync(join(dir, "mod-config.json"))).toBe(false);
     }
-    expect(written[0]).toMatchObject({ backendUrl: "http://127.0.0.1:1", playersSource: "native", stepDiagnostics: true }); // a boolean stays a JSON boolean in the written file
-    expect(written[1]).not.toHaveProperty("playersSource");
+    expect(written[0]).toMatchObject({ backendUrl: "http://127.0.0.1:1", stepDiagnostics: true }); // a boolean stays a JSON boolean in the written file
+    expect(written[1]).not.toHaveProperty("stepDiagnostics");
   });
 
   it("searches the log for the secret in credential.json and the code, and keeps only booleans", async () => {
@@ -366,7 +362,7 @@ describe("runCore", () => {
   it("worldKey: a spec for the S2 world is refused without a loader, naming the key", async () => {
     const { deps, calls } = fakeDeps();
     delete (deps as { loadWorld?: unknown }).loadWorld;
-    await expect(runCore("native-parity", spec({ world: true, worldKey: "s2" }), deps)).rejects.toThrow(/native-parity needs s2World in the runner config/);
+    await expect(runCore("tick-cost-native", spec({ world: true, worldKey: "s2" }), deps)).rejects.toThrow(/tick-cost-native needs s2World in the runner config/);
     await expect(runCore("tick-cost", spec({ world: true }), deps)).rejects.toThrow(/tick-cost needs s3World in the runner config/);
     expect(calls).toEqual([]);
   });
@@ -374,9 +370,9 @@ describe("runCore", () => {
   it("worldKey: s2 is refused when the runner config names no s2World, even with a loader (s3World alone)", async () => {
     const { deps, calls } = fakeDeps();
     deps.config.s3World = "x.sav";
-    await expect(runCore("native-parity", spec({ world: true, worldKey: "s2" }), deps)).rejects.toThrow(/needs s2World/);
+    await expect(runCore("tick-cost-native", spec({ world: true, worldKey: "s2" }), deps)).rejects.toThrow(/needs s2World/);
     deps.config.s2World = "y.sav";
-    await runCore("native-parity", spec({ world: true, worldKey: "s2" }), deps);
+    await runCore("tick-cost-native", spec({ world: true, worldKey: "s2" }), deps);
     expect(calls).toContain("build");
   });
 
@@ -394,10 +390,10 @@ describe("runCore", () => {
     const { deps, calls } = fakeDeps({ loadWorld: async (key) => void keys.push(key) });
     deps.config.s3World = "x.sav";
     deps.config.s2World = "y.sav";
-    await expect(runCore("native-parity", spec({ world: true, worldKey: "sprint3" }), deps)).rejects.toThrow(/native-parity needs sprint3World in the runner config/);
+    await expect(runCore("tick-cost-native", spec({ world: true, worldKey: "sprint3" }), deps)).rejects.toThrow(/tick-cost-native needs sprint3World in the runner config/);
     expect(calls).toEqual([]);
     deps.config.sprint3World = "z.sav";
-    await runCore("native-parity", spec({ world: true, baseline: true, worldKey: "sprint3", measureBaseline: async () => 1 }), deps);
+    await runCore("tick-cost-native", spec({ world: true, baseline: true, worldKey: "sprint3", measureBaseline: async () => 1 }), deps);
     expect(keys).toContain("sprint3");
   });
 

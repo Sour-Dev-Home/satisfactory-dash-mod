@@ -1,6 +1,5 @@
 // The tick-cost run (spec "Testing" 2, C4 and S12): the server boots once without the mod and once with it, each with
-// the staged world loaded and auto-pause off, and is measured for 10 minutes after TICK_WARMUP_MS. No FRM poller runs
-// in either window (it would load the server being measured). The mod's reader probes circuit ids 0-9999 on every power
+// the staged world loaded and auto-pause off, and is measured for 10 minutes after TICK_WARMUP_MS.// in either window (it would load the server being measured). The mod's reader probes circuit ids 0-9999 on every power
 // read (GameValues.h:27), so the with-mod median covers that scan; the pass reason says how many circuit groups the
 // save has, so a reader can judge it.
 // - C4 (S2's rule, spikes/S2/pass.ts): the with-mod tick median is at least 95% of the baseline's; both windows have samples.
@@ -20,10 +19,9 @@
 //   A new endpoint with no name, or whose names the baseline didn't contact, fails with its IP and names. Any failed
 //   DNS read in either boot fails S12 (a missing name could hide a mismatch, and baseline names could be incomplete).
 //   The pass reason lists each endpoint matched by name with the name and both IPs.
-//   Owner decision (2026-10-26, after tick-cost-native runs 40247280125 and 40256047941, which failed S12 only on
-//   127.0.0.1:18081, FRM's HTTP server, read by the mod's FRM bridge since Plan 3A): FRM's endpoint, taken from the
-//   runner config's frmBaseUrl and recorded as `frm`, is allowed like the recorder's, only as 127.0.0.1:<port> and only
-//   that exact port. It isn't required to appear. A capture without `frm` allows nothing extra.
+//   R7 step 4 (owner ruling 2026-11-05) ended the 2026-10-26 allowance for a second loopback port: the mod no longer talks to
+//   anything but the backend, so the recorder's port is the only endpoint allowed without a DNS-name match, and a capture's
+//   old `frm` field is ignored (a with-mod connection to that port now fails S12 like any other new endpoint).
 //   Owner decision (2026-10-27, after tick-cost-native run 40550430423, which failed S12 only on the game's own public-IP
 //   lookup again: the baseline contacted api.ipify.org at 104.26.13.205:443 and the with-mod boot 104.26.12.205:443, the
 //   same service on another Cloudflare address, but the with-mod boot's DNS cache had no name for that address): after the
@@ -86,8 +84,6 @@ export interface TickCost {
   memoryWithMod: MemoryPoint[];
   /** The recorder's host:port, an endpoint the mod may add. */
   recorder: string;
-  /** FRM's host:port from the runner config (owner, 2026-10-26: the other endpoint the mod may add); null when unset. */
-  frm?: string | null;
   /** Circuit groups in the mod's last accepted snapshot; null when unknown (evidence only). */
   circuitGroups: number | null;
   /** The session hash QueryServerState gave at the start of each boot's measurement; null when unread. */
@@ -158,8 +154,6 @@ export function evaluate(e: CoreEvidence): Verdict {
     else if (n.dnsFailed) reasons.push(`S12: ${n.dnsFailed} DNS read(s) of the ${name} window failed`);
   }
   if (!c.outboundWithMod.includes(c.recorder)) reasons.push(`S12: the sampler never saw the mod's connection to the recorder (${c.recorder})`);
-  const frmOk = typeof c.frm === "string" && /^127\.0\.0\.1:\d{1,5}$/.test(c.frm);
-  if (c.frm != null && !frmOk) reasons.push(`S12: FRM's endpoint is not 127.0.0.1:<port> (${c.frm})`);
   const known = new Set(c.outboundBaseline);
   const added = c.outboundWithMod.filter((x) => !known.has(x));
   // name:port -> the baseline endpoints of that name, from the baseline boot's own DNS cache only.
@@ -175,7 +169,6 @@ export function evaluate(e: CoreEvidence): Verdict {
   const byName: string[] = [];
   for (const x of added) {
     if (recorderOk && x === c.recorder) continue;
-    if (frmOk && x === c.frm) continue;
     const { address, port } = splitEndpoint(x);
     const names = c.outboundNamesWithMod?.[address] ?? [];
     const which = `S12: the mod's boot contacted ${x}${names.length ? ` (${names.join(", ")})` : ""}, which the baseline didn't, isn't the recorder (${c.recorder})`;
@@ -240,7 +233,6 @@ export function evaluate(e: CoreEvidence): Verdict {
       `tick median ${base} without the mod, ${withMod} with it (${c.baseline!.samples.length} and ${c.withMod!.samples.length} samples); ` +
         `S12: ${added.length} new endpoint(s), ` +
         (byName.length ? `the recorder's and, matched by DNS name: ${byName.join("; ")}` : "all the recorder's") +
-        (frmOk && added.includes(c.frm!) ? `, and FRM's ${c.frm} (owner, 2026-10-26)` : "") +
         ` (${c.outboundSamples.baseline.ok} and ${c.outboundSamples.withMod.ok} outbound samples); ` +
         `${memoryText} (${c.memoryBaseline.length} and ${c.memoryWithMod.length} memory samples); ` +
         `same save in both boots (session ${c.sessionWithMod}); ${groups}`,

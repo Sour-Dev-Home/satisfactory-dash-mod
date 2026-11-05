@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { snapshotParts } from "../src/core-runs/tick-cost";
-import { NATIVE_SOURCES, NATIVE_SOURCES_S2, NATIVE_SOURCES_S3, NATIVE_SOURCES_S4, NATIVE_SOURCES_S4B } from "../src/core-run";
 import type { CoreEvidence } from "../src/core-run";
 import { TICK_WARMUP_MS, type TickSeries } from "../src/ticks";
 import * as Native from "../../runs/tick-cost-native/pass";
@@ -35,20 +34,42 @@ const baseCapture = (): Base.TickCost => ({
   outboundNamesWithMod: { "203.0.113.7": ["api.example.com"] },
 });
 
-// The mod's log lines as the evidence carries them (e.lines): native readers, and a bridge-mode run that has neither line.
+// The mod's log lines as the evidence carries them. Every reader is native and unconditional (R7), so a passing log has the
+// Readers line with all thirteen fields and a step line for every sliced reader inside the measured window.
 const PREFIX = "[2026.10.26-12:00:05:123][  0]LogSatisDash: Display: ";
-const NATIVE_LINES = [
-  `${PREFIX}Readers: players=native resourceNodes=native`,
-  `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 1.75 ms, total 41.50 ms`,
-];
-const BRIDGE_LINES = [`${PREFIX}Readers: players=bridge resourceNodes=bridge`, `${PREFIX}Agent is running`];
+// UE's log timestamp, UTC: [YYYY.MM.DD-HH.MM.SS:mmm]. IN is a moment inside the measured window (warmup + 5 minutes after the start).
+const stamp = (ms: number) => {
+  const d = new Date(ms);
+  const p = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `[${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())}-${p(d.getUTCHours())}.${p(d.getUTCMinutes())}.${p(d.getUTCSeconds())}:${p(d.getUTCMilliseconds(), 3)}][  0]LogSatisDash: Display: `;
+};
+const IN = stamp(FROM + TICK_WARMUP_MS + 5 * 60_000);
+const READERS = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=native generators=native stationRates=native storage=native`;
+const scanLine = (longest = "1.75", total = "41.50") => `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step ${longest} ms, total ${total} ms`;
+const stepLine = (name: string, longest: string, prefix = IN) => `${prefix}${name} (game thread only): 900 items in 30 steps, longest step ${longest} ms, total 9.00 ms`;
+const logistics = (longest = "0.80", prefix = IN) =>
+  `${prefix}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, wires 843, expected wires 843, longest step ${longest} ms, total 12.00 ms`;
+const markers = (longest = "0.50", prefix = IN) => `${prefix}Map markers read (game thread only): 120 markers, 0 dropped in 3 steps, longest step ${longest} ms, total 1.00 ms`;
+const drones = (longest = "0.60", prefix = IN) => `${prefix}Drone routes read (game thread only): 8 ports, 0 dropped in 2 steps, longest step ${longest} ms, total 1.00 ms`;
+const buildables = (longest = "0.70", prefix = IN) => `${prefix}Buildables read (game thread only): 4 elements, 1 extractors, 0 generators, 0 containers in 3 steps, longest step ${longest} ms, total 1.00 ms`;
+const rates = (read = 6, failed = 0) => `${IN}Station rates (reflection read): ${read} platforms read, 0 fluid platforms skipped, ${failed} lookups failed`;
 
-function evidence(over: { sources?: unknown; parts?: unknown; posts?: unknown[]; lines?: string[] } = {}): CoreEvidence {
+interface Over { readers?: string; scan?: string; factory?: string; trains?: string; routes?: string; logistics?: string; markers?: string; drones?: string; buildables?: string; rates?: string }
+/** A complete passing log; each override replaces one line (an empty string drops it). */
+function fullLines(o: Over = {}): string[] {
+  const pick = (v: string | undefined, d: string) => (v === undefined ? d : v);
+  return [
+    pick(o.readers, READERS), pick(o.scan, scanLine()),
+    pick(o.factory, stepLine("Factory read", "1.10")), pick(o.trains, stepLine("Trains read", "0.40")), pick(o.routes, stepLine("Train routes read", "0.60")),
+    pick(o.logistics, logistics()), pick(o.markers, markers()), pick(o.drones, drones()), pick(o.buildables, buildables()), pick(o.rates, rates()),
+  ].filter((l) => l !== "");
+}
+
+function evidence(over: { parts?: unknown; posts?: unknown[]; lines?: string[] } = {}): CoreEvidence {
   return {
-    lines: "lines" in over ? (over.lines as string[]) : NATIVE_LINES, errorLines: [], leaks: { code: false, secret: false, bearer: false },
+    lines: "lines" in over ? (over.lines as string[]) : fullLines(), errorLines: [], leaks: { code: false, secret: false, bearer: false },
     captures: {
       "tick-cost.json": baseCapture(),
-      "mod-config.json": "sources" in over ? over.sources : NATIVE_SOURCES,
       "snapshot-parts.json": over.parts ?? {
         measured: { from: iso(FROM), to: iso(FROM + TICK_WARMUP_MS + 10 * 60_000) },
         snapshots: [{ at: iso(FROM + TICK_WARMUP_MS + 60_000), playersAvailable: true }],
@@ -59,7 +80,7 @@ function evidence(over: { sources?: unknown; parts?: unknown; posts?: unknown[];
 }
 
 describe("tick-cost-native judge", () => {
-  it("passes when the existing limits pass and the native readers were live inside the measured window", () => {
+  it("passes when the existing limits pass and every native reader was live inside the measured window", () => {
     expect(Native.evaluate(evidence()).pass).toBe(true);
   });
   it("keeps the existing tick-cost verdict: a memory blow-up fails it", () => {
@@ -69,9 +90,15 @@ describe("tick-cost-native judge", () => {
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/memory/);
   });
-  it("fails when the sources were not native", () => {
-    expect(Native.evaluate(evidence({ sources: { playersSource: "bridge", resourceNodesSource: "native" } })).pass).toBe(false);
-    expect(Native.evaluate(evidence({ sources: undefined })).pass).toBe(false);
+  it("needs no mod-config capture: every reader is required whatever the run wrote", () => {
+    const e = evidence();
+    expect(e.captures["mod-config.json"]).toBeUndefined();
+    expect(Native.evaluate(e).pass).toBe(true);
+    expect(Native.evaluate({ ...e, captures: { ...e.captures, "mod-config.json": { stepDiagnostics: true } } }).pass).toBe(true);
+  });
+  it("requiredStepReaders is every sliced reader, explicitly", () => {
+    expect(Native.requiredStepReaders()).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read", "Buildables read"]);
+    expect(Native.REQUIRED_STEP_READERS).toEqual(Native.requiredStepReaders());
   });
   it("fails when no snapshot in the window carried players", () => {
     const parts = { measured: { from: iso(FROM), to: iso(FROM + TICK_WARMUP_MS + 10 * 60_000) }, snapshots: [{ at: iso(FROM + TICK_WARMUP_MS + 60_000), playersAvailable: false }] };
@@ -83,24 +110,25 @@ describe("tick-cost-native judge", () => {
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/resourceNodes/);
   });
-  it("fails a bridge-mode run whose output looks native: the Readers line says bridge and no scan line was logged", () => {
-    const v = Native.evaluate(evidence({ lines: BRIDGE_LINES }));
+  it("fails a log that says bridge for every reader and carries no scan line", () => {
+    const bridge = READERS.replace(/=native/g, "=bridge");
+    const v = Native.evaluate(evidence({ lines: [bridge, `${PREFIX}Agent is running`] }));
     expect(v.pass).toBe(false);
     const text = v.reasons.join("\n");
     expect(text).toMatch(/players=bridge/);
-    expect(text).toMatch(/resourceNodes=bridge/);
+    expect(text).toMatch(/factory=bridge/);
+    expect(text).toMatch(/storage=bridge/);
     expect(text).toMatch(/Resource node scan \(game thread only\):/);
   });
   it("names the missing Readers line when the log has none, and a missing scan line when only that is absent", () => {
     expect(Native.evaluate(evidence({ lines: [] })).reasons.join("\n")).toMatch(/no "Readers:" line/);
-    const noScan = Native.evaluate(evidence({ lines: [NATIVE_LINES[0]!] }));
+    const noScan = Native.evaluate(evidence({ lines: fullLines({ scan: "" }) }));
     expect(noScan.pass).toBe(false);
     expect(noScan.reasons.join("\n")).toMatch(/no "Resource node scan \(game thread only\):" line/);
     expect(noScan.reasons.join("\n")).not.toMatch(/Readers:/);
   });
   it("records the scan's longest step and total time in the reasons; the total is not judged", () => {
-    const slow = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 1.99 ms, total 9000.50 ms`];
-    const v = Native.evaluate(evidence({ lines: slow }));
+    const v = Native.evaluate(evidence({ lines: fullLines({ scan: scanLine("1.99", "9000.50") }) }));
     expect(v.pass).toBe(true);
     expect(v.reasons.join("\n")).toMatch(/longest single step 1\.99 ms; longest total 9000\.5 ms/);
     expect(Native.evaluate(evidence()).reasons.join("\n")).toMatch(/longest single step 1\.75 ms; longest total 41\.5 ms/);
@@ -143,31 +171,19 @@ describe("tick-cost-native judge", () => {
 });
 
 describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", () => {
-  const S2_SOURCES = NATIVE_SOURCES_S2;
-  // UE's log timestamp, UTC: [YYYY.MM.DD-HH.MM.SS:mmm]. IN is a moment inside the measured window (warmup + 5 minutes after the start).
-  const stamp = (ms: number) => {
-    const d = new Date(ms);
-    const p = (n: number, w = 2) => String(n).padStart(w, "0");
-    return `[${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())}-${p(d.getUTCHours())}.${p(d.getUTCMinutes())}.${p(d.getUTCSeconds())}:${p(d.getUTCMilliseconds(), 3)}][  0]LogSatisDash: Display: `;
-  };
-  const IN = stamp(FROM + TICK_WARMUP_MS + 5 * 60_000);
-  const stepLine = (name: string, longest: string, prefix = IN) => `${prefix}${name} (game thread only): 900 items in 30 steps, longest step ${longest} ms, total 9.00 ms`;
-  const READERS_S2 = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native`;
-  const s2Lines = (factory = "1.10", trains = "0.40", routes = "0.60") => [READERS_S2, NATIVE_LINES[1]!, stepLine("Factory read", factory), stepLine("Trains read", trains), stepLine("Train routes read", routes)];
-
-  it("judges S1-shaped evidence as before: only the node scan is required", () => {
+  it("passes a full log and lists the longest step per reader", () => {
     const v = Native.evaluate(evidence());
     expect(v.pass).toBe(true);
     expect(v.reasons.join("\n")).toMatch(/step ceiling 2 ms held.*Resource node scan longest step 1\.75 ms/);
+    expect(v.reasons.join("\n")).toMatch(/Buildables read longest step 0\.7 ms/);
   });
   it("fails a node scan step over 2 ms, naming the reader and the value", () => {
-    const over = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 2.01 ms, total 41.50 ms`];
-    const v = Native.evaluate(evidence({ lines: over }));
+    const v = Native.evaluate(evidence({ lines: fullLines({ scan: scanLine("2.01") }) }));
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/Resource node scan: longest step 2\.01 ms exceeds the 2 ms ceiling/);
   });
   it("adds a report-only diagnostic line with the thread cycles to a failing verdict, and changes nothing else", () => {
-    const over = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 2.01 ms, total 41.50 ms`];
+    const over = fullLines({ scan: scanLine("2.01") });
     const diag = `${PREFIX}Logistics read longest step: 9.12 ms over 67 elements, phase 1 to 2, longest element 9.00 ms at 67 (phase 2), thread cycles per ms 41000 in this step, 3000000 in 10 other steps`;
     const without = Native.evaluate(evidence({ lines: over }));
     const withDiag = Native.evaluate(evidence({ lines: [...over, diag] }));
@@ -175,7 +191,7 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
     expect(withDiag.reasons).toEqual([...without.reasons, "diagnostic (report-only): Logistics longest step 9.12 ms, longest element 9.00 ms at 67 (phase 2); thread cycles per ms 41000 in this step vs 3000000 in 10 other steps (1.4%)"]);
   });
   it("a diagnostic line with the conveyor-calls tail prints the five maxima after the cycles, and pass is unchanged", () => {
-    const over = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 2.01 ms, total 41.50 ms`];
+    const over = fullLines({ scan: scanLine("2.01") });
     const diag = `${PREFIX}Logistics read longest step: 9.12 ms over 67 elements, phase 1 to 2, longest element 9.00 ms at 67 (phase 2), thread cycles per ms 41000 in this step, 3000000 in 10 other steps, conveyor calls max: get 0.40 ms at 3, name 0.00 ms at 0, text 8.90 ms at 7, speed 0.10 ms at 12, ends 1.23 ms at 11`;
     const without = Native.evaluate(evidence({ lines: over }));
     const withDiag = Native.evaluate(evidence({ lines: [...over, diag] }));
@@ -183,245 +199,90 @@ describe("tick-cost-native judge: the 2 ms step ceiling (owner, 2026-10-26)", ()
     expect(withDiag.reasons).toEqual([...without.reasons, "diagnostic (report-only): Logistics longest step 9.12 ms, longest element 9.00 ms at 67 (phase 2); thread cycles per ms 41000 in this step vs 3000000 in 10 other steps (1.4%); conveyor calls max: get 0.40 ms at 3, name 0.00 ms at 0, text 8.90 ms at 7, speed 0.10 ms at 12, ends 1.23 ms at 11"]);
   });
   it("a diagnostic line without the cycles tail reports the step only", () => {
-    const over = [NATIVE_LINES[0]!, `${PREFIX}Resource node scan (game thread only): 180000 actors in 90 steps, 612 nodes, longest step 2.01 ms, total 41.50 ms`,
-      `${PREFIX}Logistics read longest step: 9.12 ms over 67 elements, phase 1 to 2`];
+    const over = [...fullLines({ scan: scanLine("2.01") }), `${PREFIX}Logistics read longest step: 9.12 ms over 67 elements, phase 1 to 2`];
     expect(Native.evaluate(evidence({ lines: over })).reasons).toContain("diagnostic (report-only): Logistics longest step 9.12 ms");
   });
   it("leaves a passing verdict unchanged by a diagnostic line", () => {
     const diag = `${PREFIX}Logistics read longest step: 1.90 ms over 67 elements, phase 1 to 2, thread cycles per ms 41000 in this step, 3000000 in 10 other steps`;
-    expect(Native.evaluate(evidence({ lines: [...NATIVE_LINES, diag] }))).toEqual(Native.evaluate(evidence()));
+    expect(Native.evaluate(evidence({ lines: [...fullLines(), diag] }))).toEqual(Native.evaluate(evidence()));
   });
-  it("passes S2-shaped evidence at 1.9 ms or less and lists the longest step per reader", () => {
-    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("1.90", "0.40", "0.60") }));
+  it("passes every reader at 1.9 ms or less", () => {
+    const v = Native.evaluate(evidence({ lines: fullLines({
+      scan: scanLine("1.90"), factory: stepLine("Factory read", "1.90"), trains: stepLine("Trains read", "1.90"), routes: stepLine("Train routes read", "1.90"),
+      logistics: logistics("1.90"), markers: markers("1.90"), drones: drones("1.90"), buildables: buildables("1.90"),
+    }) }));
     expect(v.pass).toBe(true);
     const text = v.reasons.join("\n");
-    expect(text).toMatch(/Factory read longest step 1\.9 ms/);
-    expect(text).toMatch(/Trains read longest step 0\.4 ms/);
-    expect(text).toMatch(/Train routes read longest step 0\.6 ms/);
+    for (const name of ["Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read", "Buildables read"]) {
+      expect(text).toMatch(new RegExp(`${name} longest step 1\\.9 ms`));
+    }
   });
-  it("fails 2.1 ms on any one reader", () => {
-    const f = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("2.10") }));
-    expect(f.pass).toBe(false);
-    expect(f.reasons.join("\n")).toMatch(/Factory read: longest step 2\.1 ms exceeds the 2 ms ceiling/);
-    expect(Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("1.0", "2.10") })).reasons.join("\n")).toMatch(/Trains read: longest step 2\.1 ms/);
-    expect(Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines("1.0", "0.4", "2.10") })).reasons.join("\n")).toMatch(/Train routes read: longest step 2\.1 ms/);
-  });
-  it("fails when a native S2 reader logged nothing", () => {
-    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: [READERS_S2, NATIVE_LINES[1]!] }));
+  it.each([
+    ["Factory read", { factory: stepLine("Factory read", "2.10") }],
+    ["Trains read", { trains: stepLine("Trains read", "2.10") }],
+    ["Train routes read", { routes: stepLine("Train routes read", "2.10") }],
+    ["Logistics read", { logistics: logistics("2.10") }],
+    ["Map markers read", { markers: markers("2.10") }],
+    ["Drone routes read", { drones: drones("2.10") }],
+    ["Buildables read", { buildables: buildables("2.10") }],
+  ] as const)("fails 2.1 ms on %s", (name, over) => {
+    const v = Native.evaluate(evidence({ lines: fullLines(over) }));
     expect(v.pass).toBe(false);
-    const text = v.reasons.join("\n");
-    expect(text).toMatch(/no "Factory read \(game thread only\):" line/);
-    expect(text).toMatch(/no "Trains read \(game thread only\):" line/);
-    expect(text).toMatch(/no "Train routes read \(game thread only\):" line/);
+    expect(v.reasons.join("\n")).toContain(`${name}: longest step 2.1 ms exceeds the 2 ms ceiling`);
   });
-  it("fails a missing Train routes read line", () => {
-    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines().slice(0, 4) }));
+  it.each([
+    ["Factory read", { factory: "" }],
+    ["Trains read", { trains: "" }],
+    ["Train routes read", { routes: "" }],
+    ["Logistics read", { logistics: "" }],
+    ["Map markers read", { markers: "" }],
+    ["Drone routes read", { drones: "" }],
+    ["Buildables read", { buildables: "" }],
+  ] as const)("fails a missing %s line", (name, over) => {
+    const v = Native.evaluate(evidence({ lines: fullLines(over) }));
     expect(v.pass).toBe(false);
-    expect(v.reasons.join("\n")).toMatch(/no "Train routes read \(game thread only\):" line/);
+    expect(v.reasons.join("\n")).toContain(`no "${name} (game thread only):" line`);
   });
-  it("fails a read line outside the measured window (before the warmup ended)", () => {
-    const early = stamp(FROM + 60_000);
-    const lines = [...s2Lines().slice(0, 4), stepLine("Train routes read", "0.60", early)];
-    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines }));
+  it.each([
+    ["Factory read", (p: string) => ({ factory: stepLine("Factory read", "1.10", p) })],
+    ["Trains read", (p: string) => ({ trains: stepLine("Trains read", "0.40", p) })],
+    ["Train routes read", (p: string) => ({ routes: stepLine("Train routes read", "0.60", p) })],
+    ["Logistics read", (p: string) => ({ logistics: logistics("0.80", p) })],
+    ["Map markers read", (p: string) => ({ markers: markers("0.50", p) })],
+    ["Drone routes read", (p: string) => ({ drones: drones("0.60", p) })],
+    ["Buildables read", (p: string) => ({ buildables: buildables("0.70", p) })],
+  ] as const)("fails a %s line outside the measured window (before the warmup ended)", (name, make) => {
+    const v = Native.evaluate(evidence({ lines: fullLines(make(stamp(FROM + 60_000))) }));
     expect(v.pass).toBe(false);
-    expect(v.reasons.join("\n")).toMatch(/Train routes read.*inside the measured window/);
+    expect(v.reasons.join("\n")).toMatch(new RegExp(`${name}.*inside the measured window`));
   });
-  it("fails factorySource bridge (or trainsSource bridge) in the captured config", () => {
-    const f = Native.evaluate(evidence({ sources: { ...S2_SOURCES, factorySource: "bridge" }, lines: s2Lines() }));
-    expect(f.pass).toBe(false);
-    expect(f.reasons.join("\n")).toMatch(/factorySource/);
-    const t = Native.evaluate(evidence({ sources: { ...S2_SOURCES, trainsSource: "bridge" }, lines: s2Lines() }));
-    expect(t.pass).toBe(false);
-    expect(t.reasons.join("\n")).toMatch(/trainsSource/);
+  it("fails when the mod's Readers line says any reader is bridge, or has an older shape without the field", () => {
+    for (const field of ["factory", "trains", "rails", "conveyors", "mapMarkers", "droneRoutes", "powerLines", "extractors", "generators", "stationRates", "storage"]) {
+      const v = Native.evaluate(evidence({ lines: fullLines({ readers: READERS.replace(`${field}=native`, `${field}=bridge`) }) }));
+      expect(v.pass, field).toBe(false);
+      expect(v.reasons.join("\n"), field).toContain(`${field}=bridge`);
+    }
+    const nine = Native.evaluate(evidence({ lines: fullLines({ readers: READERS.replace(/ extractors=native generators=native stationRates=native storage=native/, "") }) }));
+    expect(nine.pass).toBe(false);
   });
-  it("fails when the mod's Readers line says factory is bridge", () => {
-    const lines = [`${PREFIX}Readers: players=native resourceNodes=native factory=bridge trains=native`, ...s2Lines().slice(1)];
-    const v = Native.evaluate(evidence({ sources: S2_SOURCES, lines }));
-    expect(v.pass).toBe(false);
-    expect(v.reasons.join("\n")).toMatch(/factory=bridge/);
+  it("fails when the Logistics read line did not serve powerLines", () => {
+    const noWires = `${IN}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=0, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, longest step 0.80 ms, total 12.00 ms`;
+    expect(Native.evaluate(evidence({ lines: fullLines({ logistics: noWires }) })).reasons.join("\n")).toMatch(/powerLines=0/);
+  });
+  it("fails a missing, failed or empty station rates counts line", () => {
+    const none = Native.evaluate(evidence({ lines: fullLines({ rates: "" }) }));
+    expect(none.pass).toBe(false);
+    expect(none.reasons.join("\n")).toMatch(/no "Station rates \(reflection read\):" line/);
+    const failed = Native.evaluate(evidence({ lines: fullLines({ rates: rates(6, 2) }) }));
+    expect(failed.pass).toBe(false);
+    expect(failed.reasons.join("\n")).toMatch(/2 lookups failed/);
+    const empty = Native.evaluate(evidence({ lines: fullLines({ rates: rates(0, 0) }) }));
+    expect(empty.pass).toBe(false);
+    expect(empty.reasons.join("\n")).toMatch(/read 0 platforms/);
   });
   it("describes the scan as judged against 2 ms, not 'recorded not judged'", () => {
     const text = Native.evaluate(evidence()).reasons.join("\n");
     expect(text).not.toMatch(/not judged/);
     expect(text).toMatch(/judged against the 2 ms ceiling/);
-  });
-
-  describe("S3: the shared Logistics read line (Task 14)", () => {
-    const S3_SOURCES = NATIVE_SOURCES_S3;
-    const READERS_S3 = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native`;
-    const logistics = (longest: string, prefix = IN) =>
-      `${prefix}Logistics read (game thread only): layers rails=1 conveyors=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, longest step ${longest} ms, total 12.00 ms`;
-    const s3Lines = (longest = "0.80", prefix = IN) => [READERS_S3, ...s2Lines().slice(1), logistics(longest, prefix)];
-
-    it("passes S3-shaped evidence when everything is native and each longest step is 1.9 ms or less", () => {
-      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines: s3Lines("1.90") }));
-      expect(v.pass).toBe(true);
-      expect(v.reasons.join("\n")).toMatch(/Logistics read longest step 1\.9 ms/);
-    });
-    it("fails a Logistics read step of 2.1 ms", () => {
-      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines: s3Lines("2.10") }));
-      expect(v.pass).toBe(false);
-      expect(v.reasons.join("\n")).toMatch(/Logistics read: longest step 2\.1 ms exceeds the 2 ms ceiling/);
-    });
-    it("fails a missing Logistics read line when railsSource is native", () => {
-      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines: s3Lines().slice(0, -1) }));
-      expect(v.pass).toBe(false);
-      expect(v.reasons.join("\n")).toMatch(/no "Logistics read \(game thread only\):" line/);
-    });
-    it("fails a Logistics read line outside the measured window", () => {
-      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines: s3Lines("0.80", stamp(FROM + 60_000)) }));
-      expect(v.pass).toBe(false);
-      expect(v.reasons.join("\n")).toMatch(/Logistics read.*inside the measured window/);
-    });
-    it("fails conveyorsSource bridge in the captured config of an S3 run; a rails-only config still requires Logistics read", () => {
-      const sources = { ...S3_SOURCES, conveyorsSource: "bridge" };
-      const v = Native.evaluate(evidence({ sources, lines: s3Lines() }));
-      expect(v.pass).toBe(false);
-      expect(v.reasons.join("\n")).toMatch(/conveyorsSource/);
-      expect(Native.requiredStepReaders(sources)).toContain("Logistics read");
-      expect(Native.requiredStepReaders({ conveyorsSource: "native" })).toContain("Logistics read");
-      expect(Native.requiredStepReaders(NATIVE_SOURCES_S2)).not.toContain("Logistics read");
-    });
-    it("fails when the mod's Readers line says rails or conveyors is bridge", () => {
-      const lines = [`${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=bridge conveyors=native`, ...s3Lines().slice(1)];
-      const v = Native.evaluate(evidence({ sources: S3_SOURCES, lines }));
-      expect(v.pass).toBe(false);
-      expect(v.reasons.join("\n")).toMatch(/rails=bridge/);
-    });
-    it("S1- and S2-shaped evidence needs no Logistics read line", () => {
-      expect(Native.evaluate(evidence()).pass).toBe(true);
-      expect(Native.evaluate(evidence({ sources: S2_SOURCES, lines: s2Lines() })).pass).toBe(true);
-    });
-
-    describe("S4-A: the markers and drone steps and the powerLines pass (Task 16)", () => {
-      const S4_SOURCES = NATIVE_SOURCES_S4;
-      const READERS_S4 = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native`;
-      const logisticsS4 = (longest = "0.80", prefix = IN) =>
-        `${prefix}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, wires 843, expected wires 843, longest step ${longest} ms, total 12.00 ms`;
-      const markers = (longest = "0.50", prefix = IN) => `${prefix}Map markers read (game thread only): 120 markers, 0 dropped in 3 steps, longest step ${longest} ms, total 1.00 ms`;
-      const drones = (longest = "0.60", prefix = IN) => `${prefix}Drone routes read (game thread only): 8 ports, 0 dropped in 2 steps, longest step ${longest} ms, total 1.00 ms`;
-      const s4Lines = (m = "0.50", d = "0.60", logLongest = "0.80") => [READERS_S4, ...s2Lines().slice(1), logisticsS4(logLongest), markers(m), drones(d)];
-
-      it("passes S4-shaped evidence when all lines are present and each longest step is 1.9 ms or less", () => {
-        const v = Native.evaluate(evidence({ sources: S4_SOURCES, lines: s4Lines("1.90", "1.90", "1.90") }));
-        expect(v.reasons.join("\n")).toMatch(/Map markers read longest step 1\.9 ms/);
-        expect(v.pass).toBe(true);
-        expect(v.reasons.join("\n")).toMatch(/Drone routes read longest step 1\.9 ms/);
-      });
-      it("fails a Drone routes read step of 2.1 ms, and a Map markers read step of 2.1 ms", () => {
-        const d = Native.evaluate(evidence({ sources: S4_SOURCES, lines: s4Lines("0.5", "2.10") }));
-        expect(d.pass).toBe(false);
-        expect(d.reasons.join("\n")).toMatch(/Drone routes read: longest step 2\.1 ms exceeds the 2 ms ceiling/);
-        expect(Native.evaluate(evidence({ sources: S4_SOURCES, lines: s4Lines("2.10") })).reasons.join("\n")).toMatch(/Map markers read: longest step 2\.1 ms/);
-      });
-      it("fails a missing Map markers read line (or Drone routes read line) when the key is native", () => {
-        const noMarkers = s4Lines().filter((l) => !l.includes("Map markers read"));
-        const v = Native.evaluate(evidence({ sources: S4_SOURCES, lines: noMarkers }));
-        expect(v.pass).toBe(false);
-        expect(v.reasons.join("\n")).toMatch(/no "Map markers read \(game thread only\):" line/);
-        const noDrones = s4Lines().filter((l) => !l.includes("Drone routes read"));
-        expect(Native.evaluate(evidence({ sources: S4_SOURCES, lines: noDrones })).reasons.join("\n")).toMatch(/no "Drone routes read \(game thread only\):" line/);
-      });
-      it("does not count a Map markers read line outside the measured span (the S2 window rule)", () => {
-        const lines = [...s4Lines().filter((l) => !l.includes("Map markers read")), markers("0.5", stamp(FROM + 60_000))];
-        const v = Native.evaluate(evidence({ sources: S4_SOURCES, lines }));
-        expect(v.pass).toBe(false);
-        expect(v.reasons.join("\n")).toMatch(/Map markers read.*inside the measured window/);
-      });
-      it("fails powerLinesSource bridge (or any S4 key not native) in an S4-shaped config", () => {
-        const p = Native.evaluate(evidence({ sources: { ...S4_SOURCES, powerLinesSource: "bridge" }, lines: s4Lines() }));
-        expect(p.pass).toBe(false);
-        expect(p.reasons.join("\n")).toMatch(/powerLinesSource/);
-        expect(Native.evaluate(evidence({ sources: { ...S4_SOURCES, mapMarkersSource: "bridge" }, lines: s4Lines() })).reasons.join("\n")).toMatch(/mapMarkersSource/);
-        expect(Native.evaluate(evidence({ sources: { ...S4_SOURCES, droneRoutesSource: "bridge" }, lines: s4Lines() })).reasons.join("\n")).toMatch(/droneRoutesSource/);
-      });
-      it("fails when the Readers line says powerLines is bridge, or the Logistics read line did not serve powerLines", () => {
-        const bridge = [READERS_S4.replace("powerLines=native", "powerLines=bridge"), ...s4Lines().slice(1)];
-        expect(Native.evaluate(evidence({ sources: S4_SOURCES, lines: bridge })).reasons.join("\n")).toMatch(/powerLines=bridge/);
-        expect(Native.evaluate(evidence({ sources: S4_SOURCES, lines: [...s4Lines().slice(0, 5), logistics("0.8"), markers(), drones()] })).reasons.join("\n")).toMatch(/powerLines=0/);
-      });
-      it("requiredStepReaders adds the S4 lines only when the S4 keys are native; S2- and S3-shaped sources are unchanged", () => {
-        expect(Native.requiredStepReaders(S4_SOURCES)).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read"]);
-        expect(Native.requiredStepReaders(NATIVE_SOURCES_S3)).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read"]);
-        expect(Native.requiredStepReaders(NATIVE_SOURCES_S2)).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read"]);
-        expect(Native.requiredStepReaders({ powerLinesSource: "native" })).toEqual(["Resource node scan", "Logistics read"]);
-        expect(Native.requiredStepReaders({ ...S4_SOURCES, mapMarkersSource: "bridge", droneRoutesSource: "bridge" })).not.toContain("Map markers read");
-      });
-    });
-
-    describe("S4-B: the Buildables pass (Task 20)", () => {
-      const S4B = NATIVE_SOURCES_S4B;
-      const buildables = (longest = "0.70", prefix = IN) => `${prefix}Buildables read (game thread only): 4 elements, 1 extractors, 0 generators, 0 containers in 3 steps, longest step ${longest} ms, total 1.00 ms`;
-      const S4A_READERS = `${PREFIX}Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native`;
-      const S4B_READERS = `${S4A_READERS} extractors=native generators=native stationRates=native storage=native`;
-      const base = (readers = S4B_READERS) => {
-        const s = ((): string[] => {
-          const READERS = readers;
-          const logistics = `${IN}Logistics read (game thread only): layers rails=1 conveyors=1 powerLines=1, 900 buildables, 4 tracks, 500 belts, 20 lifts, 30 pipes, 3 open ends, 0 ownerless ends, wires 843, expected wires 843, longest step 0.80 ms, total 12.00 ms`;
-          const markers = `${IN}Map markers read (game thread only): 120 markers, 0 dropped in 3 steps, longest step 0.50 ms, total 1.00 ms`;
-          const drones = `${IN}Drone routes read (game thread only): 8 ports, 0 dropped in 2 steps, longest step 0.60 ms, total 1.00 ms`;
-          return [READERS, ...s2Lines().slice(1), logistics, markers, drones];
-        })();
-        return s;
-      };
-      const rates = (read = 6, failed = 0) => `${IN}Station rates (reflection read): ${read} platforms read, 0 fluid platforms skipped, ${failed} lookups failed`;
-      const s4bLines = (longest = "0.70", readers = S4B_READERS) => [...base(readers), buildables(longest), rates()];
-      it("fails a missing, failed or empty station rates counts line for an S4-B config", () => {
-        const none = Native.evaluate(evidence({ sources: S4B, lines: [...base(), buildables()] }));
-        expect(none.pass).toBe(false);
-        expect(none.reasons.join("\n")).toMatch(/no "Station rates \(reflection read\):" line/);
-        const failed = Native.evaluate(evidence({ sources: S4B, lines: [...base(), buildables(), rates(6, 2)] }));
-        expect(failed.pass).toBe(false);
-        expect(failed.reasons.join("\n")).toMatch(/2 lookups failed/);
-        const empty = Native.evaluate(evidence({ sources: S4B, lines: [...base(), buildables(), rates(0, 0)] }));
-        expect(empty.pass).toBe(false);
-        expect(empty.reasons.join("\n")).toMatch(/read 0 platforms/);
-      });
-      it("fails when the Readers line shows storage=bridge, or is the nine-field S4-A line, for an S4-B config", () => {
-        const b = Native.evaluate(evidence({ sources: S4B, lines: s4bLines("0.7", S4B_READERS.replace("storage=native", "storage=bridge")) }));
-        expect(b.pass).toBe(false);
-        expect(b.reasons.join("\n")).toMatch(/storage=bridge/);
-        const nine = Native.evaluate(evidence({ sources: S4B, lines: s4bLines("0.7", S4A_READERS) }));
-        expect(nine.pass).toBe(false);
-      });
-
-      it("passes S4-B evidence with every longest step at 1.9 ms or less", () => {
-        const v = Native.evaluate(evidence({ sources: S4B, lines: s4bLines("1.90") }));
-        expect(v.reasons.join("\n")).toMatch(/Buildables read longest step 1\.9 ms/);
-        expect(v.pass).toBe(true);
-      });
-      it("fails a Buildables read step of 2.1 ms", () => {
-        const v = Native.evaluate(evidence({ sources: S4B, lines: s4bLines("2.10") }));
-        expect(v.pass).toBe(false);
-        expect(v.reasons.join("\n")).toMatch(/Buildables read: longest step 2\.1 ms exceeds the 2 ms ceiling/);
-      });
-      it("fails a missing Buildables read line", () => {
-        const v = Native.evaluate(evidence({ sources: S4B, lines: base() }));
-        expect(v.pass).toBe(false);
-        expect(v.reasons.join("\n")).toMatch(/no "Buildables read \(game thread only\):" line/);
-      });
-      it("fails a Buildables read line outside the measured span", () => {
-        const v = Native.evaluate(evidence({ sources: S4B, lines: [...base(), buildables("0.5", stamp(FROM + 60_000))] }));
-        expect(v.pass).toBe(false);
-        expect(v.reasons.join("\n")).toMatch(/Buildables read.*inside the measured window/);
-      });
-      it("fails storageSource bridge (or any S4-B key not native) in an S4-B config", () => {
-        const s = Native.evaluate(evidence({ sources: { ...S4B, storageSource: "bridge" }, lines: s4bLines() }));
-        expect(s.pass).toBe(false);
-        expect(s.reasons.join("\n")).toMatch(/storageSource/);
-        expect(Native.evaluate(evidence({ sources: { ...S4B, stationRatesSource: "bridge" }, lines: s4bLines() })).reasons.join("\n")).toMatch(/stationRatesSource/);
-        expect(Native.evaluate(evidence({ sources: { ...S4B, extractorsSource: "bridge" }, lines: s4bLines() })).reasons.join("\n")).toMatch(/extractorsSource/);
-        expect(Native.evaluate(evidence({ sources: { ...S4B, generatorsSource: "bridge" }, lines: s4bLines() })).reasons.join("\n")).toMatch(/generatorsSource/);
-      });
-      it("requiredStepReaders adds Buildables read only when extractors, generators or storage is native; S4-A is unchanged", () => {
-        expect(Native.requiredStepReaders(S4B)).toEqual(["Resource node scan", "Factory read", "Trains read", "Train routes read", "Logistics read", "Map markers read", "Drone routes read", "Buildables read"]);
-        expect(Native.requiredStepReaders(NATIVE_SOURCES_S4)).not.toContain("Buildables read");
-        expect(Native.requiredStepReaders({ storageSource: "native" })).toEqual(["Resource node scan", "Buildables read"]);
-        expect(Native.requiredStepReaders({ stationRatesSource: "native" })).toEqual(["Resource node scan"]);
-      });
-      it("S4-A evidence still passes as before", () => {
-        expect(Native.evaluate(evidence({ sources: NATIVE_SOURCES_S4, lines: base(S4A_READERS) })).pass).toBe(true);
-      });
-    });
   });
 });

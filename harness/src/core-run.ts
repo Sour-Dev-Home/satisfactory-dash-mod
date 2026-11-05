@@ -17,44 +17,21 @@ import { type OutboundSample, resolveHost, sampleOutbound } from "./outbound";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
-export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage", "tick-cost", "parity", "manual", "native-parity", "tick-cost-native", "s3-census", "s4-capture", "soak-native"] as const;
+export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage", "tick-cost", "manual", "tick-cost-native", "s3-census", "soak-native"] as const;
 export type CoreRunId = (typeof CORE_RUN_IDS)[number];
 export const MOD = "SatisDashAgent";
 
 /** The runner-config key that names the staged save for each world key. */
 const WORLD_CONFIG_KEY = { s3: "s3World", s2: "s2World", sprint3: "sprint3World" } as const;
 
-/** The sources the harness writes into the mod's config for a run (ADR-0058 Decision 4): the hidden per-reader override. */
-export interface NativeSources {
-  playersSource: "bridge" | "native";
-  resourceNodesSource: "bridge" | "native";
-  /** S2 keys: absent in S1's NATIVE_SOURCES, so S1 evidence re-judges the same. */
-  factorySource?: "bridge" | "native";
-  trainsSource?: "bridge" | "native";
-  /** S3 key: absent in S1's and S2's constants. */
-  railsSource?: "bridge" | "native";
-  conveyorsSource?: "bridge" | "native";
-  /** S4-A keys: absent in S1's to S3's constants. */
-  mapMarkersSource?: "bridge" | "native";
-  droneRoutesSource?: "bridge" | "native";
-  powerLinesSource?: "bridge" | "native";
-  /** S4-B keys: absent in S1's to S4's constants. */
-  extractorsSource?: "bridge" | "native";
-  generatorsSource?: "bridge" | "native";
-  stationRatesSource?: "bridge" | "native";
-  storageSource?: "bridge" | "native";
+/**
+ * The keys a run may add to the mod's config. Every reader is native and unconditional (R7), so the harness no longer writes
+ * per-reader sources or the retired bridge's port and token (the mod ignores them and logs a warning).
+ */
+export interface ModConfigExtras {
   /** The mod's test-run diagnostics switch (owner 2026-11-01): thread cycles per step and conveyor call timing. Off in the mod unless a run writes true. */
   stepDiagnostics?: boolean;
 }
-export const NATIVE_SOURCES: NativeSources = { playersSource: "native", resourceNodesSource: "native" };
-/** S2: all four readers native. */
-export const NATIVE_SOURCES_S2: NativeSources = { ...NATIVE_SOURCES, factorySource: "native", trainsSource: "native" };
-/** S3: the four S2 readers plus rails and conveyors native. */
-export const NATIVE_SOURCES_S3: NativeSources = { ...NATIVE_SOURCES_S2, railsSource: "native", conveyorsSource: "native" };
-/** S4-A: the six S3 readers plus map markers, drone routes and power lines native. */
-export const NATIVE_SOURCES_S4: NativeSources = { ...NATIVE_SOURCES_S3, mapMarkersSource: "native", droneRoutesSource: "native", powerLinesSource: "native" };
-/** S4-B: the nine S4 readers plus extractors, generators, station rates and storage native. */
-export const NATIVE_SOURCES_S4B: NativeSources = { ...NATIVE_SOURCES_S4, extractorsSource: "native", generatorsSource: "native", stationRatesSource: "native", storageSource: "native" };
 
 /** The credential the mod writes (spec "Shape"; FPaths::ProjectSavedDir() on a dedicated server is FactoryGame/Saved). */
 export const credentialPath = (serverDir: string) => join(serverDir, "FactoryGame", "Saved", "SatisDash", "credential.json");
@@ -116,8 +93,8 @@ export interface CoreRunSpec {
    * server auto-loads its last save). The session is put back at the end, whatever happens.
    */
   emptyBoot?: boolean;
-  /** Keys added to every config the run writes (the mod's per-reader source override, ADR-0058). Recorded in mod-config.json. */
-  modConfig?: Partial<NativeSources>;
+  /** Keys added to every config the run writes. Recorded in mod-config.json. */
+  modConfig?: ModConfigExtras;
   /**
    * Boots once without the mod before the mod's boot, as runSpike does for S2 (run.ts, spec.ticks): the staged world
    * loaded, auto-pause off (put back before that server stops), then measureBaseline. Its result is ctx.baseline. Needs
@@ -359,9 +336,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
         deps, proc, offset, captures,
         writeConfig: (v) => {
           if (v.enrollmentCode) codes.push(v.enrollmentCode);
-          // FRM bridge: the test server's FRM listens on the runner config's frmBaseUrl port, not FRM's default 8080.
-          const frmPort = deps.config.frmBaseUrl ? Number(new URL(deps.config.frmBaseUrl).port) : undefined;
-          writeModConfig(deps.config.serverDir, MOD, { ...v, ...(spec.modConfig ?? {}), ...(frmPort ? { frmPort } : {}) });
+          writeModConfig(deps.config.serverDir, MOD, { ...v, ...(spec.modConfig ?? {}) });
         },
         noteSecret,
         noteCode: (code) => void (code && !codes.includes(code) && codes.push(code)),
