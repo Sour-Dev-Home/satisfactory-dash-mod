@@ -77,6 +77,12 @@ The mod already sends everything natively by default, so steps 2-4 don't depend 
 - **D1, scope:** **A**, confirmed by the owner on 2026-11-02.
 - **D2, existing installs that still set `bridge`, `frmPort` or `frmToken`:** default **warn once in the log, then ignore**. A removed key must not mark a server's config Broken.
 - **D3, the ADR's 24 h all-readers soak:** default **keep it** as the gate for step 3's release.
+  - **Owner 2026-11-03:** a 16 h soak instead of 24 h (`soak-native`, PR #82).
+  - **Owner 2026-11-05: soak-native run 41878531754 accepted as passed by owner ruling**, with no rerun. The harness judged it FAIL, and the ruling overrides that verdict for this one run only; the judge is unchanged.
+    - **What passed:** the run covered 16 h on mod `main` 5fac372 (harness f1f2ae7). Every soak condition passed: every reader kept running within its gap limit, 0 Error lines, memory fell over the day (3611.5 to 1526.2 MB), and the end-of-day leak was 4.6 MB against a 25 MB limit. Ten of the thirteen ~10 ms game-thread pauses passed the waited-step rule.
+    - **What failed:** only three steps over the 2 ms ceiling: Factory 10.29 ms, Factory 10.01 ms and Logistics 10.67 ms. Their own cycles per ms (439,097, 432,370 and 529,595) match the waits that passed, but the rule's reference (the same read's other steps: 742,056, 903,385 and 2,397,961) was itself depressed.
+    - **Against the run's normal rate:** about 4.16 M cycles per ms, the median of the report's "other steps" figures. On that reference the three are 10.6%, 10.4% and 12.7% of normal, with CPU estimates of 1.09, 1.04 and 1.36 ms. The pauses are OS scheduling on the shared desktop host, not mod work.
+    - **Evidence:** the evidence artifact failed to upload (ETIMEDOUT during a GitHub Actions incident), so the verdict text in the run's log is the record.
 - **D4, the last evidence:** default **keep** native-parity 41340686528, tick-cost-native 41357114391 and the earlier sprint runs as the permanent record. They're already copied into the dash's `raw-sources/` for S1-S4-B.
 - **D5, the `frm-*.ts` oracles:** default **delete them in step 4**, so nothing in the mod repo references FRM afterwards (the clean-room argument). Under scope A the dash's adapter keeps its own FRM knowledge.
 - **D6, release timing and version numbers:** the owner's call, asked at step 5. The public mod release was held until R0-R4 (ADR answer 3).
