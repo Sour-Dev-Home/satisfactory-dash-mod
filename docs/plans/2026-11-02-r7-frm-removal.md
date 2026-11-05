@@ -86,4 +86,7 @@ The mod already sends everything natively by default, so steps 2-4 don't depend 
 - **D4, the last evidence:** default **keep** native-parity 41340686528, tick-cost-native 41357114391 and the earlier sprint runs as the permanent record. They're already copied into the dash's `raw-sources/` for S1-S4-B.
 - **D5, the `frm-*.ts` oracles:** default **delete them in step 4**, so nothing in the mod repo references FRM afterwards (the clean-room argument). Under scope A the dash's adapter keeps its own FRM knowledge.
 - **D6, release timing and version numbers:** the owner's call, asked at step 5. The public mod release was held until R0-R4 (ADR answer 3).
+  - **Owner 2026-11-05:** version **0.2.0**, released as a **GitHub release** (a tag plus notes; `docs/releases/0.2.0.md`).
+  - A ficsit.app listing is a separate, later decision. It needs a Linux server build and validation first, and the dash to be ready for outside hosts.
+  - Step 5 also reworded the shipped modules' FRM comments in the mod's own terms (comments only, owner 2026-11-05). The PROVENANCE histories, the stale-key warning and the test fixtures stay.
 - **D7, the dash's 39 FRM captures and FRM wiki pages:** under scope A they stay, because the frozen adapter still uses them.

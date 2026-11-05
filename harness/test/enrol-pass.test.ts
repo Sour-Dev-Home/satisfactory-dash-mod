@@ -13,7 +13,7 @@ function round(i: number, world: boolean, over: { snapshot?: Record<string, unkn
     at: `2026-10-20T16:00:${String(i).padStart(2, "0")}.000Z`,
     world,
     snapshot: {
-      agentVersion: "mod/0.1.0", observedAt: "2026-10-20T16:00:00.000Z", reachable: true, paused: false, status, settings: { autoPause: false },
+      agentVersion: "mod/0.2.0", observedAt: "2026-10-20T16:00:00.000Z", reachable: true, paused: false, status, settings: { autoPause: false },
       ...(world ? { power: { circuits: [circuit] } } : {}),
       ...over.snapshot,
     },
@@ -24,7 +24,7 @@ function round(i: number, world: boolean, over: { snapshot?: Record<string, unkn
 
 function enrol(over: Partial<Enrol> = {}, rounds?: Round[]): Enrol {
   return {
-    state: { codeConsumed: true, agentVersion: "mod/0.1.0", lastSeen: true },
+    state: { codeConsumed: true, agentVersion: "mod/0.2.0", lastSeen: true },
     codeBlanked: true,
     credentialWritten: true,
     refused: 0,
@@ -91,7 +91,7 @@ describe("enrol pass conditions", () => {
   });
 
   it("fails when the code wasn't consumed", () => {
-    const v = evaluate(evidence(enrol({ state: { codeConsumed: false, agentVersion: "mod/0.1.0", lastSeen: true } })));
+    const v = evaluate(evidence(enrol({ state: { codeConsumed: false, agentVersion: "mod/0.2.0", lastSeen: true } })));
     expect(v.pass).toBe(false);
     expect(v.reasons).toContain("the code was not consumed");
   });
