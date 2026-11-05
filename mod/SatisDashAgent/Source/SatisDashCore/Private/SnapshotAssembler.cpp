@@ -337,7 +337,7 @@ bool SatisDash::FSnapshotAssembler::LaunchNativeParts()
 	{
 		Worker.Launch([Job = NativeMapLive]
 		{
-			// The whole part in one task: sorted, capped and written by the record writers the FRM parse uses (a few hundred records).
+			// The whole part in one task: sorted, capped and written by the shared record writers (a few hundred records).
 			Job->bOk = NativeMapLiveJson(Job->Readings.Trains, Job->Readings.Stations, Job->Json);
 			Job->Readings = FTrainsSnapshot();
 			Job->bRan = true;

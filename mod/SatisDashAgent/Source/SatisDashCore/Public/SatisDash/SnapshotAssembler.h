@@ -10,8 +10,8 @@
 namespace SatisDash
 {
 	/**
-	 * Holds the parts that go into a snapshot or a world post, and does their heavy work on the worker (R7 step 2: this is the
-	 * assembly role FFrmBridge had, split out of it). A reader hands a finished game-thread reading to a Submit* call; the worker
+	 * Holds the parts that go into a snapshot or a world post, and does their heavy work on the worker (R7 step 2: it is the
+	 * assembly role, split out of the retired bridge class). A reader hands a finished game-thread reading to a Submit* call; the worker
 	 * builds the part (or fragment) from it, and the driver takes it with the matching Take* call when it assembles the next
 	 * snapshot (a world layer's outcome is taken by FWorldSender). It also serialises and gzips, on the worker, a snapshot that
 	 * carries the factory or mapLive part.
@@ -121,7 +121,7 @@ namespace SatisDash
 		bool LaunchNativeParts();
 		bool LaunchFactory();
 		bool LaunchWorld();
-		/** A large body is held (a factory build or a world job): FRM's queue starts no second large read (spec "Memory"). */
+		/** A large body is held (a factory build or a world job): no second large read starts, to bound memory (the large-read cap and queue limit). */
 		bool LargeBusy() const;
 
 		// Finished parts and world reads: the narrow entry points for a part another role produced. The assembler treats

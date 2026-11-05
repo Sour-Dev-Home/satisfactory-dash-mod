@@ -162,7 +162,7 @@ bool SatisDash::NativeMapLiveJson(const TArray<FTrainReading>& Trains, const TAr
 	{
 		*OutCounts = Counts;
 	}
-	// The same join, and the same byte rule, as the FRM path: over MapLiveMaxBytes the whole part is left out.
+	// The mapLive join and byte rule: over MapLiveMaxBytes the whole part is left out.
 	const int64 TrainsBytes = FTCHARToUTF8_Convert::ConvertedLength(*TrainsArray, TrainsArray.Len());
 	const int64 StationsBytes = FTCHARToUTF8_Convert::ConvertedLength(*StationsArray, StationsArray.Len());
 	TOptional<FString> Joined = JoinMapLive(TrainsArray, TrainsBytes, StationsArray, StationsBytes);

@@ -238,7 +238,7 @@ SatisDash::FNativeWorldBody SatisDash::BuildNativeTrainRoutes(const FString& Obs
 			continue;
 		}
 		Model.Name = ClampString(Reading.Name);
-		// Controller ruling, mirroring FRM (run 40439238142, train BP_Train_C_2147144902, Parked on both sides): FRM lists no
+		// Controller ruling, matching the dash contract (run 40439238142, train BP_Train_C_2147144902, Parked on both sides): the contract has no
 		// timetable stops for a parked train, so a Parked train sends none; its cargo is unchanged. Other states keep their stops.
 		const int32 StopCount = Reading.State == ETrainState::Parked ? 0 : FMath::Min(Reading.Stops.Num(), TrainRoutesMaxStops);
 		Model.Stops.Reserve(StopCount);
