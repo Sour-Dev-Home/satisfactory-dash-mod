@@ -7,7 +7,7 @@ import { SPIKES } from "./run";
 import type { Evidence, SpikeId, Verdict } from "./verdict";
 
 /** The spikes whose whole evidence is in their bundle, and the capture each needs. */
-const CAPTURE: Partial<Record<SpikeId, string>> = { S3: "power.json", S6: "status.json" };
+const CAPTURE: Partial<Record<SpikeId, string>> = { S6: "status.json" };
 
 export interface Rejudged {
   spike: SpikeId;
@@ -29,7 +29,7 @@ export function rejudge(dir: string, opts: { now: Date; commit: string }): Rejud
   const evidence: Evidence = {
     modLines: result.modLines,
     echo: [],
-    ...(result.spike === "S3" ? { power: data } : { status: { pairs: data } }),
+    status: { pairs: data },
   };
   const out: Rejudged = {
     spike: result.spike,

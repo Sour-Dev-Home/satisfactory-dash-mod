@@ -39,7 +39,7 @@ export async function setAutoLoad(api: CallApi, name: string): Promise<void> {
 
 /** The server writes the uploaded save and its autosaves into the running account's SaveGames folder, named after the
  *  save's session. If another dedicated server keeps its settings there too (the owner's real server, as the owner's
- *  account), those autosaves would land in its rotation: S3 refuses, and runs only as satis-runner. */
+ *  account), those autosaves would land in its rotation: S6 and S7 refuse, and runs only as satis-runner. */
 export function otherServerSettings(savesDir: string, testPort: number): string[] {
   if (!existsSync(savesDir)) return [];
   return readdirSync(savesDir).filter((f) => {

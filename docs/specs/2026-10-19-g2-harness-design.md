@@ -114,6 +114,8 @@ The harness's own logic runs in `ci.yml` on a hosted runner with fixtures (canne
 2. **PR:** `spike.yml` and `docs/runner.md`. The owner registers the runner and approves the environment.
 3. **Spikes, smallest first:** S0, S1, S1b, S2, S4, S5; S3 after its G0 addendum. Any fail stops the sequence and is
    reported, and the design is reconsidered before the next spike (`mod-claims.md` rules).
+   *Note (2026-11-05): spike S3 was retired with R7 (owner decision). Its power reference was FRM; the native power
+   reader's parity is on record in `native-parity` run 41340686528.*
 4. **Lane tasks in satisfactory-dash:** the G0 addendum (power, ports); evidence batches that commit bundles and flip
    claim rows (C4's duration updated to 20 + 20 min); then the G3 build ADR, for the owner's approval.
 
