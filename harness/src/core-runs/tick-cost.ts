@@ -1,7 +1,7 @@
 import * as Pass from "../../../runs/tick-cost/pass";
 import type { CoreContext, CoreDeps, CoreRunSpec } from "../core-run";
 import type { WorldKey } from "../run";
-import { startRecorder } from "../recorder";
+import { startRecorder, type Recorder } from "../recorder";
 import { TICK_WARMUP_MS, type TickSeries } from "../ticks";
 import { accepted, enrolPhase } from "./enrol";
 
@@ -24,15 +24,26 @@ export interface Measured {
   session: string | null;
 }
 
+/** What a measurement may change; tick-cost and tick-cost-native pass none, so they measure TICK_COST_WINDOW_MS as always. */
+export interface WindowOptions {
+  /** The measured window after the warmup (default TICK_COST_WINDOW_MS). The soak run sets 16 h. */
+  windowMs?: number;
+  /** Checked after every sample (30 s) with the clock in ms: a string ends the measurement and rejects with it (the backend host died, say). */
+  stall?: (nowMs: number) => string | null;
+}
+
 /**
- * Ticks for TICK_WARMUP_MS + TICK_COST_WINDOW_MS, and every TICK_COST_SAMPLE_MS (on a fixed schedule from the start)
+ * Ticks for TICK_WARMUP_MS + the window (TICK_COST_WINDOW_MS unless opts.windowMs), and every TICK_COST_SAMPLE_MS (on a fixed schedule from the start)
  * the outbound endpoints and the working set of the process tree under pid: the server's launcher, never the harness.
  * One more sample is taken when the window ends, so the last memory point is the end of the window. No FRM poller.
  * When `exited` settles (the server died), the samplers stop and the measurement rejects, so nothing keeps measuring
  * into the next boot (review M1).
  */
-export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promise<unknown>): Promise<Measured> {
+export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promise<unknown>, opts: WindowOptions = {}): Promise<Measured> {
   if (!deps.sampleTickWindow) throw new Error("no tick sampler (sampleTickWindow)");
+  const windowMs = opts.windowMs ?? TICK_COST_WINDOW_MS;
+  /** Set by opts.stall: the measurement stops and rejects with this reason (the soak run's fail-loud watchdog). */
+  let stalled: string | null = null;
   let gone = false;
   void exited?.then(() => void (gone = true), () => void (gone = true));
   const now = () => deps.now().getTime();
@@ -66,20 +77,22 @@ export async function measureWindow(deps: CoreDeps, pid: number, exited?: Promis
   };
   let done = false;
   const loop = (async () => {
-    for (let k = 1; !done && !gone; k++) {
+    for (let k = 1; !done && !gone && stalled === null; k++) {
       await sampleOnce();
+      if (opts.stall && stalled === null) stalled = opts.stall(now());
       const next = startedMs + k * TICK_COST_SAMPLE_MS;
-      while (!done && !gone && now() < next) await deps.sleep(Math.min(1000, next - now()));
+      while (!done && !gone && stalled === null && now() < next) await deps.sleep(Math.min(1000, next - now()));
     }
   })();
   let ticks: TickSeries;
   try {
-    ticks = await deps.sampleTickWindow({ warmupMs: TICK_WARMUP_MS, durationMs: TICK_COST_WINDOW_MS, stopped: () => gone });
+    ticks = await deps.sampleTickWindow({ warmupMs: TICK_WARMUP_MS, durationMs: windowMs, stopped: () => gone || stalled !== null });
   } finally {
     done = true;
     await loop;
   }
   if (gone) throw new Error("the server exited during the measurement");
+  if (stalled !== null) throw new Error(stalled);
   await sampleOnce();
   const outboundNames: Record<string, string[]> = {};
   for (const a of [...names.keys()].sort()) outboundNames[a] = [...names.get(a)!].sort();
@@ -181,11 +194,19 @@ export async function step<T>(what: string, p: Promise<T>): Promise<T> {
   }
 }
 
-export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?: WorldKey): Promise<void> {
+/** The soak run's changes to the with-mod boot: a longer window, a watchdog, and a recorder that keeps one snapshot body. */
+export interface SoakDrive {
+  windowMs: number;
+  /** Given the recorder, returns a watchdog for measureWindow's opts.stall. */
+  stall?: (recorder: Recorder) => (nowMs: number) => string | null;
+}
+
+export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?: WorldKey, soak?: SoakDrive): Promise<void> {
   {
     const base = ctx.baseline as Measured | undefined;
     const host = await ctx.deps.backendHost!();
-    const recorder = await startRecorder(host.relayUrl);
+    // A 16 h run at one snapshot every 5 s would keep ~11,500 snapshot bodies in memory: the soak keeps the newest in full.
+    const recorder = await startRecorder(host.relayUrl, soak ? { thinOlderSnapshots: true } : undefined);
     const capture: Pass.TickCost = {
       baseline: base?.ticks ?? null,
       withMod: null,
@@ -214,7 +235,7 @@ export async function driveTickCost(ctx: CoreContext, order: TickCostOrder, key?
       if (order === "world-first") await step("enrolling the mod", enrolPhase(ctx, host, recorder));
       // The same staged world as the baseline boot (loadWorld uploads the keyed world each time); the session hash checks it.
       const measureFrom = ctx.deps.now().toISOString();
-      const w = await step("measuring the with-mod window", measureWindow(ctx.deps, ctx.proc.pid, ctx.proc.exited));
+      const w = await step("measuring the with-mod window", measureWindow(ctx.deps, ctx.proc.pid, ctx.proc.exited, soak ? { windowMs: soak.windowMs, stall: soak.stall?.(recorder) } : undefined));
       measured = { from: measureFrom, to: ctx.deps.now().toISOString() };
       capture.withMod = w.ticks;
       capture.outboundWithMod = w.outbound;
