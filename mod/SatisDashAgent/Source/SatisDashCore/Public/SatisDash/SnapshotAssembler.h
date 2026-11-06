@@ -148,7 +148,7 @@ namespace SatisDash
 		/** R2a: the game's own readings; the worker builds the part from them. */
 		struct FFactoryJob
 		{
-			FFactoryJob(TArray<FFactoryReading> InReadings, double InReadAt) : Readings{MoveTemp(InReadings)}, ReadAt{InReadAt} {}
+			FFactoryJob(TArray<FFactoryReading> InReadings, double InReadAt) : ReadAt{InReadAt}, Readings{MoveTemp(InReadings)} {}
 			bool bRan = false;
 			double ReadAt = 0;
 			TArray<FFactoryReading> Readings;
