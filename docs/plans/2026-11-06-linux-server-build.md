@@ -158,24 +158,24 @@ Why: 0.2.0 ships Windows only (`docs/releases/0.2.0.md`). A ficsit.app listing, 
 - Produces:
   - the image `satis-linux-ds:local`;
   - the volume `satis-linux-server` (the game install);
-  - bind mounts `D:\satis-linux\Saved` → `/home/steam/server/FactoryGame/Saved` and `D:\satis-linux\Mods` → `/home/steam/server/FactoryGame/Mods`;
+  - bind mounts `D:\satis-linux\Saved` → `/srv/satis/server/FactoryGame/Saved` and `D:\satis-linux\Mods` → `/srv/satis/server/FactoryGame/Mods`;
   - the env `BACKEND_PORT` (for the socat forward);
   - extra arguments passed through to `FactoryServer.sh`.
 
 - [ ] **Step 1:** Write the `Dockerfile`:
   - Base: `debian:bookworm-slim`, with packages `ca-certificates lib32gcc-s1 socat curl procps`.
-  - SteamCMD from `https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz`, unpacked into `/home/steam/steamcmd`.
-  - User `steam` (uid 1000).
-  - Volume `/home/steam/server`; `ENTRYPOINT ["/entrypoint.sh"]`.
+  - SteamCMD from `https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz`, unpacked into `/srv/satis/steamcmd`.
+  - User `steam` (uid 1000), owning `/srv/satis` (container paths stay off `/home`, which the PII check flags).
+  - Volume `/srv/satis/server`; `ENTRYPOINT ["/entrypoint.sh"]`.
 - [ ] **Step 2:** Write `entrypoint.sh`, with `set -euo pipefail`:
-  1. If `/home/steam/server/FactoryServer.sh` is missing, or `UPDATE=1`, run `steamcmd +force_install_dir /home/steam/server +login anonymous +app_update 1690800 validate +quit`.
+  1. If `/srv/satis/server/FactoryServer.sh` is missing, or `UPDATE=1`, run `steamcmd +force_install_dir /srv/satis/server +login anonymous +app_update 1690800 validate +quit`.
   2. If `BACKEND_PORT` is set, start `socat TCP-LISTEN:${BACKEND_PORT},bind=127.0.0.1,fork,reuseaddr TCP:host.docker.internal:${BACKEND_PORT} &`.
-  3. `exec /home/steam/server/FactoryServer.sh -log -unattended "$@"`.
+  3. `exec /srv/satis/server/FactoryServer.sh -log -unattended "$@"`.
 - [ ] **Step 3 (owner):** Move Docker Desktop's disk image location to D: (D2). Create `D:\satis-linux\Saved` and `D:\satis-linux\Mods`.
 - [ ] **Step 4:** Build and boot it vanilla:
   ```
   docker build -t satis-linux-ds:local docker/linux-server
-  docker run -d --name satis-linux-ds -v satis-linux-server:/home/steam/server -v D:\satis-linux\Saved:/home/steam/server/FactoryGame/Saved -p 127.0.0.1:27777:27777/tcp -p 127.0.0.1:27777:27777/udp -p 127.0.0.1:28888:28888/tcp satis-linux-ds:local -Port=27777 -ReliablePort=28888
+  docker run -d --name satis-linux-ds -v satis-linux-server:/srv/satis/server -v D:\satis-linux\Saved:/srv/satis/server/FactoryGame/Saved -p 127.0.0.1:27777:27777/tcp -p 127.0.0.1:27777:27777/udp -p 127.0.0.1:28888:28888/tcp satis-linux-ds:local -Port=27777 -ReliablePort=28888
   ```
   Expected: `D:\satis-linux\Saved\Logs\FactoryGame.log` appears. The HTTPS API on `https://127.0.0.1:27777` answers `HealthCheck`. Check the API's route and payload from the existing `ServerApi` in the harness, not from memory.
 - [ ] **Step 5:** Install SML 3.12.0's `LinuxServer` build into `D:\satis-linux\Mods\SML`. Use the SML GitHub release asset for 3.12.0, recording the asset name and the URL in the runbook. Restart the container. Expected: the log shows SML loaded.
@@ -206,7 +206,7 @@ Why: 0.2.0 ships Windows only (`docs/releases/0.2.0.md`). A ficsit.app listing, 
 - Produces, in `server-host-docker.ts`:
   ```ts
   export type Exec = (cmd: string, args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
-  /** docker run -d --name <container> -v <volume>:/home/steam/server -v <savedDir>:…/Saved -v <modsDir>:…/Mods -p … -e BACKEND_PORT=<port> <image> -ini:… <serverArgs> */
+  /** docker run -d --name <container> -v <volume>:/srv/satis/server -v <savedDir>:…/Saved -v <modsDir>:…/Mods -p … -e BACKEND_PORT=<port> <image> -ini:… <serverArgs> */
   export function dockerRunArgs(cfg: RunnerConfig, backendPort: number | null): string[];
   export const dockerSpawner: (exec: Exec, cfg: RunnerConfig, backendPort: number | null) => Spawner;
   /** After the API Shutdown and its grace period: docker stop, then docker rm -f. */
