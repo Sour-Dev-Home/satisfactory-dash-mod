@@ -357,6 +357,28 @@ which images it runs. No SQL
 and no shell come from the caller; codes, ids and params are checked before anything runs. It uses the same compose
 project as a local S5 run (`satis-s5`), so never run both at once.
 
+## Linux toolchain (installed 2026-11-06)
+
+The `linux-build` workflow cross-compiles the mod for the Linux dedicated server (plan
+`docs/plans/2026-11-06-linux-server-build.md`, L1). UE 5.6 pins one toolchain: `Engine/Config/Linux/Linux_SDK.json`
+gives `MainVersion = MinVersion = MaxVersion = v25_clang-18.1.0-rockylinux8`, and UBT finds it through the machine
+variable `LINUX_MULTIARCH_ROOT` (`Engine/Source/Programs/UnrealBuildTool/Platform/Linux/LinuxPlatformSDK.cs:221`).
+
+- Download: `https://cdn.unrealengine.com/CrossToolchain_Linux/v25_clang-18.1.0-rockylinux8.exe` (Epic's CDN; 946,496,944
+  bytes, SHA-256 `C1C7798900B434502091629ADA194AC38CCF8B13A94E0D81F8C464E0C87D03F7`, Authenticode signed by Epic
+  Games Inc.). Forum reports say this link once served v23; check `ToolchainVersion.txt` after installing.
+- Install, silent, to D:: `v25_clang-18.1.0-rockylinux8.exe /S /D=D:\UnrealToolchains\v25_clang-18.1.0-rockylinux8`.
+  The installer sets the machine variable `LINUX_MULTIARCH_ROOT=D:\UnrealToolchains\v25_clang-18.1.0-rockylinux8\`.
+- Restart the runner service so jobs see the variable (an administrator PowerShell):
+  `Restart-Service -Name 'actions.runner.*'`.
+- Check: `ToolchainVersion.txt` reads `v25_clang-18.1.0-rockylinux8`, and
+  `x86_64-unknown-linux-gnu\bin\clang++.exe --version` prints clang 18.1.0. The workflow's first step checks both.
+
+Run it with `gh workflow run linux-build.yml --ref <branch>`. It runs `harness build-mod --platforms Win64+Linux`
+(`scripts/build-mod.ps1`, one archive per server platform, unzipped to `WindowsServer/` and `LinuxServer/`), then
+`harness check-build`: each tree has the plugin, a library per shipped module and no test code, and both carry one
+version. The LinuxServer tree is uploaded as an artifact for 14 days.
+
 ## Removing the runner
 
 Stop the service, run `config.cmd remove` with the token GitHub shows, delete `D:\actions-runner`, then delete the
