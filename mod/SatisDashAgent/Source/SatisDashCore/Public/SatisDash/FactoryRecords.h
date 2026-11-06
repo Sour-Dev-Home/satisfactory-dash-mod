@@ -11,7 +11,7 @@ namespace SatisDash
 
 	/** One production or ingredient rate of a machine, in the units the snapshot uses (per minute, percent). */
 	struct FRateReading { FString Name; FString ClassName; double Current = 0; double Max = 0; double Percent = 0; };
-	/** One inventory slot summary, already in FRM's scale (fluids in m3). */
+	/** One inventory slot summary, already in the dash contract's scale (fluids in m3). */
 	struct FSlotReading { FString ClassName; double Amount = 0; double MaxAmount = 0; };
 
 	using FFactoryJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>;
@@ -50,6 +50,6 @@ namespace SatisDash
 		const TArray<FRateReading>* Ingredients = nullptr;
 	};
 
-	/** The one record writer: the FRM parse and the native reader both write a building through this. */
+	/** The one record writer: every building record, whatever reads it, is written through this. */
 	SATISDASHCORE_API void AppendFactoryBuilding(FFactoryJsonWriter& Writer, const FFactoryBuildingModel& Building);
 }

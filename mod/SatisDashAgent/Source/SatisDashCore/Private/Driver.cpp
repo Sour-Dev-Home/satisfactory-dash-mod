@@ -86,8 +86,8 @@ void SatisDash::FDriver::Tick()
 		WorldLayers.Start(Now);
 		bGameRunning = false;
 		LastGameReadAt.Reset();
-		// R7: every reader is the game's own; the values are constant since the FRM role was removed. The line keeps its format
-		// (the same 13 fields) so the harness's checks of it still hold until the FRM legs retire (step 4). Names only.
+		// R7: every reader is the game's own; the values are constant. The line keeps its format
+		// (the same 13 fields) so the harness's checks of it still hold. Names only.
 		UE_LOG(LogSatisDash, Display, TEXT("Readers: players=native resourceNodes=native factory=native trains=native rails=native conveyors=native mapMarkers=native droneRoutes=native powerLines=native extractors=native generators=native stationRates=native storage=native"));
 	}
 	bRunning = bNowRunning;

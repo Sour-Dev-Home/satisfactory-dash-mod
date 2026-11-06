@@ -13,7 +13,7 @@ namespace SatisDash
 
 	/**
 	 * GetProductivity() full scale. 1.0 = a 0..1 fraction (the header does not say; the parity run checks it, Task 10: the
-	 * native-parity judge compares current rates with FRM's, and a wrong scale shows there).
+	 * native-parity judge compares current rates with the reference rates, and a wrong scale shows there).
 	 */
 	inline constexpr double ProductivityFullScale = 1.0;
 
@@ -27,7 +27,7 @@ namespace SatisDash
 		double CycleSeconds = 0;
 		/** GetCurrentPotential. */
 		double Potential = 1.0;
-		/** GetCurrentProductionBoost: the Somersloop multiplier, applied to products only (FRM's output, run 40378567334). */
+		/** GetCurrentProductionBoost: the Somersloop multiplier, applied to products only (as the native-parity run 40378567334 confirmed; record: dash raw-sources). */
 		double ProductionBoost = 1.0;
 		/** GetProductivity(). */
 		double RawProductivity = 0;

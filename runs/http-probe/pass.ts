@@ -15,7 +15,7 @@ import type { ProbeRequest } from "../../harness/src/probe-stub";
 import type { Verdict } from "../../harness/src/verdict";
 
 export const requirements = ["S1", "S2", "S3", "S9", "user-agent"];
-export const USER_AGENT = "satisfactory-dash-mod/0.1.0";
+export const USER_AGENT = "satisfactory-dash-mod/0.2.0";
 const TLS13 = 0x0304;
 const TLS12 = 0x0303;
 const tlsName = (v: number) => (v === 0x0302 ? "1.1" : v === 0x0301 ? "1.0" : `0x${v.toString(16)}`);

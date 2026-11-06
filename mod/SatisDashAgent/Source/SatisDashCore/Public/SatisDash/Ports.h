@@ -261,7 +261,7 @@ namespace SatisDash
 	};
 
 	/**
-	 * Runs pure work off the game thread (FRM bridge spec "Threading"): UE::Tasks in the game (SatisDashGame's
+	 * Runs pure work off the game thread (so the game thread never blocks on it): UE::Tasks in the game (SatisDashGame's
 	 * FTaskWorker), inline in the tests. One task at a time: Launch is only called while IsIdle().
 	 */
 	using FWorkFn = TUniqueFunction<void()>;

@@ -20,7 +20,7 @@ namespace SatisDash
 		TArray<FPlayerReading> Players;
 	};
 
-	/** The part when no source has players: {available: false, players: []} (playersMapper.ts isFrmAbsent gave this for an absent FRM). */
+	/** The part when no source has players: {available: false, players: []} (the dash's players mapper treats this shape as "no source", playersMapper.ts). */
 	SATISDASHCORE_API FPlayersPart PlayersUnavailable();
 	SATISDASHCORE_API FString PlayersToJson(const FPlayersPart& Part);
 }

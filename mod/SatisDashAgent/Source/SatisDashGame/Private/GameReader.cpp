@@ -299,7 +299,7 @@ TOptional<TArray<SatisDash::FResourceNodeReading>> SatisDash::FGameReader::StepR
 		default: continue;
 		}
 		Reading.Resource = Node->GetResourceName().ToString();
-		// The descriptor class's short name (Desc_OreIron_C), as FRM's ClassName: GetName, not the path. No class gives empty.
+		// The descriptor class's short name (Desc_OreIron_C), as the dash contract's ClassName: GetName, not the path. No class gives empty.
 		const TSubclassOf<UFGResourceDescriptor> ResourceClass = Node->GetResourceClass();
 		Reading.ClassName = ResourceClass ? ResourceClass->GetName() : FString();
 		const FVector Location = Node->GetActorLocation();
@@ -764,8 +764,8 @@ namespace
 			}
 			else if (!Platform->IsA<AFGBuildableRailroadStation>())
 			{
-				// An empty platform: listed as unload with no items, as FRM's output lists Build_TrainPlatformEmpty_02_C
-				// (run 40378567334). A second station in the chain stays out: no capture shows how FRM lists one.
+				// An empty platform: listed as unload with no items, as the native-parity run 40378567334 confirmed for
+				// Build_TrainPlatformEmpty_02_C (record: dash raw-sources). A second station in the chain stays out: no capture shows how the contract lists one.
 				SatisDash::FPlatformReading Entry;
 				Entry.Id = Platform->GetName();
 				Entry.bLoad = false;
@@ -1725,7 +1725,7 @@ namespace
 		// set by SetDynamicProductionCapacity :145 "the maximum dynamic power production we can provide to the circuit"). The header does
 		// not say GetPowerProductionCapacity (FGBuildableGenerator.h:87, "the power this generator can produce") follows the clock, so it
 		// is still not used. The run showed CalcPowerProductionCapacityForPotential(GetCurrentPotential()) = 82.5 on a fuel generator at
-		// about a third clock where FRM's DynamicProdCapacity and our current read 83.333. Without a power info the old formula stays.
+		// about a third clock where the parity reference (DynamicProdCapacity) and our current read 83.333. Without a power info the old formula stays.
 		if (PowerInfo != nullptr)
 		{
 			Out.CurrentMW = static_cast<double>(PowerInfo->GetBaseProduction()) + static_cast<double>(PowerInfo->GetRegulatedDynamicProduction());

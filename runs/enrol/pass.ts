@@ -94,7 +94,7 @@ export function evaluate(e: CoreEvidence): Verdict {
   if (!d) return { pass: false, reasons: ["no enrol capture"] };
   const reasons: string[] = [];
   if (!d.state.codeConsumed) reasons.push("the code was not consumed");
-  if (d.state.agentVersion !== "mod/0.1.0") reasons.push(`agentVersion ${d.state.agentVersion}, expected mod/0.1.0`);
+  if (d.state.agentVersion !== "mod/0.2.0") reasons.push(`agentVersion ${d.state.agentVersion}, expected mod/0.2.0`);
   if (!d.state.lastSeen) reasons.push("the backend never saw an authenticated call");
   if (!d.codeBlanked) reasons.push("the code is still in SatisDashAgent.cfg");
   if (!d.credentialWritten) reasons.push("no credential.json was written");

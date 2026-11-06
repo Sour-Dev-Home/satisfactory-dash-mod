@@ -16,7 +16,7 @@ namespace SatisDash
 		TArray<TPair<FString, FString>> Headers;
 		TArray<uint8> Body;
 		float TimeoutSeconds = 15.f;
-		/** The reply body's cap, enforced while it downloads (S4); the backend's 64 KB unless an FRM read asks for more. */
+		/** The reply body's cap, enforced while it downloads (S4); the backend's 64 KB unless a large read (a factory build or a world job) asks for more. */
 		int64 ResponseCapBytes = MaxResponseBytes;
 	};
 

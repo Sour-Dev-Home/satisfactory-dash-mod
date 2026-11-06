@@ -17,7 +17,7 @@ namespace
 	constexpr int32 WorldSenderDifferClassesLogged = 5;
 	constexpr int32 WorldSenderCensusMaxLines = 16;
 
-	/** Every layer comes from the game itself (R7: the FRM source is gone); a layer can be read only while a reader is there. */
+	/** Every layer comes from the game itself (R7: there is no other source); a layer can be read only while a reader is there. */
 	bool WorldSenderHasReaders(const SatisDash::FWorldContext& Context)
 	{
 		return Context.NativeReaders != nullptr;

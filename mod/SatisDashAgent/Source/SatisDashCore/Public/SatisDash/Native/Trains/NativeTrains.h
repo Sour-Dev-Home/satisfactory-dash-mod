@@ -50,7 +50,7 @@ namespace SatisDash
 
 	/**
 	 * R4 / B6: the factor from the game's raw station transfer rate to items per minute. The header states no unit, so 1.0 is an
-	 * assumption, NEEDS VERIFICATION: the first parity run stores the mod's posted value next to FRM's, and the judge fails the
+	 * assumption, NEEDS VERIFICATION: the first parity run stores the mod's posted value next to the reference value, and the judge fails the
 	 * run when the median ratio is outside its band. A different ratio is fixed here in a ruling PR and the run repeated; the
 	 * tolerance is never loosened. Applied by the game-side station read (GameReader.cpp, S4-B Task 12), not by the builder.
 	 */
@@ -83,7 +83,7 @@ namespace SatisDash
 
 	/**
 	 * R3 (ADR-0058): the mapLive part {"trains":[...],"stations":[...]} from the game's own trains and stations, each record
-	 * written by the shared AppendTrainRecord / AppendStationRecord the FRM parse uses. Positions go to whole metres as the
+	 * written by the shared AppendTrainRecord / AppendStationRecord (the one record writers). Positions go to whole metres as the
 	 * map does, readings outside +/-1,000,000 m are dropped, and each list is sorted by id (ties by name, then the rest) and
 	 * cut at MapLiveMaxItems, so the same world gives the same bytes in any scan order. Returns false (OutJson untouched)
 	 * when the text would pass MapLiveMaxBytes, which leaves the part out, as JoinMapLive does. Sorts and builds text, so it
