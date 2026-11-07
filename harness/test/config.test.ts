@@ -84,3 +84,23 @@ describe("toolchain", () => {
     ]);
   });
 });
+
+describe("serverHost", () => {
+  const docker = { container: "c", image: "i", volume: "v", publish: ["127.0.0.1:27777:27777/udp"] };
+  it("defaults to windows, and an existing config still parses", () => {
+    const cfg = RunnerConfigSchema.parse(valid);
+    expect(cfg.serverHost).toBe("windows");
+    expect(cfg.docker).toBeUndefined();
+  });
+  it("docker needs the docker block", () => {
+    expect(() => RunnerConfigSchema.parse({ ...valid, serverHost: "docker" })).toThrow(/docker/);
+    const cfg = RunnerConfigSchema.parse({ ...valid, serverHost: "docker", docker });
+    expect(cfg.docker?.forwardPorts).toEqual([]);
+  });
+  it("refuses an unknown host, extra docker keys, empty names and non-loopback publishes", () => {
+    expect(() => RunnerConfigSchema.parse({ ...valid, serverHost: "podman" })).toThrow();
+    expect(() => RunnerConfigSchema.parse({ ...valid, serverHost: "docker", docker: { ...docker, extra: 1 } })).toThrow();
+    expect(() => RunnerConfigSchema.parse({ ...valid, serverHost: "docker", docker: { ...docker, container: "" } })).toThrow();
+    expect(() => RunnerConfigSchema.parse({ ...valid, serverHost: "docker", docker: { ...docker, publish: ["0.0.0.0:1:1"] } })).toThrow(/127\.0\.0\.1/);
+  });
+});

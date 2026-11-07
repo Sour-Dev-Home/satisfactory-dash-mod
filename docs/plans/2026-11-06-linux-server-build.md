@@ -283,6 +283,24 @@ Why: 0.2.0 ships Windows only (`docs/releases/0.2.0.md`). A ficsit.app listing, 
 - [ ] **Step 2:** Bump to `0.3.0`: the `.uplugin`, the judges' `mod/0.3.0` (`runs/enrol/pass.ts`, `runs/http-probe/pass.ts`; `mod-version.test.ts` guards them), and `docs/releases/0.3.0.md` ("Linux servers are supported", with the Linux run IDs).
 - [ ] **Step 3:** Run mod-test and linux-build, then open the PR. After the owner merges: tag `v0.3.0` and create the GitHub release with both platform zips. The ficsit.app listing is the owner's next call.
 
+## Execution notes (rulings made while building; they override the task text above)
+
+- **L1 (2026-11-06, PR #87):** `-Platforms Win64` keeps today's layout, with the plugin at `-Out`'s root, because every core run reads it there. Only `Win64+Linux` writes `WindowsServer/` and `LinuxServer/`.
+  - The first LinuxServer builds found two latent bugs that Win64 tolerated: an out-of-order initialiser list (`-Werror,-Wreorder-ctor`), and a missing `CoreOnline` module dependency (an undefined `LexFromString(EOnlineServices&)`).
+- **Task 4 (2026-11-06):**
+  - SteamCMD's first `app_update` can fail with "Missing configuration", so the entrypoint tries three times.
+  - Docker creates bind-mount points as root, so the image pre-creates `FactoryGame/{Saved,Mods,Configs}` as `steam`. Otherwise SteamCMD fails with state 0x602, "Missing file permissions".
+  - The vanilla server (CL-517554) answers HealthCheck. With SML 3.12.0's `SML-LinuxServer.zip` and our LinuxServer build in `Mods`, the log shows `Mounting Mod plugin SatisDashAgent` and our `Not enrolled` line.
+- **A third bind mount, `Configs`:** the mod reads `FPaths::ProjectDir()/Configs/SatisDashAgent.cfg` (`SatisDashGameModule.cpp:107`), and the harness writes that file. So `serverDir` is `D:\satis-linux\root`, and its `FactoryGame/{Saved,Mods,Configs}` are the bind-mount sources themselves. No junctions are needed (this replaces Task 6's junction note).
+- **Task 5 ruling: no certificate change.**
+  - The harness's backends are all plain `http://127.0.0.1:<port>`, which the mod allows only on loopback (`CurlTransport.cpp:181`). http-probe's https stubs are untrusted on purpose (S1).
+  - On Linux the engine trusts its `cacert.pem` plus the system bundle (`UnixPlatformSslCertificateManager.cpp:23-41`), the same as a real Linux host.
+  - So the container trusts nothing extra, and S1 is tested against the real setup.
+- **D3 refined:**
+  - `FORWARD_PORTS` (a list) replaces `BACKEND_PORT`, because the mod must reach the backend and http-probe's three stubs, and their ports are picked at run time.
+  - The server API needs `API_RELAY=27778:27777`, with the host's TCP 27777 published to the container's 27778, so the harness's calls arrive from 127.0.0.1. Through Docker's mapping they come from the bridge gateway, and the server refused `Shutdown` with `insufficient_scope` even with `AllowInsecureLocalAccess=1`.
+  - With the relay, QueryServerState answers, and `Shutdown` returns 204 with a clean exit 0.
+
 ## Order and owner actions
 
 | When | Owner action |
