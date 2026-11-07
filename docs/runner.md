@@ -307,6 +307,29 @@ owner's own.
 - The verdict is availability only: `QueryServerState` is sampled every 30 s, and a sample that is missing, gets no
   answer within 10 s, or says the game isn't running fails the run. If the server exits, the run stops and fails. Since R7 step 4 the run no longer reads FRM's belt and pipe lists (they were evidence only, never judged); G-B1 and G-B2 are judged by the owner from what they saw in the game.
 
+### Core runs on the Linux test server
+
+`serverHost: "docker"` in the runner config makes core runs drive the Linux test server container
+(`docker/linux-server/README.md`) instead of `FactoryServer.exe`. The default is `"windows"`; nothing else changes.
+Every run's `result.json` records `serverHost`.
+
+- **Folders.** `serverDir` (for example `D:\satis-linux\root`) holds `FactoryGame\Saved`, `FactoryGame\Mods` and
+  `FactoryGame\Configs`. They are the container's three bind-mount sources, so the mod install, the log, the credential
+  and `SatisDashAgent.cfg` resolve exactly as on Windows. The game files live in the named volume.
+- **Config keys.** `docker.container`, `docker.image`, `docker.volume`; `docker.apiRelay` (`"27778:27777"`, the image's
+  `API_RELAY`, so the server sees the harness's API calls as loopback); `docker.publish` (every `docker run -p` value,
+  each beginning `127.0.0.1:`); `docker.forwardPorts`. `apiBaseUrl` is the published API port, `serverArgs` carries
+  `-Port` and `-ReliablePort`.
+- **Forward ports.** The recorder and the http-probe stubs listen on 127.0.0.1 ports the container must already forward
+  when it starts (`FORWARD_PORTS`). With `docker` the listeners take their ports in turn from `docker.forwardPorts`
+  (give it at least 4 free ports; http-probe uses 4) instead of ephemeral ones.
+- **Command shape.** The harness runs `docker run -d --name <container> -e API_RELAY=… -e FORWARD_PORTS=… -v <volume>:/srv/satis/server
+  -v <serverDir>\FactoryGame\{Saved,Mods,Configs}:/srv/satis/server/FactoryGame/{Saved,Mods,Configs} -p … <image>
+  -ini:Engine:[SystemSettings]:FG.DedicatedServer.AllowInsecureLocalAccess=1 <serverArgs>`, after `docker rm -f <container>`.
+- **Stopping.** API `Shutdown`, the same 60 s grace as Windows, then `docker stop`, then `docker rm -f`.
+- **Memory.** `memory.json` holds the server process's `VmRSS` and `VmHWM` from `/proc/<pid>/status`
+  (`FactoryServer-Linux-Shipping`, found with `ps` through `docker exec`), never `docker stats`, which counts page cache.
+
 ## The backend host
 
 Runs that need a backend (`enrol` and the later core runs) talk to the throwaway satisfactory-dash backend from S5,

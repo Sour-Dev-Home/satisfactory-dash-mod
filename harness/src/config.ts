@@ -40,7 +40,26 @@ export const RunnerConfigSchema = z.strictObject({
   backendHost: z.strictObject({ file: z.string().min(1), port: z.number().int().min(1024).max(65535) }).optional(),
   /** The core mod's unit tests (scripts/test-mod.ps1): the SML project folder and the engine root. */
   modTest: z.strictObject({ project: z.string().min(1), engine: z.string().min(1) }).optional(),
-});
+  /**
+   * Where the test server runs: "windows" (FactoryServer.exe from serverDir, the default) or "docker" (the Linux test server
+   * container, docs/runner.md "Core runs on the Linux test server"). With docker, serverDir holds the bind-mount sources
+   * FactoryGame/{Saved,Mods,Configs}, so the mod install, log and credential paths are unchanged.
+   */
+  serverHost: z.enum(["windows", "docker"]).default("windows"),
+  docker: z
+    .strictObject({
+      container: z.string().min(1),
+      image: z.string().min(1),
+      volume: z.string().min(1),
+      /** "<listen>:<port>": the image's API_RELAY, so the server sees the harness's API calls from 127.0.0.1. */
+      apiRelay: z.string().regex(/^\d+:\d+$/).optional(),
+      /** docker run -p values; each must bind 127.0.0.1. */
+      publish: z.array(z.string().min(1).startsWith("127.0.0.1:", "every published port must bind 127.0.0.1")).min(1),
+      /** Loopback ports the harness's stubs and recorders listen on, reachable from the container (FORWARD_PORTS). */
+      forwardPorts: z.array(z.number().int().min(1024).max(65535)).default([]),
+    })
+    .optional(),
+}).refine((c) => c.serverHost !== "docker" || c.docker !== undefined, { message: 'serverHost "docker" needs a docker block', path: ["docker"] });
 export type RunnerConfig = z.infer<typeof RunnerConfigSchema>;
 
 export function loadConfig(path: string): RunnerConfig {

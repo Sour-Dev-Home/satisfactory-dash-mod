@@ -4,6 +4,7 @@
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, request, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gunzipSync } from "node:zlib";
+import { nextListenPort } from "./listen-port";
 import { sessionHash } from "./status";
 
 export interface RecordedCall {
@@ -255,7 +256,7 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
   const server = createServer(handle);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
+    server.listen(nextListenPort(), "127.0.0.1", () => resolve());
   });
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,

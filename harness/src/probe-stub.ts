@@ -4,6 +4,7 @@ import { createServer as createHttp, type IncomingMessage, type Server, type Ser
 import { type AddressInfo, createServer as createTcp, type Server as TcpServer } from "node:net";
 import { delimiter, join } from "node:path";
 import { createServer as createTls } from "node:tls";
+import { nextListenPort } from "./listen-port";
 
 /** The contract's secret shape (43 base64url characters). A fixed fake: never a real credential. */
 export const FAKE_SECRET = `${"a".repeat(42)}_`;
@@ -34,7 +35,10 @@ export interface ProbeStub {
 }
 
 const listen = (server: Server | TcpServer) =>
-  new Promise<number>((resolve) => server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port)));
+  new Promise<number>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(nextListenPort(), "127.0.0.1", () => resolve((server.address() as AddressInfo).port));
+  });
 const closeServer = (server: Server | TcpServer) => new Promise<void>((resolve) => server.close(() => resolve()));
 
 /** Reads the body, calling onChunk with the running byte count; resolves when the body ends (never, if it never does). */

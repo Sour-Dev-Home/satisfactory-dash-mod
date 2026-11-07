@@ -89,6 +89,7 @@ describe("runCore", () => {
     expect(calls).toEqual(["probe", "build", "remove SatisMod*", "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy", "stop", "uninstall SatisDashAgent"]);
     expect(result).toMatchObject({ run: "http-probe", pass: true, reasons: ["fine"], modLines: ["[x][1]LogSatisDash: Display: booted"] });
     expect(dir).toMatch(/core-http-probe-2026-10-20T16-00-00-000Z$/);
+    expect(JSON.parse(readFileSync(join(dir, "result.json"), "utf8")).serverHost).toBe("windows");
     expect(JSON.parse(readFileSync(join(dir, "leaks.json"), "utf8"))).toEqual({ code: false, secret: null, bearer: false });
   });
 

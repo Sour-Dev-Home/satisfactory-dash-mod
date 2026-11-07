@@ -11,7 +11,9 @@ import { type BackendImages, contractPin, imageDescends, realExec } from "./back
 import { connectBackendHost, type HostClient } from "./backend-host";
 import { createServerApi } from "./server-api";
 import { readApiStatus } from "./status";
-import { type ProcessMemory, readProcessMemory, removeMod, type ServerProcess, whileRunning } from "./server-control";
+import { setListenPlan } from "./listen-port";
+import { dockerSpawner, dockerStop, readContainerMemory, realExec as dockerExec } from "./server-host-docker";
+import { type ProcessMemory, readProcessMemory, removeMod, type ServerProcess, startServer, whileRunning } from "./server-control";
 import { readTickRate, sampleTicks, TICK_INTERVAL_MS, type TickSeries } from "./ticks";
 import { type OutboundSample, resolveHost, sampleOutbound } from "./outbound";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
@@ -144,6 +146,8 @@ const ResultSchema = z.strictObject({
   versionLines: z.array(z.string()),
   modLines: z.array(z.string()),
   harnessCommit: z.string().min(1),
+  /** Where the server ran: memory figures differ (Windows working set vs the Linux server process's RSS). */
+  serverHost: z.enum(["windows", "docker"]),
   runUrl: z.string().nullable(),
 });
 export type CoreResult = z.infer<typeof ResultSchema>;
@@ -427,6 +431,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     versionLines: versionLines(shown),
     modLines: lines.slice(0, 200),
     harnessCommit: deps.env.commit,
+    serverHost: deps.config.serverHost,
     runUrl: deps.env.runUrl,
   };
   return { result, dir: writeCoreEvidence(deps.outDir, result, { ...captures, "leaks.json": evidence.leaks }) };
@@ -447,6 +452,15 @@ export function coreBuildDir(outDir: string): string {
 export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir: string, repoRoot: string): CoreDeps {
   const d = realDeps(config, toolchain, outDir, repoRoot);
   const built = coreBuildDir(outDir);
+  const docker = config.serverHost === "docker";
+  if (docker) setListenPlan(config.docker?.forwardPorts ?? []);
+  const hostDeps: Pick<CoreDeps, "start" | "stop" | "processMemory"> = docker
+    ? {
+        start: () => startServer(config, dockerSpawner(dockerExec, config)),
+        stop: (proc) => dockerStop(proc, createServerApi(config.apiBaseUrl), dockerExec, config, { graceMs: 60_000 }),
+        processMemory: () => readContainerMemory(dockerExec, config),
+      }
+    : { start: d.start, stop: d.stop, processMemory: readProcessMemory };
   return {
     config: d.config,
     toolchain: d.toolchain,
@@ -456,8 +470,8 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
     install: d.install,
     removeSpikeMods: d.removeSpikeMods,
     removeMod: (name) => removeMod(name, config.serverDir),
-    start: d.start,
-    stop: d.stop,
+    start: hostDeps.start,
+    stop: hostDeps.stop,
     waitHealthy: d.waitHealthy,
     resetLog: d.resetLog,
     readLogSince: d.readLogSince,
@@ -471,7 +485,7 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
     ...(d.readAutoLoad && d.setAutoLoad ? { readAutoLoad: d.readAutoLoad, setAutoLoad: d.setAutoLoad } : {}),
     ...(config.backendHost ? { backendHost: () => connectBackendHost(config.backendHost!.file) } : {}),
     ...(config.s5 ? { imageDescends: (pin: string, revision: string) => imageDescends({ checkout: config.s5!.checkout, exec: realExec }, pin, revision) } : {}),
-    processMemory: readProcessMemory,
+    processMemory: hostDeps.processMemory,
     gameState: async () => {
       const s = await readApiStatus(createServerApi(config.apiBaseUrl));
       return { running: s.running, session: s.session };
