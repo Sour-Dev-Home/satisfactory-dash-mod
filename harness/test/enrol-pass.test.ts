@@ -123,6 +123,14 @@ describe("enrol pass conditions", () => {
     expect(evaluate(evidence(withRound(bad))).reasons).toContain(`${bad.at}: S13: unexpected snapshot field conveyors`);
   });
 
+  it("accepts S4's gameReachable, lastGameReadAt, modVersion and storage (S13, owner ruling 2026-11-07) but no other field", () => {
+    const s4 = { gameReachable: true, lastGameReadAt: "2026-11-07T04:09:11.555Z", modVersion: "mod/0.2.0", storage: { available: true, containers: [] } };
+    const ok = round(30, true, { snapshot: s4 });
+    expect(evaluate(evidence(withRound(ok))).reasons.filter((x) => x.includes("S13"))).toEqual([]);
+    const bad = round(30, true, { snapshot: { ...s4, drones: {} } });
+    expect(evaluate(evidence(withRound(bad))).reasons).toContain(`${bad.at}: S13: unexpected snapshot field drones`);
+  });
+
   it("fails a tick rate off by 20%", () => {
     const r = round(30, true, { status: { tickRate: 24 } });
     expect(evaluate(evidence(withRound(r))).reasons).toContain(`${r.at}: tick rate 24 vs API 30`);

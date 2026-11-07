@@ -15,6 +15,14 @@ on:
         required: true
         type: choice
         options: [http-probe, enrol, revoke, command, outage, tick-cost, manual, tick-cost-native, s3-census, soak-native]
+      # The test server: the Windows one (FactoryServer.exe), or the Linux one in Docker (docker/linux-server; plan
+      # 2026-11-06-linux-server-build, Task 7). Linux takes its runner config from the runner's SATIS_HARNESS_CONFIG_LINUX.
+      host:
+        description: Test server
+        required: false
+        type: choice
+        options: [windows, linux]
+        default: windows
 
 permissions:
   contents: read
@@ -35,6 +43,7 @@ jobs:
         working-directory: harness
     env:
       RUN: ${{ inputs.run }}
+      HOST_KIND: ${{ inputs.host }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -43,11 +52,16 @@ jobs:
         with:
           node-version-file: harness/.node-version
       - run: npm ci
-      - run: npm run harness -- core-run $env:RUN --out "$env:RUNNER_TEMP/core-run"
+      - run: |
+          if ($env:HOST_KIND -eq 'linux') {
+            if (-not $env:SATIS_HARNESS_CONFIG_LINUX) { throw "SATIS_HARNESS_CONFIG_LINUX is not set on the runner (docs/runner.md, Core runs on the Linux test server)" }
+            $env:SATIS_HARNESS_CONFIG = $env:SATIS_HARNESS_CONFIG_LINUX
+          }
+          npm run harness -- core-run $env:RUN --out "$env:RUNNER_TEMP/core-run"
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: core-run-${{ inputs.run }}-${{ github.run_id }}
+          name: core-run-${{ inputs.run }}-${{ inputs.host || 'windows' }}-${{ github.run_id }}
           path: ${{ runner.temp }}/core-run
           if-no-files-found: warn
           retention-days: 90

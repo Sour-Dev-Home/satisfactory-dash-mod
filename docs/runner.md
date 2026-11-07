@@ -329,6 +329,12 @@ Every run's `result.json` records `serverHost`.
 - **Stopping.** API `Shutdown`, the same 60 s grace as Windows, then `docker stop`, then `docker rm -f`.
 - **Memory.** `memory.json` holds the server process's `VmRSS` and `VmHWM` from `/proc/<pid>/status`
   (`FactoryServer-Linux-Shipping`, found with `ps` through `docker exec`), never `docker stats`, which counts page cache.
+- **The build.** On the docker host the core run builds both server platforms (`build-mod.ps1 -Platforms Win64+Linux`) and
+  installs the `LinuxServer` tree. `Mods\SML` under `serverDir` holds SML's own `SML-LinuxServer.zip` (3.12.0), unpacked.
+- **Choosing the host.** The runner's `.env` keeps `SATIS_HARNESS_CONFIG` (the Windows config) and gains
+  `SATIS_HARNESS_CONFIG_LINUX` (the Linux one, e.g. `harness-linux.json` beside it); restart the runner service after
+  editing it. `core-run.yml`'s `host` input (`windows` by default, or `linux`) picks between them, and a `linux` run
+  refuses when `SATIS_HARNESS_CONFIG_LINUX` is unset. By hand: `gh workflow run core-run.yml --ref <branch> -f run=<run> -f host=linux`.
 
 ## The backend host
 

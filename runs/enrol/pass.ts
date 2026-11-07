@@ -14,6 +14,9 @@
 // agent sends"), so both join SNAPSHOT_KEYS. Any other field still fails.
 // Owner ruling (2026-10-25, Plan 3B Task 4; S13 snapshot fields): mapLive (trains and stations,
 // spec "What the Node agent sends") joins SNAPSHOT_KEYS with PR 3B-1. Any other field still fails.
+// Owner ruling (2026-11-07, Linux plan L2, run 42336517958; S13 snapshot fields): gameReachable, lastGameReadAt and modVersion
+// (S4-A, e3b1d8c) and storage (S4-B) join SNAPSHOT_KEYS, as the vendored contract has them (harness/contract/src/agent.ts:190,
+// :194, :198, :223). No enrol run had met them before (the last was 2026-10-25). Any other field still fails.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { Verdict } from "../../harness/src/verdict";
 
@@ -21,7 +24,10 @@ export const requirements = ["enrol", "C8", "C9", "power", "S10", "S13"];
 const NEED_WORLD = 10;
 const NEED_EMPTY = 3;
 const tickClose = (a: number, b: number) => Math.abs(a - b) <= Math.max(2, 0.1 * Math.max(a, b)); // S6
-const SNAPSHOT_KEYS = new Set(["agentVersion", "observedAt", "reachable", "paused", "status", "power", "settings", "players", "factory", "mapLive"]);
+const SNAPSHOT_KEYS = new Set([
+  "agentVersion", "observedAt", "reachable", "paused", "status", "power", "settings", "players", "factory", "mapLive",
+  "gameReachable", "lastGameReadAt", "modVersion", "storage",
+]);
 
 export interface ApiStatus { running: boolean; paused: boolean; players: number; limit: number; duration: number; tickRate: number; health: string; session: string }
 export interface ModStatus { isGameRunning: boolean; gamePaused: boolean; connectedPlayers: number; playerLimit: number; totalGameDurationSeconds: number; tickRate: number; tickHealth: string; sessionName: string }

@@ -111,6 +111,18 @@ describe("core-run.yml (the core mod's runs on the self-hosted runner)", () => {
       for (const step of job.steps ?? []) expect(step.run ?? "").not.toMatch(/\$\{\{\s*(inputs|github\.event)/);
     }
   });
+
+  it("offers the host as a fixed choice, windows by default (Linux plan Task 7)", () => {
+    const host = (wf.on.workflow_dispatch as { inputs: { host: { type: string; options: string[]; default: string } } }).inputs.host;
+    expect(host).toMatchObject({ type: "choice", options: ["windows", "linux"], default: "windows" });
+  });
+
+  it("takes the Linux host's config only from the runner's SATIS_HARNESS_CONFIG_LINUX, and refuses without it", () => {
+    const run = Object.values(wf.jobs).flatMap((j) => j.steps ?? []).map((s) => s.run ?? "").find((r) => r.includes("core-run")) ?? "";
+    expect(run).toMatch(/\$env:HOST_KIND -eq 'linux'/);
+    expect(run).toMatch(/\$env:SATIS_HARNESS_CONFIG = \$env:SATIS_HARNESS_CONFIG_LINUX/);
+    expect(run).toMatch(/throw/);
+  });
 });
 
 describe("every workflow", () => {
