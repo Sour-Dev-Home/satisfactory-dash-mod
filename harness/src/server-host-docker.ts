@@ -106,7 +106,8 @@ export function parseProcStatus(text: string): { rssBytes: number; peakBytes: nu
 
 /**
  * The server process's resident set, through docker exec (never docker stats, which counts page cache). Shaped like the
- * Windows reader's result so memory.json keeps one form. Null when it can't be read; it is evidence, not a pass condition.
+ * Windows reader's result so memory.json keeps one form. Null when it can't be read: the memory judges count an unreadable
+ * sample as a failure (runs/tick-cost/pass.ts:120, runs/soak-native/pass.ts:181), so a broken read never passes.
  */
 export const readContainerMemory = async (exec: Exec, cfg: RunnerConfig): Promise<ProcessMemory | null> => {
   try {
