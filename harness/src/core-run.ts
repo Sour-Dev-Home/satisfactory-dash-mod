@@ -475,7 +475,11 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
     waitHealthy: d.waitHealthy,
     resetLog: d.resetLog,
     readLogSince: d.readLogSince,
-    savesConflict: d.savesConflict,
+    // The Linux server keeps its saves in its container's home (/srv/satis/.config/Epic/FactoryGame/Saved/SaveGames, its
+    // log, 2026-11-07), outside the volume and the D: mounts, and each run starts a fresh container: no other server can
+    // share that folder. The Windows check reads satis-runner's own saves folder, where the Windows test server's
+    // settings live, so on the docker host it would refuse every world run.
+    savesConflict: docker ? () => [] : d.savesConflict,
     readAutoPause: d.readAutoPause,
     setAutoPause: d.setAutoPause,
     sampleTicks: d.sampleTicks,
