@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { RunnerConfigSchema, logPathOf } from "../src/config";
 import { listenPortPlan } from "../src/listen-port";
@@ -44,7 +45,8 @@ describe("dockerRunArgs", () => {
   it("mounts the volume and the three folders of serverDir", () => {
     expect(args).toContain("satis-linux-server:/srv/satis/server");
     for (const d of ["Saved", "Mods", "Configs"]) {
-      expect(args).toContain(`D:\\satis-linux\\root\\FactoryGame\\${d}:/srv/satis/server/FactoryGame/${d}`);
+      // join, as the code does: CI runs on Linux, the runner on Windows.
+      expect(args).toContain(`${join("D:\\satis-linux\\root", "FactoryGame", d)}:/srv/satis/server/FactoryGame/${d}`);
     }
   });
   it("publishes only on 127.0.0.1", () => {
