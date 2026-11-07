@@ -412,6 +412,7 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | CURLE_PEER_FAILED_VERIFICATION | Engine/Source/ThirdParty/libcurl/8.12.1/include/curl/curl.h:581 | header only (an untrusted certificate: logged as TlsError) |
 | module:nghttp2 | Engine/Source/ThirdParty/nghttp2/nghttp2.Build.cs:1 | header only (libcurl needs it, libcurl.Build.cs:51-56; its dependency is private, so the mod names it) |
 | module:zlib | Engine/Source/ThirdParty/zlib/zlib.Build.cs:1 | header only (libcurl needs it, libcurl.Build.cs:51-56; its dependency is private, so the mod names it) |
+| module:CoreOnline | Engine/Source/Runtime/CoreOnline/CoreOnline.Build.cs:1 | header only (exports LexFromString(EOnlineServices&, const TCHAR*), Public/Online/CoreOnline.h:293, which FactoryGame's inline Online/PlayerInfoCache.h:67 calls; the LinuxServer link fails without it: undefined symbol, Linux plan L1, 2026-11-06) |
 | ELogVerbosity::VerbosityMask | Engine/Source/Runtime/Core/Public/Logging/LogVerbosity.h:58 | header only |
 | ELogVerbosity::Error | Engine/Source/Runtime/Core/Public/Logging/LogVerbosity.h:28 | header only |
 | TMap::GetKeys | Engine/Source/Runtime/Core/Public/Containers/Map.h:327 | header only (the TArray overload; declared in TMapBase, which TMap inherits) |

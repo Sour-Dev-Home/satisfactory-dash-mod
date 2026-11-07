@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { realExec, startBackend } from "./backend";
 import { hostUntilStopped, serveBackendHost } from "./backend-host";
 import { checkApi, scanSources } from "./check-api";
+import { checkBuild } from "./check-build";
 import { checkProvenance } from "./check-provenance";
 import { loadConfig } from "./config";
 import { type CoreRunId, realCoreDeps, runCore } from "./core-run";
@@ -37,10 +38,23 @@ export function runCheckProvenance(io: Io): number {
   return problems.length ? 1 : 0;
 }
 
+export function runCheckBuild(root: string | undefined, io: Io): number {
+  if (!root) {
+    io.error("usage: harness check-build <build-mod.ps1 -Platforms Win64+Linux output folder>");
+    return 2;
+  }
+  const problems = checkBuild(resolve(root));
+  for (const p of problems) io.error(p);
+  io.log(`check-build: ${problems.length} problems`);
+  return problems.length ? 1 : 0;
+}
+
 export async function main(argv: string[], io: Io = consoleIo): Promise<number> {
   switch (argv[0]) {
     case "check-api":
       return runCheckApi(io);
+    case "check-build":
+      return runCheckBuild(argv[1], io);
     case "check-provenance":
       return runCheckProvenance(io);
     case "verify-contract": {
@@ -153,6 +167,35 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
       io.log(`${out.spike} (${out.claim}) re-judged at ${commit.slice(0, 7)}: ${out.verdict.pass ? "PASS" : "FAIL"} (the run said ${out.original.pass ? "PASS" : "FAIL"})\n${out.verdict.reasons.join("\n")}`);
       return out.verdict.pass ? 0 : 1;
     }
+    case "build-mod": {
+      // The linux-build workflow: build-mod.ps1 with the runner config's modTest paths, then check-build on a two-platform build.
+      const outAt = argv.indexOf("--out");
+      const platAt = argv.indexOf("--platforms");
+      const outDir = outAt === -1 ? undefined : argv[outAt + 1];
+      const platforms = platAt === -1 ? "Win64" : argv[platAt + 1];
+      if (!outDir || (platforms !== "Win64" && platforms !== "Win64+Linux")) {
+        io.error("usage: harness build-mod --out <dir> [--platforms Win64|Win64+Linux]");
+        return 2;
+      }
+      const path = process.env.SATIS_HARNESS_CONFIG;
+      if (!path) {
+        io.error("SATIS_HARNESS_CONFIG is not set (see docs/runner.md)");
+        return 2;
+      }
+      const modTest = loadConfig(path).modTest;
+      if (!modTest) {
+        io.error("modTest is not set in the runner config (see docs/runner.md)");
+        return 2;
+      }
+      try {
+        execFileSync("pwsh", ["-NoProfile", "-File", join(REPO_ROOT, "scripts", "build-mod.ps1"),
+          "-Project", modTest.project, "-Engine", modTest.engine, "-Out", resolve(outDir), "-Platforms", platforms], { stdio: "inherit" });
+      } catch {
+        io.error("build-mod.ps1 failed (its output is above)");
+        return 1;
+      }
+      return platforms === "Win64+Linux" ? runCheckBuild(outDir, io) : 0;
+    }
     case "judge-mod-test":
     case "test-mod": {
       const minAt = argv.indexOf("--min");
@@ -187,7 +230,7 @@ export async function main(argv: string[], io: Io = consoleIo): Promise<number> 
       return verdict.pass ? 0 : 1;
     }
     default:
-      io.error("usage: harness <check-api|check-provenance|verify-contract|selftest|run|core-run|backend-host|rejudge|test-mod|judge-mod-test>");
+      io.error("usage: harness <build-mod|check-api|check-build|check-provenance|verify-contract|selftest|run|core-run|backend-host|rejudge|test-mod|judge-mod-test>");
       return 2;
   }
 }

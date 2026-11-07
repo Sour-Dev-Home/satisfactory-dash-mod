@@ -33,6 +33,28 @@ describe("mod-test.yml (the self-hosted runner's second door)", () => {
   });
 });
 
+describe("linux-build.yml (the Linux server build on the self-hosted runner; plan 2026-11-06-linux-server-build, owner 2026-11-06)", () => {
+  const wf = load("linux-build.yml");
+
+  it("triggers only on workflow_dispatch and pushes to main, never on a pull request", () => {
+    expect(Object.keys(wf.on).sort()).toEqual(["push", "workflow_dispatch"]);
+    expect((wf.on.push as { branches: string[] }).branches).toEqual(["main"]);
+  });
+
+  it("reads contents only, on the ue runner behind the ue-runner environment", () => {
+    expect(wf.permissions).toEqual({ contents: "read" });
+    for (const job of Object.values(wf.jobs)) {
+      expect(runsOn(job)).toEqual(expect.arrayContaining(["self-hosted", "windows", "ue"]));
+      expect(typeof job.environment === "string" ? job.environment : job.environment?.name).toBe("ue-runner");
+    }
+  });
+
+  it("builds both server platforms and checks them", () => {
+    const steps = Object.values(wf.jobs).flatMap((j) => j.steps ?? []);
+    expect(steps.some((s) => /build-mod .*--platforms Win64\+Linux\b/.test(s.run ?? ""))).toBe(true);
+  });
+});
+
 describe("spike.yml (the self-hosted runner's only door)", () => {
   const wf = load("spike.yml");
 
@@ -104,8 +126,8 @@ describe("every workflow", () => {
     }
   });
 
-  it("keeps self-hosted runners out of every workflow but spike.yml, mod-test.yml and core-run.yml", () => {
-    for (const f of files.filter((x) => !["spike.yml", "mod-test.yml", "core-run.yml"].includes(x))) {
+  it("keeps self-hosted runners out of every workflow but spike.yml, mod-test.yml, core-run.yml and linux-build.yml", () => {
+    for (const f of files.filter((x) => !["spike.yml", "mod-test.yml", "core-run.yml", "linux-build.yml"].includes(x))) {
       for (const job of Object.values(load(f).jobs)) expect(runsOn(job), f).not.toContain("self-hosted");
     }
   });
