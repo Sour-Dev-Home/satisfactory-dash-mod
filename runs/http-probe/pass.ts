@@ -10,6 +10,10 @@
 //   (Step 8), and at least one must have been.
 // - S2: the mod sets the floor itself (CURL_SSLVERSION_TLSv1_2): it offers TLS 1.3 and 1.2 and nothing older. The
 //   backend's own floor (self-hosted backends default to 1.2+, satisfactory-dash #493) stays as a second line.
+// Owner ruling 2026-11-07 (Linux plan L2, run 42330036447): the two S9 lines follow the mod's wording since 31b75ed
+// (2026-10-24, "neutral transport logs", CurlTransport.cpp:424 and :435), which no http-probe run had met before. The checks
+// keep their strength: a line must say the redirected answer was refused, and a line must name the untrusted origin's URL,
+// so the hello phase's failure (another origin) still doesn't count.
 import type { CoreEvidence } from "../../harness/src/core-run";
 import type { ProbeRequest } from "../../harness/src/probe-stub";
 import type { Verdict } from "../../harness/src/verdict";
@@ -60,7 +64,7 @@ export function evaluate(e: CoreEvidence): Verdict {
     if (!atBackend.some((r) => r.method === "GET" && r.path.startsWith("/agent/v1/commands") && r.at >= since)) {
       reasons.push("S3: no commands poll reached the stub after the redirects began, so a redirected poll was not tested");
     }
-    if (!e.lines.some((l) => /The backend redirected a request; its answer was refused/.test(l))) reasons.push("S9: no line saying a redirected answer was refused");
+    if (!e.lines.some((l) => /A request was redirected; its answer was refused/.test(l))) reasons.push("S9: no line saying a redirected answer was refused");
   }
 
   if (!p.hellos.length) reasons.push("S2: no ClientHello arrived");
@@ -76,7 +80,7 @@ export function evaluate(e: CoreEvidence): Verdict {
   if (!p.untrusted.handshakeFailures) reasons.push("S1: the untrusted certificate's handshake never failed");
   if (p.untrusted.requests) reasons.push("S1: data arrived over a certificate nobody trusts: verification is off");
   // The line must name the untrusted backend's origin: the hello phase's failure (another origin) doesn't count.
-  if (!e.lines.some((l) => l.includes(`Couldn't reach the backend at ${p.untrusted.url} (`))) reasons.push("S9: no line for the failed TLS connection");
+  if (!e.lines.some((l) => l.includes(`Couldn't reach ${p.untrusted.url} (`))) reasons.push("S9: no line for the failed TLS connection");
 
   return reasons.length
     ? { pass: false, reasons }
