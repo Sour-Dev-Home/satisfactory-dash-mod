@@ -14,6 +14,8 @@
 #if PLATFORM_WINDOWS
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include "Windows/HideWindowsPlatformTypes.h"
+#elif PLATFORM_LINUX
+#include <time.h>
 #endif
 
 namespace
@@ -34,6 +36,19 @@ namespace
 				return {};
 			}
 			return TOptional<uint64>(uint64(Cycles));
+		};
+#elif PLATFORM_LINUX
+		// Owner ruling D4, 2026-11-07 (Linux tick-cost run 42393340775): the calling thread's CPU time in nanoseconds, as
+		// UE's own Unix timer reads it (UnixPlatformTime.cpp:186). The judge's waited-step rule compares each step's count per
+		// ms with the same run's median, so the unit cancels: nanoseconds here, cycles on Windows. Diagnostic only.
+		Clock.ThreadCycles = []() -> TOptional<uint64>
+		{
+			struct timespec ThreadTime;
+			if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ThreadTime) != 0)
+			{
+				return {};
+			}
+			return TOptional<uint64>(uint64(ThreadTime.tv_sec) * 1000000000ull + uint64(ThreadTime.tv_nsec));
 		};
 #endif
 		return Clock;

@@ -12,6 +12,7 @@ import { connectBackendHost, type HostClient } from "./backend-host";
 import { createServerApi } from "./server-api";
 import { readApiStatus } from "./status";
 import { setListenPlan } from "./listen-port";
+import { sampleContainerOutbound } from "./outbound-docker";
 import { dockerSpawner, dockerStop, readContainerMemory, realExec as dockerExec } from "./server-host-docker";
 import { type ProcessMemory, readProcessMemory, removeMod, type ServerProcess, startServer, whileRunning } from "./server-control";
 import { readTickRate, sampleTicks, TICK_INTERVAL_MS, type TickSeries } from "./ticks";
@@ -498,7 +499,9 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
       const api = createServerApi(config.apiBaseUrl);
       return sampleTicks(() => readTickRate(api), { ...opts, intervalMs: TICK_INTERVAL_MS, sleep, now: Date.now });
     },
-    sampleOutbound: (pid) => sampleOutbound(pid),
+    // S12 on the docker host reads the server's sockets inside its container (outbound-docker.ts); the pid is the
+    // Windows tree's root, which the docker host doesn't have.
+    sampleOutbound: docker ? () => sampleContainerOutbound(dockerExec, config) : (pid) => sampleOutbound(pid),
     resolveHost: (name) => resolveHost(name),
     sleep,
     buildMod: () =>
