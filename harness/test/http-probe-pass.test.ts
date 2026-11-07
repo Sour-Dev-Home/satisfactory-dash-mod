@@ -3,10 +3,11 @@ import { evaluate, USER_AGENT } from "../../runs/http-probe/pass";
 import type { CoreEvidence } from "../src/core-run";
 import type { ProbeRequest } from "../src/probe-stub";
 
-const REDIRECTED = "[t][1]LogSatisDash: Warning: The backend redirected a request; its answer was refused (redirects are never accepted)";
+// The mod's wording since 31b75ed (CurlTransport.cpp:424, :435), as run 42330036447 logged it (owner ruling 2026-11-07).
+const REDIRECTED = "[t][1]LogSatisDash: Warning: A request was redirected; its answer was refused (redirects are never accepted)";
 const UNTRUSTED_URL = "https://127.0.0.1:4443";
-const HELLO_UNREACHABLE = "[t][2]LogSatisDash: Warning: Couldn't reach the backend at https://127.0.0.1:4442 (ConnectionError)";
-const UNREACHABLE = `[t][3]LogSatisDash: Warning: Couldn't reach the backend at ${UNTRUSTED_URL} (ConnectionError)`;
+const HELLO_UNREACHABLE = "[t][2]LogSatisDash: Warning: Couldn't reach https://127.0.0.1:4442 (TlsError)";
+const UNREACHABLE = `[t][3]LogSatisDash: Warning: Couldn't reach ${UNTRUSTED_URL} (TlsError)`;
 
 const req = (over: Partial<ProbeRequest>): ProbeRequest => ({
   at: "2026-10-20T16:00:01.000Z",
