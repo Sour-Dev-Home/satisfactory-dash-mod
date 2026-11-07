@@ -1,1 +1,3 @@
 harness/contract/src/*.ts -text
+# The Linux test server image runs these in a Linux container: CRLF would break them.
+docker/** text eol=lf
