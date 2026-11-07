@@ -501,10 +501,26 @@ export function realCoreDeps(config: RunnerConfig, toolchain: Toolchain, outDir:
       new Promise((resolve, reject) => {
         const modTest = config.modTest;
         if (!modTest) return reject(new Error("modTest is not set in the runner config: core runs build the mod with build-mod.ps1 (docs/runner.md)"));
-        const args = ["-NoProfile", "-File", join(repoRoot, "scripts", "build-mod.ps1"), "-Project", modTest.project, "-Engine", modTest.engine, "-Out", built];
-        execFile("pwsh", args, { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) =>
-          err ? reject(new Error(`build-mod failed: ${err.message}\n${lastLines(`${stdout}\n${stderr}`, 40)}`)) : resolve(built),
+        const plan = coreModBuild(repoRoot, modTest, built, config.serverHost);
+        execFile("pwsh", plan.args, { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) =>
+          err ? reject(new Error(`build-mod failed: ${err.message}\n${lastLines(`${stdout}\n${stderr}`, 40)}`)) : resolve(plan.pluginDir),
         );
       }),
   };
+}
+
+/**
+ * The core run's build-mod.ps1 call and the plugin folder it installs. On the Windows host, the Windows server's plugin at
+ * -Out's root (as always). On the docker host (the Linux test server), both server platforms, and the LinuxServer tree
+ * (build-mod.ps1 -Platforms Win64+Linux; plan 2026-11-06-linux-server-build, Task 7).
+ */
+export function coreModBuild(
+  repoRoot: string,
+  modTest: { project: string; engine: string },
+  built: string,
+  serverHost: RunnerConfig["serverHost"],
+): { args: string[]; pluginDir: string } {
+  const args = ["-NoProfile", "-File", join(repoRoot, "scripts", "build-mod.ps1"), "-Project", modTest.project, "-Engine", modTest.engine, "-Out", built];
+  if (serverHost !== "docker") return { args, pluginDir: built };
+  return { args: [...args, "-Platforms", "Win64+Linux"], pluginDir: join(built, "LinuxServer") };
 }

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { contractPin } from "../src/backend";
 import type { HostClient } from "../src/backend-host";
 import { RunnerConfigSchema } from "../src/config";
-import { type CoreDeps, type CoreRunSpec, coreBuildDir, credentialPath, MOD, runCore } from "../src/core-run";
+import { type CoreDeps, type CoreRunSpec, coreBuildDir, coreModBuild, credentialPath, MOD, runCore } from "../src/core-run";
 import { modConfigPath } from "../src/mod-config";
 import { RefusalError } from "../src/run";
 import type { ServerProcess } from "../src/server-control";
@@ -486,5 +486,22 @@ describe("runCore", () => {
     let seen: CoreDeps | undefined;
     await runCore("http-probe", spec({ preflight: (d) => void (seen = d) }), f.deps);
     expect(seen).toBe(f.deps);
+  });
+});
+
+describe("coreModBuild (Linux plan Task 7)", () => {
+  const modTest = { project: "P", engine: "E" };
+
+  it("builds the Windows server only and installs -Out itself on the Windows host, as always", () => {
+    const plan = coreModBuild("R", modTest, "B", "windows");
+    expect(plan.args).not.toContain("-Platforms");
+    expect(plan.args.slice(-2)).toEqual(["-Out", "B"]);
+    expect(plan.pluginDir).toBe("B");
+  });
+
+  it("builds both server platforms and installs the LinuxServer tree on the docker host", () => {
+    const plan = coreModBuild("R", modTest, "B", "docker");
+    expect(plan.args.slice(-2)).toEqual(["-Platforms", "Win64+Linux"]);
+    expect(plan.pluginDir).toBe(join("B", "LinuxServer"));
   });
 });
