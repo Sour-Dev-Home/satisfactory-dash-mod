@@ -95,7 +95,8 @@ describe("sampleContainerOutbound", () => {
       calls.push(args);
       return execWith("")(cmd, args);
     };
-    expect(await sampleContainerOutbound(exec, cfg)).toEqual({ endpoints: ["127.0.0.1:27809"], names: {}, dnsFailed: true });
+    // An empty log was read (no lookups; the recorder connection is by IP): not a failed DNS read.
+    expect(await sampleContainerOutbound(exec, cfg)).toEqual({ endpoints: ["127.0.0.1:27809"], names: {}, dnsFailed: false });
     expect(calls[1]!.join(" ")).toContain("/proc/42/");
     expect(calls[1]!.join(" ")).toContain("/var/log/satis-dns.log");
   });
@@ -110,11 +111,10 @@ describe("sampleContainerOutbound", () => {
     expect(s).toEqual({ endpoints: ["104.26.12.205:443"], names: { "104.26.12.205": ["api.example.com"] }, dnsFailed: false });
   });
 
-  it("sets dnsFailed (endpoints kept) when the log is missing or empty", async () => {
-    for (const dns of ["SATIS_NO_DNS_LOG\n", ""]) {
-      const s = await sampleContainerOutbound(execWeb(dns), cfg);
-      expect(s).toEqual({ endpoints: ["104.26.12.205:443"], names: {}, dnsFailed: true });
-    }
+  it("sets dnsFailed (endpoints kept) only when the log is missing", async () => {
+    expect(await sampleContainerOutbound(execWeb("SATIS_NO_DNS_LOG\n"), cfg)).toEqual({ endpoints: ["104.26.12.205:443"], names: {}, dnsFailed: true });
+    // An empty log was read: no names, and the judge fails the unnamed endpoint as "has no DNS name", not as a failed read.
+    expect(await sampleContainerOutbound(execWeb(""), cfg)).toEqual({ endpoints: ["104.26.12.205:443"], names: {}, dnsFailed: false });
   });
 
   it("rejects when the server process isn't found or the read fails: a failed sample, never an empty one", async () => {

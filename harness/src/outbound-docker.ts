@@ -126,8 +126,8 @@ export async function sampleContainerOutbound(exec: Exec, cfg: RunnerConfig): Pr
   const inodes = new Set([...fds!.matchAll(/socket:\[(\d+)\]/g)].map((m) => Number(m[1])));
   const endpoints = procOutbound(tcp, inodes);
   const log = dns?.trim() ?? "";
-  // Missing log, or an empty one while the server has connections: names can't be known, so the DNS read failed.
-  const dnsFailed = log.includes(NO_DNS) || (log === "" && endpoints.length > 0);
+  // Only a missing log is a failed DNS read. An empty one was read: no lookups (the mod's recorder connection is by IP).
+  const dnsFailed = log.includes(NO_DNS);
   const addresses = new Set(endpoints.map((e) => e.replace(/:\d+$/, "").replace(/^\[(.*)\]$/, "$1")));
   const parsed = dnsFailed ? {} : parseDnsmasqLog(log);
   const names: Record<string, string[]> = {};
