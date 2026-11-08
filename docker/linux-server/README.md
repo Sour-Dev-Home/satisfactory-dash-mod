@@ -11,7 +11,13 @@ server (Steam app 1690800). No third-party server image, so we know everything i
 - `/srv/satis/server/FactoryGame/Saved`: bind-mounted from `D:\satis-linux\Saved` (logs, the mod's config and
   credential), so the harness reads them with plain Windows paths.
 - `/srv/satis/server/FactoryGame/Mods`: bind-mounted from `D:\satis-linux\Mods` (SML and the mod's LinuxServer build).
-- Runs as the non-root user `steam` (uid 1000), with its home at `/srv/satis`.
+- Starts as root (`root-entry.sh`), then drops to the non-root user `steam` (uid 1000, home `/srv/satis`) with `setpriv`
+  and runs `entrypoint.sh`; SteamCMD, the socat forwards and the game server all run as `steam`.
+- DNS cache: a Linux container has none, and S12 judges the server's outbound addresses by their DNS names. So
+  `root-entry.sh` starts dnsmasq on 127.0.0.1 (forwarding to Docker's resolvers, which it reads from `/etc/resolv.conf`)
+  and points `/etc/resolv.conf` at it. dnsmasq logs every query and answer to `/var/log/satis-dns.log`; the harness reads
+  that log with the connection tables and maps each address to its names (`harness/src/outbound-docker.ts`). A missing
+  log counts as a failed DNS read. Rebuild the image after pulling this change (`docker build`, below).
 
 ## Ports
 

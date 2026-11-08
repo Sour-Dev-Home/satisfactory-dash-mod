@@ -329,6 +329,9 @@ Every run's `result.json` records `serverHost`.
 - **Stopping.** API `Shutdown`, the same 60 s grace as Windows, then `docker stop`, then `docker rm -f`.
 - **Memory.** `memory.json` holds the server process's `VmRSS` and `VmHWM` from `/proc/<pid>/status`
   (`FactoryServer-Linux-Shipping`, found with `ps` through `docker exec`), never `docker stats`, which counts page cache.
+- **DNS names (S12).** A Linux container has no DNS cache, so the image runs dnsmasq as the container's resolver and logs queries
+  to `/var/log/satis-dns.log`; the sampler parses it into the names S12 matches. The image must be rebuilt
+  (`docker build -t satis-linux-ds:local docker/linux-server`) for this: an older image has no log and S12 fails on a failed DNS read.
 - **The build.** On the docker host the core run builds both server platforms (`build-mod.ps1 -Platforms Win64+Linux`) and
   installs the `LinuxServer` tree. `Mods\SML` under `serverDir` holds SML's own `SML-LinuxServer.zip` (3.12.0), unpacked.
 - **Choosing the host.** The runner's `.env` keeps `SATIS_HARNESS_CONFIG` (the Windows config) and gains
