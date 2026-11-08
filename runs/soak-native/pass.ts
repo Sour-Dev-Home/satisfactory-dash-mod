@@ -1,7 +1,8 @@
-// The 16-hour all-readers soak (ADR-0058 line 153 asks 24 h before the R7 removal release; the owner set 16 h on 2026-11-03). It is judged by every
+// The all-readers soak (ADR-0058 line 153 asked 24 h before the R7 removal release; the owner set 16 h on 2026-11-03, then 4 h on
+// 2026-11-08 after the 16 h Linux soak, run 42408741679; the window is SOAK_WINDOW_MS, harness/src/core-runs/soak-native.ts). It is judged by every
 // condition of the tick-cost-native run, imported and unchanged (runs/tick-cost-native/pass.ts, which imports runs/tick-cost/pass.ts:
 // C4, S12, same save, the memory size and leak rules, native readers live, the 2 ms step ceiling with the waited-step rule, the
-// Readers line), applied to the 16-hour window. Memory (owner 2026-11-03): the size rule and its leak rule at the baseline's mark
+// Readers line), applied to the soak window. Memory (owner 2026-11-03): the size rule and its leak rule at the baseline's mark
 // (memoryAtBaselineMark), and the same leak formula and limit again at the end of the day (endOfDayLeak).
 //
 // Soak conditions (owner confirmed 2026-11-03; none loosens an existing one):
@@ -18,7 +19,7 @@ import * as Native from "../tick-cost-native/pass";
 import * as Base from "../tick-cost/pass";
 import type { MemoryPoint } from "../tick-cost/pass";
 
-export const requirements = [...Native.requirements, "soak-16h"];
+export const requirements = [...Native.requirements, "soak-4h"];
 
 /** Owner 2026-11-03: a sliced reader is silent when its gap is over this many of its own cadences. */
 export const SILENCE_FACTOR = 3;
@@ -127,7 +128,7 @@ const isWarning = (l: string) => /LogSatisDash: Warning:/.test(l);
 export const MAX_DIAGNOSTIC_LINES = 20;
 
 /**
- * Presentation only, no condition changes: over 16 hours the tick-cost-native verdict would list one "longest step" per logged read
+ * Presentation only, no condition changes: over a soak window the tick-cost-native verdict would list one "longest step" per logged read
  * (thousands). The step-ceiling line becomes one entry per reader (its worst step and its read count; the ceiling itself was judged
  * on every line by Native.evaluate), and the report-only diagnostic lines are capped.
  */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RunnerConfigSchema } from "../src/config";
-import { parseProcTcp, procAddress, procOutbound, sampleContainerOutbound } from "../src/outbound-docker";
+import { parseDnsmasqLog, parseProcTcp, procAddress, procOutbound, sampleContainerOutbound } from "../src/outbound-docker";
 import type { Exec } from "../src/server-host-docker";
 
 // /proc/net/tcp rows: sl, local, remote, st, tx:rx, tr:when, retrnsmt, uid, timeout, inode, ...
@@ -46,6 +46,32 @@ describe("procOutbound", () => {
   });
 });
 
+describe("parseDnsmasqLog", () => {
+  const L = (s: string) => `Nov  8 10:00:00 dnsmasq[7]: ${s}`;
+  it("maps A and AAAA answers to the line's name, and cached answers too", () => {
+    const t = [
+      L("query[A] a.example from 127.0.0.1"), L("reply a.example is 1.2.3.4"),
+      L("query[AAAA] a.example from 127.0.0.1"), L("reply a.example is 2606:4700::6810:CD0C"),
+      L("query[A] a.example from 127.0.0.1"), L("cached a.example is 1.2.3.4"), L("cached b.example is 1.2.3.4"),
+    ].join("\n");
+    expect(parseDnsmasqLog(t)).toEqual({
+      "1.2.3.4": ["a.example", "b.example"],
+      "2606:4700::6810:cd0c": ["a.example"],
+    });
+  });
+  it("maps a CNAME chain's address to the name asked for", () => {
+    const t = [L("query[A] www.example from 127.0.0.1"), L("reply www.example is <CNAME>"), L("reply edge.cdn.example is 5.6.7.8")].join("\n");
+    expect(parseDnsmasqLog(t)).toEqual({ "5.6.7.8": ["edge.cdn.example", "www.example"] });
+  });
+  it("ignores NXDOMAIN, NODATA and non-dnsmasq lines", () => {
+    const t = ["junk", L("query[A] x.example from 127.0.0.1"), L("reply x.example is NXDOMAIN"), L("reply x.example is NODATA-IPv4"), L("config y is NXDOMAIN")].join("\n");
+    expect(parseDnsmasqLog(t)).toEqual({});
+  });
+  it("keys IPv4-mapped IPv6 answers as IPv4, like the endpoints", () => {
+    expect(parseDnsmasqLog(L("reply m.example is ::ffff:1.2.3.4"))).toEqual({ "1.2.3.4": ["m.example"] });
+  });
+});
+
 describe("sampleContainerOutbound", () => {
   const cfg = RunnerConfigSchema.parse({
     serverDir: "D:/r", apiBaseUrl: "https://127.0.0.1:27777", buildCommand: ["b"], builtPluginDir: "D:/b/{spike}",
@@ -54,15 +80,41 @@ describe("sampleContainerOutbound", () => {
   });
   const ps = "  PID ARGS\n    1 /bin/bash /srv/satis/entrypoint.sh\n   42 /srv/satis/server/Engine/Binaries/Linux/FactoryServer-Linux-Shipping FactoryGame -log\n";
 
+  const execWith = (dns: string): Exec => async (_cmd, args) =>
+    args.includes("ps")
+      ? { code: 0, stdout: ps, stderr: "" }
+      : { code: 0, stdout: `socket:[101]\nsocket:[102]\n/dev/null\nsocket:[103]\n---\n${TCP}\n---\n${dns}`, stderr: "" };
+  // One outbound row to 104.26.12.205:443 (68.1A.0C.CD as a little-endian word is CD0C1A68).
+  const TCP_WEB = [HEAD, row("0100007F:9C40", "CD0C1A68:01BB", "01", 102)].join("\n");
+  const execWeb = (dns: string): Exec => async (_c, args) =>
+    args.includes("ps") ? { code: 0, stdout: ps, stderr: "" } : { code: 0, stdout: `socket:[102]\n---\n${TCP_WEB}\n---\n${dns}`, stderr: "" };
+
   it("reads the server process's sockets and connections inside the container", async () => {
     const calls: string[][] = [];
-    const exec: Exec = async (_cmd, args) => {
+    const exec: Exec = async (cmd, args) => {
       calls.push(args);
-      if (args.includes("ps")) return { code: 0, stdout: ps, stderr: "" };
-      return { code: 0, stdout: `socket:[101]\nsocket:[102]\n/dev/null\nsocket:[103]\n---\n${TCP}\n`, stderr: "" };
+      return execWith("")(cmd, args);
     };
+    // An empty log was read (no lookups; the recorder connection is by IP): not a failed DNS read.
     expect(await sampleContainerOutbound(exec, cfg)).toEqual({ endpoints: ["127.0.0.1:27809"], names: {}, dnsFailed: false });
     expect(calls[1]!.join(" ")).toContain("/proc/42/");
+    expect(calls[1]!.join(" ")).toContain("/var/log/satis-dns.log");
+  });
+
+  it("fills names from the dnsmasq log, only for endpoint addresses", async () => {
+    const log = [
+      "Nov  8 10:00:00 dnsmasq[7]: query[A] api.example.com from 127.0.0.1",
+      "Nov  8 10:00:00 dnsmasq[7]: reply api.example.com is 104.26.12.205",
+      "Nov  8 10:00:00 dnsmasq[7]: reply other.example is 9.9.9.9",
+    ].join("\n");
+    const s = await sampleContainerOutbound(execWeb(log), cfg);
+    expect(s).toEqual({ endpoints: ["104.26.12.205:443"], names: { "104.26.12.205": ["api.example.com"] }, dnsFailed: false });
+  });
+
+  it("sets dnsFailed (endpoints kept) only when the log is missing", async () => {
+    expect(await sampleContainerOutbound(execWeb("SATIS_NO_DNS_LOG\n"), cfg)).toEqual({ endpoints: ["104.26.12.205:443"], names: {}, dnsFailed: true });
+    // An empty log was read: no names, and the judge fails the unnamed endpoint as "has no DNS name", not as a failed read.
+    expect(await sampleContainerOutbound(execWeb(""), cfg)).toEqual({ endpoints: ["104.26.12.205:443"], names: {}, dnsFailed: false });
   });
 
   it("rejects when the server process isn't found or the read fails: a failed sample, never an empty one", async () => {

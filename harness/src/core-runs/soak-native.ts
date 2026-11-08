@@ -5,12 +5,13 @@ import { accepted } from "./enrol";
 import { driveTickCost, tickCost } from "./tick-cost";
 
 /**
- * The measured window after the warmup: 16 hours. ADR-0058 line 153 asks for one 24-hour soak with every reader on before the R7
- * removal release; the owner set it to 16 hours on 2026-11-03.
+ * The measured window after the warmup: 4 hours. ADR-0058 line 153 asked for one 24-hour soak with every reader on before the R7
+ * removal release; the owner set it to 16 hours on 2026-11-03 (that soak passed on Windows), then to 4 hours on 2026-11-08 after the
+ * 16-hour Linux soak, run 42408741679 ("we wont do a full 16hr soak next time", then "4 hours").
  */
-export const SOAK_WINDOW_MS = 16 * 60 * 60_000;
+export const SOAK_WINDOW_MS = 4 * 60 * 60_000;
 /**
- * The fail-fast watchdog (owner confirmed 2026-11-03). The owner's PC runs this for about 17 hours, so if the backend host or the game server
+ * The fail-fast watchdog (owner confirmed 2026-11-03). The owner's PC runs this for hours, so if the backend host or the game server
  * dies the run must end loudly, not sit out the rest of the day. No accepted mod snapshot for this long (the snapshot cadence is 5 s;
  * the mod's retry back-off is at most 300 s, Pusher.h MaxRetryAfterSeconds) ends the measurement with an error that fails the run.
  * A dead game server already ends it through `proc.exited` (tick-cost's `stopped` callback, unchanged).
@@ -31,8 +32,8 @@ export function snapshotWatchdog(recorder: Recorder, stallMs = SOAK_STALL_MS): (
 }
 
 /**
- * The 16-hour all-readers soak (ADR-0058, the R7 precondition; owner 2026-11-03: "yes as recommended", then "16hr soak instead"):
- * tick-cost-native with the measured window set to 16 hours. The baseline boot (no mod) stays tick-cost's own 10 minutes; the with-mod boot has the same mod
+ * The all-readers soak (ADR-0058, the R7 precondition; owner 2026-11-03: "yes as recommended", then "16hr soak instead"; owner
+ * 2026-11-08: 4 hours): tick-cost-native with the measured window set to SOAK_WINDOW_MS. The baseline boot (no mod) stays tick-cost's own 10 minutes; the with-mod boot has the same mod
  * config as tick-cost-native (every reader native, stepDiagnostics on), the same world-first order, the same sampling every 30 s, and
  * the same judge plus the soak conditions in runs/soak-native/pass.ts (owner confirmed 2026-11-03). Two additions only the soak
  * needs: a snapshot watchdog (SOAK_STALL_MS) and a recorder that keeps one snapshot body (see RecorderOptions.thinOlderSnapshots).

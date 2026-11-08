@@ -50,7 +50,7 @@ describe("measureWindow: the window parameter", () => {
   it("measures the window it is given", async () => {
     let asked = 0;
     await measureWindow(fakeDeps((o) => void (asked = o.durationMs), { t: START }), 1, undefined, { windowMs: SOAK_WINDOW_MS });
-    expect(asked).toBe(16 * 60 * MIN);
+    expect(asked).toBe(4 * 60 * MIN);
   });
   it("still rejects when the server exits (the stopped callback), with a window of any length", async () => {
     const clock = { t: START };
@@ -78,8 +78,8 @@ describe("soak-native: spec and drive", () => {
     expect(soakNative.baseline).toBe(true);
     expect(soakNative.measureBaseline).toBe(tickCostNative.measureBaseline);
     expect(soakNative.evaluate).toBe(Soak.evaluate);
-    expect(soakNative.requirements).toEqual([...Native.requirements, "soak-16h"]);
-    expect(SOAK_WINDOW_MS).toBe(16 * 60 * MIN); // owner 2026-11-03: "16hr soak instead"
+    expect(soakNative.requirements).toEqual([...Native.requirements, "soak-4h"]);
+    expect(SOAK_WINDOW_MS).toBe(4 * 60 * MIN); // owner 2026-11-08: 4 hours (was 16, owner 2026-11-03)
   });
 
   async function drive(spec: typeof soakNative) {
@@ -105,7 +105,7 @@ describe("soak-native: spec and drive", () => {
     await spec.drive(ctx);
     return { windows, captures };
   }
-  it("measures 16 hours with the mod, and tick-cost-native still 10 minutes", async () => {
+  it("measures 4 hours with the mod, and tick-cost-native still 10 minutes", async () => {
     expect((await drive(soakNative)).windows).toEqual([SOAK_WINDOW_MS]);
     expect((await drive(tickCostNative)).windows).toEqual([TICK_COST_WINDOW_MS]);
   });
@@ -232,8 +232,8 @@ describe("soak-native judge", () => {
     const text = v.reasons.join("\n");
     expect(text).toMatch(/soak \(owner 2026-11-03\)/);
     expect(text).toMatch(/memory at the end of the day: over the last 5 minutes/);
-    expect(text).toMatch(/Resource node scan 32 \(/); // 8 min, then every 30 min to the end of 16 h: 32 reads
-    expect(text).toMatch(/status snapshots 115\d{2} /); // one every 5 s for 16 h
+    expect(text).toMatch(/Resource node scan 8 \(/); // 8 min, then every 30 min to the end of 3 min warmup + 4 h: 8 reads
+    expect(text).toMatch(/status snapshots 28\d{2} /); // one every 5 s for 4 h
 
     expect(text).toMatch(/resourceNodes 1/);
     expect(text).toMatch(/memory over the day.*slope/);
@@ -300,7 +300,7 @@ describe("soak-native judge: the proposed conditions", () => {
     expect(Soak.READ_CADENCE_S["Resource node scan"]).toBe(1800);
   });
   it("P1 fails the whole verdict when the node scan goes quiet for 2 hours mid-day", () => {
-    const lines = dayLines((t) => t < START + 5 * 3600_000 || t > START + 7 * 3600_000);
+    const lines = dayLines((t) => t < START + 1 * 3600_000 || t > START + 3 * 3600_000);
     const v = Soak.evaluate(evidence({ lines }));
     expect(v.pass).toBe(false);
     expect(v.reasons.join("\n")).toMatch(/soak \(owner 2026-11-03\): Resource node scan went silent for \d+ s, more than its limit of 5400 s \(cadence 1800 s\)/);
@@ -312,7 +312,7 @@ describe("soak-native judge: the proposed conditions", () => {
     expect(v.reasons.join("\n")).toMatch(/status snapshots went silent for 605 s/);
   });
   it("P3: an Error line inside the window fails; one outside it is counted in the boot only", () => {
-    const inside = `${stamp(START + 5 * 3600_000)}LogSatisDash: Error: world post failed`;
+    const inside = `${stamp(START + 2 * 3600_000)}LogSatisDash: Error: world post failed`;
     const outside = `${stamp(START + 60_000)}LogSatisDash: Error: early`;
     const bad = Soak.evaluate(evidence({ errorLines: [inside] }));
     expect(bad.pass).toBe(false);
@@ -333,7 +333,7 @@ describe("soak-native judge: the proposed conditions", () => {
   });
   it("compacts a day of step lines into one entry per reader, and caps the diagnostics", () => {
     const text = Soak.evaluate(evidence()).reasons.join("\n");
-    expect(text).toMatch(/step ceiling 2 ms held \(sliced native reads only, every logged read judged\): Resource node scan worst step 1\.75 ms over 32 read\(s\)/);
+    expect(text).toMatch(/step ceiling 2 ms held \(sliced native reads only, every logged read judged\): Resource node scan worst step 1\.75 ms over 8 read\(s\)/);
     expect(text.match(/longest step 1\.75 ms; Resource node/)).toBeNull();
     const many = Array.from({ length: 25 }, (_, i) => `diagnostic (report-only): x ${i}`);
     const out = Soak.compact(["a", ...many], []);
@@ -355,9 +355,9 @@ describe("core-run.yml: the soak's timeout and option", () => {
   it("offers soak-native", () => {
     expect(wf.on.workflow_dispatch.inputs.run.options).toContain("soak-native");
   });
-  it("allows 18 hours for the soak only and keeps 90 minutes for every other run", () => {
-    expect(wf.jobs.run["timeout-minutes"]).toBe("${{ inputs.run == 'soak-native' && 1080 || 90 }}");
-    expect(1080).toBeGreaterThanOrEqual((SOAK_WINDOW_MS + TICK_WARMUP_MS) / MIN + 90); // the window and warmup, plus the 90 minutes every other run gets for build, boots and baseline
-    expect(1080).toBeLessThan(5 * 24 * 60); // the self-hosted job limit is 5 days
+  it("allows 6 hours for the soak only and keeps 90 minutes for every other run", () => {
+    expect(wf.jobs.run["timeout-minutes"]).toBe("${{ inputs.run == 'soak-native' && 360 || 90 }}");
+    expect(360).toBeGreaterThanOrEqual((SOAK_WINDOW_MS + TICK_WARMUP_MS) / MIN + 90); // the window and warmup, plus the 90 minutes every other run gets for build, boots and baseline
+    expect(360).toBeLessThan(5 * 24 * 60); // the self-hosted job limit is 5 days
   });
 });

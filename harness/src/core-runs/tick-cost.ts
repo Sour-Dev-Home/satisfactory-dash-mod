@@ -26,7 +26,7 @@ export interface Measured {
 
 /** What a measurement may change; tick-cost and tick-cost-native pass none, so they measure TICK_COST_WINDOW_MS as always. */
 export interface WindowOptions {
-  /** The measured window after the warmup (default TICK_COST_WINDOW_MS). The soak run sets 16 h. */
+  /** The measured window after the warmup (default TICK_COST_WINDOW_MS). The soak run sets SOAK_WINDOW_MS. */
   windowMs?: number;
   /** Checked after every sample (30 s) with the clock in ms: a string ends the measurement and rejects with it (the backend host died, say). */
   stall?: (nowMs: number) => string | null;

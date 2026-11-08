@@ -4,15 +4,17 @@
 FROM debian:bookworm-slim
 
 # lib32gcc-s1 and lib32stdc++6: SteamCMD is a 32-bit program. socat: the loopback forward to the backend (D3).
-# procps: ps and /proc tools for the harness's memory reads (Task 6).
+# procps: ps and /proc tools for the harness's memory reads (Task 6). dnsmasq: the container's DNS cache and query log,
+# which S12 reads for the server's outbound names (a Linux container has no DNS client cache).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl lib32gcc-s1 lib32stdc++6 procps socat \
+ && apt-get install -y --no-install-recommends ca-certificates curl dnsmasq lib32gcc-s1 lib32stdc++6 procps socat \
  && rm -rf /var/lib/apt/lists/*
 
 # A non-root user owns everything under /srv/satis (its home too, where SteamCMD keeps its own files).
 RUN useradd --uid 1000 --home-dir /srv/satis --create-home --shell /bin/bash steam
 USER steam
 WORKDIR /srv/satis
+# (The final ENTRYPOINT runs as root, see root-entry.sh; everything below up to it runs as steam.)
 
 # FactoryGame/{Saved,Mods,Configs} exist (owned by steam) before the volume is made: otherwise Docker creates them as
 # root for the bind mounts, and SteamCMD can't write FactoryGame/Binaries (state 0x602, first boot 2026-11-06).
@@ -22,6 +24,11 @@ RUN mkdir -p steamcmd server/FactoryGame/Saved server/FactoryGame/Mods server/Fa
 COPY --chown=steam:steam entrypoint.sh /srv/satis/entrypoint.sh
 RUN chmod +x /srv/satis/entrypoint.sh
 
+# The root entry (S12's DNS names): starts dnsmasq, then runs entrypoint.sh as steam with setpriv (util-linux, Essential).
+USER root
+COPY root-entry.sh /srv/satis/root-entry.sh
+RUN chmod +x /srv/satis/root-entry.sh
+
 # The game install (a named volume, D2); FactoryGame/Saved and FactoryGame/Mods inside it are bind mounts from D:.
 VOLUME ["/srv/satis/server"]
-ENTRYPOINT ["/srv/satis/entrypoint.sh"]
+ENTRYPOINT ["/srv/satis/root-entry.sh"]

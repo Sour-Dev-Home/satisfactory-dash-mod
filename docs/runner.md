@@ -266,7 +266,7 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   resource-node layer's first-read rule (first scan 8 minutes, +/-10%, after Running, then every 10 minutes), so its first post
   also falls 3 to 13 minutes into the measurement, inside the window. `snapshot-parts.json` (the measured window and which parts
   each accepted snapshot carried; no bodies) is written by `tick-cost` too.
-- `soak-native` is `tick-cost-native` with a 16 hour measured window and the extra soak conditions in
+- `soak-native` is `tick-cost-native` with a 4 hour measured window (owner 2026-11-08; it was 16 hours) and the extra soak conditions in
   `runs/soak-native/pass.ts`; it needs the same backend host and `sprint3World`.
 - `s3-census` is a one-off, read-only run of Sprint S3 (ADR-0058; the owner approves each dispatch). It needs the backend host
   and the staged world (`sprint3World`, `Test3`). It writes no mod config key (every reader is native), loads `Test3`, turns auto-pause off,
@@ -329,6 +329,9 @@ Every run's `result.json` records `serverHost`.
 - **Stopping.** API `Shutdown`, the same 60 s grace as Windows, then `docker stop`, then `docker rm -f`.
 - **Memory.** `memory.json` holds the server process's `VmRSS` and `VmHWM` from `/proc/<pid>/status`
   (`FactoryServer-Linux-Shipping`, found with `ps` through `docker exec`), never `docker stats`, which counts page cache.
+- **DNS names (S12).** A Linux container has no DNS cache, so the image runs dnsmasq as the container's resolver and logs queries
+  to `/var/log/satis-dns.log`; the sampler parses it into the names S12 matches. The image must be rebuilt
+  (`docker build -t satis-linux-ds:local docker/linux-server`) for this: an older image has no log and S12 fails on a failed DNS read.
 - **The build.** On the docker host the core run builds both server platforms (`build-mod.ps1 -Platforms Win64+Linux`) and
   installs the `LinuxServer` tree. `Mods\SML` under `serverDir` holds SML's own `SML-LinuxServer.zip` (3.12.0), unpacked.
 - **Choosing the host.** The runner's `.env` keeps `SATIS_HARNESS_CONFIG` (the Windows config) and gains
