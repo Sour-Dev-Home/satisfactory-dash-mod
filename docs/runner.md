@@ -266,7 +266,7 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   resource-node layer's first-read rule (first scan 8 minutes, +/-10%, after Running, then every 10 minutes), so its first post
   also falls 3 to 13 minutes into the measurement, inside the window. `snapshot-parts.json` (the measured window and which parts
   each accepted snapshot carried; no bodies) is written by `tick-cost` too.
-- `soak-native` is `tick-cost-native` with a 16 hour measured window and the extra soak conditions in
+- `soak-native` is `tick-cost-native` with a 4 hour measured window (owner 2026-11-08; it was 16 hours) and the extra soak conditions in
   `runs/soak-native/pass.ts`; it needs the same backend host and `sprint3World`.
 - `s3-census` is a one-off, read-only run of Sprint S3 (ADR-0058; the owner approves each dispatch). It needs the backend host
   and the staged world (`sprint3World`, `Test3`). It writes no mod config key (every reader is native), loads `Test3`, turns auto-pause off,
