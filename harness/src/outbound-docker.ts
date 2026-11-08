@@ -7,7 +7,7 @@
 // missing log (an image without dnsmasq) sets dnsFailed, which S12 fails on.
 import type { RunnerConfig } from "./config";
 import { normalizeAddress, type OutboundSample } from "./outbound";
-import { type Exec, findServerPid } from "./server-host-docker";
+import { type Exec, execAsServerUser, findServerPid } from "./server-host-docker";
 
 // /proc/net/tcp states (include/net/tcp_states.h): 06 TIME_WAIT, 07 CLOSE, 0A LISTEN. Windows leaves out Listen, TimeWait,
 // Bound and Closed (outbound.ts); a Linux socket that is only bound has no row here.
@@ -113,17 +113,20 @@ export function parseDnsmasqLog(text: string): Record<string, string[]> {
 export async function sampleContainerOutbound(exec: Exec, cfg: RunnerConfig): Promise<OutboundSample> {
   const name = cfg.docker?.container;
   if (!name) throw new Error('serverHost "docker" needs a docker block in the runner config');
-  const ps = await exec("docker", ["exec", name, "ps", "-eo", "pid,args"]);
+  const ps = await exec("docker", execAsServerUser(name, "ps", "-eo", "pid,args"));
   if (ps.code !== 0) throw new Error(`sampling outbound connections failed: ps: ${ps.stderr.trim().slice(0, 300)}`);
   const pid = findServerPid(ps.stdout);
   if (pid === null) throw new Error("sampling outbound connections failed: the server process is not running in the container");
   // The dnsmasq log is the last section; a missing file (an image without dnsmasq) prints NO_DNS instead of failing the read.
   const script = `for f in /proc/${pid}/fd/*; do readlink "$f"; done; echo ---; cat /proc/${pid}/net/tcp /proc/${pid}/net/tcp6; echo ---; cat ${DNS_LOG} 2>/dev/null || echo ${NO_DNS}`;
-  const read = await exec("docker", ["exec", name, "sh", "-c", script]);
+  const read = await exec("docker", execAsServerUser(name, "sh", "-c", script));
   if (read.code !== 0) throw new Error(`sampling outbound connections failed: ${read.stderr.trim().slice(0, 300)}`);
   const [fds, tcp, dns] = read.stdout.split(/^---$/m);
   if (tcp === undefined) throw new Error("sampling outbound connections failed: no TCP table read");
   const inodes = new Set([...fds!.matchAll(/socket:\[(\d+)\]/g)].map((m) => Number(m[1])));
+  // The server always holds sockets (its API listener at least). None readable means the fd read failed (run 42515836066:
+  // read as root, without CAP_SYS_PTRACE, every readlink was refused), and that is a failed sample, not an empty one.
+  if (inodes.size === 0) throw new Error(`sampling outbound connections failed: none of the server's sockets could be read (/proc/${pid}/fd)`);
   const endpoints = procOutbound(tcp, inodes);
   const log = dns?.trim() ?? "";
   // Only a missing log is a failed DNS read. An empty one was read: no lookups (the mod's recorder connection is by IP).

@@ -160,7 +160,9 @@ describe("findServerPid and readContainerMemory", () => {
       processes: [{ name: "FactoryServer-Linux-Shipping", workingSetBytes: 102_400, peakWorkingSetBytes: 204_800 }],
     });
     expect(calls.flat()).not.toContain("stats");
-    expect(calls[1]).toEqual(["exec", "satis-linux-ds", "cat", "/proc/15/status"]);
+    // As the server's user: the image's entry point is root, and root can't read the server's /proc (run 42515836066).
+    expect(calls[0]).toEqual(["exec", "-u", "steam", "satis-linux-ds", "ps", "-eo", "pid,args"]);
+    expect(calls[1]).toEqual(["exec", "-u", "steam", "satis-linux-ds", "cat", "/proc/15/status"]);
   });
   it("is null when the container has no server or exec fails", async () => {
     expect(await readContainerMemory(async () => ok("    1 sh\n"), cfg)).toBeNull();

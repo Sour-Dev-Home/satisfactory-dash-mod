@@ -16,6 +16,13 @@ export const realExec: Exec = (cmd, args) =>
       resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) }),
     ));
 
+/**
+ * The harness's `docker exec` reads run as the server's own user. The image's entry point runs as root (root-entry.sh starts
+ * the DNS cache), so a plain exec would be root, and root in a container has no CAP_SYS_PTRACE: it can't read another user's
+ * /proc/<pid>/fd, and the S12 sampler saw no sockets at all (run 42515836066). As steam, every read works as before #91.
+ */
+export const execAsServerUser = (name: string, ...command: string[]): string[] => ["exec", "-u", "steam", name, ...command];
+
 const ROOT = "/srv/satis/server";
 const MOUNTED = ["Saved", "Mods", "Configs"] as const;
 
@@ -112,11 +119,11 @@ export function parseProcStatus(text: string): { rssBytes: number; peakBytes: nu
 export const readContainerMemory = async (exec: Exec, cfg: RunnerConfig): Promise<ProcessMemory | null> => {
   try {
     const name = dockerOf(cfg).container;
-    const ps = await exec("docker", ["exec", name, "ps", "-eo", "pid,args"]);
+    const ps = await exec("docker", execAsServerUser(name, "ps", "-eo", "pid,args"));
     if (ps.code !== 0) return null;
     const pid = findServerPid(ps.stdout);
     if (pid === null) return null;
-    const status = await exec("docker", ["exec", name, "cat", `/proc/${pid}/status`]);
+    const status = await exec("docker", execAsServerUser(name, "cat", `/proc/${pid}/status`));
     const parsed = status.code === 0 ? parseProcStatus(status.stdout) : null;
     if (!parsed) return null;
     return {

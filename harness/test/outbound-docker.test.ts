@@ -97,6 +97,8 @@ describe("sampleContainerOutbound", () => {
     };
     // An empty log was read (no lookups; the recorder connection is by IP): not a failed DNS read.
     expect(await sampleContainerOutbound(exec, cfg)).toEqual({ endpoints: ["127.0.0.1:27809"], names: {}, dnsFailed: false });
+    expect(calls[0]!.slice(0, 3)).toEqual(["exec", "-u", "steam"]);
+    expect(calls[1]!.slice(0, 3)).toEqual(["exec", "-u", "steam"]);
     expect(calls[1]!.join(" ")).toContain("/proc/42/");
     expect(calls[1]!.join(" ")).toContain("/var/log/satis-dns.log");
   });
@@ -109,6 +111,12 @@ describe("sampleContainerOutbound", () => {
     ].join("\n");
     const s = await sampleContainerOutbound(execWeb(log), cfg);
     expect(s).toEqual({ endpoints: ["104.26.12.205:443"], names: { "104.26.12.205": ["api.example.com"] }, dnsFailed: false });
+  });
+
+  it("rejects when none of the server's sockets could be read (an fd read refused is a failed sample, not an empty one)", async () => {
+    const refused: Exec = async (_c, args) =>
+      args.includes("ps") ? { code: 0, stdout: ps, stderr: "" } : { code: 0, stdout: `---\n${TCP_WEB}\n---\n`, stderr: "readlink: Permission denied" };
+    await expect(sampleContainerOutbound(refused, cfg)).rejects.toThrow(/none of the server's sockets could be read/);
   });
 
   it("sets dnsFailed (endpoints kept) only when the log is missing", async () => {
