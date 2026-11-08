@@ -11,7 +11,9 @@ if [[ -z "$upstreams" ]]; then
   exit 1
 fi
 
-args=(--no-resolv --listen-address=127.0.0.1 --bind-interfaces --log-queries --log-facility=/var/log/satis-dns.log)
+# --user/--group steam: dnsmasq binds port 53 as root, then runs as steam, so its log is steam's and the harness reads it
+# with `docker exec -u steam` (root can't read the server's /proc/<pid>/fd without CAP_SYS_PTRACE).
+args=(--no-resolv --listen-address=127.0.0.1 --bind-interfaces --log-queries --log-facility=/var/log/satis-dns.log --user=steam --group=steam)
 for ns in $upstreams; do args+=("--server=$ns"); done
 dnsmasq "${args[@]}"
 # dnsmasq forks into the background (it exits non-zero first if it can't bind); check it stayed up.
