@@ -233,6 +233,10 @@ TOptional<SatisDash::FPairingPoll> SatisDash::ParsePairingPollResponse(const FHt
 	FPairingPoll Out;
 	if (Reply.Code == 200)
 	{
+		if (Text == TEXT("approved"))
+		{
+			return {}; // approval is a 201 with the credential; a 200 "approved" is malformed (transient)
+		}
 		Out.Status = Text == TEXT("expired") ? EPairingPoll::Expired : Text == TEXT("slow_down") ? EPairingPoll::SlowDown : EPairingPoll::Pending;
 		return Out;
 	}

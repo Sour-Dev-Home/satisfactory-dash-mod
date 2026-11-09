@@ -309,7 +309,7 @@ bool FResponsesPairingNamesTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("start missing interval"), ParsePairingStartResponse(ShortStart).IsSet());
 	TestFalse(TEXT("23-char secret"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(TEXT("abcdefghijklmnopqrstuvw"), TEXT("AB3D-7XQ2-K5MN"), TEXT("900"), TEXT("5")))).IsSet());
 	const TOptional<FPairingPoll> EarlyApproved = ParsePairingPollResponse(SatisDash::Test::Reply(200, TEXT("{\"status\":\"approved\"}")));
-	TestTrue(TEXT("200 approved is pending"), EarlyApproved.IsSet() && EarlyApproved->Status == EPairingPoll::Pending);
+	TestFalse(TEXT("200 approved is unset (transient)"), EarlyApproved.IsSet());
 	TestFalse(TEXT("201 pending"), ParsePairingPollResponse(SatisDash::Test::Reply(201, TEXT("{\"status\":\"pending\"}"))).IsSet());
 	TestTrue(TEXT("secret: 22 base64url"), IsPairingSecret(TEXT("abcdEFGH_-0123456789ab")));
 	TestFalse(TEXT("secret: 23"), IsPairingSecret(TEXT("abcdefghijklmnopqrstuvw")));
