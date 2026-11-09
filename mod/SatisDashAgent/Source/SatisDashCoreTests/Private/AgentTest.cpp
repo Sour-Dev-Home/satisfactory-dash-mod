@@ -34,6 +34,36 @@ namespace
 		FAgent makeAgent() const { return FAgent(ConfigPath, CredentialPath, [] { return 1.0; }); }
 		FString codeInFile() const { return ParseConfig(SatisDash::Test::ReadText(ConfigPath)).Config.EnrollmentCode; }
 	};
+
+	FString AgentServerName() { return TEXT("S"); }
+
+	FHttpReply AgentPairStartReply()
+	{
+		return SatisDash::Test::Reply(201, TEXT("{\"pairingSecret\":\"abcdefghijklmnopqrstuv\",\"userCode\":\"AB3D-7XQ2-K5MN\",\"expiresIn\":900,\"interval\":5}"));
+	}
+
+	FHttpReply AgentPairPendingReply() { return SatisDash::Test::Reply(200, TEXT("{\"status\":\"pending\"}")); }
+
+	FHttpReply AgentPairApprovedReply(const TCHAR* ApprovedBy)
+	{
+		FString Json = SatisDash::Test::EnrollJson().LeftChop(1) + TEXT(",\"status\":\"approved\"");
+		if (ApprovedBy && *ApprovedBy)
+		{
+			Json += FString::Printf(TEXT(",\"approvedBy\":\"%s\""), ApprovedBy);
+		}
+		return SatisDash::Test::Reply(201, Json + TEXT("}"));
+	}
+
+	/** A pairing request is due now, or not. */
+	bool AgentPairDue(FAgent& Agent, double Now, FString* Url = nullptr)
+	{
+		const TOptional<FRequestSpec> Spec = Agent.StartPairing(Now, AgentServerName);
+		if (Spec.IsSet() && Url)
+		{
+			*Url = Spec->Url;
+		}
+		return Spec.IsSet();
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentBootTest, "SatisDash.Core.Agent.Boot", SatisDash::Test::Flags)
@@ -44,8 +74,31 @@ bool FAgentBootTest::RunTest(const FString& Parameters)
 		const FFixture F;
 		FAgent Agent = F.makeAgent();
 		Agent.Boot();
-		TestTrue(TEXT("first boot: idle"), Agent.GetState() == EAgentState::Idle);
+		TestTrue(TEXT("first boot: pairing"), Agent.GetState() == EAgentState::Pairing);
 		TestTrue(TEXT("and the config is written"), IFileManager::Get().FileExists(*F.ConfigPath));
+		FString Url;
+		TestTrue(TEXT("a pairing start is due"), AgentPairDue(Agent, 0, &Url));
+		TestTrue(TEXT("at /agent/v1/pairings"), Url.EndsWith(TEXT("/agent/v1/pairings")));
+		TestFalse(TEXT("never an enrol"), Agent.StartEnroll(0).IsSet());
+	}
+	{
+		// A cfg with no code at all pairs (Review Focus 1).
+		const FFixture F;
+		F.writeConfig(TEXT(""));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		TestTrue(TEXT("an empty code on example.com: pairing"), Agent.GetState() == EAgentState::Pairing);
+		TestTrue(TEXT("a start is due"), AgentPairDue(Agent, 0));
+	}
+	{
+		// A credential for another backend stays idle and never pairs.
+		const FFixture F;
+		F.writeCredential();
+		F.writeConfigAt(TEXT("https://other.example.com"), TEXT(""));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		TestTrue(TEXT("other backend: idle"), Agent.GetState() == EAgentState::Idle);
+		TestFalse(TEXT("no pairing request"), AgentPairDue(Agent, 0));
 	}
 	{
 		// The crash case: the credential was written but the code not yet blanked. The credential wins.
@@ -65,7 +118,7 @@ bool FAgentBootTest::RunTest(const FString& Parameters)
 		SatisDash::Test::WriteText(F.CredentialPath, TEXT("{ broken"));
 		FAgent Agent = F.makeAgent();
 		Agent.Boot();
-		TestTrue(TEXT("a broken credential is not enrolled"), Agent.GetState() == EAgentState::Idle);
+		TestTrue(TEXT("a broken credential is not enrolled: it pairs"), Agent.GetState() == EAgentState::Pairing);
 		TestTrue(TEXT("and never a Bearer"), Agent.GetCredential() == nullptr);
 	}
 	return true;
@@ -148,7 +201,7 @@ bool FAgentConfigChangeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("broken"), Agent.GetState() == EAgentState::ConfigBroken);
 	F.writeConfig(TEXT(""));
 	Agent.CheckConfig();
-	TestTrue(TEXT("fixed, no code: idle"), Agent.GetState() == EAgentState::Idle);
+	TestTrue(TEXT("fixed, no code: pairing"), Agent.GetState() == EAgentState::Pairing);
 	return true;
 }
 
@@ -287,5 +340,118 @@ bool FAgentBackendBindingTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("switching back resumes running"), Agent.GetState() == EAgentState::Running);
 		TestTrue(TEXT("with the old credential"), Agent.GetCredential() != nullptr);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentCodeWinsMidPollTest, "SatisDash.Core.Agent.CodeWinsMidPoll", SatisDash::Test::Flags)
+
+bool FAgentCodeWinsMidPollTest::RunTest(const FString& Parameters)
+{
+	{
+		// A code arrives while a poll is in flight: CheckConfig waits, then the code wins and the reply is dropped.
+		const FFixture F;
+		F.writeConfig(TEXT(""));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		TestTrue(TEXT("pairing"), Agent.GetState() == EAgentState::Pairing);
+		TestTrue(TEXT("start"), AgentPairDue(Agent, 0));
+		Agent.FinishPairing(AgentPairStartReply(), 0);
+		TestTrue(TEXT("poll in flight"), AgentPairDue(Agent, 5));
+		F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
+		Agent.CheckConfig();
+		TestTrue(TEXT("still pairing: waits for the in-flight request"), Agent.GetState() == EAgentState::Pairing);
+		Agent.FinishPairing(AgentPairPendingReply(), 5);
+		Agent.CheckConfig();
+		TestTrue(TEXT("then enrolling"), Agent.GetState() == EAgentState::Enrolling);
+		TestFalse(TEXT("no more pairing requests"), AgentPairDue(Agent, 100));
+	}
+	{
+		// The switch happened between requests; a stale approved reply is ignored and no credential appears.
+		const FFixture F;
+		F.writeConfig(TEXT(""));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		TestTrue(TEXT("start"), AgentPairDue(Agent, 0));
+		Agent.FinishPairing(AgentPairStartReply(), 0);
+		F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
+		Agent.CheckConfig();
+		TestTrue(TEXT("enrolling"), Agent.GetState() == EAgentState::Enrolling);
+		Agent.FinishPairing(AgentPairApprovedReply(TEXT("")), 6);
+		TestTrue(TEXT("a stale reply changes nothing"), Agent.GetState() == EAgentState::Enrolling);
+		TestTrue(TEXT("no credential"), Agent.GetCredential() == nullptr);
+		const FCredentialStore Store{F.CredentialPath};
+		TestFalse(TEXT("and none saved"), Store.Load().IsSet());
+	}
+	{
+		// The code lands while an approving poll is in flight: CheckConfig waited, so the pairing completes, and the
+		// credential then wins over the code (blanked): paired, never enrolled as well.
+		const FFixture F;
+		F.writeConfig(TEXT(""));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		TestTrue(TEXT("start"), AgentPairDue(Agent, 0));
+		Agent.FinishPairing(AgentPairStartReply(), 0);
+		TestTrue(TEXT("poll in flight"), AgentPairDue(Agent, 5));
+		F.writeConfig(TEXT("AB3D-7XQ2-K5MN"));
+		Agent.CheckConfig();
+		Agent.FinishPairing(AgentPairApprovedReply(TEXT("")), 5);
+		TestTrue(TEXT("paired"), Agent.GetState() == EAgentState::Running);
+		Agent.CheckConfig();
+		TestTrue(TEXT("still running, not enrolling"), Agent.GetState() == EAgentState::Running);
+		TestFalse(TEXT("never enrols with the code"), Agent.StartEnroll(100).IsSet());
+		TestTrue(TEXT("the code is blanked"), F.codeInFile().IsEmpty());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentPairingApprovedTest, "SatisDash.Core.Agent.PairingApproved", SatisDash::Test::Flags)
+
+bool FAgentPairingApprovedTest::RunTest(const FString& Parameters)
+{
+	const FFixture F;
+	SatisDash::Test::FLogCapture Capture;
+	F.writeConfig(TEXT(""));
+	FAgent Agent = F.makeAgent();
+	Agent.Boot();
+	TestTrue(TEXT("start"), AgentPairDue(Agent, 0));
+	Agent.FinishPairing(AgentPairStartReply(), 0);
+	TestTrue(TEXT("poll"), AgentPairDue(Agent, 5));
+	Agent.FinishPairing(AgentPairApprovedReply(TEXT("Player-4F2K")), 5);
+	TestTrue(TEXT("running"), Agent.GetState() == EAgentState::Running);
+	TestTrue(TEXT("credential in memory"), Agent.GetCredential() != nullptr);
+	const FCredentialStore Store{F.CredentialPath};
+	TestTrue(TEXT("credential saved"), Store.Load().IsSet());
+	TestEqual(TEXT("cadence from the answer"), Agent.GetCadence().StatusSeconds, 5);
+	TestFalse(TEXT("no more pairing requests"), AgentPairDue(Agent, 6));
+	int32 Paired = 0;
+	for (const FString& Line : Capture.Take())
+	{
+		Paired += Line.Contains(TEXT("Paired with the dashboard; reporting to the backend (approved by \"Player-4F2K\")")) ? 1 : 0;
+		TestFalse(TEXT("no pairing secret"), Line.Contains(TEXT("abcdefghijklmnopqrstuv")));
+	}
+	TestEqual(TEXT("the Paired line, once"), Paired, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentRevokeNoPairTest, "SatisDash.Core.Agent.RevokeNoPair", SatisDash::Test::Flags)
+
+bool FAgentRevokeNoPairTest::RunTest(const FString& Parameters)
+{
+	const FFixture F;
+	F.writeConfig(TEXT(""));
+	FAgent Agent = F.makeAgent();
+	Agent.Boot();
+	AgentPairDue(Agent, 0);
+	Agent.FinishPairing(AgentPairStartReply(), 0);
+	AgentPairDue(Agent, 5);
+	Agent.FinishPairing(AgentPairApprovedReply(TEXT("")), 5);
+	TestTrue(TEXT("running"), Agent.GetState() == EAgentState::Running);
+	Agent.OnAuthRejected();
+	TestTrue(TEXT("halted"), Agent.GetState() == EAgentState::Halted);
+	TestFalse(TEXT("a halted agent never pairs"), AgentPairDue(Agent, 1e6));
+	Agent.OnPlayerCount(0, 1e6 + 1);
+	Agent.OnPlayerCount(1, 1e6 + 6);
+	TestFalse(TEXT("not even on a join"), AgentPairDue(Agent, 1e6 + 7));
+	TestFalse(TEXT("and no chat line"), Agent.TakeChatLine().IsSet());
 	return true;
 }

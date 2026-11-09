@@ -8,6 +8,7 @@ SatisDash::FAgent::FAgent(FString InConfigPath, FString InCredentialPath, TFunct
 	: ConfigPath{MoveTemp(InConfigPath)}
 	, Credentials{MoveTemp(InCredentialPath)}
 	, random01{MoveTemp(InRandom01)}
+	, Pairing{random01}
 {
 }
 
@@ -37,7 +38,7 @@ void SatisDash::FAgent::Boot()
 
 void SatisDash::FAgent::CheckConfig()
 {
-	if (bEnrollInFlight)
+	if (bEnrollInFlight || bPairingInFlight)
 	{
 		return; // decide after the answer: the next check sees the change
 	}
@@ -119,14 +120,17 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 {
 	if (Loaded.Status == EConfigStatus::Broken)
 	{
+		Pairing.Stop();
 		Enter(EAgentState::ConfigBroken, FString::Printf(
 			TEXT("SatisDashAgent.cfg can't be used (bad %s); the mod is idle until it is fixed"), *Loaded.BadField), true);
 		return;
 	}
 	const FString PreviousCode = Config.EnrollmentCode;
+	const FString PreviousUrl = Config.BackendUrl;
 	Config = Loaded.Config;
 	if (IsBoundHere())
 	{
+		Pairing.Stop();
 		if (!Config.EnrollmentCode.IsEmpty())
 		{
 			// One code never enrols twice (spec error table): the credential wins and the code is blanked.
@@ -142,6 +146,7 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 	}
 	if (!Config.EnrollmentCode.IsEmpty())
 	{
+		Pairing.Stop();
 		if (State != EAgentState::Enrolling || !Config.EnrollmentCode.Equals(PreviousCode, ESearchCase::CaseSensitive))
 		{
 			EnrollFailures = 0;
@@ -152,11 +157,17 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 	}
 	if (Credential.IsSet())
 	{
+		Pairing.Stop();
 		// Kept in memory and on disk: switching the config back to its backend resumes it.
 		Enter(EAgentState::Idle, TEXT("The saved credential belongs to a different backend than SatisDashAgent.cfg names; add a new enrolment code from that backend's dashboard (nothing is sent until then)"), true);
 		return;
 	}
-	Enter(EAgentState::Idle, TEXT("Not enrolled: add an enrolment code from the dashboard to SatisDashAgent.cfg"), false);
+	if (State == EAgentState::Pairing && !PreviousUrl.Equals(Config.BackendUrl, ESearchCase::CaseSensitive))
+	{
+		Pairing.Stop(); // an open code belongs to the old backend
+	}
+	Enter(EAgentState::Pairing, TEXT("Not enrolled: pairing with the dashboard"), false);
+	Pairing.Open(LastNow);
 }
 
 void SatisDash::FAgent::Enter(EAgentState Next, const FString& Line, bool bWarning)
@@ -182,8 +193,23 @@ TOptional<SatisDash::FRequestSpec> SatisDash::FAgent::StartEnroll(double Now)
 	{
 		return {};
 	}
+	LastNow = FMath::Max(LastNow, Now);
 	bEnrollInFlight = true;
 	return BuildEnrollRequest(Config);
+}
+
+void SatisDash::FAgent::AdoptCredential(const FEnrollResponse& Enrolled)
+{
+	// Issued by the backend the request went to (Config is unchanged since the Start; CheckConfig waits for the
+	// answer), whatever the file says by now.
+	FCredential Issued = Enrolled.Credential;
+	Issued.BackendUrl = Config.BackendUrl;
+	if (!Credentials.Save(Issued))
+	{
+		UE_LOG(LogSatisDash, Warning, TEXT("Enrolled, but the credential file couldn't be written; enrolment will be lost when the server restarts"));
+	}
+	Credential = Issued;
+	Cadence = Enrolled.Cadence;
 }
 
 void SatisDash::FAgent::FinishEnroll(const FHttpReply& Reply, double Now)
@@ -193,21 +219,13 @@ void SatisDash::FAgent::FinishEnroll(const FHttpReply& Reply, double Now)
 		return;
 	}
 	bEnrollInFlight = false;
+	LastNow = FMath::Max(LastNow, Now);
 	const EReplyKind Kind = ClassifyReply(Reply.Code, false);
 	if (Kind == EReplyKind::Ok)
 	{
 		if (const TOptional<FEnrollResponse> Enrolled = ParseEnrollResponse(Reply))
 		{
-			// Issued by the backend the request went to (Config is unchanged since StartEnroll; CheckConfig waits for
-			// the answer), whatever the file says by now.
-			FCredential Issued = Enrolled->Credential;
-			Issued.BackendUrl = Config.BackendUrl;
-			if (!Credentials.Save(Issued))
-			{
-				UE_LOG(LogSatisDash, Warning, TEXT("Enrolled, but the credential file couldn't be written; enrolment will be lost when the server restarts"));
-			}
-			Credential = Issued;
-			Cadence = Enrolled->Cadence;
+			AdoptCredential(*Enrolled);
 			BlankCodeInFile(); // may adopt a URL edited while the request was in flight
 			EnrollFailures = 0;
 			if (!IsBoundHere())
@@ -242,5 +260,53 @@ void SatisDash::FAgent::OnAuthRejected()
 	}
 	Credentials.Delete();
 	Credential.Reset();
-	Enter(EAgentState::Halted, TEXT("The backend rejected the credential (401): this server was revoked in the dashboard. Stopped; add a new code to SatisDashAgent.cfg to enrol again"), true);
+	Pairing.Stop();
+	Enter(EAgentState::Halted, TEXT("The backend rejected the credential (401): this server was revoked in the dashboard. Stopped; restart the server to pair it again, or add a code to SatisDashAgent.cfg"), true);
+}
+
+TOptional<SatisDash::FRequestSpec> SatisDash::FAgent::StartPairing(double Now, TFunctionRef<FString()> ServerName)
+{
+	LastNow = FMath::Max(LastNow, Now);
+	if (State != EAgentState::Pairing || bPairingInFlight)
+	{
+		return {};
+	}
+	TOptional<FRequestSpec> Spec = Pairing.Next(Config, ServerName, Now);
+	bPairingInFlight = Spec.IsSet();
+	return Spec;
+}
+
+void SatisDash::FAgent::FinishPairing(const FHttpReply& Reply, double Now)
+{
+	LastNow = FMath::Max(LastNow, Now);
+	bPairingInFlight = false;
+	// FPairing always sees the reply (it keeps its own one-in-flight and drop-after-Stop state); the agent then drops
+	// the result when it left Pairing meanwhile (a code arrived: Review Focus 4).
+	const TOptional<FPairingPoll> Poll = Pairing.Finish(Reply, Now);
+	if (State != EAgentState::Pairing || !Poll.IsSet() || Poll->Status != EPairingPoll::Approved || !Poll->Enrolled.IsSet())
+	{
+		return;
+	}
+	AdoptCredential(*Poll->Enrolled);
+	// No code in the file to blank. A cfg edited while the request was in flight is read at the next CheckConfig.
+	FString Line = TEXT("Paired with the dashboard; reporting to the backend");
+	if (!Poll->ApprovedBy.IsEmpty())
+	{
+		Line += FString::Printf(TEXT(" (approved by \"%s\")"), *Poll->ApprovedBy);
+	}
+	Enter(EAgentState::Running, Line, false);
+}
+
+void SatisDash::FAgent::OnPlayerCount(int32 Players, double Now)
+{
+	LastNow = FMath::Max(LastNow, Now);
+	if (State == EAgentState::Pairing)
+	{
+		Pairing.OnPlayers(Players, Now);
+	}
+}
+
+TOptional<FString> SatisDash::FAgent::TakeChatLine()
+{
+	return State == EAgentState::Pairing ? Pairing.TakeChatLine() : TOptional<FString>();
 }
