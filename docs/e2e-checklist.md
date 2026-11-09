@@ -39,8 +39,8 @@ tool) in an empty folder, on ports that don't clash with any server you already 
 ## 2. Install SML and the mod
 
 - [ ] Install SML as the release notes say, start the server, and check its log loads SML with no errors.
-- [ ] Unzip the release zip and copy the platform's folder (`WindowsServer/` or `LinuxServer/`) into
-      `FactoryGame/Mods/` exactly as the notes describe.
+- [ ] Unzip the server's platform (the per-platform zip, or its folder from the multi-target `SatisDashAgent.zip`) to
+      `FactoryGame/Mods/SatisDashAgent/`, exactly as the notes describe. Try both zips across the two servers.
 - [ ] Start the server. The log has `LogSatisDash` lines and no `Error` line from the mod.
 - [ ] `FactoryGame/Configs/SatisDashAgent.cfg` was written with defaults on first start
       (`backendUrl`, `enrollmentCode` empty).

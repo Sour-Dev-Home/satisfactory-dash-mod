@@ -280,7 +280,7 @@ Why: 0.2.0 ships Windows only (`docs/releases/0.2.0.md`). A ficsit.app listing, 
 ### Task 11: 0.3.0 with Linux
 
 - [ ] **Step 1:** Make the release packaging produce Alpakit's multi-target archive (`-merge`, `AlpakitProfile.cpp:89`) with WindowsServer and LinuxServer. `check-build` passes on it.
-- [ ] **Step 2:** Bump to `0.3.0`: the `.uplugin`, the judges' `mod/0.3.0` (`runs/enrol/pass.ts`, `runs/http-probe/pass.ts`; `mod-version.test.ts` guards them), and `docs/releases/0.3.0.md` ("Linux servers are supported", with the Linux run IDs).
+- [x] **Step 2:** Bump to `0.3.0`: the `.uplugin`, the judges' `mod/0.3.0` (`runs/enrol/pass.ts`, `runs/http-probe/pass.ts`; `mod-version.test.ts` guards them), and `docs/releases/0.3.0.md` ("Linux servers are supported", with the Linux run IDs).
 - [ ] **Step 3:** Run mod-test and linux-build, then open the PR. After the owner merges: tag `v0.3.0` and create the GitHub release with both platform zips. The ficsit.app listing is the owner's next call.
 
 ## Execution notes (rulings made while building; they override the task text above)
@@ -300,6 +300,11 @@ Why: 0.2.0 ships Windows only (`docs/releases/0.2.0.md`). A ficsit.app listing, 
   - `FORWARD_PORTS` (a list) replaces `BACKEND_PORT`, because the mod must reach the backend and http-probe's three stubs, and their ports are picked at run time.
   - The server API needs `API_RELAY=27778:27777`, with the host's TCP 27777 published to the container's 27778, so the harness's calls arrive from 127.0.0.1. Through Docker's mapping they come from the bridge gateway, and the server refused `Shutdown` with `insufficient_scope` even with `AllowInsecureLocalAccess=1`.
   - With the relay, QueryServerState answers, and `Shutdown` returns 204 with a clean exit 0.
+- **Task 10, the Linux soak (2026-11-08):**
+  - The 16 h soak, 42408741679, failed S12, the step ceiling and the end-of-day leak. The owner ruled: capture DNS names on Linux (#91, then #92), rerun tick-cost idle, review the mod for leaks (none found), and run 4 h soaks from now on (#91).
+  - Idle tick-cost-native 42526743569 passed.
+  - The 4 h soak, 42530069076, failed only the step ceiling: two Buildables steps (3.54 and 2.08 ms) during a 3-minute slowdown of the host PC, when every reader slowed 30 to 50x and the game's tick dipped. **Owner ruling 2026-11-08: "Accept the run. Lets move on."**
+- **Task 11, packaging (2026-11-08):** `build-mod.ps1 -Platforms Win64+Linux` passes `-merge` and unzips the merged `SatisDashAgent.zip` to `-Out`, so `check-build` judges the shipped file. All three zips go to `-Out\zips`, and linux-build uploads them as the release candidate.
 
 ## Order and owner actions
 

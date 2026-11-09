@@ -14,13 +14,15 @@ describe("build-mod.ps1 -DryRun", () => {
     expect(line).toContain("-serverplatform=Win64 ");
     expect(line).toContain("-noclient");
     expect(line).not.toContain("-platform=");
+    expect(line).not.toContain("-merge"); // one platform: no multi-target archive
   });
 
-  it("packages the Windows and Linux servers with -Platforms Win64+Linux", () => {
+  it("packages the Windows and Linux servers with -Platforms Win64+Linux, and asks for the merged archive", () => {
     const line = dryRun("-Platforms", "Win64+Linux");
     expect(line).toContain("-serverplatform=Win64+Linux ");
     expect(line).toContain("-noclient");
     expect(line).not.toContain("-platform=");
+    expect(line).toMatch(/ -merge\s*$/); // AlpakitProfile.cpp:89: the multi-target <plugin>.zip a release ships
   });
 
   it("refuses any other platform set", () => {
