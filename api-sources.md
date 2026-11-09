@@ -848,3 +848,10 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FString::AppendChars | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:406 | header only (the WIDECHAR overload with a count, declared in the class body; a prefix of a held part is appended without a copy) |
 | FString::Reserve | Engine/Source/Runtime/Core/Public/Containers/UnrealString.h.inl:2200 | header only (final-review fix: PowerJson is reserved before the generators fragment is appended) |
 | TSubclassOf::Get | Engine/Source/Runtime/CoreUObject/Public/Templates/SubclassOf.h:119 | header only (returns the UClass*; the storage reader's per-class merge key) |
+| FPairing::Open | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Pairing.h:25 | the plugin's own declaration, not an engine symbol (pairing Task 3): the tests call it |
+| FPairing::Next | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Pairing.h:31 | the plugin's own declaration, not an engine symbol (pairing Task 3): the tests call it |
+| FPairing::Finish | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Pairing.h:33 | the plugin's own declaration, not an engine symbol (pairing Task 3): the tests call it |
+| FPairing::OnPlayers | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Pairing.h:35 | the plugin's own declaration, not an engine symbol (pairing Task 3): the tests call it |
+| FPairing::TakeChatLine | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Pairing.h:37 | the plugin's own declaration, not an engine symbol (pairing Task 3): the tests call it |
+| ServerName | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Pairing.h:31 | the plugin's own TFunctionRef parameter of FPairing::Next, called when a start is built |
+| TFunctionRef | Engine/Source/Runtime/Core/Public/Templates/Function.h:619 | header only (a non-owning callable parameter; FPairing::Next's ServerName) |
