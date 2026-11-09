@@ -23,7 +23,7 @@ export const pair: CoreRunSpec = {
     const log = () => satisDashLines(ctx.deps.readLogSince(ctx.offset));
     const capture: Pass.Pair = {
       bootAt: "", codeLineAt: null, userCode: null, codeCount: 0, approvedAt: null, approveStatus: null, pairedLine: null,
-      credentialWritten: false, calls: [], secretSeen: { inLog: false, inUrl: false, inHeader: false },
+      secretsChecked: 0, credentialWritten: false, calls: [], secretSeen: { inLog: false, inUrl: false, inHeader: false },
     };
     try {
       capture.bootAt = new Date().toISOString();
@@ -32,6 +32,7 @@ export const pair: CoreRunSpec = {
         "a pairing code in the log",
         () => {
           const m = log().map((l) => CODE_LINE.exec(l)).find((x) => x !== null);
+          // When the harness saw the line, up to one waitFor interval (1 s) after it was logged, so the 30 s rule is conservative.
           if (m) capture.codeLineAt = new Date().toISOString();
           return m ? m[1] : undefined;
         },
@@ -44,6 +45,7 @@ export const pair: CoreRunSpec = {
       ctx.noteSecret(); // the new credential's secret is searched for in the log too
       // A little longer, so a pairing call that should not happen after the first snapshot would be recorded.
       await ctx.deps.sleep(15_000);
+      // Read only on the success path: after a timeout these stay null/false, and the run fails anyway.
       capture.pairedLine = log().find((l) => l.includes("Paired with the dashboard")) ?? null;
       capture.credentialWritten = ctx.credentialExists();
     } finally {
@@ -51,6 +53,7 @@ export const pair: CoreRunSpec = {
       capture.codeCount = new Set(lines.map((l) => CODE_LINE.exec(l)?.[1]).filter((c) => c !== undefined)).size;
       // The poll secrets live in memory only. Only booleans reach the capture, never a secret.
       const secrets = [...new Set(recorder.entries.map((e) => e.pairingSecret).filter((s): s is string => !!s))];
+      capture.secretsChecked = secrets.length;
       const text = ctx.deps.readLogSince(ctx.offset);
       capture.secretSeen = {
         inLog: secrets.some((s) => text.includes(s)),

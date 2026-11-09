@@ -25,6 +25,8 @@ export interface Pair {
   userCode: string | null;
   /** How many distinct codes the log shows. */
   codeCount: number;
+  /** How many distinct poll secrets were captured and searched for; the secret rule fails closed below 1. */
+  secretsChecked: number;
   approvedAt: string | null;
   approveStatus: number | null;
   /** The "Paired with the dashboard" log line, as logged. */
@@ -51,6 +53,8 @@ export function evaluate(e: CoreEvidence): Verdict {
   else if (starts.length > c.codeCount) reasons.push(`${starts.length} pairing starts for ${c.codeCount} code(s): more than one start per code`);
 
   const polls = c.calls.filter((x) => x.path === POLL).map((x) => ms(x.at)).sort((a, b) => a - b);
+  if (polls.length < 1) reasons.push("no pairing poll was made");
+  if (c.secretsChecked < 1) reasons.push("no pairing secret was observed");
   for (let i = 1; i < polls.length; i++) {
     if (polls[i]! - polls[i - 1]! < MIN_POLL_GAP_MS) {
       reasons.push(`polls ${((polls[i]! - polls[i - 1]!) / 1000).toFixed(1)} s apart, need at least ${MIN_POLL_GAP_MS / 1000} s`);
