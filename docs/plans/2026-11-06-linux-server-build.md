@@ -279,7 +279,7 @@ Why: 0.2.0 ships Windows only (`docs/releases/0.2.0.md`). A ficsit.app listing, 
 
 ### Task 11: 0.3.0 with Linux
 
-- [ ] **Step 1:** Make the release packaging produce Alpakit's multi-target archive (`-merge`, `AlpakitProfile.cpp:89`) with WindowsServer and LinuxServer. `check-build` passes on it.
+- [x] **Step 1:** Make the release packaging produce Alpakit's multi-target archive (`-merge`, `AlpakitProfile.cpp:89`) with WindowsServer and LinuxServer. `check-build` passes on it.
 - [x] **Step 2:** Bump to `0.3.0`: the `.uplugin`, the judges' `mod/0.3.0` (`runs/enrol/pass.ts`, `runs/http-probe/pass.ts`; `mod-version.test.ts` guards them), and `docs/releases/0.3.0.md` ("Linux servers are supported", with the Linux run IDs).
 - [ ] **Step 3:** Run mod-test and linux-build, then open the PR. After the owner merges: tag `v0.3.0` and create the GitHub release with both platform zips. The ficsit.app listing is the owner's next call.
 
