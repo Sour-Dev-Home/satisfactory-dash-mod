@@ -53,6 +53,10 @@ describe("linux-build.yml (the Linux server build on the self-hosted runner; pla
     const steps = Object.values(wf.jobs).flatMap((j) => j.steps ?? []);
     expect(steps.some((s) => /build-mod .*--platforms Win64\+Linux\b/.test(s.run ?? ""))).toBe(true);
   });
+  it("uploads the release zips (the merged multi-target zip and both per-platform zips)", () => {
+    const steps = Object.values(wf.jobs).flatMap((j) => j.steps ?? []) as { uses?: string; with?: { path?: string } }[];
+    expect(steps.some((s) => s.uses?.startsWith("actions/upload-artifact@") && s.with?.path?.endsWith("/linux-build/zips"))).toBe(true);
+  });
 });
 
 describe("spike.yml (the self-hosted runner's only door)", () => {

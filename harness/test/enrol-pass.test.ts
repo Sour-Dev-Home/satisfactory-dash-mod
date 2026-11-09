@@ -13,7 +13,7 @@ function round(i: number, world: boolean, over: { snapshot?: Record<string, unkn
     at: `2026-10-20T16:00:${String(i).padStart(2, "0")}.000Z`,
     world,
     snapshot: {
-      agentVersion: "mod/0.2.0", observedAt: "2026-10-20T16:00:00.000Z", reachable: true, paused: false, status, settings: { autoPause: false },
+      agentVersion: "mod/0.3.0", observedAt: "2026-10-20T16:00:00.000Z", reachable: true, paused: false, status, settings: { autoPause: false },
       ...(world ? { power: { circuits: [circuit] } } : {}),
       ...over.snapshot,
     },
@@ -24,7 +24,7 @@ function round(i: number, world: boolean, over: { snapshot?: Record<string, unkn
 
 function enrol(over: Partial<Enrol> = {}, rounds?: Round[]): Enrol {
   return {
-    state: { codeConsumed: true, agentVersion: "mod/0.2.0", lastSeen: true },
+    state: { codeConsumed: true, agentVersion: "mod/0.3.0", lastSeen: true },
     codeBlanked: true,
     credentialWritten: true,
     refused: 0,
@@ -91,7 +91,7 @@ describe("enrol pass conditions", () => {
   });
 
   it("fails when the code wasn't consumed", () => {
-    const v = evaluate(evidence(enrol({ state: { codeConsumed: false, agentVersion: "mod/0.2.0", lastSeen: true } })));
+    const v = evaluate(evidence(enrol({ state: { codeConsumed: false, agentVersion: "mod/0.3.0", lastSeen: true } })));
     expect(v.pass).toBe(false);
     expect(v.reasons).toContain("the code was not consumed");
   });
@@ -124,7 +124,7 @@ describe("enrol pass conditions", () => {
   });
 
   it("accepts S4's gameReachable, lastGameReadAt, modVersion and storage (S13, owner ruling 2026-11-07) but no other field", () => {
-    const s4 = { gameReachable: true, lastGameReadAt: "2026-11-07T04:09:11.555Z", modVersion: "mod/0.2.0", storage: { available: true, containers: [] } };
+    const s4 = { gameReachable: true, lastGameReadAt: "2026-11-07T04:09:11.555Z", modVersion: "mod/0.3.0", storage: { available: true, containers: [] } };
     const ok = round(30, true, { snapshot: s4 });
     expect(evaluate(evidence(withRound(ok))).reasons.filter((x) => x.includes("S13"))).toEqual([]);
     const bad = round(30, true, { snapshot: { ...s4, drones: {} } });

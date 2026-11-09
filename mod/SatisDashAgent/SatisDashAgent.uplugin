@@ -1,8 +1,8 @@
 {
 	"FileVersion": 3,
-	"Version": 2,
-	"VersionName": "0.2.0",
-	"SemVersion": "0.2.0",
+	"Version": 3,
+	"VersionName": "0.3.0",
+	"SemVersion": "0.3.0",
 	"GameVersion": ">=513885",
 	"FriendlyName": "satis-dash agent",
 	"Description": "Reports a dedicated server's status, power, players, factory, trains, map layers and buildings to a satis-dash backend, read from the game itself, and applies its auto-pause commands. Needs no other mod besides SML.",

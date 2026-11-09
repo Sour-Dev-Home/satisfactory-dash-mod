@@ -48,3 +48,11 @@ jobs:
           path: ${{ runner.temp }}/linux-build/LinuxServer
           if-no-files-found: error
           retention-days: 14
+      # The release candidate: Alpakit's merged multi-target zip and the two per-platform zips (build-mod.ps1, -merge).
+      - if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SatisDashAgent-release-zips-${{ github.run_id }}
+          path: ${{ runner.temp }}/linux-build/zips
+          if-no-files-found: error
+          retention-days: 30
