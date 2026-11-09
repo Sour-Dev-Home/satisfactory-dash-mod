@@ -82,6 +82,8 @@ export interface CoreContext {
   sampleMemory(stage: string): Promise<void>;
   /** What the spec's measureBaseline returned in the boot without the mod; undefined when there was none or it failed. */
   baseline?: unknown;
+  /** What the spec's beforeBoot returned as state; undefined without one. */
+  bootState?: unknown;
 }
 
 /** The boot without the mod (CoreRunSpec.baseline): its process, for sampling by pid. */
@@ -111,6 +113,17 @@ export interface CoreRunSpec {
   measureBaseline?(b: BaselineContext): Promise<unknown>;
   /** Checks what the run needs before the (long) build; a throw refuses the run. */
   preflight?(deps: CoreDeps): void;
+  /**
+   * Runs after the mod is installed and before the boot cfg is written. Its backendUrl (loopback only, as ctx.writeConfig
+   * requires) replaces BOOT_BACKEND_URL in that cfg, so the mod's first tick already talks to it (the mod rereads the cfg
+   * only every 60 s). Its state is ctx.bootState.
+   */
+  beforeBoot?(deps: CoreDeps): Promise<{ backendUrl: string; state: unknown }>;
+  /**
+   * Called once with beforeBoot's state when the run ends, whether or not the boot or the drive got that far (a failed boot
+   * never reaches drive's finally). Errors are recorded as reasons.
+   */
+  afterRun?(state: unknown): Promise<void>;
   drive(ctx: CoreContext): Promise<void>;
   evaluate(e: CoreEvidence): Verdict;
 }
@@ -281,6 +294,17 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   let autoLoadBefore: string | undefined;
   let autoLoadRestored = false;
   let baseline: unknown;
+  let bootState: unknown;
+  let haveBootState = false;
+  const requireLoopback = (url: string) => {
+    let host: string;
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      throw new Error("backendUrl is not a valid URL");
+    }
+    if (!LOOPBACK_HOSTS.has(host)) throw new Error(`backendUrl ${host} is not loopback: runs talk to 127.0.0.1 only`);
+  };
   const restoreAutoLoad = async () => {
     if (autoLoadBefore === undefined || autoLoadRestored) return;
     try {
@@ -345,7 +369,15 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     // from boot. Every boot starts on a loopback address nothing answers, until the run points it at its recorder.
     // Config.cpp IsAllowedBackendUrl accepts plain http for the host 127.0.0.1 (any port 1-65535), so the cfg is valid:
     // the mod sees connection errors on :9 and backs off. (Were it refused, the cfg would be Broken and the mod idle.)
-    writeModConfig(deps.config.serverDir, MOD, { backendUrl: BOOT_BACKEND_URL, enrollmentCode: "", ...(spec.modConfig ?? {}) });
+    let bootUrl = BOOT_BACKEND_URL;
+    if (spec.beforeBoot) {
+      const before = await spec.beforeBoot(deps);
+      bootState = before.state;
+      haveBootState = true;
+      requireLoopback(before.backendUrl);
+      bootUrl = before.backendUrl;
+    }
+    writeModConfig(deps.config.serverDir, MOD, { backendUrl: bootUrl, enrollmentCode: "", ...(spec.modConfig ?? {}) });
     const offset = deps.resetLog();
     const proc = deps.start();
     let healthy = false;
@@ -355,15 +387,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
       const ctx: CoreContext = {
         deps, proc, offset, captures,
         writeConfig: (v) => {
-          if (typeof v.backendUrl === "string") {
-            let host: string;
-            try {
-              host = new URL(v.backendUrl).hostname;
-            } catch {
-              throw new Error("backendUrl is not a valid URL");
-            }
-            if (!LOOPBACK_HOSTS.has(host)) throw new Error(`backendUrl ${host} is not loopback: runs talk to 127.0.0.1 only`);
-          }
+          if (typeof v.backendUrl === "string") requireLoopback(v.backendUrl);
           if (v.enrollmentCode) codes.push(v.enrollmentCode);
           writeModConfig(deps.config.serverDir, MOD, { ...v, ...(spec.modConfig ?? {}) });
         },
@@ -382,6 +406,7 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
         rememberAutoPause: (v) => void (autoPauseBefore ??= v),
         sampleMemory: (stage) => sampleMemory(proc, stage),
         baseline,
+        bootState,
       };
       await spec.drive(ctx);
     } catch (e) {
@@ -401,6 +426,14 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
       log = deps.readLogSince(offset);
     }
   } finally {
+    // What beforeBoot started (the pair run's recorder) is closed whether the boot, the drive or neither ran.
+    if (haveBootState && spec.afterRun) {
+      try {
+        await spec.afterRun(bootState);
+      } catch (e) {
+        reasons.push(`afterRun: ${message(e)}`);
+      }
+    }
     // The file goes with the config whatever happened.
     noteSecret();
     // The core mod never stays on the test server: a later spike run would boot with it loaded. It goes before the cfg,

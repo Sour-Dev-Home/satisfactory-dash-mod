@@ -316,6 +316,50 @@ describe("runCore", () => {
     expect(calls.at(-1)).toBe("uninstall SatisDashAgent");
   });
 
+  it("beforeBoot: its loopback url is the boot cfg's backendUrl and its state reaches drive", async () => {
+    let atStart: string | undefined;
+    let seen: unknown;
+    const { deps, serverDir } = fakeDeps();
+    const start = deps.start;
+    deps.start = () => ((atStart = readCfg(serverDir)), start());
+    const { result } = await runCore("http-probe", spec({
+      beforeBoot: async () => ({ backendUrl: "http://127.0.0.1:4321", state: { id: 7 } }),
+      drive: async (ctx) => void (seen = ctx.bootState),
+    }), deps);
+    expect(result.pass).toBe(true);
+    expect(JSON.parse(atStart ?? "null")).toEqual({ backendUrl: "http://127.0.0.1:4321", enrollmentCode: "" });
+    expect(seen).toEqual({ id: 7 });
+  });
+
+  it("beforeBoot: a non-loopback url throws before the boot, and afterRun still gets the state", async () => {
+    const { deps, calls } = fakeDeps();
+    const closed: unknown[] = [];
+    await expect(runCore("http-probe", spec({
+      beforeBoot: async () => ({ backendUrl: "https://api.satis-manager.com", state: "rec" }),
+      afterRun: async (s) => void closed.push(s),
+    }), deps)).rejects.toThrow(/not loopback/);
+    expect(calls).not.toContain("start");
+    expect(closed).toEqual(["rec"]);
+  });
+
+  it("afterRun runs when the boot never gets healthy, and not for a spec without beforeBoot; specs without it boot on BOOT_BACKEND_URL", async () => {
+    const closed: unknown[] = [];
+    const a = fakeDeps({ waitHealthy: async () => { throw new Error("never healthy"); } });
+    const { result } = await runCore("http-probe", spec({
+      beforeBoot: async () => ({ backendUrl: "http://127.0.0.1:4321", state: "rec" }),
+      afterRun: async (s) => void closed.push(s),
+    }), a.deps);
+    expect(result.pass).toBe(false);
+    expect(closed).toEqual(["rec"]);
+    const b = fakeDeps();
+    let atStart: string | undefined;
+    const start = b.deps.start;
+    b.deps.start = () => ((atStart = readCfg(b.serverDir)), start());
+    await runCore("http-probe", spec({ afterRun: async (s) => void closed.push(s) }), b.deps);
+    expect(JSON.parse(atStart ?? "null").backendUrl).toBe("http://127.0.0.1:9");
+    expect(closed).toEqual(["rec"]);
+  });
+
   it("removes a leftover SatisDashAgent before the scrub and before any boot, empty boot and baseline included", async () => {
     const { deps, calls, serverDir } = fakeDeps({ setAutoLoad: async () => undefined, readAutoLoad: async () => "S" });
     mkdirSync(dirname(modConfigPath(serverDir, MOD)), { recursive: true });

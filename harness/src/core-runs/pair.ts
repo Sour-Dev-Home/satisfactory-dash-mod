@@ -1,14 +1,14 @@
 import * as Pass from "../../../runs/pair/pass";
 import type { CoreRunSpec } from "../core-run";
 import { satisDashLines } from "../core-run";
-import { publicEntries, startRecorder } from "../recorder";
+import { publicEntries, type Recorder, startRecorder } from "../recorder";
 import { accepted } from "./enrol";
 
 const MIN = 60_000;
 const CODE_LINE = /Pairing code ([A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}):/;
 
 /**
- * The pair run (spec 2026-11-09 §4): the mod boots with the loopback cfg and no code, so it pairs on its own against the
+ * The pair run (spec 2026-11-09 §4): the mod boots straight onto the recorder's loopback cfg with no code, so it pairs on its own against the
  * recorder; the drive reads the code from the log, approves it as the operator, and waits for an accepted snapshot.
  */
 export const pair: CoreRunSpec = {
@@ -17,17 +17,26 @@ export const pair: CoreRunSpec = {
   world: false,
   emptyBoot: false,
   evaluate: Pass.evaluate,
+  // The recorder runs before the boot, and the boot cfg points at it: the mod pairs from its first tick, not after its
+  // next cfg reread (every 60 s, Driver.cpp ConfigCheckSeconds), which would make the 30 s code-line rule a coin flip.
+  async beforeBoot(deps) {
+    const host = await deps.backendHost!();
+    const recorder = await startRecorder(host.relayUrl, { keepPairingSecrets: true });
+    return { backendUrl: recorder.url, state: recorder };
+  },
+  // Not in drive's finally: a boot that fails never reaches drive.
+  afterRun: (state) => (state as Recorder).close(),
   async drive(ctx) {
     const host = await ctx.deps.backendHost!();
-    const recorder = await startRecorder(host.relayUrl, { keepPairingSecrets: true });
+    const recorder = ctx.bootState as Recorder;
     const log = () => satisDashLines(ctx.deps.readLogSince(ctx.offset));
     const capture: Pass.Pair = {
       bootAt: "", codeLineAt: null, userCode: null, codeCount: 0, approvedAt: null, approveStatus: null, pairedLine: null,
       secretsChecked: 0, credentialWritten: false, calls: [], secretSeen: { inLog: false, inUrl: false, inHeader: false },
     };
     try {
+      // The mod booted onto the recorder; "within 30 s of health" counts from when health returned (drive starts then).
       capture.bootAt = new Date().toISOString();
-      ctx.writeConfig({ backendUrl: recorder.url, enrollmentCode: "" });
       const code = await ctx.waitFor(
         "a pairing code in the log",
         () => {
@@ -65,7 +74,6 @@ export const pair: CoreRunSpec = {
         .map(({ path, status, at, doneAt }) => ({ path, status, at, doneAt }));
       ctx.captures["pair.json"] = capture;
       ctx.captures["recorder.json"] = publicEntries(recorder.entries); // no secrets, raw URLs or header values
-      await recorder.close();
     }
   },
 };
