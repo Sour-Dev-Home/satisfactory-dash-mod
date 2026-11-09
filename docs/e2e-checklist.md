@@ -134,3 +134,7 @@ a fresh server in the sense of the ground rules.
 4. **The map shows the previous server's layers for up to about 9 minutes** after pairing onto an existing dashboard
    server. Power and Factory are live within a minute, but the map layers are first read 2 (rails) and about 8 minutes
    (the rest) after start, and the backend keeps its last copy until then. They were replaced on schedule.
+5. **A save with no power lines logs a Warning.** `World layer powerLines: 0 wires read, 0 dropped, the subsystem counts
+   0; check that wires are in the buildable list` (22:11:51 UTC). This is by design: `WireCountSuspect` treats zero
+   wires as suspect because the game's wire count reads 0 even on a world full of wires (unit-tested,
+   `WorldSenderTest.cpp`). It's harmless, but a new owner may read it as a fault. Not changed for 0.3.0.
