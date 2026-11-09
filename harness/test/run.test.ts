@@ -365,6 +365,7 @@ describe("runSpike", () => {
     seedCode: async () => void order.push("seed"),
     state: async () => ({ codeConsumed: true, agentVersion: "spike-s5", lastSeen: true, revoked: false }),
     revoke: async () => {},
+    approvePairing: async () => ({ lookup: undefined, status: 200 }),
     queueCommand: async () => "",
     command: async () => ({ status: "pending", resultCode: null }),
     stopRelay: async () => {},

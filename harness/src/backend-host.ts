@@ -9,12 +9,14 @@ import { z } from "zod";
 import { type Backend, type BackendImages, UUID } from "./backend";
 import { LOOPBACK_HOSTS } from "./config";
 
-export type ServerKey = "mod" | "node";
+export type ServerKey = "mod" | "node" | "pair";
 export interface HostState { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean; revoked: boolean }
 export interface HostClient {
   relayUrl: string;
   seedCode(server: ServerKey, code: string): Promise<void>;
   revoke(server: ServerKey): Promise<void>;
+  /** Approves the pairing code onto the server as the dashboard's operator; only the approve call's status comes back. */
+  approvePairing(server: ServerKey, userCode: string): Promise<{ status: number }>;
   queueCommand(server: ServerKey, params: Record<string, unknown>): Promise<string>;
   command(id: string): Promise<{ status: string; resultCode: string | null }>;
   state(server: ServerKey): Promise<HostState>;
@@ -26,8 +28,9 @@ export interface HostClient {
 export interface BackendHost { controlUrl: string; relayUrl: string; close(): Promise<void> }
 
 const MAX_BODY = 4096;
-const Server = z.enum(["mod", "node"]);
+const Server = z.enum(["mod", "node", "pair"]);
 const Code = z.string().regex(/^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$/);
+const ApproveBody = z.strictObject({ server: Server, userCode: Code });
 const SeedBody = z.strictObject({ server: Server, code: Code });
 const ServerBody = z.strictObject({ server: Server });
 const CommandBody = z.strictObject({ server: Server, params: z.strictObject({ enabled: z.unknown() }) });
@@ -95,6 +98,10 @@ export async function serveBackendHost(opts: { backend: Backend; file: string; p
       return void (await backend.seedCode(b.server, b.code));
     }
     if (post("/revoke")) return void (await backend.revoke(parse(ServerBody, await readBody(req)).server));
+    if (post("/approve-pairing")) {
+      const b = parse(ApproveBody, await readBody(req));
+      return { status: (await backend.approvePairing(b.server, b.userCode)).status };
+    }
     if (post("/command")) {
       const b = parse(CommandBody, await readBody(req));
       return { id: await backend.queueCommand(b.server, b.params as Record<string, unknown>) };
@@ -210,6 +217,8 @@ export async function connectBackendHost(file: string): Promise<HostClient> {
     relayUrl: host.relayUrl,
     seedCode: async (server, code) => void (await call("POST", "/seed", { server, code })),
     revoke: async (server) => void (await call("POST", "/revoke", { server })),
+    approvePairing: async (server, userCode) =>
+      z.strictObject({ status: z.number().int() }).parse(await call("POST", "/approve-pairing", { server, userCode })),
     queueCommand: async (server, params) => z.strictObject({ id: z.string() }).parse(await call("POST", "/command", { server, params })).id,
     command: async (id) => {
       if (!UUID.test(id)) throw new Error("a command id must be a UUID");
