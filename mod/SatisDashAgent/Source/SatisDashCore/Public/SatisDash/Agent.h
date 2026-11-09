@@ -78,6 +78,9 @@ namespace SatisDash
 		FString ConfigText;
 		FPairing Pairing;
 		bool bPairingInFlight = false;
+		/** Settle wants the window open but has no real time: the next StartPairing/OnPlayerCount opens it. */
+		bool bOpenPending = false;
+		void OpenPendingWindow(double Now);
 		/** The newest Now seen by any Start or Finish (0 at boot): Settle has no clock of its own. */
 		double LastNow = 0;
 		bool bEnrollInFlight = false;

@@ -351,6 +351,19 @@ bool FDriverPairsFromBootTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverPairsAtLargeClockTest, "SatisDash.Core.Driver.PairsAtLargeClock", SatisDash::Test::Flags)
+
+bool FDriverPairsAtLargeClockTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	F.T = 1e7; // the game's clock is far past the first window's 3600 s at boot
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	Driver.Boot();
+	Driver.Tick();
+	TestEqual(TEXT("the first tick starts pairing"), F.Net.sent(DrvPairStart), 1);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverPairApprovedTest, "SatisDash.Core.Driver.PairApproved", SatisDash::Test::Flags)
 
 bool FDriverPairApprovedTest::RunTest(const FString& Parameters)

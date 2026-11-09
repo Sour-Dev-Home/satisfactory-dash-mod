@@ -171,7 +171,8 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 		Pairing.Stop(); // an open code belongs to the old backend
 	}
 	Enter(EAgentState::Pairing, TEXT("Not enrolled: pairing with the dashboard"), false);
-	Pairing.Open(LastNow);
+	// LastNow is stale here (0 at Boot); the window opens at the first real time the driver passes in.
+	bOpenPending = true;
 }
 
 void SatisDash::FAgent::Enter(EAgentState Next, const FString& Line, bool bWarning)
@@ -275,6 +276,7 @@ TOptional<SatisDash::FRequestSpec> SatisDash::FAgent::StartPairing(double Now, T
 	{
 		return {};
 	}
+	OpenPendingWindow(Now);
 	TOptional<FRequestSpec> Spec = Pairing.Next(Config, ServerName, Now);
 	bPairingInFlight = Spec.IsSet();
 	return Spec;
@@ -306,7 +308,17 @@ void SatisDash::FAgent::OnPlayerCount(int32 Players, double Now)
 	LastNow = FMath::Max(LastNow, Now);
 	if (State == EAgentState::Pairing)
 	{
+		OpenPendingWindow(Now);
 		Pairing.OnPlayers(Players, Now);
+	}
+}
+
+void SatisDash::FAgent::OpenPendingWindow(double Now)
+{
+	if (bOpenPending)
+	{
+		bOpenPending = false;
+		Pairing.Open(Now);
 	}
 }
 
