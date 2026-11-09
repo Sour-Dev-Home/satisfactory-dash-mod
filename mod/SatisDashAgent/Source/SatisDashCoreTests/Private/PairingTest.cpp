@@ -314,6 +314,11 @@ bool FPairingNoSecretInLogTest::RunTest(const FString& Parameters)
 	Step(SatisDash::Test::Reply(503, FString::Printf(TEXT("%s"), PairSecret)));
 	Step(PairPollReply("later"));
 	Step(SatisDash::Test::Reply(201, TEXT("{\"status\":\"approved\"}")));
+	Step(SatisDash::Test::Reply(429, FString::Printf(TEXT("%s"), PairSecret)));
+	Step(PairPollReply("expired"));
+	Step(SatisDash::Test::Reply(201, FString::Printf(TEXT("{\"pairingSecret\":\"%s\"}"), PairSecret)));
+	Step(SatisDash::Test::Reply(429, TEXT("{}")));
+	Step(PairStartReply());
 	PairDue(P, Now);
 	const FString Approved = SatisDash::Test::EnrollJson().LeftChop(1) + TEXT(",\"status\":\"approved\"}");
 	TestTrue(TEXT("approved"), P.Finish(SatisDash::Test::Reply(201, Approved), Now).IsSet());
@@ -323,5 +328,98 @@ bool FPairingNoSecretInLogTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("no secret in a log line"), Line.Contains(PairSecret));
 	}
 	TestTrue(TEXT("the code is shown"), PairLinesWith(Lines, PairCode) >= 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairingEmptyNameTest, "SatisDash.Core.Pairing.EmptyName", SatisDash::Test::Flags)
+
+bool FPairingEmptyNameTest::RunTest(const FString& Parameters)
+{
+	FPairing P([] { return 1.0; });
+	P.Open(0);
+	TestTrue(TEXT("start"), P.Next(PairConfig(), [] { return FString(); }, 0).IsSet());
+	P.Finish(SatisDash::Test::Reply(400, TEXT("{}")), 0);
+	TestFalse(TEXT("no name was sent, so the 400 waits an hour"), PairDue(P, 0));
+	TestFalse(TEXT("still waiting"), PairDue(P, 3599));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairingWindowEndTest, "SatisDash.Core.Pairing.WindowEnd", SatisDash::Test::Flags)
+
+bool FPairingWindowEndTest::RunTest(const FString& Parameters)
+{
+	SatisDash::Test::FLogCapture Capture;
+	FPairing P([] { return 1.0; });
+	P.Open(0);
+	TestTrue(TEXT("start"), PairDue(P, 3500));
+	P.Finish(PairStartReply(), 3500);
+	FString Body;
+	TestTrue(TEXT("poll"), PairDue(P, 3505));
+	P.Finish(PairPollReply("pending"), 3505);
+	TestTrue(TEXT("poll past the window end"), PairDue(P, 3650, &Body) && Body.Contains(PairSecret));
+	P.Finish(PairPollReply("pending"), 3650);
+	P.OnPlayers(0, 3651);
+	P.OnPlayers(1, 3652);
+	TestTrue(TEXT("a join chats the open code"), P.TakeChatLine().IsSet());
+	TestTrue(TEXT("and polls, with no new start"), PairDue(P, 3700, &Body) && Body.Contains(PairSecret));
+	P.Finish(PairPollReply("pending"), 3700);
+	TestFalse(TEXT("the code expired"), PairDue(P, 4400));
+	TestFalse(TEXT("closed"), PairDue(P, 4401));
+	TestEqual(TEXT("closed line once"), PairLinesWith(Capture.Take(), TEXT("No pairing code active")), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairingWaitsTest, "SatisDash.Core.Pairing.Waits", SatisDash::Test::Flags)
+
+bool FPairingWaitsTest::RunTest(const FString& Parameters)
+{
+	{
+		FPairing P([] { return 1.0; });
+		P.Open(0);
+		PairDue(P, 0);
+		P.Finish(SatisDash::Test::Reply(429, TEXT("{}")), 0);
+		TestFalse(TEXT("429 without Retry-After: 59"), PairDue(P, 59));
+		TestTrue(TEXT("60"), PairDue(P, 60));
+	}
+	{
+		FPairing P([] { return 1.0; });
+		PairOpenWithCode(P);
+		PairDue(P, 5);
+		FHttpReply Limited = SatisDash::Test::Reply(429, TEXT("{}"));
+		Limited.RetryAfter = TEXT("30");
+		P.Finish(Limited, 5);
+		FString Body;
+		TestFalse(TEXT("poll 429 at +29"), PairDue(P, 34));
+		TestTrue(TEXT("poll 429 at +30, still a poll"), PairDue(P, 35, &Body) && Body.Contains(PairSecret));
+	}
+	{
+		FPairing P([] { return 1.0; });
+		PairOpenWithCode(P);
+		PairDue(P, 5);
+		P.Finish(PairPollReply("slow_down"), 5);
+		TestTrue(TEXT("slowed poll"), PairDue(P, 15));
+		P.Finish(PairPollReply("expired"), 15);
+		TestTrue(TEXT("new start"), PairDue(P, 15));
+		P.Finish(PairStartReply(), 15);
+		TestFalse(TEXT("the new code polls every 5 s again: not at 19"), PairDue(P, 19));
+		TestTrue(TEXT("at 20"), PairDue(P, 20));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairingSupersededTest, "SatisDash.Core.Pairing.Superseded", SatisDash::Test::Flags)
+
+bool FPairingSupersededTest::RunTest(const FString& Parameters)
+{
+	FPairing P([] { return 1.0; });
+	P.Open(0);
+	TestTrue(TEXT("start"), PairDue(P, 0));
+	P.Stop();
+	P.Open(1);
+	TestFalse(TEXT("one in flight, even across Stop and Open"), PairDue(P, 1));
+	TestFalse(TEXT("the old reply is ignored"), P.Finish(PairStartReply(), 2).IsSet());
+	FString Body;
+	TestTrue(TEXT("then a fresh start"), PairDue(P, 2, &Body));
+	TestTrue(TEXT("the old code was not adopted"), Body.Contains(TEXT("agentVersion")) && !Body.Contains(PairSecret));
 	return true;
 }

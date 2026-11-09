@@ -48,6 +48,8 @@ namespace SatisDash
 		bool bInFlight = false;
 		ENext InFlightKind = ENext::Start;
 		bool bInFlightNamed = false;
+		/** Stop() during a request: its reply is ignored, and nothing else is sent until it arrives. */
+		bool bDropReply = false;
 		double WindowOpenedAt = -1e18;
 		double WindowEndsAt = -1e18;
 		double NextAt = 0;

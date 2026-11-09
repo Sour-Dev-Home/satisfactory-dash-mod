@@ -48,12 +48,13 @@ void SatisDash::FPairing::Open(double Now)
 	}
 	Failures = 0;
 	bClosedLogged = false;
+	bRefusedLogged = false;
 }
 
 void SatisDash::FPairing::Stop()
 {
 	bStopped = true;
-	bInFlight = false;
+	bDropReply = bInFlight;
 	ClearCode();
 	PendingChat.Reset();
 }
@@ -104,8 +105,9 @@ TOptional<SatisDash::FRequestSpec> SatisDash::FPairing::Next(const FAgentConfig&
 	}
 	ClearCode();
 	InFlightKind = ENext::Start;
-	bInFlightNamed = bSendName;
-	return BuildPairingStartRequest(Config, bSendName ? CleanServerName(ServerName()) : FString());
+	const FString Name = bSendName ? CleanServerName(ServerName()) : FString();
+	bInFlightNamed = !Name.IsEmpty();
+	return BuildPairingStartRequest(Config, Name);
 }
 
 TOptional<SatisDash::FPairingPoll> SatisDash::FPairing::Finish(const FHttpReply& Reply, double Now)
@@ -115,6 +117,11 @@ TOptional<SatisDash::FPairingPoll> SatisDash::FPairing::Finish(const FHttpReply&
 		return {};
 	}
 	bInFlight = false;
+	if (bDropReply)
+	{
+		bDropReply = false;
+		return {};
+	}
 
 	if (InFlightKind == ENext::Start)
 	{
@@ -127,6 +134,7 @@ TOptional<SatisDash::FPairingPoll> SatisDash::FPairing::Finish(const FHttpReply&
 			Failures = 0;
 			bSendName = true;
 			bBadStartLogged = false;
+			bRefusedLogged = false;
 			NextAt = Now + IntervalSeconds;
 			const FString Line = PairingCodeLine(LastConfig, UserCode, Started->ExpiresInSeconds);
 			UE_LOG(LogSatisDash, Display, TEXT("%s"), *Line);
@@ -220,13 +228,13 @@ void SatisDash::FPairing::OnPlayers(int32 Players, double Now)
 	{
 		return;
 	}
-	if (!IsWindowOpen(Now))
-	{
-		Open(Now);
-	}
-	else if (HasOpenCode(Now))
+	if (HasOpenCode(Now))
 	{
 		PendingChat = PairingCodeLine(LastConfig, UserCode, static_cast<int32>(CodeExpiresAt - Now));
+	}
+	else if (!IsWindowOpen(Now))
+	{
+		Open(Now);
 	}
 }
 
