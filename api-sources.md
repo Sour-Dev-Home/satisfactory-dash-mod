@@ -144,6 +144,17 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | UFGServerSubsystem::GetServerAPIManager | Source/FactoryDedicatedServer/Public/FGServerSubsystem.h:65 | header only ("Useful for Mods") |
 | UFGServerSubsystem::GetServerGameState | Source/FactoryDedicatedServer/Public/FGServerSubsystem.h:140 | header only |
 | FServerGameState | Source/FactoryGame/Public/Server/FGDSGameplayTypes.h:34 | header only (the struct Handler_QueryServerState fills, FGServerStateController.h:32) |
+| FServerGameState::NumConnectedPlayers | Source/FactoryGame/Public/Server/FGDSGameplayTypes.h:42 | header only (int32) |
+| UFGServerSubsystem::GetServerName | Source/FactoryDedicatedServer/Public/FGServerSubsystem.h:68 | header only (FString, const) |
+| FGChatManager.h | Source/FactoryGame/Public/FGChatManager.h:1 | header only |
+| AFGChatManager | Source/FactoryGame/Public/FGChatManager.h:59 | header only |
+| AFGChatManager::Get | Source/FactoryGame/Public/FGChatManager.h:69 | header only (the UWorld* overload; the UObject* one is :73) |
+| AFGChatManager::BroadcastChatMessage | Source/FactoryGame/Public/FGChatManager.h:79 | header only ("Broadcasts a chat message to all connected players"; instigator defaults null) |
+| FChatMessageStruct | Source/FactoryGame/Public/FGChatManager.h:26 | header only |
+| FChatMessageStruct::MessageText | Source/FactoryGame/Public/FGChatManager.h:32 | header only (FText) |
+| FChatMessageStruct::MessageType | Source/FactoryGame/Public/FGChatManager.h:36 | header only (defaults to CMT_SystemMessage) |
+| EFGChatMessageType::CMT_SystemMessage | Source/FactoryGame/Public/FGChatManager.h:20 | header only |
+| FText::FromString | Engine/Source/Runtime/Core/Public/Internationalization/Text.h:497 | header only (the const FString& overload; :498 takes FString&&) |
 | UFGServerAPIManager | Source/FactoryDedicatedServer/Public/Networking/FGServerAPIManager.h:153 | header only |
 | Controller/FGServerStateController.h | Source/FactoryDedicatedServer/Public/Controller/FGServerStateController.h:1 | header only |
 | UFGServerStateController | Source/FactoryDedicatedServer/Public/Controller/FGServerStateController.h:23 | header only |
