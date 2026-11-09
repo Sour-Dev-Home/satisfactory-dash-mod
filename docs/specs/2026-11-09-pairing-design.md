@@ -35,10 +35,20 @@ edits. The steps are:
 - Rate limits (satisfactory-dash `agents/routes/pairingApi.ts:22-27`):
   - starts: 6 an hour per network and 600 an hour overall;
   - polls: 120 a minute per network.
+- "Network" is the client IPv4 address or IPv6 /64 (`agents/services/clientKey.ts`). The counters are in memory and
+  reset when the backend restarts. The network limit is hit **before** the body is parsed (`pairingApi.ts:44-53`), so a
+  400 still uses one of the 6.
+- Servers behind one address (a host's NAT, several servers on one box) share the 6. Restarts also open new windows
+  (§1), so a 429 on start is a **normal case**, not an error (§3).
+- Both routes require `Content-Type: application/json` (`requireJsonBody`), with bodies capped at 4 kB. Before its
+  database loads, the backend answers 503.
+- `429` always carries `Retry-After` in whole seconds (`platform/errorResponse.ts:414`).
 - Approving onto a **new** server is gated by `SELF_SERVE_ENABLED` (`pairingService.ts:188`). Approving onto an
   existing server isn't gated.
 - **Asked of satisfactory-dash (2026-11-09), not blocking:**
-  - an optional `approvedBy` (display name) on `approved`;
+  - an optional `approvedBy` on `approved` (branch `feat/pairing-approved-by`). It's 1 to 64 characters, with no
+    control, bidi or zero-width characters. It's sent only when the approver has a generated `Player-XXXX` name, so it's
+    **absent** when the operator approves, which is what the harness does;
   - a `/pair` → `/app/pair` route.
 
 ## 1. When the mod pairs
@@ -82,7 +92,8 @@ and enrols. This is the advanced, fallback path. Existing installs and the Node 
 **Approval.** The `approved` 201 body is enrol's shape plus `status`. It goes through `ParseEnrollResponse`
 (`Responses.cpp:88-105`) and the same steps as a successful enrol (`Agent.cpp:199-219`): save the credential with
 `BackendUrl`, adopt the cadence, enter `Running`. The mod logs `Paired with the dashboard; reporting to the backend`,
-adding `(approved by <name>)` when `approvedBy` is present and valid. If an `approved` reply fails to parse, it counts as
+adding `(approved by "<name>")` when `approvedBy` is present and valid. The name is quoted, logged only, and never acted
+on. If it's absent or invalid, the mod logs the line without it. If an `approved` reply fails to parse, it counts as
 a transient error.
 
 **Secrets:**
@@ -145,11 +156,15 @@ replicated actor (`:95-96`), so a vanilla client shows it without the mod instal
 | 200 pending, unknown or slow_down | | wait `interval` (slow_down adds 5 s) |
 | 200 expired | | start a new pairing if the window is open |
 | 400 | once with a name: retry at once without it. Otherwise warn once (`The backend refused the pairing request (400); retrying in an hour`) and retry in 1 hour | treat as expired |
-| 429 | wait `Retry-After` (capped at 1 hour), else the 1-hour wait | wait `Retry-After`, else double the interval |
+| 429 | wait `Retry-After` (capped at 1 hour). Logged once as a Display line, not a warning: `Waiting <n> s for a pairing code (the backend's per-address limit)` | wait `Retry-After` |
 | 5xx, network, timeout, or a 201 not in the expected form | backoff as enrol (`BackoffSeconds`, `Agent.cpp:233`) | same backoff. The pairing stays open until `expiresIn` passes |
 
 - **The window clock keeps running during waits.** An outage can't stretch a window past an hour, and the backoff
   resets when a new window opens.
+- **The start budget across restarts isn't tracked.** A restart part-way through a window can reach 7 or 8 starts in an
+  hour, and the extra ones get a 429. The mod relies on `Retry-After` instead of saving start times to disk. The cost:
+  after quick restarts, a code can be a few minutes late.
+- **Both requests send `Content-Type: application/json`**, which the backend requires.
 - **Warning lines are one per state change**, as `FAgent::Enter` does (`Agent.cpp:162-177`), never one per retry.
 
 ## 4. Testing
@@ -178,9 +193,13 @@ replicated actor (`:95-96`), so a vanilla client shows it without the mod instal
    backend images must descend from it (`core-run.ts:198-214`).
 2. Boot with the loopback cfg and no code. The mod starts a pairing against the harness's recorder in front of the
    compose backend.
-3. Read the code from the log, then approve it with `/api/pairings/approve` as the harness's test user. The target is
-   `existing` if the harness backend keeps self-serve off, else `new`. That choice is fixed in the plan once the backend's
-   setting is read.
+3. Read the code from the log. Sign in as the operator (`POST /api/auth/login` with the harness `.env` admin user) and
+   keep the session cookie. Send `POST /api/pairings/lookup` `{userCode}` (upper case), then `POST /api/pairings/approve`
+   `{userCode, target:{kind:"existing", serverId}}`, both as JSON with no `Origin` header.
+   - `serverId` is the operator's server that the harness's enrolment-code helper already uses.
+   - The compose backend runs with `SELF_SERVE_ENABLED` off (dash: `compose.yaml` doesn't pass it), so `new` would answer
+     403. **Ruling:** the run uses `existing` rather than changing the backend's config. It still exercises the whole mod
+     side. The `new` path is covered by the end-to-end test once production self-serve is on.
 
 It passes when:
 - one start per code, and none before the boot;
@@ -188,7 +207,8 @@ It passes when:
 - the poll's secret is never in the log, a URL or a header;
 - the code line appears in the log within 30 s of health;
 - the credential is written, and the first snapshot is accepted within 60 s of the approval;
-- no request after the approval goes to `/agent/v1/pairings*`.
+- no request after the approval goes to `/agent/v1/pairings*`;
+- the "Paired" line appears. `(approved by ...)` is optional, since it's absent when the operator approves.
 
 **End-to-end checklist (`docs/e2e-checklist.md`):** step 3 becomes "pair":
 - the owner reads the code from the console and enters it at production `/app/pair`, approving onto an existing server
