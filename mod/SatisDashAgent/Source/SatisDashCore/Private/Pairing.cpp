@@ -182,7 +182,7 @@ TOptional<SatisDash::FPairingPoll> SatisDash::FPairing::Finish(const FHttpReply&
 		if (Reply.Code == 400)
 		{
 			ClearCode();
-			NextAt = Now;
+			WaitBackoff(Now); // not an "expired" answer: don't hammer a backend that keeps refusing the poll
 		}
 		else if (Reply.Code == 429)
 		{
