@@ -207,6 +207,18 @@ bool FPairingErrorsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("poll again, not a start"), PairDue(P, 5 + BackoffSeconds(0, 1.0), &Body));
 		TestTrue(TEXT("with the same secret"), Body.Contains(PairSecret));
 	}
+	{
+		// A poll 400 clears the code but backs off before the next start; "expired" restarts at once.
+		FPairing P([] { return 1.0; });
+		PairOpenWithCode(P);
+		PairDue(P, 5);
+		P.Finish(SatisDash::Test::Reply(400, TEXT("{}")), 5);
+		const double Wait = BackoffSeconds(0, 1.0);
+		TestFalse(TEXT("poll 400: backoff not over"), PairDue(P, 5 + Wait - 0.01));
+		FString Body;
+		TestTrue(TEXT("poll 400: a start after the backoff"), PairDue(P, 5 + Wait, &Body));
+		TestFalse(TEXT("a start, not a poll"), Body.Contains(PairSecret));
+	}
 	return true;
 }
 

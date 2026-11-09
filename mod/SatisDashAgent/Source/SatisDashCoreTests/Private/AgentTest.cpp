@@ -343,6 +343,25 @@ bool FAgentBackendBindingTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentPairsAtLargeClockTest, "SatisDash.Core.Agent.PairsAtLargeClock", SatisDash::Test::Flags)
+
+bool FAgentPairsAtLargeClockTest::RunTest(const FString& Parameters)
+{
+	// The game's clock is FPlatformTime::Seconds(), far past 3600 at boot: the window opens at the first real time.
+	const FFixture F;
+	SatisDash::Test::FLogCapture Capture;
+	FAgent Agent = F.makeAgent();
+	Agent.Boot();
+	TestTrue(TEXT("a start request, not unset"), AgentPairDue(Agent, 1e7));
+	int32 Closed = 0;
+	for (const FString& Line : Capture.Take())
+	{
+		Closed += Line.Contains(TEXT("No pairing code active")) ? 1 : 0;
+	}
+	TestEqual(TEXT("no closed line"), Closed, 0);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentCodeWinsMidPollTest, "SatisDash.Core.Agent.CodeWinsMidPoll", SatisDash::Test::Flags)
 
 bool FAgentCodeWinsMidPollTest::RunTest(const FString& Parameters)
