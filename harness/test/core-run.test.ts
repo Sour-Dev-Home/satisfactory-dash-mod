@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { contractPin } from "../src/backend";
 import type { HostClient } from "../src/backend-host";
 import { RunnerConfigSchema } from "../src/config";
-import { type CoreDeps, type CoreRunSpec, coreBuildDir, coreModBuild, credentialPath, MOD, runCore } from "../src/core-run";
+import { BOOT_BACKEND_URL, type CoreDeps,type CoreRunSpec, coreBuildDir, coreModBuild, credentialPath, MOD, runCore } from "../src/core-run";
 import { modConfigPath } from "../src/mod-config";
 import { RefusalError } from "../src/run";
 import type { ServerProcess } from "../src/server-control";
@@ -80,9 +80,39 @@ const writeCredential = (serverDir: string) => {
   writeFileSync(`${cred}.tmp`, "partial");
 };
 
-const bundleText = (dir: string) => readdirSync(dir).map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+const readCfg = (serverDir: string): string | undefined => {
+  const p = modConfigPath(serverDir, MOD);
+  return existsSync(p) ? readFileSync(p, "utf8") : undefined;
+};
+
+const bundleText =(dir: string) => readdirSync(dir).map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
 
 describe("runCore", () => {
+  it("writes a loopback cfg with no code after install and before the log reset and the boot", async () => {
+    let atReset: string | undefined;
+    let atStart: string | undefined;
+    const { deps, calls, serverDir } = fakeDeps();
+    const resetLog = deps.resetLog;
+    deps.resetLog = () => ((atReset = readCfg(serverDir)), resetLog());
+    const start = deps.start;
+    deps.start = () => ((atStart = readCfg(serverDir)), start());
+    await runCore("http-probe", spec({ modConfig: { stepDiagnostics: false } }), deps);
+    expect(calls.indexOf("install D:/b/SatisDashAgent as SatisDashAgent")).toBeLessThan(calls.indexOf("reset log"));
+    for (const text of [atReset, atStart]) {
+      expect(JSON.parse(text ?? "null")).toEqual({ backendUrl: BOOT_BACKEND_URL, enrollmentCode: "", stepDiagnostics: false });
+    }
+    expect(BOOT_BACKEND_URL).toContain("127.0.0.1");
+  });
+
+  it("refuses a non-loopback backendUrl from a drive", async () => {
+    const { deps } = fakeDeps();
+    const { result } = await runCore("http-probe", spec({
+      drive: async (ctx) => ctx.writeConfig({ backendUrl: "https://api.satis-manager.com", enrollmentCode: "" }),
+    }), deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons[0]).toContain("not loopback");
+  });
+
   it("passes a clean run and writes its bundle", async () => {
     const { deps, calls } = fakeDeps();
     const { result, dir } = await runCore("http-probe", spec(), deps);

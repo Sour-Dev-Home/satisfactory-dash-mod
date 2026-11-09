@@ -2,7 +2,10 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { type RunnerConfig } from "./config";
+import { LOOPBACK_HOSTS, type RunnerConfig } from "./config";
+
+/** The discard port on loopback: nothing answers there. */
+export const BOOT_BACKEND_URL = "http://127.0.0.1:9";
 import { redact, writeBundle } from "./evidence";
 import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
@@ -331,6 +334,11 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
       if (await deps.serverAnswering()) throw new Error(`something still answers at ${deps.config.apiBaseUrl} after the baseline boot`);
     }
     deps.install(pluginDir, MOD);
+    // Spec 2026-11-09 §4: a missing cfg means the production backend (Config.cpp:220-221), and since 0.3.0 the mod pairs
+    // from boot. Every boot starts on a loopback address nothing answers, until the run points it at its recorder.
+    // Config.cpp IsAllowedBackendUrl accepts plain http for the host 127.0.0.1 (any port 1-65535), so the cfg is valid:
+    // the mod sees connection errors on :9 and backs off. (Were it refused, the cfg would be Broken and the mod idle.)
+    writeModConfig(deps.config.serverDir, MOD, { backendUrl: BOOT_BACKEND_URL, enrollmentCode: "", ...(spec.modConfig ?? {}) });
     const offset = deps.resetLog();
     const proc = deps.start();
     let healthy = false;
@@ -340,6 +348,9 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
       const ctx: CoreContext = {
         deps, proc, offset, captures,
         writeConfig: (v) => {
+          if (typeof v.backendUrl === "string" && !LOOPBACK_HOSTS.has(new URL(v.backendUrl).hostname)) {
+            throw new Error(`backendUrl ${new URL(v.backendUrl).hostname} is not loopback: runs talk to 127.0.0.1 only`);
+          }
           if (v.enrollmentCode) codes.push(v.enrollmentCode);
           writeModConfig(deps.config.serverDir, MOD, { ...v, ...(spec.modConfig ?? {}) });
         },
