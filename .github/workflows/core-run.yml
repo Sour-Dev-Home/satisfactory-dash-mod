@@ -14,7 +14,7 @@ on:
         description: Core run
         required: true
         type: choice
-        options: [http-probe, enrol, revoke, command, outage, tick-cost, manual, tick-cost-native, s3-census, soak-native]
+        options: [http-probe, enrol, revoke, command, outage, tick-cost, manual, tick-cost-native, s3-census, soak-native, pair]
       # The test server: the Windows one (FactoryServer.exe), or the Linux one in Docker (docker/linux-server; plan
       # 2026-11-06-linux-server-build, Task 7). Linux takes its runner config from the runner's SATIS_HARNESS_CONFIG_LINUX.
       host:

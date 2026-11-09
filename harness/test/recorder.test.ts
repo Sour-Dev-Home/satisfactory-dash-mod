@@ -254,6 +254,30 @@ describe("recorder (ruling 11)", () => {
     expect(rec.entries[0]!.snapshot).toMatchObject({ factory: { buildings: [] } });
   });
 
+  it("keepPairingSecrets keeps each poll's secret, URL and header values in memory only; publicEntries leaves them out", async () => {
+    const PAIR_SECRET = "p".repeat(22);
+    const up = await upstream(() => ({ status: 200, body: '{"status":"pending"}' }));
+    const rec = await recorderFor(up.url, { keepPairingSecrets: true });
+    await send(rec.url, "POST", "/agent/v1/pairings/poll?x=1", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: JSON.stringify({ pairingSecret: PAIR_SECRET }) });
+    await send(rec.url, "POST", "/agent/v1/pairings", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: JSON.stringify({ agentVersion: "mod/0.3.0" }) });
+    expect(rec.entries[0]!.pairingSecret).toBe(PAIR_SECRET);
+    expect(rec.entries[0]!.rawUrl).toBe("/agent/v1/pairings/poll?x=1");
+    expect(rec.entries[0]!.headerValues).toContain(MOD_UA);
+    expect(rec.entries[1]!.pairingSecret).toBeUndefined();
+    const shown = JSON.stringify(publicEntries(rec.entries));
+    expect(shown).not.toContain(PAIR_SECRET);
+    expect(shown).not.toContain("rawUrl");
+    expect(shown).not.toContain("headerValues");
+  });
+
+  it("keeps no pairing secret unless asked", async () => {
+    const up = await upstream(() => ({ status: 200, body: "{}" }));
+    const rec = await recorderFor(up.url);
+    await send(rec.url, "POST", "/agent/v1/pairings/poll", { headers: { "user-agent": MOD_UA, "content-type": "application/json" }, body: JSON.stringify({ pairingSecret: "p".repeat(22) }) });
+    expect(rec.entries[0]!.pairingSecret).toBeUndefined();
+    expect(rec.entries[0]!.rawUrl).toBeUndefined();
+  });
+
   it("keepSnapshotParts also keeps the power and storage parts (S4-B), in memory only", async () => {
     const up = await upstream(() => ({ status: 200, body: "{}" }));
     const power = { circuits: [], generators: [{ id: "g1", name: "Coal Generator" }] };

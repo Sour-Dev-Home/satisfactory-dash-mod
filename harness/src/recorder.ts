@@ -33,6 +33,12 @@ export interface RecordedCall {
   worldData?: unknown[];
   /** The parts of an accepted snapshot RecorderOptions.keepSnapshotParts names, with mapLive names already hashed. In memory only: publicEntries leaves them out. */
   parts?: Partial<Record<SnapshotPart, unknown>>;
+  /** RecorderOptions.keepPairingSecrets only: the `pairingSecret` of a pairing poll's body. A secret: in memory only, publicEntries leaves it out. */
+  pairingSecret?: string;
+  /** keepPairingSecrets only: the request's path and query as sent, so a judge can look for the secret in it. In memory only. */
+  rawUrl?: string;
+  /** keepPairingSecrets only: every request header value joined by newlines, so a judge can look for the secret in them. In memory only. */
+  headerValues?: string;
 }
 export type SnapshotPart = "factory" | "mapLive" | "power" | "storage";
 export interface Recorder { url: string; entries: RecordedCall[]; close(): Promise<void> }
@@ -48,6 +54,7 @@ const OVERSIZED_KEPT = ["agentVersion", "observedAt", "reachable", "paused", "se
 const SNAPSHOTS = "/agent/v1/snapshots";
 const COMMANDS = "/agent/v1/commands";
 const RESULT = /^\/agent\/v1\/commands\/[^/]+\/result$/;
+const PAIRING_POLL = "/agent/v1/pairings/poll";
 const WORLD = /^\/agent\/v1\/world\/([^/]+)$/;
 
 /** Keeps at most `limit` bytes of a stream that is forwarded whole; over that, nothing is recorded. */
@@ -140,11 +147,16 @@ export interface RecorderOptions {
    * `{ players: { available } }` (the only field a judge reads from older ones) when the next one arrives; the newest stays whole.
    */
   thinOlderSnapshots?: boolean;
+  /**
+   * The pair run: keeps, in memory only, each pairing poll's `pairingSecret` plus every call's raw URL and header values, so the judge's
+   * drive can check that the secret never travelled in a URL or header. Off by default; publicEntries never writes these out.
+   */
+  keepPairingSecrets?: boolean;
 }
 
-/** The entries as recorder.json carries them: never the snapshot, the kept world data or the kept parts (all in memory only). */
-export function publicEntries(entries: readonly RecordedCall[]): Array<Omit<RecordedCall, "snapshot" | "worldData" | "parts">> {
-  return entries.map(({ snapshot: _s, worldData: _w, parts: _p, ...rest }) => rest);
+/** The entries as recorder.json carries them: never the snapshot, the kept world data, the kept parts or the pairing secrets (all in memory only). */
+export function publicEntries(entries: readonly RecordedCall[]): Array<Omit<RecordedCall, "snapshot" | "worldData" | "parts" | "pairingSecret" | "rawUrl" | "headerValues">> {
+  return entries.map(({ snapshot: _s, worldData: _w, parts: _p, pairingSecret: _k, rawUrl: _u, headerValues: _h, ...rest }) => rest);
 }
 
 /** Starts the recorder on 127.0.0.1 in front of upstream (the relay's URL). */
@@ -155,6 +167,7 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
   const keepParts = [...(opts.keepSnapshotParts ?? [])];
   const entries: RecordedCall[] = [];
   const thin = opts.thinOlderSnapshots === true;
+  const keepSecrets = opts.keepPairingSecrets === true;
   let lastBody: RecordedCall | undefined;
 
   const handle = (req: IncomingMessage, res: ServerResponse) => {
@@ -178,6 +191,14 @@ export async function startRecorder(upstream: string, opts: RecorderOptions = {}
       if (done) return;
       done = true;
       entry.doneAt = new Date().toISOString();
+      if (keepSecrets) {
+        entry.rawUrl = req.url ?? "";
+        entry.headerValues = Object.values(req.headers).flat().join("\n");
+        if (method === "POST" && path === PAIRING_POLL) {
+          const secret = (sent.json(req.headers) as { pairingSecret?: unknown } | null | undefined)?.pairingSecret;
+          if (typeof secret === "string") entry.pairingSecret = secret;
+        }
+      }
       if (entry.status !== 0) {
         if (method === "POST" && path === SNAPSHOTS) {
           const s = sent.read(req.headers);
