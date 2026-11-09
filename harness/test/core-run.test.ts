@@ -209,6 +209,7 @@ describe("runCore", () => {
       relayUrl: "http://127.0.0.1:13101",
       seedCode: async () => undefined,
       revoke: async () => undefined,
+      approvePairing: async () => ({ status: 200 }),
       queueCommand: async () => "",
       command: async () => ({ status: "pending", resultCode: null }),
       state: async () => ({ codeConsumed: false, agentVersion: null, lastSeen: false, revoked: false }),

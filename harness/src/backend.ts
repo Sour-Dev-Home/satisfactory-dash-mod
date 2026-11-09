@@ -18,8 +18,8 @@ export const realExec: Exec = (cmd, args, o) => new Promise((resolve) =>
   execFile(cmd, args, { cwd: o.cwd, env: { ...process.env, ...o.env }, maxBuffer: 16 * 1024 * 1024 },
     (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : EXEC_NOT_STARTED) : 0, stdout, stderr })));
 /** servers.servers.public_id: ^[a-z0-9-]{1,32}$ (1790294400000_core_tables.sql:71). */
-const PUBLIC_IDS = { mod: "core-mod", node: "core-node", s5: "spike-s5" } as const;
-const DISPLAY_NAMES = { mod: "Core mod", node: "Core node agent", s5: "S5 spike" } as const;
+export const PUBLIC_IDS = { mod: "core-mod", node: "core-node", s5: "spike-s5", pair: "pairharnessmodserver" } as const;
+const DISPLAY_NAMES = { mod: "Core mod", node: "Core node agent", s5: "S5 spike", pair: "Pair harness" } as const;
 export type BackendServer = keyof typeof PUBLIC_IDS;
 export interface BackendState { codeConsumed: boolean; agentVersion: string | null; lastSeen: boolean; revoked: boolean }
 export interface CommandState { status: string; resultCode: string | null }
@@ -36,6 +36,8 @@ export interface Backend {
   /** The server's newest code, and its credential (agent_credentials has one row per server). */
   state(server: BackendServer): Promise<BackendState>;
   revoke(server: BackendServer): Promise<void>;
+  /** Seeds the server's owner row, signs in as the operator and approves the pairing code onto the existing server. */
+  approvePairing(server: BackendServer, userCode: string): Promise<{ lookup: unknown; status: number }>;
   /** Queues a set_auto_pause command (the only type, 1790985600000_agent_commands.sql) for 5 minutes; returns its id. */
   queueCommand(server: BackendServer, params: Record<string, unknown>): Promise<string>;
   command(id: string): Promise<CommandState>;
@@ -69,11 +71,12 @@ const scryptAsync = promisify(scrypt) as (p: string, s: Buffer, k: number, o: ob
 /** Throwaway values for compose.yaml's required variables (compose.yaml:23-63). The hash is the backend's own format,
  *  scrypt$N$r$p$salt$hash with N=2^15, r=8, p=1, a 16-byte salt and a 64-byte key (passwordHash.ts:9, DEFAULT_PARAMS,
  *  KEY_LENGTH, SALT_BYTES); the session secret is 64 random base64 characters (authConfig.ts MIN_SECRET_LENGTH = 43). */
-export async function composeEnv(): Promise<Record<string, string>> {
+export async function composeEnv(): Promise<{ env: Record<string, string>; adminPassword: string }> {
   const salt = randomBytes(16);
-  const key = await scryptAsync(randomBytes(24).toString("base64"), salt, 64, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+  const adminPassword = randomBytes(24).toString("base64");
+  const key = await scryptAsync(adminPassword, salt, 64, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
   const pw = () => randomBytes(24).toString("base64url");
-  return {
+  const env = {
     POSTGRES_PASSWORD: pw(),
     DB_MIGRATOR_PASSWORD: pw(),
     DB_APP_PASSWORD: pw(),
@@ -81,6 +84,7 @@ export async function composeEnv(): Promise<Record<string, string>> {
     DASHBOARD_ADMIN_PASSWORD_HASH: ["scrypt", 32768, 8, 1, salt.toString("base64"), key.toString("base64")].join("$"),
     SESSION_SECRET: randomBytes(48).toString("base64"),
   };
+  return { env, adminPassword };
 }
 
 /** Review Focus 3: every URL-looking value must point at loopback. */
@@ -173,8 +177,10 @@ function assertComposeLoopbackOnly(config: ComposeConfig): void {
 
 const hex = (code: string) => createHash("sha256").update(code, "utf8").digest("hex"); // agentRepository.ts:14
 
-export async function startBackend(opts: { checkout: string; relayFile: string; port: number; exec: Exec; pin?: string }): Promise<Backend> {
-  const env = { ...(await composeEnv()), SPIKE_BACKEND_PORT: String(opts.port) };
+export async function startBackend(opts: { checkout: string; relayFile: string; port: number; exec: Exec; pin?: string; fetch?: typeof fetch }): Promise<Backend> {
+  const doFetch = opts.fetch ?? fetch;
+  const { env: composeVars, adminPassword } = await composeEnv();
+  const env = { ...composeVars, SPIKE_BACKEND_PORT: String(opts.port) };
   assertLoopbackOnly(env);
   const compose = (...args: string[]) =>
     opts.exec("docker", ["compose", "-p", PROJECT, "-f", "compose.yaml", "-f", opts.relayFile, ...args], { cwd: opts.checkout, env });
@@ -228,6 +234,31 @@ export async function startBackend(opts: { checkout: string; relayFile: string; 
       await psql(
         `UPDATE agents.agent_credentials SET revoked_at = now() WHERE server_id = (SELECT id FROM servers.servers WHERE public_id = '${PUBLIC_IDS[server]}');`,
       );
+    },
+    async approvePairing(server, userCode) {
+      const id = PUBLIC_IDS[server];
+      // The operator user exists once the backend has booted (core_tables.sql:21,25); it must own the server to approve onto it.
+      await psql(
+        `INSERT INTO servers.servers (public_id, display_name) VALUES ('${id}', '${DISPLAY_NAMES[server]}') ON CONFLICT (public_id) DO NOTHING; ` +
+          `INSERT INTO servers.server_members (server_id, user_id, role) SELECT s.id, i.user_id, 'owner' FROM servers.servers s, identity.auth_identities i ` +
+          `WHERE s.public_id = '${id}' AND i.provider = 'local' AND i.provider_subject = 'operator' ON CONFLICT DO NOTHING;`,
+      );
+      const base = `http://127.0.0.1:${opts.port}`;
+      const post = (path: string, body: unknown, cookie?: string) =>
+        doFetch(`${base}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(10_000),
+        });
+      const login = await post("/api/auth/login", { username: "spike", password: adminPassword });
+      const session = (login.headers.get("set-cookie") ?? "").split(";").map((p) => p.trim()).find((p) => p.startsWith("sd_session="));
+      if (!login.ok || !session) throw new Error(`login failed (${login.status})`);
+      const lookupRes = await post("/api/pairings/lookup", { userCode }, session);
+      if (lookupRes.status === 404) throw new Error("pairing code not found");
+      const lookup: unknown = lookupRes.ok ? await lookupRes.json() : undefined;
+      const approved = await post("/api/pairings/approve", { userCode, target: { kind: "existing", serverId: id } }, session);
+      return { lookup, status: approved.status };
     },
     async queueCommand(server, params) {
       const literal = paramsLiteral(params);

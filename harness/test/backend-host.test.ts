@@ -19,6 +19,7 @@ function fakeBackend() {
     seedCode: async (s, c) => void calls.push(`seed ${s} ${c}`),
     state: async (s) => (calls.push(`state ${s}`), { codeConsumed: true, agentVersion: "mod/0.1.0", lastSeen: true, revoked: false }),
     revoke: async (s) => void calls.push(`revoke ${s}`),
+    approvePairing: async (s, c) => (calls.push(`approve ${s} ${c}`), { lookup: { serverName: "secret-ish" }, status: 200 }),
     queueCommand: async (s, p) => (calls.push(`queue ${s} ${JSON.stringify(p)}`), ID),
     command: async (id) => (calls.push(`command ${id}`), { status: "succeeded", resultCode: null }),
     stopRelay: async () => void calls.push("relay stop"),
@@ -130,6 +131,24 @@ describe("backend host (ruling 10)", () => {
     expect((await call("POST", "/relay/stop")).status).toBe(204);
     expect((await call("POST", "/relay/start")).status).toBe(204);
     expect(calls).toEqual(["seed node AB3D-7XQ2-K5MN", "revoke mod", 'queue mod {"enabled":false}', `command ${ID}`, "state mod", "relay stop", "relay start"]);
+  });
+
+  it("approves a pairing over /approve-pairing and rejects a lowercase code (400)", async () => {
+    const { call, calls } = await serve();
+    const ok = await call("POST", "/approve-pairing", { server: "pair", userCode: "AB3D-7XQ2-K5MN" });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ status: 200 });
+    expect(calls).toEqual(["approve pair AB3D-7XQ2-K5MN"]);
+    expect((await call("POST", "/approve-pairing", { server: "pair", userCode: "ab3d-7xq2-k5mn" })).status).toBe(400);
+    expect((await call("POST", "/approve-pairing", { server: "pair", userCode: "AB3D-7XQ2-K5MN", extra: 1 })).status).toBe(400);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("the client's approvePairing returns only the status", async () => {
+    const { file, calls } = await serve();
+    const client = await connectBackendHost(file);
+    expect(await client.approvePairing("pair", "AB3D-7XQ2-K5MN")).toEqual({ status: 200 });
+    expect(calls).toEqual(["approve pair AB3D-7XQ2-K5MN"]);
   });
 
   it("refuses loose bodies, other servers and unknown routes, touching nothing", async () => {

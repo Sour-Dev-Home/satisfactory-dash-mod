@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertLoopbackOnly, composeEnv, contractPin, type Exec, randomCode, realExec, startBackend } from "../src/backend";
+import { assertLoopbackOnly, composeEnv, contractPin, type Exec, PUBLIC_IDS, randomCode, realExec, startBackend } from "../src/backend";
 import { RefusalError } from "../src/refusal";
 
 // "{}" is an empty `compose config --format json`; up, down and the seed INSERT ignore stdout.
@@ -26,7 +26,7 @@ describe("throwaway backend", () => {
   });
 
   it("makes env values the backend's checks accept: a scrypt hash and a long random session secret", async () => {
-    const env = await composeEnv();
+    const { env } = await composeEnv();
     expect(env.DASHBOARD_ADMIN_PASSWORD_HASH).toMatch(/^scrypt\$32768\$8\$1\$[A-Za-z0-9+/=]{24}\$[A-Za-z0-9+/=]{88}$/);
     expect(env.SESSION_SECRET!.length).toBeGreaterThanOrEqual(43);
     expect(env.POSTGRES_PASSWORD).not.toBe(env.DB_APP_PASSWORD);
@@ -278,5 +278,70 @@ describe("the backend image guard (enrol run 39609914480: a stale local image)",
     const { seen, exec } = machine((_cmd, args) => (args.includes("config") ? { ...ok, stdout: JSON.stringify({ services: { backend: { image: APP } } }) } : undefined));
     await expect(start(exec)).rejects.toThrow(/migrate/);
     expect(booted(seen)).toBe(false);
+  });
+});
+
+describe("approvePairing (the operator signs in and approves)", () => {
+  const COOKIE = "sd_session=abc123XYZ";
+  type Call = { url: string; headers: Record<string, string>; body: unknown };
+  function fakeFetch(lookupStatus = 200) {
+    const calls: Call[] = [];
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string>, body: JSON.parse(String(init?.body)) });
+      if (url.endsWith("/api/auth/login")) {
+        return new Response("{}", { status: 200, headers: { "set-cookie": `${COOKIE}; Path=/api; Secure; HttpOnly; SameSite=Strict` } });
+      }
+      if (url.endsWith("/api/pairings/lookup")) return new Response(JSON.stringify({ serverName: "X" }), { status: lookupStatus });
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    return { f, calls };
+  }
+  const start = (f: typeof fetch, exec: Exec = base) =>
+    startBackend({ checkout: "D:/dash", relayFile: "r.yaml", port: 13101, exec, fetch: f });
+
+  it("has a public id the backend's ServerIdSchema accepts", () => {
+    expect(PUBLIC_IDS.pair).toMatch(/^[a-z2-7]{20}$/);
+    expect(PUBLIC_IDS.pair).toBe("pairharnessmodserver");
+  });
+
+  it("composeEnv returns the password apart from the env compose sees", async () => {
+    const { env, adminPassword } = await composeEnv();
+    expect(adminPassword.length).toBeGreaterThan(16);
+    expect(Object.values(env)).not.toContain(adminPassword);
+  });
+
+  it("seeds the owner row, then logs in, looks up and approves with the cookie forwarded", async () => {
+    const seen: string[] = [];
+    const exec: Exec = async (cmd, args, o) => (seen.push([cmd, ...args].join(" ")), base(cmd, args, o));
+    const { f, calls } = fakeFetch();
+    const backend = await start(f, exec);
+    const out = await backend.approvePairing("pair", "AB3D-7XQ2-K5MN");
+    expect(out).toEqual({ lookup: { serverName: "X" }, status: 200 });
+    const sql = seen.find((s) => s.includes("server_members"))!;
+    expect(sql).toContain("'pairharnessmodserver'");
+    expect(sql).toContain("'Pair harness'");
+    expect(sql).toContain("i.provider_subject = 'operator'");
+    expect(sql).toContain("ON CONFLICT DO NOTHING");
+    expect(calls.map((c) => c.url)).toEqual([
+      "http://127.0.0.1:13101/api/auth/login",
+      "http://127.0.0.1:13101/api/pairings/lookup",
+      "http://127.0.0.1:13101/api/pairings/approve",
+    ]);
+    expect(calls[0]!.body).toMatchObject({ username: "spike" });
+    expect(typeof (calls[0]!.body as { password: unknown }).password).toBe("string");
+    for (const c of calls) expect(Object.keys(c.headers).map((k) => k.toLowerCase())).not.toContain("origin");
+    expect(calls[0]!.headers.cookie).toBeUndefined();
+    for (const c of calls.slice(1)) expect(c.headers.cookie).toBe(COOKIE);
+    expect(calls[1]!.body).toEqual({ userCode: "AB3D-7XQ2-K5MN" });
+    expect(calls[2]!.body).toEqual({ userCode: "AB3D-7XQ2-K5MN", target: { kind: "existing", serverId: "pairharnessmodserver" } });
+  });
+
+  it("throws on a missing cookie and on a lookup 404, and never approves then", async () => {
+    const noCookie = (async () => new Response("{}", { status: 401 })) as typeof fetch;
+    await expect((await start(noCookie)).approvePairing("pair", "AB3D-7XQ2-K5MN")).rejects.toThrow("login failed (401)");
+    const { f, calls } = fakeFetch(404);
+    await expect((await start(f)).approvePairing("pair", "AB3D-7XQ2-K5MN")).rejects.toThrow("pairing code not found");
+    expect(calls.some((c) => c.url.endsWith("/approve"))).toBe(false);
   });
 });
