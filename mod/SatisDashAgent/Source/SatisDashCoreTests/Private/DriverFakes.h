@@ -136,6 +136,14 @@ namespace SatisDash::Test
 		}
 		virtual TOptional<SatisDash::FStatusReading> ReadStatus() override { return Status; }
 		virtual TOptional<SatisDash::FAutoPauseReading> ReadAutoPause() override { return AutoPause; }
+		/** Pairing: the connected count (PlayerCount; Players above is the R1 list), the server name, and the chat lines posted. */
+		int32 PlayerCount = 0;
+		FString ServerName = TEXT("Test Server");
+		TArray<FString> Chats;
+		int32 NameReads = 0;
+		virtual int32 CountConnectedPlayers() override { return PlayerCount; }
+		virtual FString ReadServerName() override { ++NameReads; return ServerName; }
+		virtual bool PostChatLine(const FString& Line) override { Chats.Add(Line); return true; }
 		virtual TOptional<TArray<SatisDash::FCircuitReading>> ReadPower() override { ++PowerReads; return Power; }
 		virtual TOptional<TArray<SatisDash::FPlayerReading>> ReadPlayers() override { ++PlayerReads; return Players; }
 		virtual bool BeginResourceNodeScan() override { ++ScanBegins; ScanSteps = 0; return bHasWorld; }

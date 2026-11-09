@@ -145,6 +145,12 @@ namespace SatisDash
 		virtual TOptional<FStatusReading> ReadStatus() = 0;
 		/** FG.DSAutoPause, applied and pending; unset when it can't be read. */
 		virtual TOptional<FAutoPauseReading> ReadAutoPause() = 0;
+		/** Connected players now, without building a controller (cheap); -1 when unreadable. */
+		virtual int32 CountConnectedPlayers() { return -1; }
+		/** The name the owner gave the server when claiming it; empty when unreadable. */
+		virtual FString ReadServerName() { return FString(); }
+		/** A system chat line to every connected player (the game's broadcast). False when it couldn't be sent. */
+		virtual bool PostChatLine(const FString& Line) { return false; }
 		/** One reading per power circuit group; unset when there is no circuit subsystem. */
 		virtual TOptional<TArray<FCircuitReading>> ReadPower() = 0;
 		/**

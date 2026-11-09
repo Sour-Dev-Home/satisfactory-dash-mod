@@ -321,3 +321,107 @@ bool FDriverReachabilityFieldsTest::RunTest(const FString& Parameters)
 	}
 	return true;
 }
+
+namespace
+{
+	const TCHAR* DrvPairStart = TEXT("/agent/v1/pairings");
+	const TCHAR* DrvPairPoll = TEXT("/agent/v1/pairings/poll");
+	const TCHAR* DrvPairCode = TEXT("AB3D-7XQ2-K5MN");
+
+	FHttpReply DrvPairStartReply()
+	{
+		return SatisDash::Test::Reply(201, FString::Printf(TEXT("{\"pairingSecret\":\"abcdefghijklmnopqrstuv\",\"userCode\":\"%s\",\"expiresIn\":900,\"interval\":5}"), DrvPairCode));
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverPairsFromBootTest, "SatisDash.Core.Driver.PairsFromBoot", SatisDash::Test::Flags)
+
+bool FDriverPairsFromBootTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	Driver.Boot(); // no cfg at all: the mod writes the default, which pairs
+	Driver.Tick();
+	const FAgent& Agent = Driver.GetAgent();
+	TestTrue(TEXT("pairing"), Agent.GetState() == EAgentState::Pairing);
+	TestEqual(TEXT("one start request"), F.Net.sent(DrvPairStart), 1);
+	TestTrue(TEXT("with the server's name"), F.Net.lastBody(DrvPairStart).Contains(TEXT("\"serverName\":\"Test Server\"")));
+	Driver.Tick();
+	TestEqual(TEXT("no second start before the reply"), F.Net.sent(DrvPairStart), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverPairsAtLargeClockTest, "SatisDash.Core.Driver.PairsAtLargeClock", SatisDash::Test::Flags)
+
+bool FDriverPairsAtLargeClockTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	F.T = 1e7; // the game's clock is far past the first window's 3600 s at boot
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	Driver.Boot();
+	Driver.Tick();
+	TestEqual(TEXT("the first tick starts pairing"), F.Net.sent(DrvPairStart), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverPairApprovedTest, "SatisDash.Core.Driver.PairApproved", SatisDash::Test::Flags)
+
+bool FDriverPairApprovedTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	const FAgent& Agent = Driver.GetAgent();
+	Driver.Boot();
+	Driver.Tick();
+	F.Net.answer(DrvPairStart, DrvPairStartReply());
+	F.run(Driver, 5);
+	TestEqual(TEXT("a poll"), F.Net.pending(DrvPairPoll), 1);
+	F.Net.answer(DrvPairPoll, SatisDash::Test::Reply(201, SatisDash::Test::EnrollJson().LeftChop(1) + TEXT(",\"status\":\"approved\"}")));
+	TestTrue(TEXT("running"), Agent.GetState() == EAgentState::Running);
+	F.run(Driver, 1);
+	TestEqual(TEXT("a snapshot goes out"), F.Net.pending(DriverSnapshots), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverPairChatTest, "SatisDash.Core.Driver.PairChat", SatisDash::Test::Flags)
+
+bool FDriverPairChatTest::RunTest(const FString& Parameters)
+{
+	{
+		FDriverFixture F;
+		F.Game.PlayerCount = 1;
+		FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+		Driver.Boot();
+		Driver.Tick();
+		F.Net.answer(DrvPairStart, DrvPairStartReply());
+		Driver.Tick();
+		TestEqual(TEXT("one chat line"), F.Game.Chats.Num(), 1);
+		TestTrue(TEXT("holding the code"), F.Game.Chats.Num() == 1 && F.Game.Chats[0].Contains(DrvPairCode));
+	}
+	{
+		FDriverFixture F;
+		F.Game.PlayerCount = 2;
+		FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+		Driver.Boot();
+		Driver.Tick();
+		F.Net.answer(DrvPairStart, DrvPairStartReply());
+		Driver.Tick();
+		TestEqual(TEXT("no chat with two players"), F.Game.Chats.Num(), 0);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDriverNameOnlyWhenDueTest, "SatisDash.Core.Driver.NameOnlyWhenDue", SatisDash::Test::Flags)
+
+bool FDriverNameOnlyWhenDueTest::RunTest(const FString& Parameters)
+{
+	FDriverFixture F;
+	FDriver Driver{ F.ConfigPath, F.CredentialPath, F.Net, F.Game, F.Worker, F.clock() };
+	Driver.Boot();
+	for (int32 I = 0; I < 10; ++I)
+	{
+		Driver.Tick();
+	}
+	TestEqual(TEXT("the name is read once"), F.Game.NameReads, 1);
+	return true;
+}

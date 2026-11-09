@@ -55,6 +55,24 @@ void SatisDash::FDriver::Tick()
 		Transport.Send(*EnrollRequest, [this](const FHttpReply& Reply) { Agent.FinishEnroll(Reply, Clock.Now()); });
 	}
 
+	if (Agent.GetState() == EAgentState::Pairing)
+	{
+		if (Now >= NextPlayersAt)
+		{
+			NextPlayersAt = Now + PairingPlayersSeconds;
+			Agent.OnPlayerCount(Game.CountConnectedPlayers(), Now);
+		}
+		// One Finish per Start; the agent builds no second request while one is in flight (Review Focus 3).
+		if (TOptional<FRequestSpec> PairRequest = Agent.StartPairing(Now, [this] { return Game.ReadServerName(); }))
+		{
+			Transport.Send(*PairRequest, [this](const FHttpReply& Reply) { Agent.FinishPairing(Reply, Clock.Now()); });
+		}
+		if (TOptional<FString> Line = Agent.TakeChatLine())
+		{
+			Game.PostChatLine(*Line);
+		}
+	}
+
 	// S10: "running" means a credential for the backend the config names now, not just the state's name (2A final, N2).
 	const bool bNowRunning = Agent.GetCredential() != nullptr;
 	if (bRunning && !bNowRunning)

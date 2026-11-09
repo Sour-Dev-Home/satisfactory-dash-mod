@@ -5,7 +5,7 @@ import { z } from "zod";
 
 export const CONTRACT_REPO = "Sour-Dev-Home/satisfactory-dash";
 export const CONTRACT_DIR = "packages/shared/src";
-export const CONTRACT_ENTRY = "agent.ts";
+export const CONTRACT_ENTRIES = ["agent.ts", "pairing.ts"];
 
 export const ManifestSchema = z.strictObject({
   repo: z.string(),
@@ -29,7 +29,7 @@ export async function vendorContract(
   fetchFile: (path: string, commit: string) => Promise<string>,
 ): Promise<{ files: Record<string, string>; manifest: Manifest }> {
   const files: Record<string, string> = {};
-  const queue = [CONTRACT_ENTRY];
+  const queue = [...CONTRACT_ENTRIES];
   while (queue.length > 0) {
     const name = queue.shift()!;
     if (name in files) continue;

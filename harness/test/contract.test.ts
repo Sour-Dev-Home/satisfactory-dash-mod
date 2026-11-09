@@ -11,6 +11,7 @@ const SRC: Record<string, string> = {
   "packages/shared/src/envelope.ts": 'import { A } from "./ids";\n',
   "packages/shared/src/ids.ts": 'import { z } from "zod";\n',
 };
+SRC["packages/shared/src/pairing.ts"] = 'import { A } from "./ids";\n';
 const fetchFile = async (path: string) => {
   const text = SRC[path];
   if (text === undefined) throw new Error(`404 ${path}`);
@@ -37,9 +38,9 @@ describe("relativeImports", () => {
 });
 
 describe("vendorContract", () => {
-  it("follows the import closure from agent.ts and hashes each file", async () => {
+  it("follows the import closure from agent.ts and pairing.ts and hashes each file", async () => {
     const { files, manifest } = await vendorContract(COMMIT, fetchFile);
-    expect(Object.keys(files).sort()).toEqual(["agent.ts", "envelope.ts", "ids.ts", "status.ts"]);
+    expect(Object.keys(files).sort()).toEqual(["agent.ts", "envelope.ts", "ids.ts", "pairing.ts", "status.ts"]);
     expect(manifest.commit).toBe(COMMIT);
     expect(manifest.files["ids.ts"]).toBe(sha256(SRC["packages/shared/src/ids.ts"]!));
   });

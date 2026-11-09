@@ -17,13 +17,16 @@ export function removeMod(name: string, serverDir: string): void {
   for (const gameFeature of [false, true]) rmSync(modTarget(serverDir, name, gameFeature), { recursive: true, force: true });
 }
 
-/** Removes every SatisMod* plugin, including misnamed ones from earlier runs, so no spike loads into another's run. */
+/**
+ * Removes every SatisMod* plugin, including misnamed ones from earlier runs, so no spike loads into another's run. Also a
+ * leftover SatisDashAgent: with no cfg it pairs with the production backend (spec 2026-11-09 §4), so no spike boot may carry it.
+ */
 export function removeSpikeMods(serverDir: string): void {
   const mods = join(serverDir, "FactoryGame", "Mods");
   for (const dir of [mods, join(mods, "GameFeatures")]) {
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir)) {
-      if (entry.startsWith("SatisMod")) rmSync(join(dir, entry), { recursive: true, force: true });
+      if (entry.startsWith("SatisMod") || entry === "SatisDashAgent") rmSync(join(dir, entry), { recursive: true, force: true });
     }
   }
 }
