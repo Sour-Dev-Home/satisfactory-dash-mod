@@ -53,7 +53,8 @@ tool) in an empty folder, on ports that don't clash with any server you already 
       self-serve is on.
 - [ ] The log shows "Paired with the dashboard; reporting to the backend".
 - [ ] **One player:** with the code still open (or after restarting the server), join alone with the game client. The
-      `Pairing code` line appears in the in-game chat, and a vanilla client renders it.
+      `Pairing code` line appears in the in-game chat, and a client with SML only (no SatisDashAgent) renders it. A
+      vanilla client can't join: a server with SML refuses it ("cannot connect a modded server to a vanilla client").
 - [ ] **Two players:** with a second player online, no `Pairing code` line appears in chat. The console line still does.
 - [ ] `FactoryGame/Saved/SatisDash/credential.json` exists, and `SatisDashAgent.cfg` was not edited.
 - [ ] The server appears in the dashboard as online.
@@ -102,4 +103,34 @@ After about 30 minutes enrolled, with the same save loaded:
 
 | Release | Zip SHA-256 | Windows | Linux | Date | Findings |
 |---|---|---|---|---|---|
-| 0.3.0 | | | | | |
+| 0.3.0 | Linux `99d8a3740413d353bbaeb6b44dfcabc2bba8a1f82c1160c219875f1ae75c4dc6`<br>Windows `10db293754f3e64b20591346ef045d58b64877dd1c041350b2b7df72e0ccbccc`<br>multi-target `366ecc359badf1dd73c5e620a09caf0b204fcefe11e8b42e26962d7f90f1436c` | not run | pairing pass (scope below) | 2026-11-09 | see 0.3.0 notes below |
+
+### 0.3.0 notes
+
+**Scope.** An owner-planned pairing test on Linux only: steps 2 and 3, plus the dashboard check of step 4. Steps 5 to 8
+and Windows were not run for this release. The server was the `satis-e2e` container reset for the test: the mod
+folder and `SatisDashAgent.cfg` were replaced, but SML 3.12.0 and the save were kept from earlier runs, so it was not
+a fresh server in the sense of the ground rules.
+
+**Step 3 results.**
+- Pass: the `Pairing code` line is in `FactoryGame.log` at boot (21:09:33 UTC), and a new code is issued every 15
+  minutes (four codes from 21:09 to 21:54).
+- Pass: one player, a client with SML only, saw the code in chat.
+- Not tested: two players. Only one player was available; the owner accepted the risk (2026-11-09). The rule is unit
+  tested (`ShouldPostCode` for 0, 1 and 2 players); the live player count is what stays unchecked.
+- Pass: paired at 22:04:30 UTC onto an existing dashboard server ("One of my servers"), and every reader is native.
+- Pass: `credential.json` was written and the `.cfg` was not edited. The credential's secret is in 0 log lines, and the
+  code is only in its own `Pairing code` line.
+- Pass: Power and Factory live within a minute; the map layers were replaced on their schedule (see below).
+
+**Findings.**
+1. **Players need SML on their game client.** A server with SML refuses a vanilla client. The release notes now say so.
+2. **The chat code can't be copied.** Satisfactory's chat text isn't selectable, so the code has to be typed. The four
+   codes seen used only `A-Z` and `2-7`, so there's no `0`/`O` or `1`/`I` to confuse, but this wasn't checked in the
+   backend.
+3. **The container console lags.** `docker logs` stopped at 21:09:25 while `FactoryGame.log` went on; the `Pairing code`
+   line reached the console only minutes later. The game's stdout looks block-buffered under Docker. Read the code
+   in `FactoryGame.log` on Linux containers.
+4. **The map shows the previous server's layers for up to about 9 minutes** after pairing onto an existing dashboard
+   server. Power and Factory are live within a minute, but the map layers are first read 2 (rails) and about 8 minutes
+   (the rest) after start, and the backend keeps its last copy until then. They were replaced on schedule.
