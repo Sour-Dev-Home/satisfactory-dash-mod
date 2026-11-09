@@ -28,6 +28,7 @@
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "Buildables/FGBuildableWire.h"
 #include "FGCircuitConnectionComponent.h"
+#include "FGChatManager.h"
 #include "Controller/FGServerManagementController.h"
 #include "Controller/FGServerStateController.h"
 #include "Engine/Level.h"
@@ -103,6 +104,33 @@ TOptional<SatisDash::FStatusReading> SatisDash::FGameReader::ReadStatus()
 	Out.TickRate = State.AverageTickRate;
 	Out.TotalGameDurationSeconds = State.TotalGameDuration;
 	return Out;
+}
+
+int32 SatisDash::FGameReader::CountConnectedPlayers()
+{
+	// The same source as ReadStatus, without building a controller.
+	UFGServerSubsystem* Subsystem = Server();
+	return Subsystem != nullptr ? Subsystem->GetServerGameState().NumConnectedPlayers : -1;
+}
+
+FString SatisDash::FGameReader::ReadServerName()
+{
+	UFGServerSubsystem* Subsystem = Server();
+	return Subsystem != nullptr ? Subsystem->GetServerName() : FString();
+}
+
+bool SatisDash::FGameReader::PostChatLine(const FString& Line)
+{
+	AFGChatManager* Chat = World.IsValid() ? AFGChatManager::Get(World.Get()) : nullptr;
+	if (Chat == nullptr)
+	{
+		return false;
+	}
+	FChatMessageStruct Msg;
+	Msg.MessageText = FText::FromString(Line);
+	Msg.MessageType = EFGChatMessageType::CMT_SystemMessage;
+	Chat->BroadcastChatMessage(Msg);
+	return true;
 }
 
 TOptional<SatisDash::FAutoPauseReading> SatisDash::FGameReader::ReadAutoPause()

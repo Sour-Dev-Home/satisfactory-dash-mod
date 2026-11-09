@@ -89,6 +89,28 @@ SatisDash::FRequestSpec SatisDash::BuildEnrollRequest(const FAgentConfig& Config
 	return Spec;
 }
 
+SatisDash::FRequestSpec SatisDash::BuildPairingStartRequest(const FAgentConfig& Config, const FString& ServerName)
+{
+	FRequestSpec Spec = Start(TEXT("POST"), Config.BackendUrl + TEXT("/agent/v1/pairings"));
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("agentVersion"), AgentVersion());
+	if (!ServerName.IsEmpty())
+	{
+		Body->SetStringField(TEXT("serverName"), ServerName);
+	}
+	SetJsonBody(Spec, SatisDash::Json::Write(Body));
+	return Spec;
+}
+
+SatisDash::FRequestSpec SatisDash::BuildPairingPollRequest(const FAgentConfig& Config, const FString& PairingSecret)
+{
+	FRequestSpec Spec = Start(TEXT("POST"), Config.BackendUrl + TEXT("/agent/v1/pairings/poll"));
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("pairingSecret"), PairingSecret);
+	SetJsonBody(Spec, SatisDash::Json::Write(Body));
+	return Spec;
+}
+
 SatisDash::FRequestSpec SatisDash::BuildSnapshotRequest(const FAgentConfig& Config, const FCredential& Credential, const FString& SnapshotJson)
 {
 	FRequestSpec Spec = Start(TEXT("POST"), Config.BackendUrl + TEXT("/agent/v1/snapshots"));

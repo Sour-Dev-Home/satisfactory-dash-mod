@@ -194,3 +194,121 @@ bool FResponsesWorldTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("an error status"), ParseWorldResponse(SatisDash::Test::Reply(503, TEXT("{\"accepted\":true,\"unchanged\":false}"))).IsSet());
 	return true;
 }
+
+namespace
+{
+	FString PairingStartJson(const TCHAR* Secret, const TCHAR* Code, const TCHAR* ExpiresIn, const TCHAR* Interval)
+	{
+		return FString::Printf(TEXT("{\"pairingSecret\":\"%s\",\"userCode\":\"%s\",\"expiresIn\":%s,\"interval\":%s}"), Secret, Code, ExpiresIn, Interval);
+	}
+
+	FString ApprovedJson(const FString& Extra)
+	{
+		return SatisDash::Test::EnrollJson().LeftChop(1) + TEXT(",\"status\":\"approved\"") + Extra + TEXT("}");
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FResponsesPairingStartTest, "SatisDash.Core.Responses.PairingStart", SatisDash::Test::Flags)
+
+bool FResponsesPairingStartTest::RunTest(const FString& Parameters)
+{
+	const TCHAR* Secret = TEXT("abcdefghijklmnopqrstuv");
+	const TCHAR* Code = TEXT("AB3D-7XQ2-K5MN");
+	const TOptional<FPairingStart> Ok = ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, Code, TEXT("900"), TEXT("5"))));
+	TestTrue(TEXT("valid"), Ok.IsSet());
+	if (Ok.IsSet())
+	{
+		SatisDash::Test::SameText(*this, TEXT("secret"), Ok->PairingSecret, Secret);
+		SatisDash::Test::SameText(*this, TEXT("code"), Ok->UserCode, Code);
+		TestEqual(TEXT("expires"), Ok->ExpiresInSeconds, 900);
+		TestEqual(TEXT("interval"), Ok->IntervalSeconds, 5);
+	}
+	TestTrue(TEXT("bounds low"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, Code, TEXT("1"), TEXT("1")))).IsSet());
+	TestTrue(TEXT("bounds high"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, Code, TEXT("900"), TEXT("60")))).IsSet());
+	TestFalse(TEXT("200"), ParsePairingStartResponse(SatisDash::Test::Reply(200, PairingStartJson(Secret, Code, TEXT("900"), TEXT("5")))).IsSet());
+	TestFalse(TEXT("21-char secret"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(TEXT("abcdefghijklmnopqrstu"), Code, TEXT("900"), TEXT("5")))).IsSet());
+	TestFalse(TEXT("bad code"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, TEXT("ab3d-7xq2-k5mn"), TEXT("900"), TEXT("5")))).IsSet());
+	TestFalse(TEXT("expiresIn 0"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, Code, TEXT("0"), TEXT("5")))).IsSet());
+	TestFalse(TEXT("expiresIn 901"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, Code, TEXT("901"), TEXT("5")))).IsSet());
+	TestFalse(TEXT("interval 61"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, Code, TEXT("900"), TEXT("61")))).IsSet());
+	TestFalse(TEXT("interval 2.5"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, Code, TEXT("900"), TEXT("2.5")))).IsSet());
+	TestFalse(TEXT("html"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(Secret, Code, TEXT("900"), TEXT("5")), TEXT("text/html"))).IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FResponsesPairingPollTest, "SatisDash.Core.Responses.PairingPoll", SatisDash::Test::Flags)
+
+bool FResponsesPairingPollTest::RunTest(const FString& Parameters)
+{
+	auto status = [](const TCHAR* Json) { return ParsePairingPollResponse(SatisDash::Test::Reply(200, Json)); };
+	const TOptional<FPairingPoll> Pending = status(TEXT("{\"status\":\"pending\"}"));
+	TestTrue(TEXT("pending"), Pending.IsSet() && Pending->Status == EPairingPoll::Pending);
+	const TOptional<FPairingPoll> Expired = status(TEXT("{\"status\":\"expired\"}"));
+	TestTrue(TEXT("expired"), Expired.IsSet() && Expired->Status == EPairingPoll::Expired);
+	const TOptional<FPairingPoll> Slow = status(TEXT("{\"status\":\"slow_down\"}"));
+	TestTrue(TEXT("slow_down"), Slow.IsSet() && Slow->Status == EPairingPoll::SlowDown);
+	const TOptional<FPairingPoll> Later = status(TEXT("{\"status\":\"later\"}"));
+	TestTrue(TEXT("unknown is pending"), Later.IsSet() && Later->Status == EPairingPoll::Pending);
+	TestFalse(TEXT("status of the wrong type"), status(TEXT("{\"status\":5}")).IsSet());
+	TestFalse(TEXT("500"), ParsePairingPollResponse(SatisDash::Test::Reply(500, TEXT("{\"status\":\"pending\"}"))).IsSet());
+
+	const TOptional<FPairingPoll> Approved = ParsePairingPollResponse(SatisDash::Test::Reply(201, ApprovedJson(FString())));
+	TestTrue(TEXT("approved"), Approved.IsSet() && Approved->Status == EPairingPoll::Approved && Approved->Enrolled.IsSet());
+	if (Approved.IsSet())
+	{
+		TestTrue(TEXT("no approver"), Approved->ApprovedBy.IsEmpty());
+	}
+	const TOptional<FPairingPoll> Named = ParsePairingPollResponse(SatisDash::Test::Reply(201, ApprovedJson(TEXT(",\"approvedBy\":\"Player-4F2K\""))));
+	TestTrue(TEXT("approved by"), Named.IsSet());
+	if (Named.IsSet())
+	{
+		SatisDash::Test::SameText(*this, TEXT("approvedBy"), Named->ApprovedBy, TEXT("Player-4F2K"));
+	}
+	const FString Long = FString::ChrN(65, TEXT('a'));
+	const TOptional<FPairingPoll> TooLong = ParsePairingPollResponse(SatisDash::Test::Reply(201, ApprovedJson(TEXT(",\"approvedBy\":\"") + Long + TEXT("\""))));
+	TestTrue(TEXT("65 chars: dropped, still approved"), TooLong.IsSet() && TooLong->Status == EPairingPoll::Approved && TooLong->ApprovedBy.IsEmpty());
+	const TOptional<FPairingPoll> Bidi = ParsePairingPollResponse(SatisDash::Test::Reply(201, ApprovedJson(TEXT(",\"approvedBy\":\"a\\u202eb\""))));
+	TestTrue(TEXT("bidi override: dropped, still approved"), Bidi.IsSet() && Bidi->Status == EPairingPoll::Approved && Bidi->ApprovedBy.IsEmpty());
+	const FString NoSecret = FString::Printf(TEXT("{\"status\":\"approved\",\"serverId\":\"srv-1\",\"cadence\":%s}"), SatisDash::Test::CadenceJson);
+	TestFalse(TEXT("approved without agentSecret"), ParsePairingPollResponse(SatisDash::Test::Reply(201, NoSecret)).IsSet());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FResponsesPairingNamesTest, "SatisDash.Core.Responses.PairingNames", SatisDash::Test::Flags)
+
+bool FResponsesPairingNamesTest::RunTest(const FString& Parameters)
+{
+	// Control characters are built with TCHAR(): a \u escape below U+00A0 is not valid C++.
+	const FString Dirty = FString(TEXT("A")) + FString::Chr(TCHAR(7)) + TEXT("B​C D");
+	SatisDash::Test::SameText(*this, TEXT("control, format, separator"), CleanServerName(Dirty), TEXT("ABCD"));
+	TestEqual(TEXT("clamped to 200"), CleanServerName(FString::ChrN(250, TEXT('s'))).Len(), 200);
+	TestTrue(TEXT("only a control"), CleanServerName(FString::Chr(TCHAR(1))).IsEmpty());
+	SatisDash::Test::SameText(*this, TEXT("trimmed"), CleanServerName(TEXT("  Name  ")), TEXT("Name"));
+
+	FString Emoji;
+	Emoji.AppendChar(TCHAR(0xD83D));
+	Emoji.AppendChar(TCHAR(0xDE00));
+	const FString Kept = FString(TEXT("A")) + Emoji + TEXT("B");
+	TestTrue(TEXT("a surrogate pair is kept"), CleanServerName(Kept) == Kept);
+	TestTrue(TEXT("a lone high surrogate is dropped"), CleanServerName(FString(TEXT("A")) + FString::Chr(TCHAR(0xD83D)) + TEXT("B")) == TEXT("AB"));
+	TestTrue(TEXT("a lone low surrogate is dropped"), CleanServerName(FString(TEXT("A")) + FString::Chr(TCHAR(0xDE00)) + TEXT("B")) == TEXT("AB"));
+	TestEqual(TEXT("a pair is never split by the clamp"), CleanServerName(FString::ChrN(199, TEXT('s')) + Emoji).Len(), 199);
+	TestEqual(TEXT("a pair that fits is kept"), CleanServerName(FString::ChrN(198, TEXT('s')) + Emoji).Len(), 200);
+	for (const uint32 Dropped : {0x2065u, 0x890u, 0x891u, 0x8E2u, 0xFFF0u, 0xFFFBu, 0xFFFEu, 0xFFFFu, 0xFDD0u, 0xFDEFu, 0xE000u, 0xF8FFu})
+	{
+		TestTrue(TEXT("dropped code point"), CleanServerName(FString(TEXT("A")) + FString::Chr(TCHAR(Dropped)) + TEXT("B")) == TEXT("AB"));
+	}
+	TestTrue(TEXT("U+F900 is kept"), CleanServerName(FString::Chr(TCHAR(0xF900))).Len() == 1);
+
+	const FHttpReply ShortStart = SatisDash::Test::Reply(201, TEXT("{\"pairingSecret\":\"abcdefghijklmnopqrstuv\",\"userCode\":\"AB3D-7XQ2-K5MN\",\"expiresIn\":900}"));
+	TestFalse(TEXT("start missing interval"), ParsePairingStartResponse(ShortStart).IsSet());
+	TestFalse(TEXT("23-char secret"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(TEXT("abcdefghijklmnopqrstuvw"), TEXT("AB3D-7XQ2-K5MN"), TEXT("900"), TEXT("5")))).IsSet());
+	const TOptional<FPairingPoll> EarlyApproved = ParsePairingPollResponse(SatisDash::Test::Reply(200, TEXT("{\"status\":\"approved\"}")));
+	TestTrue(TEXT("200 approved is pending"), EarlyApproved.IsSet() && EarlyApproved->Status == EPairingPoll::Pending);
+	TestFalse(TEXT("201 pending"), ParsePairingPollResponse(SatisDash::Test::Reply(201, TEXT("{\"status\":\"pending\"}"))).IsSet());
+	TestTrue(TEXT("secret: 22 base64url"), IsPairingSecret(TEXT("abcdEFGH_-0123456789ab")));
+	TestFalse(TEXT("secret: 23"), IsPairingSecret(TEXT("abcdefghijklmnopqrstuvw")));
+	TestFalse(TEXT("secret: 21"), IsPairingSecret(TEXT("abcdefghijklmnopqrstu")));
+	TestFalse(TEXT("secret: a +"), IsPairingSecret(TEXT("abcdefghijklmnopqrst+v")));
+	return true;
+}

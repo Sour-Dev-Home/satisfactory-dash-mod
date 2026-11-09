@@ -72,6 +72,35 @@ namespace SatisDash
 	SATISDASHCORE_API TOptional<FCadence> ParseCadence(const TSharedPtr<FJsonObject>& Object);
 	/** 201 only (EnrollResponseSchema), with a well-formed secret and server id. */
 	SATISDASHCORE_API TOptional<FEnrollResponse> ParseEnrollResponse(const FHttpReply& Reply);
+
+	inline constexpr int32 MaxServerNameLength = 200;
+	inline constexpr int32 MaxApprovedByLength = 64;
+	/** ^[A-Za-z0-9_-]{22}$ */
+	SATISDASHCORE_API bool IsPairingSecret(const FString& Secret);
+	/** Drops control, format and line/paragraph-separator characters, trims, clamps to 200. Empty when nothing is left. */
+	SATISDASHCORE_API FString CleanServerName(const FString& Name);
+	struct FPairingStart
+	{
+		FString PairingSecret;
+		FString UserCode;
+		int32 ExpiresInSeconds = 900;
+		int32 IntervalSeconds = 5;
+	};
+	/** 201 only; secret, code (IsEnrollmentCode), expiresIn 1-900 and interval 1-60 integers. Unset otherwise. */
+	SATISDASHCORE_API TOptional<FPairingStart> ParsePairingStartResponse(const FHttpReply& Reply);
+	enum class EPairingPoll : uint8 { Pending, Expired, SlowDown, Approved };
+	struct FPairingPoll
+	{
+		EPairingPoll Status = EPairingPoll::Pending;
+		TOptional<FEnrollResponse> Enrolled;
+		FString ApprovedBy;
+	};
+	/**
+	 * 200 with status pending/expired/slow_down; any other string status on 200 = Pending (the contract's "unknown is
+	 * pending"). 201 with status approved and enrol's shape = Approved (ApprovedBy kept only if 1-64 chars and clean).
+	 * Unset for anything else (transient).
+	 */
+	SATISDASHCORE_API TOptional<FPairingPoll> ParsePairingPollResponse(const FHttpReply& Reply);
 	SATISDASHCORE_API TOptional<FSnapshotResponse> ParseSnapshotResponse(const FHttpReply& Reply);
 	/** A 2xx JSON object (S4's limits) with boolean accepted and unchanged. Unset otherwise: the sender treats that as transient, as backendClient.ts does. */
 	SATISDASHCORE_API TOptional<FWorldResponse> ParseWorldResponse(const FHttpReply& Reply);

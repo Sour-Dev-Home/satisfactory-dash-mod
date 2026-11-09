@@ -25,6 +25,9 @@ namespace SatisDash
 
 		virtual TOptional<FStatusReading> ReadStatus() override;
 		virtual TOptional<FAutoPauseReading> ReadAutoPause() override;
+		virtual int32 CountConnectedPlayers() override;
+		virtual FString ReadServerName() override;
+		virtual bool PostChatLine(const FString& Line) override;
 		virtual TOptional<TArray<FCircuitReading>> ReadPower() override;
 		virtual TOptional<TArray<FPlayerReading>> ReadPlayers() override;
 		virtual bool BeginResourceNodeScan() override;

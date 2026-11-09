@@ -3,12 +3,13 @@
 #include "CoreMinimal.h"
 #include "SatisDash/Config.h"
 #include "SatisDash/Credential.h"
+#include "SatisDash/Pairing.h"
 #include "SatisDash/Requests.h"
 #include "SatisDash/Responses.h"
 
 namespace SatisDash
 {
-	enum class EAgentState : uint8 { Idle, ConfigBroken, Enrolling, CodeRejected, Running, Halted };
+	enum class EAgentState : uint8 { Idle, ConfigBroken, Enrolling, CodeRejected, Running, Halted, Pairing };
 
 	/** Config, credential and enrolment (spec "Shape": Config, CredentialStore, Enroller, Halt; error table rows 1-7). */
 	class SATISDASHCORE_API FAgent
@@ -44,7 +45,17 @@ namespace SatisDash
 		/** A 401 on any authenticated call (push, poll or result) while Running: deletes the credential and halts. */
 		void OnAuthRejected();
 
+		/** Pairing, a request due: the request to send (one FinishPairing per Start, as enrol). ServerName: the game's, raw. */
+		TOptional<FRequestSpec> StartPairing(double Now, TFunctionRef<FString()> ServerName);
+		void FinishPairing(const FHttpReply& Reply, double Now);
+		/** About every 5 s while Pairing; Players < 0 = unknown. */
+		void OnPlayerCount(int32 Players, double Now);
+		/** The chat line to post now, once (Pairing only). */
+		TOptional<FString> TakeChatLine();
+
 	private:
+		/** Saves and adopts an issued credential (enrol or pairing), bound to the backend the config names now. A failed file write is logged, not fatal. */
+		void AdoptCredential(const FEnrollResponse& Issued);
 		/** A credential is held and it was issued by the backend the config names now. */
 		bool IsBoundHere() const;
 		void Settle(const FConfigResult& Loaded);
@@ -65,6 +76,10 @@ namespace SatisDash
 		FCadence Cadence;
 		FDateTime ConfigTime;
 		FString ConfigText;
+		FPairing Pairing;
+		bool bPairingInFlight = false;
+		/** The newest Now seen by any Start or Finish (0 at boot): Settle has no clock of its own. */
+		double LastNow = 0;
 		bool bEnrollInFlight = false;
 		int32 EnrollFailures = 0;
 		double NextEnrollAt = 0;

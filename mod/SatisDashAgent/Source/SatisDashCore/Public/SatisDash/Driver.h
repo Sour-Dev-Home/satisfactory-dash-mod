@@ -16,6 +16,8 @@ namespace SatisDash
 	/** sampler.ts DUE_SLACK_MS: a pass is due this much early, so the ticker's half-second steps don't stretch it. */
 	inline constexpr double DueSlackSeconds = 0.25;
 	inline constexpr double MinPollSpacingSeconds = 1.0; // commandRunner.ts MIN_POLL_SPACING_MS
+	/** While Pairing, the player count is read this often (Agent::OnPlayerCount decides on chat from it). */
+	inline constexpr double PairingPlayersSeconds = 5.0;
 
 	struct FDriverClock
 	{
@@ -118,6 +120,7 @@ namespace SatisDash
 		/** Bounded: three keys ("busy", "held", "wait"), each at most once per 60 s. */
 		FRateLimitedLog TrainsLog{ 60.0 };
 		double NextConfigAt = 0;
+		double NextPlayersAt = 0;
 		double NextStatusAt = 0;
 		TOptional<double> LastPowerAt;
 		TOptional<double> LastFactoryAt;
