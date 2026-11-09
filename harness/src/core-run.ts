@@ -4,8 +4,6 @@ import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { LOOPBACK_HOSTS, type RunnerConfig } from "./config";
 
-/** The discard port on loopback: nothing answers there. */
-export const BOOT_BACKEND_URL = "http://127.0.0.1:9";
 import { redact, writeBundle } from "./evidence";
 import { versionLines } from "./log-watch";
 import { modConfigPath, writeModConfig } from "./mod-config";
@@ -23,7 +21,10 @@ import { type OutboundSample, resolveHost, sampleOutbound } from "./outbound";
 import { type Toolchain, toolchainMismatches } from "./toolchain";
 import type { Verdict } from "./verdict";
 
-export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage", "tick-cost", "manual", "tick-cost-native", "s3-census", "soak-native"] as const;
+/** The discard port on loopback: nothing answers there. */
+export const BOOT_BACKEND_URL = "http://127.0.0.1:9";
+
+export const CORE_RUN_IDS = ["http-probe", "enrol", "revoke", "command", "outage", "tick-cost", "manual", "tick-cost-native", "s3-census", "soak-native", "pair"] as const;
 export type CoreRunId = (typeof CORE_RUN_IDS)[number];
 export const MOD = "SatisDashAgent";
 
@@ -348,8 +349,14 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
       const ctx: CoreContext = {
         deps, proc, offset, captures,
         writeConfig: (v) => {
-          if (typeof v.backendUrl === "string" && !LOOPBACK_HOSTS.has(new URL(v.backendUrl).hostname)) {
-            throw new Error(`backendUrl ${new URL(v.backendUrl).hostname} is not loopback: runs talk to 127.0.0.1 only`);
+          if (typeof v.backendUrl === "string") {
+            let host: string;
+            try {
+              host = new URL(v.backendUrl).hostname;
+            } catch {
+              throw new Error("backendUrl is not a valid URL");
+            }
+            if (!LOOPBACK_HOSTS.has(host)) throw new Error(`backendUrl ${host} is not loopback: runs talk to 127.0.0.1 only`);
           }
           if (v.enrollmentCode) codes.push(v.enrollmentCode);
           writeModConfig(deps.config.serverDir, MOD, { ...v, ...(spec.modConfig ?? {}) });

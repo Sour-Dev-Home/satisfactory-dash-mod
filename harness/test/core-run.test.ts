@@ -113,6 +113,15 @@ describe("runCore", () => {
     expect(result.reasons[0]).toContain("not loopback");
   });
 
+  it("refuses an unparseable backendUrl with a plain message", async () => {
+    const { deps } = fakeDeps();
+    const { result } = await runCore("http-probe", spec({
+      drive: async (ctx) => ctx.writeConfig({ backendUrl: "not a url", enrollmentCode: "" }),
+    }), deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons[0]).toContain("backendUrl is not a valid URL");
+  });
+
   it("passes a clean run and writes its bundle", async () => {
     const { deps, calls } = fakeDeps();
     const { result, dir } = await runCore("http-probe", spec(), deps);
