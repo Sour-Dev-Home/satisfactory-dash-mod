@@ -135,20 +135,38 @@ FString SatisDash::CleanServerName(const FString& Name)
 {
 	FString Out;
 	Out.Reserve(Name.Len());
-	for (const TCHAR C : Name)
+	for (int32 I = 0; I < Name.Len(); ++I)
 	{
+		const TCHAR C = Name[I];
 		const uint32 U = static_cast<uint32>(C);
-		// \p{C} (Cc, Cf, Cs, Co) plus \p{Zl} and \p{Zp}. TCHAR is UTF-16 here, so a surrogate half is dropped whole.
+		// TCHAR is UTF-16: a high surrogate followed by a low one is a valid pair and is kept whole; a lone half is dropped.
+		if (U >= 0xD800 && U <= 0xDBFF)
+		{
+			if (I + 1 < Name.Len() && static_cast<uint32>(Name[I + 1]) >= 0xDC00 && static_cast<uint32>(Name[I + 1]) <= 0xDFFF)
+			{
+				Out.AppendChar(C);
+				Out.AppendChar(Name[I + 1]);
+				++I;
+			}
+			continue;
+		}
+		// \p{C} (Cc, Cf, Co, Cn noncharacters and the newer Cf) plus \p{Zl} and \p{Zp}.
 		const bool bDrop = U < 0x20 || (U >= 0x7F && U <= 0x9F) || U == 0xAD ||
 			(U >= 0x600 && U <= 0x605) || U == 0x61C || U == 0x6DD || U == 0x70F || U == 0x180E ||
 			(U >= 0x200B && U <= 0x200F) || (U >= 0x2028 && U <= 0x202E) || (U >= 0x2060 && U <= 0x2064) ||
-			(U >= 0x2066 && U <= 0x206F) || (U >= 0xD800 && U <= 0xF8FF) || U == 0xFEFF;
+			(U >= 0x2065 && U <= 0x206F) || (U >= 0x890 && U <= 0x891) || U == 0x8E2 || (U >= 0xDC00 && U <= 0xF8FF) ||
+			U == 0xFEFF || (U >= 0xFFF0 && U <= 0xFFFB) || U >= 0xFFFE || (U >= 0xFDD0 && U <= 0xFDEF);
 		if (!bDrop)
 		{
 			Out.AppendChar(C);
 		}
 	}
-	return Out.TrimStartAndEnd().Left(MaxServerNameLength);
+	FString Clean = Out.TrimStartAndEnd().Left(MaxServerNameLength);
+	if (Clean.Len() > 0 && static_cast<uint32>(Clean[Clean.Len() - 1]) >= 0xD800 && static_cast<uint32>(Clean[Clean.Len() - 1]) <= 0xDBFF)
+	{
+		Clean.LeftChopInline(1);
+	}
+	return Clean;
 }
 
 TOptional<SatisDash::FPairingStart> SatisDash::ParsePairingStartResponse(const FHttpReply& Reply)

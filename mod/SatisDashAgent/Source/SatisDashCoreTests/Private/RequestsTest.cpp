@@ -174,6 +174,7 @@ bool FRequestsPairingTest::RunTest(const FString& Parameters)
 	SatisDash::Test::SameText(*this, TEXT("start url"), Start.Url, TEXT("https://example.com/base/agent/v1/pairings"));
 	SatisDash::Test::SameText(*this, TEXT("verb"), Start.Verb, TEXT("POST"));
 	TestTrue(TEXT("no Authorization on start"), Header(Start, TEXT("Authorization")).IsEmpty());
+	SatisDash::Test::SameText(*this, TEXT("start json"), Header(Start, TEXT("Content-Type")), TEXT("application/json"));
 	const FString StartBody = BodyText(Start);
 	TestTrue(TEXT("version"), StartBody.Contains(TEXT("\"agentVersion\":\"") + AgentVersion() + TEXT("\"")));
 	TestTrue(TEXT("name"), StartBody.Contains(TEXT("\"serverName\":\"My Server\"")));

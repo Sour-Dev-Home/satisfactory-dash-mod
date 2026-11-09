@@ -284,6 +284,28 @@ bool FResponsesPairingNamesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("clamped to 200"), CleanServerName(FString::ChrN(250, TEXT('s'))).Len(), 200);
 	TestTrue(TEXT("only a control"), CleanServerName(FString::Chr(TCHAR(1))).IsEmpty());
 	SatisDash::Test::SameText(*this, TEXT("trimmed"), CleanServerName(TEXT("  Name  ")), TEXT("Name"));
+
+	FString Emoji;
+	Emoji.AppendChar(TCHAR(0xD83D));
+	Emoji.AppendChar(TCHAR(0xDE00));
+	const FString Kept = FString(TEXT("A")) + Emoji + TEXT("B");
+	TestTrue(TEXT("a surrogate pair is kept"), CleanServerName(Kept) == Kept);
+	TestTrue(TEXT("a lone high surrogate is dropped"), CleanServerName(FString(TEXT("A")) + FString::Chr(TCHAR(0xD83D)) + TEXT("B")) == TEXT("AB"));
+	TestTrue(TEXT("a lone low surrogate is dropped"), CleanServerName(FString(TEXT("A")) + FString::Chr(TCHAR(0xDE00)) + TEXT("B")) == TEXT("AB"));
+	TestEqual(TEXT("a pair is never split by the clamp"), CleanServerName(FString::ChrN(199, TEXT('s')) + Emoji).Len(), 199);
+	TestEqual(TEXT("a pair that fits is kept"), CleanServerName(FString::ChrN(198, TEXT('s')) + Emoji).Len(), 200);
+	for (const uint32 Dropped : {0x2065u, 0x890u, 0x891u, 0x8E2u, 0xFFF0u, 0xFFFBu, 0xFFFEu, 0xFFFFu, 0xFDD0u, 0xFDEFu, 0xE000u, 0xF8FFu})
+	{
+		TestTrue(TEXT("dropped code point"), CleanServerName(FString(TEXT("A")) + FString::Chr(TCHAR(Dropped)) + TEXT("B")) == TEXT("AB"));
+	}
+	TestTrue(TEXT("U+F900 is kept"), CleanServerName(FString::Chr(TCHAR(0xF900))).Len() == 1);
+
+	const FHttpReply ShortStart = SatisDash::Test::Reply(201, TEXT("{\"pairingSecret\":\"abcdefghijklmnopqrstuv\",\"userCode\":\"AB3D-7XQ2-K5MN\",\"expiresIn\":900}"));
+	TestFalse(TEXT("start missing interval"), ParsePairingStartResponse(ShortStart).IsSet());
+	TestFalse(TEXT("23-char secret"), ParsePairingStartResponse(SatisDash::Test::Reply(201, PairingStartJson(TEXT("abcdefghijklmnopqrstuvw"), TEXT("AB3D-7XQ2-K5MN"), TEXT("900"), TEXT("5")))).IsSet());
+	const TOptional<FPairingPoll> EarlyApproved = ParsePairingPollResponse(SatisDash::Test::Reply(200, TEXT("{\"status\":\"approved\"}")));
+	TestTrue(TEXT("200 approved is pending"), EarlyApproved.IsSet() && EarlyApproved->Status == EPairingPoll::Pending);
+	TestFalse(TEXT("201 pending"), ParsePairingPollResponse(SatisDash::Test::Reply(201, TEXT("{\"status\":\"pending\"}"))).IsSet());
 	TestTrue(TEXT("secret: 22 base64url"), IsPairingSecret(TEXT("abcdEFGH_-0123456789ab")));
 	TestFalse(TEXT("secret: 23"), IsPairingSecret(TEXT("abcdefghijklmnopqrstuvw")));
 	TestFalse(TEXT("secret: 21"), IsPairingSecret(TEXT("abcdefghijklmnopqrstu")));

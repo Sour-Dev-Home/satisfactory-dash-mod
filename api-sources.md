@@ -855,3 +855,4 @@ Every SML, FactoryGame or Unreal Engine symbol, `#include` and module dependency
 | FPairing::TakeChatLine | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Pairing.h:37 | the plugin's own declaration, not an engine symbol (pairing Task 3): the tests call it |
 | ServerName | mod/SatisDashAgent/Source/SatisDashCore/Public/SatisDash/Pairing.h:31 | the plugin's own TFunctionRef parameter of FPairing::Next, called when a start is built |
 | TFunctionRef | Engine/Source/Runtime/Core/Public/Templates/Function.h:619 | header only (a non-owning callable parameter; FPairing::Next's ServerName) |
+| ANSI_TO_TCHAR | Engine/Source/Runtime/Core/Public/Containers/StringConv.h:1020 | header only (PairingTest: a narrow status literal into a TCHAR format) |
