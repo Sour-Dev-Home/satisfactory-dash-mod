@@ -196,7 +196,9 @@ replicated actor (`:95-96`), so a vanilla client shows it without the mod instal
 3. Read the code from the log. Sign in as the operator (`POST /api/auth/login` with the harness `.env` admin user) and
    keep the session cookie. Send `POST /api/pairings/lookup` `{userCode}` (upper case), then `POST /api/pairings/approve`
    `{userCode, target:{kind:"existing", serverId}}`, both as JSON with no `Origin` header.
-   - `serverId` is the operator's server that the harness's enrolment-code helper already uses.
+   - `serverId` is the `mod` server that the backend host seeds codes for (`host.seedCode("mod", ...)`,
+     `harness/src/core-runs/enrol.ts:20`). The harness has no HTTP sign-in today. The plan adds the login call and a way to
+     read that server's id from the backend host.
    - The compose backend runs with `SELF_SERVE_ENABLED` off (dash: `compose.yaml` doesn't pass it), so `new` would answer
      403. **Ruling:** the run uses `existing` rather than changing the backend's config. It still exercises the whole mod
      side. The `new` path is covered by the end-to-end test once production self-serve is on.
