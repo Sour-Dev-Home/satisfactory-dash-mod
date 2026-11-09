@@ -128,8 +128,9 @@ Pairing code ABCD-EFGH-JKLM: sign in at https://satis-manager.com/pair and enter
 (`FGChatManager.h:79`; message struct `:26`, `CMT_SystemMessage` `:20`). The manager multicasts on the game's own
 replicated actor (`:95-96`), so a vanilla client shows it without the mod installed.
 - **It is a broadcast only:** the struct has no recipient (`:26-53`). The owner's rule therefore applies: post only
-  when exactly one player is connected, counted by `AGameStateBase::PlayerArray` (`GameStateBase.h:55`, already in
-  `api-sources.md`).
+  when exactly one player is connected, counted by the server game state's `NumConnectedPlayers`
+  (`FactoryGame/Public/Server/FGDSGameplayTypes.h:42`, the same source as the status snapshot). Correction (2026-11-09,
+  final review): an earlier draft named `AGameStateBase::PlayerArray`.
 - **When:**
   - when a code is issued and one player is on;
   - when the player count rises to exactly 1 while a code is open, i.e. a player joins an empty server;
