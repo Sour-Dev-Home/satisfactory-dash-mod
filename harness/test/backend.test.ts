@@ -344,4 +344,27 @@ describe("approvePairing (the operator signs in and approves)", () => {
     await expect((await start(f)).approvePairing("pair", "AB3D-7XQ2-K5MN")).rejects.toThrow("pairing code not found");
     expect(calls.some((c) => c.url.endsWith("/approve"))).toBe(false);
   });
+
+  it("throws lookup failed on a 429 and does not approve", async () => {
+    const { f, calls } = fakeFetch(429);
+    await expect((await start(f)).approvePairing("pair", "AB3D-7XQ2-K5MN")).rejects.toThrow("lookup failed (429)");
+    expect(calls.some((c) => c.url.endsWith("/approve"))).toBe(false);
+  });
+
+  it("finds sd_session when it is the second Set-Cookie header", async () => {
+    const calls: Call[] = [];
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string>, body: JSON.parse(String(init?.body)) });
+      if (url.endsWith("/api/auth/login")) {
+        const h = new Headers();
+        h.append("set-cookie", "other=1; Path=/");
+        h.append("set-cookie", `${COOKIE}; Path=/api; Secure`);
+        return new Response("{}", { status: 200, headers: h });
+      }
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    await (await start(f)).approvePairing("pair", "AB3D-7XQ2-K5MN");
+    expect(calls[1]!.headers.cookie).toBe(COOKIE);
+  });
 });

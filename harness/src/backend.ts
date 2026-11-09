@@ -252,11 +252,12 @@ export async function startBackend(opts: { checkout: string; relayFile: string; 
           signal: AbortSignal.timeout(10_000),
         });
       const login = await post("/api/auth/login", { username: "spike", password: adminPassword });
-      const session = (login.headers.get("set-cookie") ?? "").split(";").map((p) => p.trim()).find((p) => p.startsWith("sd_session="));
+      const session = login.headers.getSetCookie().flatMap((c) => c.split(";")).map((p) => p.trim()).find((p) => p.startsWith("sd_session="));
       if (!login.ok || !session) throw new Error(`login failed (${login.status})`);
       const lookupRes = await post("/api/pairings/lookup", { userCode }, session);
       if (lookupRes.status === 404) throw new Error("pairing code not found");
-      const lookup: unknown = lookupRes.ok ? await lookupRes.json() : undefined;
+      if (!lookupRes.ok) throw new Error(`lookup failed (${lookupRes.status})`);
+      const lookup: unknown = await lookupRes.json();
       const approved = await post("/api/pairings/approve", { userCode, target: { kind: "existing", serverId: id } }, session);
       return { lookup, status: approved.status };
     },
