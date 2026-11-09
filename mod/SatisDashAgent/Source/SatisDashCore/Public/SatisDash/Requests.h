@@ -40,6 +40,10 @@ namespace SatisDash
 	SATISDASHCORE_API FString PercentEncode(const FString& Value);
 	/** POST /agent/v1/enroll with {code, agentVersion}. No Authorization header. */
 	SATISDASHCORE_API FRequestSpec BuildEnrollRequest(const FAgentConfig& Config);
+	/** POST /agent/v1/pairings with {agentVersion, serverName?}. No Authorization header. ServerName empty = left out. */
+	SATISDASHCORE_API FRequestSpec BuildPairingStartRequest(const FAgentConfig& Config, const FString& ServerName);
+	/** POST /agent/v1/pairings/poll with {pairingSecret}: the secret only in the body. */
+	SATISDASHCORE_API FRequestSpec BuildPairingPollRequest(const FAgentConfig& Config, const FString& PairingSecret);
 	/** POST /agent/v1/snapshots. The secret goes only in the Authorization header (S7). */
 	SATISDASHCORE_API FRequestSpec BuildSnapshotRequest(const FAgentConfig& Config, const FCredential& Credential, const FString& SnapshotJson);
 	/** The same request from a body EncodeBody already made: byte for byte what the JSON overload sends. */

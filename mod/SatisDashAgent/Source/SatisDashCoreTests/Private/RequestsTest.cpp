@@ -165,3 +165,30 @@ bool FRequestsWorldTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("and the bytes are untouched"), Gz.Body == Packed.Bytes);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRequestsPairingTest, "SatisDash.Core.Requests.Pairing", SatisDash::Test::Flags)
+
+bool FRequestsPairingTest::RunTest(const FString& Parameters)
+{
+	const FRequestSpec Start = BuildPairingStartRequest(Config(), TEXT("My Server"));
+	SatisDash::Test::SameText(*this, TEXT("start url"), Start.Url, TEXT("https://example.com/base/agent/v1/pairings"));
+	SatisDash::Test::SameText(*this, TEXT("verb"), Start.Verb, TEXT("POST"));
+	TestTrue(TEXT("no Authorization on start"), Header(Start, TEXT("Authorization")).IsEmpty());
+	const FString StartBody = BodyText(Start);
+	TestTrue(TEXT("version"), StartBody.Contains(TEXT("\"agentVersion\":\"") + AgentVersion() + TEXT("\"")));
+	TestTrue(TEXT("name"), StartBody.Contains(TEXT("\"serverName\":\"My Server\"")));
+	TestFalse(TEXT("no name when empty"), BodyText(BuildPairingStartRequest(Config(), FString())).Contains(TEXT("serverName")));
+
+	const FString Secret = TEXT("abcdefghijklmnopqrstuv");
+	const FRequestSpec Poll = BuildPairingPollRequest(Config(), Secret);
+	SatisDash::Test::SameText(*this, TEXT("poll url"), Poll.Url, TEXT("https://example.com/base/agent/v1/pairings/poll"));
+	TestFalse(TEXT("secret not in url"), Poll.Url.Contains(Secret));
+	TestTrue(TEXT("no Authorization on poll"), Header(Poll, TEXT("Authorization")).IsEmpty());
+	for (const TPair<FString, FString>& H : Poll.Headers)
+	{
+		TestFalse(TEXT("secret not in a header"), H.Value.Contains(Secret));
+	}
+	SatisDash::Test::SameText(*this, TEXT("json"), Header(Poll, TEXT("Content-Type")), TEXT("application/json"));
+	TestTrue(TEXT("secret in body"), BodyText(Poll).Contains(Secret));
+	return true;
+}

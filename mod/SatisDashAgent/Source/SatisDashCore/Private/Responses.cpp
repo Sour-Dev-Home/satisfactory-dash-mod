@@ -1,6 +1,7 @@
 #include "SatisDash/Responses.h"
 
 #include "Dom/JsonValue.h"
+#include "SatisDash/Config.h"
 #include "SatisDash/JsonUtil.h"
 
 namespace
@@ -109,6 +110,124 @@ TOptional<SatisDash::FEnrollResponse> SatisDash::ParseEnrollResponse(const FHttp
 	Out.Credential.AgentSecret = Secret->AsString();
 	Out.Credential.ServerId = ServerId->AsString();
 	Out.Cadence = Cadence.GetValue();
+	return Out;
+}
+
+bool SatisDash::IsPairingSecret(const FString& Secret)
+{
+	if (Secret.Len() != 22)
+	{
+		return false;
+	}
+	for (const TCHAR C : Secret)
+	{
+		const bool bOk = (C >= TEXT('A') && C <= TEXT('Z')) || (C >= TEXT('a') && C <= TEXT('z')) ||
+			(C >= TEXT('0') && C <= TEXT('9')) || C == TEXT('_') || C == TEXT('-');
+		if (!bOk)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+FString SatisDash::CleanServerName(const FString& Name)
+{
+	FString Out;
+	Out.Reserve(Name.Len());
+	for (const TCHAR C : Name)
+	{
+		const uint32 U = static_cast<uint32>(C);
+		// \p{C} (Cc, Cf, Cs, Co) plus \p{Zl} and \p{Zp}. TCHAR is UTF-16 here, so a surrogate half is dropped whole.
+		const bool bDrop = U < 0x20 || (U >= 0x7F && U <= 0x9F) || U == 0xAD ||
+			(U >= 0x600 && U <= 0x605) || U == 0x61C || U == 0x6DD || U == 0x70F || U == 0x180E ||
+			(U >= 0x200B && U <= 0x200F) || (U >= 0x2028 && U <= 0x202E) || (U >= 0x2060 && U <= 0x2064) ||
+			(U >= 0x2066 && U <= 0x206F) || (U >= 0xD800 && U <= 0xF8FF) || U == 0xFEFF;
+		if (!bDrop)
+		{
+			Out.AppendChar(C);
+		}
+	}
+	return Out.TrimStartAndEnd().Left(MaxServerNameLength);
+}
+
+TOptional<SatisDash::FPairingStart> SatisDash::ParsePairingStartResponse(const FHttpReply& Reply)
+{
+	if (Reply.Code != 201)
+	{
+		return {};
+	}
+	const TSharedPtr<FJsonObject> Object = ReadJsonBody(Reply);
+	const TSharedPtr<FJsonValue> Secret = SatisDash::Json::Field(Object, TEXT("pairingSecret"), EJson::String);
+	const TSharedPtr<FJsonValue> Code = SatisDash::Json::Field(Object, TEXT("userCode"), EJson::String);
+	const TSharedPtr<FJsonValue> Expires = SatisDash::Json::Field(Object, TEXT("expiresIn"), EJson::Number);
+	const TSharedPtr<FJsonValue> Interval = SatisDash::Json::Field(Object, TEXT("interval"), EJson::Number);
+	if (!Secret.IsValid() || !Code.IsValid() || !Expires.IsValid() || !Interval.IsValid() ||
+		!IsPairingSecret(Secret->AsString()) || !IsEnrollmentCode(Code->AsString()))
+	{
+		return {};
+	}
+	auto whole = [](const TSharedPtr<FJsonValue>& Value, int32 Min, int32 Max) -> TOptional<int32>
+	{
+		const double V = Value->AsNumber();
+		if (!FMath::IsFinite(V) || V < Min || V > Max || V != FMath::RoundToDouble(V))
+		{
+			return {};
+		}
+		return static_cast<int32>(FMath::RoundToDouble(V));
+	};
+	const TOptional<int32> ExpiresIn = whole(Expires, 1, 900);
+	const TOptional<int32> IntervalSeconds = whole(Interval, 1, 60);
+	if (!ExpiresIn.IsSet() || !IntervalSeconds.IsSet())
+	{
+		return {};
+	}
+	FPairingStart Out;
+	Out.PairingSecret = Secret->AsString();
+	Out.UserCode = Code->AsString();
+	Out.ExpiresInSeconds = ExpiresIn.GetValue();
+	Out.IntervalSeconds = IntervalSeconds.GetValue();
+	return Out;
+}
+
+TOptional<SatisDash::FPairingPoll> SatisDash::ParsePairingPollResponse(const FHttpReply& Reply)
+{
+	if (Reply.Code != 200 && Reply.Code != 201)
+	{
+		return {};
+	}
+	const TSharedPtr<FJsonObject> Object = ReadJsonBody(Reply);
+	const TSharedPtr<FJsonValue> Status = SatisDash::Json::Field(Object, TEXT("status"), EJson::String);
+	if (!Status.IsValid())
+	{
+		return {};
+	}
+	const FString Text = Status->AsString();
+	FPairingPoll Out;
+	if (Reply.Code == 200)
+	{
+		Out.Status = Text == TEXT("expired") ? EPairingPoll::Expired : Text == TEXT("slow_down") ? EPairingPoll::SlowDown : EPairingPoll::Pending;
+		return Out;
+	}
+	if (Text != TEXT("approved"))
+	{
+		return {};
+	}
+	Out.Enrolled = ParseEnrollResponse(Reply);
+	if (!Out.Enrolled.IsSet())
+	{
+		return {};
+	}
+	Out.Status = EPairingPoll::Approved;
+	const TSharedPtr<FJsonValue> By = SatisDash::Json::Field(Object, TEXT("approvedBy"), EJson::String);
+	if (By.IsValid())
+	{
+		const FString Name = By->AsString();
+		if (Name.Len() >= 1 && Name.Len() <= MaxApprovedByLength && CleanServerName(Name) == Name)
+		{
+			Out.ApprovedBy = Name;
+		}
+	}
 	return Out;
 }
 
