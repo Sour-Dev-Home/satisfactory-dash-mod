@@ -298,7 +298,12 @@ bool FResponsesPairingNamesTest::RunTest(const FString& Parameters)
 	{
 		TestTrue(TEXT("dropped code point"), CleanServerName(FString(TEXT("A")) + FString::Chr(TCHAR(Dropped)) + TEXT("B")) == TEXT("AB"));
 	}
-	TestTrue(TEXT("U+F900 is kept"), CleanServerName(FString::Chr(TCHAR(0xF900))).Len() == 1);
+	FString Tag;
+	Tag.AppendChar(TCHAR(0xD834));
+	Tag.AppendChar(TCHAR(0xDD73));
+	TestTrue(TEXT("U+1D173 (a musical format control) is dropped"), CleanServerName(FString(TEXT("A")) + Tag + TEXT("B")) == TEXT("AB"));
+	TestTrue(TEXT("an emoji next to it is kept"), CleanServerName(Tag + Emoji) == Emoji);
+	TestTrue(TEXT("U+F900 is kept"),CleanServerName(FString::Chr(TCHAR(0xF900))).Len() == 1);
 
 	const FHttpReply ShortStart = SatisDash::Test::Reply(201, TEXT("{\"pairingSecret\":\"abcdefghijklmnopqrstuv\",\"userCode\":\"AB3D-7XQ2-K5MN\",\"expiresIn\":900}"));
 	TestFalse(TEXT("start missing interval"), ParsePairingStartResponse(ShortStart).IsSet());

@@ -144,8 +144,17 @@ FString SatisDash::CleanServerName(const FString& Name)
 		{
 			if (I + 1 < Name.Len() && static_cast<uint32>(Name[I + 1]) >= 0xDC00 && static_cast<uint32>(Name[I + 1]) <= 0xDFFF)
 			{
-				Out.AppendChar(C);
-				Out.AppendChar(Name[I + 1]);
+				const uint32 Point = 0x10000 + ((U - 0xD800) << 10) + (static_cast<uint32>(Name[I + 1]) - 0xDC00);
+				// Invisible outside the basic plane: tags, shorthand/musical/Egyptian format controls, two Brahmi/Kaithi
+				// number signs, and the private-use planes 15 and 16.
+				const bool bInvisible = (Point >= 0xE0000 && Point <= 0xE007F) || (Point >= 0x1BCA0 && Point <= 0x1BCA3) ||
+					(Point >= 0x1D173 && Point <= 0x1D17A) || (Point >= 0x13430 && Point <= 0x1343F) ||
+					Point == 0x110BD || Point == 0x110CD || Point >= 0xF0000;
+				if (!bInvisible)
+				{
+					Out.AppendChar(C);
+					Out.AppendChar(Name[I + 1]);
+				}
 				++I;
 			}
 			continue;
