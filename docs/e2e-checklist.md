@@ -46,13 +46,16 @@ tool) in an empty folder, on ports that don't clash with any server you already 
       (`backendUrl`, `enrollmentCode` empty).
 - [ ] The mod logs "Not enrolled: add an enrolment code from the dashboard to SatisDashAgent.cfg" and sends nothing.
 
-## 3. Enrol
+## 3. Pair
 
-- [ ] Create an enrolment code in the dashboard.
-- [ ] Put it in `enrollmentCode` (and `backendUrl` if you test against a backend other than the default). Restart the
-      server, or wait if the notes say the mod reloads the file.
-- [ ] The log shows "Enrolling with the code from SatisDashAgent.cfg", then "Enrolled; reporting to the backend".
-- [ ] `SatisDashAgent.cfg`'s `enrollmentCode` is now blank, and `FactoryGame/Saved/SatisDash/credential.json` exists.
+- [ ] Read the `Pairing code` line in the server console (it is also in `FactoryGame.log`). Enter the code at the
+      production `/pair` page (https://satis-manager.com/pair) and approve it onto an existing server, until
+      self-serve is on.
+- [ ] The log shows "Paired with the dashboard; reporting to the backend".
+- [ ] **One player:** with the code still open (or after restarting the server), join alone with the game client. The
+      `Pairing code` line appears in the in-game chat, and a vanilla client renders it.
+- [ ] **Two players:** with a second player online, no `Pairing code` line appears in chat. The console line still does.
+- [ ] `FactoryGame/Saved/SatisDash/credential.json` exists, and `SatisDashAgent.cfg` was not edited.
 - [ ] The server appears in the dashboard as online.
 - [ ] Search the server's log for the code and the credential: **neither appears**.
 

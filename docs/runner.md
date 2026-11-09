@@ -219,6 +219,9 @@ Error, or if the server log carries the run's enrolment code, the agent secret o
   it was taken, as `QueryServerState` said then, with the session's hash: the no-mod sample comes from that first boot,
   which runs the auto-loaded save (`noModWithGame`), and `withModWithGame` is taken at the same stage (a save just loaded,
   healthy). Compare those two only when their session hashes match. It is evidence only, not a pass condition yet.
+- `pair` needs the backend host (below) and no world, so it runs only as `satis-runner`, and needs the `ue-runner`
+  deployment approved, like `enrol`. It starts the server with no code in the config, reads the code
+  the mod prints, approves it through the backend host, and checks that the mod reports under its new credential.
 - `revoke` needs the backend host and no world (it clears the auto-load save like `enrol`). It enrols, revokes the
   server, watches for the halt line and two quiet minutes, then enrols the same server again with a new code
   (`revoke.json`). `command` needs the backend host and the staged world: it flips auto-pause from the dashboard, sends a
