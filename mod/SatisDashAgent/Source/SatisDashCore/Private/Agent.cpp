@@ -162,6 +162,10 @@ void SatisDash::FAgent::Settle(const FConfigResult& Loaded)
 		Enter(EAgentState::Idle, TEXT("The saved credential belongs to a different backend than SatisDashAgent.cfg names; add a new enrolment code from that backend's dashboard (nothing is sent until then)"), true);
 		return;
 	}
+	if (State == EAgentState::Halted)
+	{
+		return; // revoked: no pairing until a restart; a code in the cfg wins earlier in this function
+	}
 	if (State == EAgentState::Pairing && !PreviousUrl.Equals(Config.BackendUrl, ESearchCase::CaseSensitive))
 	{
 		Pairing.Stop(); // an open code belongs to the old backend
@@ -206,7 +210,7 @@ void SatisDash::FAgent::AdoptCredential(const FEnrollResponse& Enrolled)
 	Issued.BackendUrl = Config.BackendUrl;
 	if (!Credentials.Save(Issued))
 	{
-		UE_LOG(LogSatisDash, Warning, TEXT("Enrolled, but the credential file couldn't be written; enrolment will be lost when the server restarts"));
+		UE_LOG(LogSatisDash, Warning, TEXT("Credential received, but the credential file couldn't be written; it will be lost when the server restarts"));
 	}
 	Credential = Issued;
 	Cadence = Enrolled.Cadence;

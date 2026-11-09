@@ -455,3 +455,27 @@ bool FAgentRevokeNoPairTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("and no chat line"), Agent.TakeChatLine().IsSet());
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAgentHaltedStaysHaltedTest, "SatisDash.Core.Agent.HaltedStaysHalted", SatisDash::Test::Flags)
+
+bool FAgentHaltedStaysHaltedTest::RunTest(const FString& Parameters)
+{
+	for (int32 Variant = 0; Variant < 2; ++Variant)
+	{
+		const FFixture F;
+		F.writeConfig(TEXT(""));
+		FAgent Agent = F.makeAgent();
+		Agent.Boot();
+		AgentPairDue(Agent, 0);
+		Agent.FinishPairing(AgentPairStartReply(), 0);
+		AgentPairDue(Agent, 5);
+		Agent.FinishPairing(AgentPairApprovedReply(TEXT("")), 5);
+		Agent.OnAuthRejected();
+		TestTrue(TEXT("halted"), Agent.GetState() == EAgentState::Halted);
+		F.writeConfigAt(Variant == 0 ? TEXT("https://example.com") : TEXT("https://other.example.com"), TEXT(""));
+		Agent.CheckConfig();
+		TestTrue(TEXT("still halted after a cfg edit with no code"), Agent.GetState() == EAgentState::Halted);
+		TestFalse(TEXT("and no pairing request"), AgentPairDue(Agent, 1e6));
+	}
+	return true;
+}
