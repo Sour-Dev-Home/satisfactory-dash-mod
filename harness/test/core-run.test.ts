@@ -125,7 +125,7 @@ describe("runCore", () => {
   it("passes a clean run and writes its bundle", async () => {
     const { deps, calls } = fakeDeps();
     const { result, dir } = await runCore("http-probe", spec(), deps);
-    expect(calls).toEqual(["probe", "build", "remove SatisMod*", "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy", "stop", "uninstall SatisDashAgent"]);
+    expect(calls).toEqual(["probe", "build", "remove SatisMod*", "uninstall SatisDashAgent", "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy", "stop", "uninstall SatisDashAgent"]);
     expect(result).toMatchObject({ run: "http-probe", pass: true, reasons: ["fine"], modLines: ["[x][1]LogSatisDash: Display: booted"] });
     expect(dir).toMatch(/core-http-probe-2026-10-20T16-00-00-000Z$/);
     expect(JSON.parse(readFileSync(join(dir, "result.json"), "utf8")).serverHost).toBe("windows");
@@ -316,6 +316,77 @@ describe("runCore", () => {
     expect(calls.at(-1)).toBe("uninstall SatisDashAgent");
   });
 
+  it("beforeBoot: its loopback url is the boot cfg's backendUrl and its state reaches drive", async () => {
+    let atStart: string | undefined;
+    let seen: unknown;
+    const { deps, serverDir } = fakeDeps();
+    const start = deps.start;
+    deps.start = () => ((atStart = readCfg(serverDir)), start());
+    const { result } = await runCore("http-probe", spec({
+      beforeBoot: async () => ({ backendUrl: "http://127.0.0.1:4321", state: { id: 7 } }),
+      drive: async (ctx) => void (seen = ctx.bootState),
+    }), deps);
+    expect(result.pass).toBe(true);
+    expect(JSON.parse(atStart ?? "null")).toEqual({ backendUrl: "http://127.0.0.1:4321", enrollmentCode: "" });
+    expect(seen).toEqual({ id: 7 });
+  });
+
+  it("beforeBoot: a non-loopback url throws before the boot, and afterRun still gets the state", async () => {
+    const { deps, calls } = fakeDeps();
+    const closed: unknown[] = [];
+    await expect(runCore("http-probe", spec({
+      beforeBoot: async () => ({ backendUrl: "https://api.satis-manager.com", state: "rec" }),
+      afterRun: async (s) => void closed.push(s),
+    }), deps)).rejects.toThrow(/not loopback/);
+    expect(calls).not.toContain("start");
+    expect(closed).toEqual(["rec"]);
+  });
+
+  it("afterRun runs when the boot never gets healthy, and not for a spec without beforeBoot; specs without it boot on BOOT_BACKEND_URL", async () => {
+    const closed: unknown[] = [];
+    const a = fakeDeps({ waitHealthy: async () => { throw new Error("never healthy"); } });
+    const { result } = await runCore("http-probe", spec({
+      beforeBoot: async () => ({ backendUrl: "http://127.0.0.1:4321", state: "rec" }),
+      afterRun: async (s) => void closed.push(s),
+    }), a.deps);
+    expect(result.pass).toBe(false);
+    expect(closed).toEqual(["rec"]);
+    const b = fakeDeps();
+    let atStart: string | undefined;
+    const start = b.deps.start;
+    b.deps.start = () => ((atStart = readCfg(b.serverDir)), start());
+    await runCore("http-probe", spec({ afterRun: async (s) => void closed.push(s) }), b.deps);
+    expect(JSON.parse(atStart ?? "null").backendUrl).toBe("http://127.0.0.1:9");
+    expect(closed).toEqual(["rec"]);
+  });
+
+  it("removes a leftover SatisDashAgent before the scrub and before any boot, empty boot and baseline included", async () => {
+    const { deps, calls, serverDir } = fakeDeps({ setAutoLoad: async () => undefined, readAutoLoad: async () => "S" });
+    mkdirSync(dirname(modConfigPath(serverDir, MOD)), { recursive: true });
+    writeFileSync(modConfigPath(serverDir, MOD), "{}");
+    const removeMod = deps.removeMod;
+    let cfgAtFirstRemove: string | undefined;
+    deps.removeMod = (n) => {
+      cfgAtFirstRemove ??= readCfg(serverDir) ?? "gone";
+      removeMod(n);
+    };
+    await runCore("http-probe", spec({ emptyBoot: true, world: true, baseline: true, measureBaseline: async () => 1 }), deps);
+    expect(cfgAtFirstRemove).toBe("{}");
+    expect(calls.indexOf("uninstall SatisDashAgent")).toBeLessThan(calls.indexOf("start"));
+  });
+
+  it("a failed final removal keeps the loopback cfg rather than leave the mod with none, and says so", async () => {
+    const { deps, serverDir } = fakeDeps();
+    let n = 0;
+    deps.removeMod = () => {
+      if (++n === 2) throw new Error("locked");
+    };
+    const { result } = await runCore("http-probe", spec(), deps);
+    expect(result.pass).toBe(false);
+    expect(result.reasons.join("\n")).toContain("locked");
+    expect(readCfg(serverDir)).toContain(BOOT_BACKEND_URL);
+  });
+
   const autoLoad = (calls: string[]) => ({
     readAutoLoad: async () => (calls.push("read auto-load"), "Owner Session"),
     setAutoLoad: async (name: string) => void calls.push(`auto-load "${name}"`),
@@ -327,7 +398,7 @@ describe("runCore", () => {
     const { result } = await runCore("enrol", spec({ emptyBoot: true }), deps);
     expect(result.pass).toBe(true);
     expect(calls).toEqual([
-      "probe", "build", "remove SatisMod*",
+      "probe", "build", "remove SatisMod*", "uninstall SatisDashAgent",
       "start", "healthy", "read auto-load", 'auto-load ""', "stop", "probe",
       "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy",
       'auto-load "Owner Session"', "stop", "uninstall SatisDashAgent",
@@ -357,7 +428,7 @@ describe("runCore", () => {
     const { result } = await runCore("enrol", spec({ emptyBoot: true }), deps);
     expect(result.pass).toBe(false);
     expect(result.reasons).toContain("never healthy");
-    const after = calls.slice(calls.indexOf("uninstall SatisDashAgent"));
+    const after = calls.slice(calls.lastIndexOf("uninstall SatisDashAgent"));
     expect(after).toEqual(["uninstall SatisDashAgent", "probe", "start", "healthy", 'auto-load "Owner Session"', "stop"]);
   });
 
@@ -379,7 +450,7 @@ describe("runCore", () => {
     expect(result.pass).toBe(true);
     expect(seen).toEqual({ median: 22 });
     expect(calls).toEqual([
-      "probe", "build", "remove SatisMod*",
+      "probe", "build", "remove SatisMod*", "uninstall SatisDashAgent",
       "start", "healthy", "load world", "healthy", "auto-pause false", "measure 100", "auto-pause true", "stop", "probe",
       "install D:/b/SatisDashAgent as SatisDashAgent", "reset log", "start", "healthy", "stop", "uninstall SatisDashAgent",
     ]);

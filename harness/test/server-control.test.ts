@@ -71,7 +71,9 @@ describe("installMod", () => {
     installMod(plugin("SatisModS3", {}), server);
     installMod(plugin("SatisModS1", { GameFeature: true }), server);
     installMod(plugin("OtherMod", {}), server);
+    installMod(plugin("SatisDashAgent", {}), server);
     removeSpikeMods(server);
+    expect(existsSync(join(server, "FactoryGame", "Mods", "SatisDashAgent"))).toBe(false);
     expect(existsSync(join(server, "FactoryGame", "Mods", "SatisModS3"))).toBe(false);
     expect(existsSync(join(server, "FactoryGame", "Mods", "GameFeatures", "SatisModS1"))).toBe(false);
     expect(existsSync(join(server, "FactoryGame", "Mods", "OtherMod"))).toBe(true);
