@@ -228,12 +228,18 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
     throw new RefusalError(message(e));
   }
   deps.removeSpikeMods();
+  // A SatisDashAgent left by a killed run, with no cfg, would pair with the production backend (spec 2026-11-09 §4):
+  // it goes before the cfg is scrubbed and before any boot (empty, baseline).
+  deps.removeMod(MOD);
   const cfg = modConfigPath(deps.config.serverDir, MOD);
   const cred = credentialPath(deps.config.serverDir);
-  const scrub = () => {
-    rmSync(cfg, { force: true });
+  const scrubCredential = () => {
     rmSync(cred, { force: true });
     rmSync(`${cred}.tmp`, { force: true });
+  };
+  const scrub = () => {
+    rmSync(cfg, { force: true });
+    scrubCredential();
   };
   scrub();
 
@@ -397,9 +403,16 @@ export async function runCore(id: CoreRunId, spec: CoreRunSpec, deps: CoreDeps):
   } finally {
     // The file goes with the config whatever happened.
     noteSecret();
-    scrub();
-    // The core mod never stays on the test server: a later spike run would boot with it loaded.
-    deps.removeMod(MOD);
+    // The core mod never stays on the test server: a later spike run would boot with it loaded. It goes before the cfg,
+    // so a failed removal never leaves the mod installed with no cfg (which means the production backend).
+    // If the removal fails the (loopback) cfg stays, so the leftover mod still has no production fallback; the credential goes.
+    try {
+      deps.removeMod(MOD);
+      scrub();
+    } catch (e) {
+      scrubCredential();
+      reasons.push(`removing ${MOD}: ${message(e)}`);
+    }
     if (autoLoadBefore !== undefined && !autoLoadRestored) {
       // A boot without the mod whose only job is to put the session back (the option needs a running server).
       try {
